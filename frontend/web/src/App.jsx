@@ -7,6 +7,8 @@ import TicketCreation from './pages/TicketCreation.jsx';
 import MyTickets from './pages/MyTickets.jsx';
 import Profile from './pages/Profile.jsx';
 import Notifications from './pages/Notifications.jsx';
+import CSLayout from './components/CSLayout.jsx';
+import CSDashboard from './pages/CSDashboard.jsx';
 
 function App() {
   return (
@@ -20,6 +22,16 @@ function App() {
           <Route path="create-ticket" element={<TicketCreation />} />
           <Route path="my-tickets" element={<MyTickets />} />
           <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="notifications" element={<Notifications />} />
+        </Route>
+        
+        {/* Customer Service Routes */}
+        <Route path="/cs" element={<CSLayout />}> 
+          <Route path="dashboard" element={<CSDashboard />} />
+          <Route path="incoming" element={<div className="p-8 text-center text-gray-500">Incoming tickets coming soon...</div>} />
+          <Route path="assigned" element={<div className="p-8 text-center text-gray-500">Assigned tickets coming soon...</div>} />
+          <Route path="analytics" element={<div className="p-8 text-center text-gray-500">Analytics module coming soon...</div>} />
           <Route path="profile" element={<Profile />} />
           <Route path="notifications" element={<Notifications />} />
         </Route>
