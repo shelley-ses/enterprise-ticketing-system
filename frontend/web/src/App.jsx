@@ -9,6 +9,7 @@ import Profile from './pages/Profile.jsx';
 import Notifications from './pages/Notifications.jsx';
 import CSLayout from './components/CSLayout.jsx';
 import CSDashboard from './pages/CSDashboard.jsx';
+import CSIncoming from './pages/CSIncoming.jsx';
 
 function App() {
   return (
@@ -29,7 +30,7 @@ function App() {
         {/* Customer Service Routes */}
         <Route path="/cs" element={<CSLayout />}> 
           <Route path="dashboard" element={<CSDashboard />} />
-          <Route path="incoming" element={<div className="p-8 text-center text-gray-500">Incoming tickets coming soon...</div>} />
+          <Route path="incoming" element={<CSIncoming />} />
           <Route path="assigned" element={<div className="p-8 text-center text-gray-500">Assigned tickets coming soon...</div>} />
           <Route path="analytics" element={<div className="p-8 text-center text-gray-500">Analytics module coming soon...</div>} />
           <Route path="profile" element={<Profile />} />
