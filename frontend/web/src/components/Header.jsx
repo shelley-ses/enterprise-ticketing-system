@@ -5,7 +5,11 @@ export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const basePath = location.pathname.startsWith('/cs') ? '/cs' : '';
+  const basePath = location.pathname.startsWith('/cs')
+    ? '/cs'
+    : location.pathname.startsWith('/employee')
+      ? '/employee'
+      : '';
 
   const handleLogout = () => {
     navigate('/');
