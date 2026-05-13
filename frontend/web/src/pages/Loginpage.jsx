@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import loginImage from '@/assets/login.png';
 import emailIcon from '@/assets/email.png';
 import lockIcon from '@/assets/lock.png';
@@ -58,8 +59,11 @@ function ForgotPasswordModal({ onClose }) {
   };
 
   // Password validation
-  const hasMinLength = newPassword.length >= 8;
-  const hasLettersAndNumbers = /[a-zA-Z]/.test(newPassword) && /\d/.test(newPassword);
+  const hasMinLength = newPassword.length >= 12;
+  const hasUppercase = /[A-Z]/.test(newPassword);
+  const hasNumber = /\d/.test(newPassword);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
+  const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSymbol;
 
   const stepTitle = {
     1: 'Forgot Password?',
@@ -214,7 +218,7 @@ function ForgotPasswordModal({ onClose }) {
               id="fp-done"
               className="modal-btn"
               onClick={() => {
-                if (hasMinLength && hasLettersAndNumbers && newPassword === confirmPassword) {
+                if (isPasswordValid && newPassword === confirmPassword) {
                   setStep(4);
                 }
               }}
@@ -226,11 +230,19 @@ function ForgotPasswordModal({ onClose }) {
             <div className="pw-hints">
               <div className="pw-hint">
                 <span className={`pw-dot ${hasMinLength ? 'valid' : 'invalid'}`} />
-                Minimum of 8 characters
+                Minimum of 12 characters
               </div>
               <div className="pw-hint">
-                <span className={`pw-dot ${hasLettersAndNumbers ? 'valid' : 'invalid'}`} />
-                Must include letters and numbers
+                <span className={`pw-dot ${hasUppercase ? 'valid' : 'invalid'}`} />
+                Uppercase letter
+              </div>
+              <div className="pw-hint">
+                <span className={`pw-dot ${hasNumber ? 'valid' : 'invalid'}`} />
+                Number
+              </div>
+              <div className="pw-hint">
+                <span className={`pw-dot ${hasSymbol ? 'valid' : 'invalid'}`} />
+                Symbol
               </div>
             </div>
           </div>
@@ -291,17 +303,19 @@ function Loginpage() {
     return `${m}:${sec}`;
   };
 
+  const navigate = useNavigate();
+
   const handleLogin = (e) => {
     e.preventDefault();
     if (lockedOut) return;
 
-    // Simulate failed login (replace with real auth call)
-    const success = false;
+    // Simulate successful login
+    const success = true;
 
     if (success) {
       setLoginError('');
       setAttempts(0);
-      // TODO: navigate to dashboard
+      navigate('/customer-dashboard');
     } else {
       const newAttempts = attempts + 1;
       if (newAttempts >= MAX_ATTEMPTS) {
