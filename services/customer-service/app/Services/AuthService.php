@@ -142,7 +142,7 @@
                 ]
             );
 
-            Mail::mailer('mailgun')->to($email)->send(new ForgotPasswordOtpMail($client, $otp, self::PASSWORD_RESET_OTP_MINUTES));
+            Mail::to($email)->send(new ForgotPasswordOtpMail($client, $otp, self::PASSWORD_RESET_OTP_MINUTES));
 
             return [
                 'success' => true,

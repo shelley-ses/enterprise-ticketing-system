@@ -7,6 +7,11 @@ import lockIcon from '@/assets/lock.png';
 import eyeIcon from '@/assets/eyetoggle.png';
 import otpEmailIcon from '@/assets/otp-email.png';
 import otpLockIcon from '@/assets/otp-lock.png';
+import {
+  requestPasswordReset,
+  verifyPasswordResetOtp,
+  resetPassword,
+} from '@/services/authService';
 import './Loginpage.css';
 
 const MAX_ATTEMPTS = 5;

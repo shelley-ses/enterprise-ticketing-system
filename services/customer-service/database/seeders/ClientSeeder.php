@@ -16,7 +16,7 @@ class ClientSeeder extends Seeder
             'client_name' => 'Test Client',
             'address' => 'QC',
             'contact_number' => '09123456789',
-            'email' => 'test@email.com',
+            'email' => 'test@gmail.com',
             'status' => true
         ]);
 
