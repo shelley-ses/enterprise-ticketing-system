@@ -7,9 +7,15 @@ import Loginpage from './pages/Loginpage.jsx';
 import CustomerLayout from './components/CustomerLayout.jsx';
 import CustomerDashboard from './pages/CustomerDashboard.jsx';
 import TicketCreation from './pages/TicketCreation.jsx';
-import MyTickets from './pages/MyTickets.jsx';
-import Profile from './pages/Profile.jsx';
-import Notifications from './pages/Notifications.jsx';
+import EmployeeLayout from './components/EmployeeLayout.jsx';
+import EmployeeDashboard from './pages/EmployeeDashboard.jsx';
+import EmployeeAssigned from './pages/EmployeeAssigned.jsx';
+import EmployeeMachine from './pages/EmployeeMachine.jsx';
+import EmployeeProgress from './pages/EmployeeProgress.jsx';
+import EmployeeRegistration from './pages/EmployeeRegistration.jsx';
+import CSLayout from './components/CSLayout.jsx';
+import CSDashboard from './pages/CSDashboard.jsx';
+import CSIncoming from './pages/CSIncoming.jsx';
 
 function App() {
   return (
@@ -24,7 +30,7 @@ function App() {
               </GuestRoute>
             }
           />
-          
+
           {/* Protected Customer Routes */}
           <Route
             path="/"
@@ -37,12 +43,37 @@ function App() {
             <Route index element={<Navigate to="customer-dashboard" replace />} />
             <Route path="customer-dashboard" element={<CustomerDashboard />} />
             <Route path="create-ticket" element={<TicketCreation />} />
-            <Route path="my-tickets" element={<MyTickets />} />
+            <Route path="my-tickets" element={<div className="p-8 text-center text-gray-500">My Tickets — coming soon.</div>} />
             <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
-            <Route path="profile" element={<Profile />} />
-            <Route path="notifications" element={<Notifications />} />
+            <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
+            <Route path="notifications" element={<div className="p-8 text-center text-gray-500">Notifications — coming soon.</div>} />
           </Route>
-          
+
+          {/* Employee Routes (kept separate) */}
+          <Route path="/employee" element={<EmployeeLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<EmployeeDashboard />} />
+            <Route path="assigned" element={<EmployeeAssigned />} />
+            <Route path="machine" element={<EmployeeMachine />} />
+            <Route path="progress" element={<EmployeeProgress />} />
+            <Route path="registration" element={<EmployeeRegistration />} />
+          </Route>
+
+          <Route path="/employee-dashboard" element={<Navigate to="/employee/dashboard" replace />} />
+          <Route path="/employee-assigned" element={<Navigate to="/employee/assigned" replace />} />
+          <Route path="/employee-machine" element={<Navigate to="/employee/machine" replace />} />
+          <Route path="/employee-progress" element={<Navigate to="/employee/progress" replace />} />
+          <Route path="/employee-registration" element={<Navigate to="/employee/registration" replace />} />
+
+          {/* Customer Service (CS) Routes */}
+          <Route path="/cs" element={<CSLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<CSDashboard />} />
+            <Route path="incoming" element={<CSIncoming />} />
+            <Route path="assigned" element={<div className="p-6 text-gray-500">CS Assigned — coming soon.</div>} />
+            <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
+          </Route>
+
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Router>

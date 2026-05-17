@@ -1,11 +1,17 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
+  const basePath = location.pathname.startsWith('/cs')
+    ? '/cs'
+    : location.pathname.startsWith('/employee')
+      ? '/employee'
+      : '';
 
   const handleLogout = async () => {
     setDropdownOpen(false);
@@ -41,7 +47,7 @@ export default function Header() {
           </svg>
         </div>
 
-        <button onClick={() => navigate('/notifications')} className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors">
+        <button onClick={() => navigate(`${basePath}/notifications`)} className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
@@ -63,8 +69,8 @@ export default function Header() {
           
           {dropdownOpen && (
             <div className="absolute right-0 mt-2 w-48 bg-white/90 backdrop-blur-lg border border-gray-100 rounded-2xl shadow-xl py-2 z-50">
-              <button onClick={() => { setDropdownOpen(false); navigate('/profile'); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Profile</button>
-              <button onClick={() => { setDropdownOpen(false); navigate('/notifications'); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Notifications</button>
+              <button onClick={() => { setDropdownOpen(false); navigate(`${basePath}/profile`); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Profile</button>
+              <button onClick={() => { setDropdownOpen(false); navigate(`${basePath}/notifications`); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Notifications</button>
               <div className="h-px bg-gray-100 my-1"></div>
               <button onClick={handleLogout} className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 text-sm font-medium transition-colors">Logout</button>
             </div>

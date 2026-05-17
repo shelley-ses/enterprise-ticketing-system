@@ -9,7 +9,7 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Home', path: '/customer-dashboard', icon: homeIcon },
     { name: 'Message', path: '/messages', icon: messageIcon },
-    { name: 'Ticket History', path: '/my-tickets', icon: ticketIcon },
+    { name: 'History', path: '/my-tickets', icon: ticketIcon },
   ];
 
   return (
