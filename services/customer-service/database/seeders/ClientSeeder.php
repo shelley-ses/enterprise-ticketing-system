@@ -27,7 +27,7 @@ class ClientSeeder extends Seeder
             'failed_login_count' => 0,
             'locked_until' => null,
             'last_login_at' => null,
-            'password_change_at' => now(),
+            'password_change_at' => null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

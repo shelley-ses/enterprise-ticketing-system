@@ -21,6 +21,7 @@ export const AUTH_ENDPOINTS = {
   CSRF_TOKEN: '/sanctum/csrf-cookie',
   VERIFY_EMAIL: '/email/verify',
   FORGOT_PASSWORD: '/forgot-password',
+  FORGOT_PASSWORD_VERIFY: '/forgot-password/verify',
   RESET_PASSWORD: '/reset-password',
   REFRESH_TOKEN: '/auth/refresh',
   ME: '/me',

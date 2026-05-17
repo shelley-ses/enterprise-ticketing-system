@@ -72,11 +72,13 @@ export function AuthProvider({ children }) {
       try {
         const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
         const userData = resp.data?.user;
+        const firstLogin = Boolean(resp.data?.is_first_login);
         if (userData) {
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         }
         setIsAuthenticated(true);
+        setIsFirstLogin(firstLogin);
         return true;
       } catch {
         applyUnauthenticated(setUser, setIsAuthenticated);
@@ -97,6 +99,7 @@ export function AuthProvider({ children }) {
         tokenStore.setToken(newToken);
         setUser(userData || null);
         setIsAuthenticated(true);
+        setIsFirstLogin(Boolean(resp.data?.is_first_login));
         if (userData) localStorage.setItem('user', JSON.stringify(userData));
         return true;
       }

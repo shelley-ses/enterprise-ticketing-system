@@ -77,13 +77,27 @@ export const requestPasswordReset = async (email) => {
   }
 };
 
-// Reset password with token
+// Verify password reset OTP
 
-export const resetPassword = async (email, token, password, passwordConfirmation) => {
+export const verifyPasswordResetOtp = async (email, otp) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.FORGOT_PASSWORD_VERIFY, {
+      email,
+      otp,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Reset password with OTP
+
+export const resetPassword = async (email, otp, password, passwordConfirmation) => {
   try {
     const response = await axiosInstance.post(AUTH_ENDPOINTS.RESET_PASSWORD, {
       email,
-      token,
+      otp,
       password,
       password_confirmation: passwordConfirmation,
     });

@@ -95,16 +95,80 @@ class AuthController extends Controller
         $minutes = 60 * 24 * 14;
         $secure = config('app.env') !== 'local';
 
-        $resp = response()->json(['token' => $accessToken, 'user' => $client], 200);
+        $resp = response()->json([
+            'token' => $accessToken,
+            'user' => $client,
+            'is_first_login' => optional($client->credential)->password_change_at === null,
+        ], 200);
         $resp->withCookie(cookie('refresh_token', $rawNew, $minutes, '/', null, $secure, true, false, 'Lax'));
         return $resp;
     }
 
     public function me(Request $request)
     {
+        $user = $request->user();
+        $isFirstLogin = false;
+
+        if ($user) {
+            $isFirstLogin = optional($user->credential)->password_change_at === null;
+        }
+
         return response()->json([
-            'user' => $request->user(),
+            'user' => $user,
+            'is_first_login' => $isFirstLogin,
         ]);
+    }
+
+    public function forgotPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $result = $this->authService->requestPasswordResetOtp($request->email);
+
+        return response()->json([
+            'message' => $result['message'],
+            'expires_at' => $result['expires_at'] ?? null,
+        ], 200);
+    }
+
+    public function verifyForgotPasswordOtp(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|digits:6',
+        ]);
+
+        $result = $this->authService->verifyPasswordResetOtp($request->email, $request->otp);
+
+        return response()->json([
+            'message' => $result['message'],
+            'remaining_attempts' => $result['remaining_attempts'] ?? null,
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function resetForgotPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|digits:6',
+            'password' => [
+                'required',
+                'string',
+                'confirmed',
+                'min:12',
+                'regex:/[A-Z]/',
+                'regex:/[0-9]/',
+                'regex:/[^A-Za-z0-9]/',
+            ],
+        ]);
+
+        $result = $this->authService->resetPasswordWithOtp($request->email, $request->otp, $request->password);
+
+        return response()->json([
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
     }
 
     public function logout(Request $request)

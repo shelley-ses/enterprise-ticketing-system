@@ -24,6 +24,7 @@ const AUTH_PATH_PREFIXES = [
   '/login',
   '/register',
   '/forgot-password',
+  '/forgot-password/verify',
   '/reset-password',
   '/sanctum/csrf-cookie',
   AUTH_ENDPOINTS.REFRESH_TOKEN,

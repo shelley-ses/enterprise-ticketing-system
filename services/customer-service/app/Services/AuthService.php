@@ -3,15 +3,21 @@
 
     use App\Models\Client;
     use App\Models\ClientCredential;
+    use App\Models\PasswordResetOtp;
     use App\Models\RefreshToken;
+    use App\Mail\ForgotPasswordOtpMail;
     use Illuminate\Support\Facades\Hash;
+    use Illuminate\Support\Facades\Mail;
     use Illuminate\Support\Facades\Log;
+    use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Carbon;
     use Illuminate\Support\Str;
 
     class AuthService {
         const MAX_FAILED_LOGIN = 5;
         const LOCK_MINUTES = 5;
+        const PASSWORD_RESET_OTP_MINUTES = 10;
+        const PASSWORD_RESET_MAX_ATTEMPTS = 5;
 
         public function login($email, $password){
             $start = microtime(true);
@@ -75,7 +81,7 @@
                 ];
             }
 
-            $isFirstLogin = $credential->last_login_at === null;
+            $isFirstLogin = $credential->password_change_at === null;
 
             $credential->failed_login_count = 0;
             $credential->locked_until = null;
@@ -109,6 +115,112 @@
                 'is_first_login' => $isFirstLogin,
                 'refresh_token' => $rawRefresh,
                 'refresh_expires_at' => $expiresAt,
+            ];
+        }
+
+        public function requestPasswordResetOtp($email)
+        {
+            $client = Client::where('email', $email)->first();
+
+            if (!$client) {
+                return [
+                    'success' => true,
+                    'message' => 'If the email exists, a reset code has been sent.',
+                ];
+            }
+
+            $otp = (string) random_int(100000, 999999);
+            $expiresAt = Carbon::now()->addMinutes(self::PASSWORD_RESET_OTP_MINUTES);
+
+            PasswordResetOtp::updateOrCreate(
+                ['email' => $email],
+                [
+                    'otp_hash' => Hash::make($otp),
+                    'attempts' => 0,
+                    'expires_at' => $expiresAt,
+                    'used_at' => null,
+                ]
+            );
+
+            Mail::mailer('mailgun')->to($email)->send(new ForgotPasswordOtpMail($client, $otp, self::PASSWORD_RESET_OTP_MINUTES));
+
+            return [
+                'success' => true,
+                'message' => 'If the email exists, a reset code has been sent.',
+                'expires_at' => $expiresAt,
+            ];
+        }
+
+        public function verifyPasswordResetOtp($email, $otp)
+        {
+            $record = PasswordResetOtp::where('email', $email)->first();
+
+            if (!$record || $record->used_at || $record->expires_at->isPast()) {
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired verification code.',
+                ];
+            }
+
+            if ($record->attempts >= self::PASSWORD_RESET_MAX_ATTEMPTS) {
+                return [
+                    'success' => false,
+                    'message' => 'Too many invalid attempts. Please request a new code.',
+                    'locked' => true,
+                ];
+            }
+
+            if (!Hash::check($otp, $record->otp_hash)) {
+                $record->attempts += 1;
+                $record->save();
+
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired verification code.',
+                    'remaining_attempts' => max(0, self::PASSWORD_RESET_MAX_ATTEMPTS - $record->attempts),
+                ];
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Code verified successfully.',
+            ];
+        }
+
+        public function resetPasswordWithOtp($email, $otp, $password)
+        {
+            $client = Client::with('credential')->where('email', $email)->first();
+
+            if (!$client || !$client->credential) {
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired verification code.',
+                ];
+            }
+
+            $record = PasswordResetOtp::where('email', $email)->first();
+
+            if (!$record || $record->used_at || $record->expires_at->isPast() || !Hash::check($otp, $record->otp_hash)) {
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired verification code.',
+                ];
+            }
+
+            DB::transaction(function () use ($client, $password, $record) {
+                $client->credential->password_hash = Hash::make($password);
+                $client->credential->password_change_at = Carbon::now();
+                $client->credential->failed_login_count = 0;
+                $client->credential->locked_until = null;
+                $client->credential->save();
+
+                $record->used_at = Carbon::now();
+                $record->save();
+            });
+
+            return [
+                'success' => true,
+                'message' => 'Password reset successfully.',
             ];
         }
     }

@@ -20,54 +20,149 @@ const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 function ForgotPasswordModal({ onClose }) {
   const [step, setStep] = useState(1);
   const [fpEmail, setFpEmail] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [otpTimer, setOtpTimer] = useState(OTP_SECONDS);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const otpRefs = [useRef(), useRef(), useRef(), useRef()];
+  const otpRefs = useRef([...Array(6)].map(() => React.createRef()));
+  const [busy, setBusy] = useState(false);
+  const [modalError, setModalError] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
 
-  // OTP countdown
   useEffect(() => {
     if (step !== 2) return;
     if (otpTimer <= 0) return;
-    const t = setTimeout(() => setOtpTimer((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setOtpTimer((seconds) => seconds - 1), 1000);
+    return () => clearTimeout(timer);
   }, [step, otpTimer]);
 
-  const formatTime = (s) => {
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
-    const sec = (s % 60).toString().padStart(2, '0');
-    return `${m}:${sec}`;
+  const formatTime = (seconds) => {
+    const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const remaining = (seconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${remaining}`;
   };
 
-  const handleOtpChange = (val, idx) => {
-    if (!/^\d?$/.test(val)) return;
-    const next = [...otp];
-    next[idx] = val;
-    setOtp(next);
-    if (val && idx < 3) otpRefs[idx + 1].current?.focus();
-  };
-
-  const handleOtpKeyDown = (e, idx) => {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
-      otpRefs[idx - 1].current?.focus();
-    }
-  };
-
-  const handleResend = () => {
-    setOtp(['', '', '', '']);
-    setOtpTimer(OTP_SECONDS);
-    otpRefs[0].current?.focus();
-  };
-
-  // Password validation
   const hasMinLength = newPassword.length >= 12;
   const hasUppercase = /[A-Z]/.test(newPassword);
   const hasNumber = /\d/.test(newPassword);
   const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
   const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSymbol;
+
+  const handleOtpChange = (value, index) => {
+    if (!/^\d?$/.test(value)) return;
+    const next = [...otp];
+    next[index] = value;
+    setOtp(next);
+
+    if (value && index < 5) {
+      otpRefs.current[index + 1]?.current?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (event, index) => {
+    if (event.key === 'Backspace' && !otp[index] && index > 0) {
+      otpRefs.current[index - 1]?.current?.focus();
+    }
+  };
+
+  const handleOtpPaste = (event) => {
+    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    event.preventDefault();
+    const next = [...Array(6)].map((_, index) => pasted[index] || '');
+    setOtp(next);
+    otpRefs.current[Math.min(pasted.length, 5)]?.current?.focus();
+  };
+
+  const handleSendCode = async () => {
+    if (!fpEmail || busy) return;
+
+    setBusy(true);
+    setModalError('');
+    setModalMessage('');
+
+    try {
+      await requestPasswordReset(fpEmail.trim());
+      setStep(2);
+      setOtp(['', '', '', '', '', '']);
+      setOtpTimer(OTP_SECONDS);
+      otpRefs.current[0]?.current?.focus();
+      setModalMessage('We sent a 6-digit code to your email.');
+    } catch (error) {
+      setModalError(error?.message || 'Unable to send the code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (busy) return;
+
+    const code = otp.join('');
+    if (code.length !== 6) {
+      setModalError('Enter the full 6-digit code.');
+      return;
+    }
+
+    setBusy(true);
+    setModalError('');
+    setModalMessage('');
+
+    try {
+      await verifyPasswordResetOtp(fpEmail.trim(), code);
+      setStep(3);
+    } catch (error) {
+      setModalError(error?.message || 'Invalid or expired verification code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (busy) return;
+
+    if (!isPasswordValid || newPassword !== confirmPassword) {
+      setModalError('Password does not meet the requirements.');
+      return;
+    }
+
+    setBusy(true);
+    setModalError('');
+    setModalMessage('');
+
+    try {
+      await resetPassword(fpEmail.trim(), otp.join(''), newPassword, confirmPassword);
+      setStep(4);
+    } catch (error) {
+      const message = error?.message || 'Unable to reset password.';
+      setModalError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (busy) return;
+
+    setBusy(true);
+    setModalError('');
+    setModalMessage('');
+
+    try {
+      await requestPasswordReset(fpEmail.trim());
+      setOtp(['', '', '', '', '', '']);
+      setOtpTimer(OTP_SECONDS);
+      otpRefs.current[0]?.current?.focus();
+      setModalMessage('A new code has been sent to your email.');
+    } catch (error) {
+      setModalError(error?.message || 'Unable to resend the code.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const stepTitle = {
     1: 'Forgot Password?',
@@ -77,106 +172,92 @@ function ForgotPasswordModal({ onClose }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <div className="modal-box" role="dialog" aria-modal="true" aria-label={stepTitle[step]}>
-
-        {/* Close */}
         <button className="modal-close" onClick={onClose} aria-label="Close modal">✕</button>
 
-        {/* ── Step 1: Email Entry ── */}
         {step === 1 && (
           <div className="modal-content">
             <h2 className="modal-title">{stepTitle[1]}</h2>
-            <p className="modal-subtitle">Enter your registered email address and we'll send you a verification code.</p>
+            <p className="modal-subtitle">Enter your registered email address and we&apos;ll send you a 6-digit code.</p>
             <input
               id="fp-email"
               type="email"
               className="modal-input"
               placeholder="Email address"
               value={fpEmail}
-              onChange={(e) => setFpEmail(e.target.value)}
+              onChange={(event) => setFpEmail(event.target.value)}
             />
-            <button
-              id="fp-send-code"
-              className="modal-btn"
-              onClick={() => { if (fpEmail) setStep(2); }}
-            >
-              Send Code
+            <button id="fp-send-code" className="modal-btn" onClick={handleSendCode} disabled={busy}>
+              {busy ? 'Sending...' : 'Send Code'}
             </button>
+            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
+            {modalMessage && <p className="otp-note">{modalMessage}</p>}
           </div>
         )}
 
-        {/* ── Step 2: OTP ── */}
         {step === 2 && (
           <div className="modal-content">
             <h2 className="modal-title">{stepTitle[2]}</h2>
             <p className="modal-subtitle">
-              A 4-digit verification code has been sent to<br />
+              A 6-digit verification code has been sent to<br />
               <strong>{fpEmail}</strong>.<br />
               <em>Enter the code below to continue.</em>
             </p>
 
-            {/* Envelope icon */}
             <div className="otp-icon-wrap">
               <img src={otpEmailIcon} alt="Email OTP" className="otp-icon-img" />
             </div>
 
-            {/* OTP boxes */}
             <div className="otp-boxes">
-              {otp.map((digit, i) => (
+              {otp.map((digit, index) => (
                 <input
-                  key={i}
-                  id={`otp-box-${i}`}
-                  ref={otpRefs[i]}
+                  key={index}
+                  id={`otp-box-${index}`}
+                  ref={otpRefs.current[index]}
                   className="otp-box"
                   type="text"
                   inputMode="numeric"
                   maxLength={1}
                   value={digit}
-                  onChange={(e) => handleOtpChange(e.target.value, i)}
-                  onKeyDown={(e) => handleOtpKeyDown(e, i)}
+                  onChange={(event) => handleOtpChange(event.target.value, index)}
+                  onKeyDown={(event) => handleOtpKeyDown(event, index)}
+                  onPaste={handleOtpPaste}
                 />
               ))}
             </div>
 
-            {/* Timer */}
             <p className="otp-timer">
-              {otpTimer > 0
-                ? `Code expires in ${formatTime(otpTimer)}`
-                : 'Code expired. Please resend.'}
+              {otpTimer > 0 ? `Code expires in ${formatTime(otpTimer)}` : 'Code expired. Please resend.'}
             </p>
 
-            <button
-              id="fp-verify"
-              className="modal-btn"
-              onClick={() => { if (otp.every((d) => d)) setStep(3); }}
-            >
-              Verify
+            <button id="fp-verify" className="modal-btn" onClick={handleVerifyCode} disabled={busy}>
+              {busy ? 'Verifying...' : 'Verify'}
             </button>
 
-            <button className="modal-btn-outline" onClick={handleResend}>
+            <button className="modal-btn-outline" onClick={handleResend} disabled={busy}>
               Resend Code
             </button>
 
+            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
+            {modalMessage && <p className="otp-note">{modalMessage}</p>}
+
             <p className="otp-note">
-              Didn't receive the email?<br />
+              Didn&apos;t receive the email?<br />
               Check your spam folder or resend the code.
             </p>
           </div>
         )}
 
-        {/* ── Step 3: Reset Password ── */}
         {step === 3 && (
           <div className="modal-content">
             <h2 className="modal-title">{stepTitle[3]}</h2>
             <p className="modal-subtitle">Please enter your new password</p>
 
-            {/* Lock icon */}
             <div className="otp-icon-wrap">
               <img src={otpLockIcon} alt="Lock" className="otp-icon-img" />
             </div>
 
-            {/* New password */}
             <label className="modal-label">New Password</label>
             <div className="modal-input-wrap">
               <input
@@ -185,19 +266,18 @@ function ForgotPasswordModal({ onClose }) {
                 className="modal-input"
                 placeholder=""
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(event) => setNewPassword(event.target.value)}
               />
               <button
                 type="button"
                 className="modal-eye"
-                onClick={() => setShowNew((p) => !p)}
+                onClick={() => setShowNew((previous) => !previous)}
                 aria-label="Toggle new password visibility"
               >
                 <img src={eyeIcon} alt="" />
               </button>
             </div>
 
-            {/* Confirm password */}
             <label className="modal-label">Confirm password</label>
             <div className="modal-input-wrap">
               <input
@@ -206,31 +286,25 @@ function ForgotPasswordModal({ onClose }) {
                 className="modal-input"
                 placeholder=""
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(event) => setConfirmPassword(event.target.value)}
               />
               <button
                 type="button"
                 className="modal-eye"
-                onClick={() => setShowConfirm((p) => !p)}
+                onClick={() => setShowConfirm((previous) => !previous)}
                 aria-label="Toggle confirm password visibility"
               >
                 <img src={eyeIcon} alt="" />
               </button>
             </div>
 
-            <button
-              id="fp-done"
-              className="modal-btn"
-              onClick={() => {
-                if (isPasswordValid && newPassword === confirmPassword) {
-                  setStep(4);
-                }
-              }}
-            >
-              Done
+            <button id="fp-done" className="modal-btn" onClick={handleResetPassword} disabled={busy}>
+              {busy ? 'Saving...' : 'Done'}
             </button>
 
-            {/* Validation hints */}
+            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
+            {modalMessage && <p className="otp-note">{modalMessage}</p>}
+
             <div className="pw-hints">
               <div className="pw-hint">
                 <span className={`pw-dot ${hasMinLength ? 'valid' : 'invalid'}`} />
@@ -252,7 +326,6 @@ function ForgotPasswordModal({ onClose }) {
           </div>
         )}
 
-        {/* ── Step 4: Success ── */}
         {step === 4 && (
           <div className="modal-content modal-content--success">
             <h2 className="modal-title">{stepTitle[4]}</h2>
@@ -266,7 +339,6 @@ function ForgotPasswordModal({ onClose }) {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
