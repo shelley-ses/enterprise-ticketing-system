@@ -1,0 +1,30 @@
+services:
+
+  db:
+    image: mysql:8
+    container_name: capstone-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "3307:3306"
+
+  customer-service:
+    build:
+      context: ./services/customer-service
+    container_name: customer-service
+    volumes:
+      - ./services/customer-service:/var/www
+    ports:
+      - "8001:8000"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      - db

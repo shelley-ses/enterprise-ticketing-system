@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 import loginImage from '@/assets/login.png';
 import emailIcon from '@/assets/email.png';
 import lockIcon from '@/assets/lock.png';
@@ -11,6 +12,9 @@ import './Loginpage.css';
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 60;
 const OTP_SECONDS = 210; // 3:30
+const LOCKOUT_STORAGE_KEY_PREFIX = 'login_lockout_until_';
+
+const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
 function ForgotPasswordModal({ onClose }) {
@@ -270,11 +274,15 @@ function ForgotPasswordModal({ onClose }) {
 
 // ─── Main Login Page ─────────────────────────────────────────────────────────
 function Loginpage() {
+  const navigate = useNavigate();
+  const { login, clearError } = useAuth();
+
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Rate limiting state
+  // Rate limiting state 
   const [attempts, setAttempts] = useState(0);
   const [lockedOut, setLockedOut] = useState(false);
   const [lockTimer, setLockTimer] = useState(LOCKOUT_SECONDS);
@@ -283,19 +291,43 @@ function Loginpage() {
   // Forgot password modal
   const [showForgot, setShowForgot] = useState(false);
 
-  // Lockout countdown
+  // Lockout per-email handling
+  const [lockedEmail, setLockedEmail] = useState('');
+
   useEffect(() => {
+    const checkLockForEmail = () => {
+      if (!email) return;
+      const saved = Number(localStorage.getItem(lockKeyFor(email)) || 0);
+      const now = Date.now();
+      if (saved > now) {
+        setLockedOut(true);
+        setLockedEmail(email);
+        setLockTimer(Math.max(1, Math.ceil((saved - now) / 1000)));
+      } else {
+        localStorage.removeItem(lockKeyFor(email));
+        if (lockedEmail === email) {
+          setLockedOut(false);
+          setLockedEmail('');
+          setLockTimer(LOCKOUT_SECONDS);
+          setLoginError('');
+        }
+      }
+    };
+
+    checkLockForEmail();
     if (!lockedOut) return;
     if (lockTimer <= 0) {
       setLockedOut(false);
       setAttempts(0);
       setLockTimer(LOCKOUT_SECONDS);
       setLoginError('');
+      localStorage.removeItem(lockKeyFor(lockedEmail));
+      setLockedEmail('');
       return;
     }
     const t = setTimeout(() => setLockTimer((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [lockedOut, lockTimer]);
+  }, [email, lockedOut, lockTimer]);
 
   const formatLock = (s) => {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
@@ -303,35 +335,67 @@ function Loginpage() {
     return `${m}:${sec}`;
   };
 
-  const navigate = useNavigate();
-
-  const handleLogin = (e) => {
+  //Login Function
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (lockedOut) return;
 
-    // Simulate successful login
-    const success = true;
+    if (lockedOut || isSubmitting) return;
 
-    if (success) {
-      setLoginError('');
-      setAttempts(0);
-      navigate('/customer-dashboard');
-    } else {
-      const newAttempts = attempts + 1;
-      if (newAttempts >= MAX_ATTEMPTS) {
-        setLockedOut(true);
-        setLockTimer(LOCKOUT_SECONDS);
+    setLoginError('');
+    clearError();
+    setIsSubmitting(true);
+
+    try {
+      const result = await login(email, password);
+
+      if (result.success) {
         setLoginError('');
+        setAttempts(0);
+        navigate('/customer-dashboard', { replace: true });
       } else {
-        setAttempts(newAttempts);
+        // Rate Limit
+        if (result.retryAfter) {
+          const seconds = Number(result.retryAfter);
+          if (!Number.isNaN(seconds) && seconds > 0) {
+            setLockedOut(true);
+            const lockUntilMs = Date.now() + seconds * 1000;
+            localStorage.setItem(LOCKOUT_STORAGE_KEY, String(lockUntilMs));
+            setLockTimer(seconds);
+            setLoginError(`${result.error} Try again in ${formatLock(seconds)}`);
+          } else {
+            setLoginError(result.error);
+          }
+          setIsSubmitting(false);
+          return;
+        }
+        const remainingAttempts = result.remainingAttempts ?? Math.max(0, MAX_ATTEMPTS - (attempts + 1));
+        setAttempts(MAX_ATTEMPTS - remainingAttempts);
+
+        if (result.lockedUntil || remainingAttempts === 0) {
+          setLockedOut(true);
+          const lockUntilMs = result.lockedUntil ? new Date(result.lockedUntil).getTime() : Date.now() + LOCKOUT_SECONDS * 1000;
+          // store lockout keyed to the email/account
+          localStorage.setItem(lockKeyFor(email), String(lockUntilMs));
+          setLockedEmail(email);
+          setLockTimer(Math.max(1, Math.ceil((lockUntilMs - Date.now()) / 1000)));
+        } else {
+          setLockedOut(false);
+          localStorage.removeItem(lockKeyFor(email));
+        }
+
         setLoginError(
-          `Invalid email or password. ${MAX_ATTEMPTS - newAttempts} attempt(s) remaining.`
+          result.lockedUntil
+            ? `${result.error} Account is locked temporarily.`
+            : `${result.error} ${remainingAttempts} attempt(s) remaining.`
         );
       }
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError('Login failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
-
-  const remaining = MAX_ATTEMPTS - attempts;
 
   return (
     <>
@@ -375,8 +439,17 @@ function Loginpage() {
                 placeholder="Email"
                 className="input-field"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={lockedOut}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEmail(v);
+                  // if user types a different email, clear the lock UI for this input
+                  if (lockedOut && lockedEmail && v !== lockedEmail) {
+                    setLockedOut(false);
+                    setLockedEmail('');
+                    setLoginError('');
+                  }
+                }}
+                disabled={false}
                 required
               />
             </div>
@@ -391,7 +464,7 @@ function Loginpage() {
                 className="input-field"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={lockedOut}
+                disabled={false}
                 required
               />
               <button
@@ -408,10 +481,17 @@ function Loginpage() {
             <button
               id="login-submit"
               type="submit"
-              className={`login-btn ${lockedOut ? 'login-btn--disabled' : ''}`}
-              disabled={lockedOut}
+              className={`login-btn ${(lockedOut && lockedEmail === email) || isSubmitting ? 'login-btn--disabled' : ''}`}
+              disabled={(lockedOut && lockedEmail === email) || isSubmitting}
             >
-              Sign In
+              {isSubmitting ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Signing In...
+                </span>
+              ) : (
+                'Sign In'
+              )}
             </button>
 
             {/* Lockout countdown */}

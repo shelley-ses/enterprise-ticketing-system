@@ -1,0 +1,129 @@
+import axiosInstance from '@/api/axiosInstance';
+import { AUTH_ENDPOINTS, SANCTUM_URL } from '@/config/api.config';
+
+// For API Calls
+
+//CSRF
+export const getCsrfToken = async () => {
+  try {
+    await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`, {
+      withCredentials: true,
+    });
+  } catch (error) {
+    console.error('Error fetching CSRF token:', error);
+    throw error;
+  }
+};
+
+// Login with email and password
+
+export const loginUser = async (email, password) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
+      email,
+      password,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Register new user accoun
+export const registerUser = async (name, email, password, passwordConfirmation) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.REGISTER, {
+      name,
+      email,
+      password,
+      password_confirmation: passwordConfirmation,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Logout user
+export const logoutUser = async () => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGOUT);
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Get current authenticated user
+export const getCurrentUser = async () => {
+  try {
+    const response = await axiosInstance.get(AUTH_ENDPOINTS.ME);
+    return response.data.user;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Request password reset (forgot password)
+
+export const requestPasswordReset = async (email) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.FORGOT_PASSWORD, {
+      email,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Reset password with token
+
+export const resetPassword = async (email, token, password, passwordConfirmation) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.RESET_PASSWORD, {
+      email,
+      token,
+      password,
+      password_confirmation: passwordConfirmation,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Verify email address
+
+export const verifyEmail = async (email, code) => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.VERIFY_EMAIL, {
+      email,
+      code,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+//Refresh authentication token
+
+export const refreshToken = async () => {
+  try {
+    const response = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN);
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Update user profile
+export const updateUserProfile = async (profileData) => {
+  try {
+    const response = await axiosInstance.put('/profile', profileData);
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};

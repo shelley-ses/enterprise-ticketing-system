@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
-  const handleLogout = () => {
-    navigate('/');
+  const handleLogout = async () => {
+    setDropdownOpen(false);
+    await logout();
+    navigate('/login', { replace: true });
+    // Drop forward history 
+    window.history.pushState(null, '', '/login');
   };
 
   return (
