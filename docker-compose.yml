@@ -9,7 +9,15 @@ services:
       MYSQL_ROOT_HOST: "%"
       MYSQL_DATABASE: ${MYSQL_DATABASE}
     ports:
-      - "3307:3306"
+      - "3308:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   customer-service:
     build:
@@ -27,7 +35,8 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   ticket-service:
     build:
@@ -47,4 +56,65 @@ services:
     command: >
       sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && composer install --no-interaction --prefer-dist --optimize-autoloader && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+    container_name: notification-service
+    volumes:
+      - ./services/notification-service:/var/www
+    ports:
+      - "8003:8000"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+    container_name: analytics-service
+    volumes:
+      - ./services/analytics-service:/var/www
+    ports:
+      - "8004:8000"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ai-service:
+    build:
+      context: ./services/AI-service
+    container_name: ai-service
+    volumes:
+      - ./services/AI-service:/var/www
+    ports:
+      - "8005:8000"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
