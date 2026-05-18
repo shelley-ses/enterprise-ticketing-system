@@ -170,6 +170,7 @@ class TicketController extends Controller
         $recentTickets = DB::table('tickets as t')
             ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
             ->select(
                 't.ticket_ID',
@@ -177,7 +178,9 @@ class TicketController extends Controller
                 'm.machine_name',
                 'm.serial_number',
                 'ts.status_name',
+                'tp.priority_name',
                 't.created_at',
+                't.updated_at',
                 'c.client_name'
             )
             ->orderByDesc('t.created_at')
@@ -189,7 +192,9 @@ class TicketController extends Controller
                 'customer' => $row->client_name ?: 'Unknown Customer',
                 'equipment' => $row->machine_name . ' - ' . $row->serial_number,
                 'status' => $row->status_name,
+                'priority' => $row->priority_name,
                 'created_at' => $row->created_at,
+                'updated_at' => $row->updated_at,
             ])
             ->values();
 
@@ -220,7 +225,6 @@ class TicketController extends Controller
         ]);
 
         $defaultTicketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID') ?? 1;
-        $defaultPriorityId = DB::table('ticket_priorities')->where('priority_name', 'Low')->value('priority_ID') ?? 1;
 
         $ticketId = DB::table('tickets')->insertGetId([
             'machine_ID' => $validated['machine_ID'],
@@ -228,7 +232,7 @@ class TicketController extends Controller
             'created_by' => $validated['created_by'] ?? 1,
             'assigned_to' => $validated['assigned_to'] ?? null,
             'ticket_type_ID' => $validated['ticket_type_ID'] ?? $defaultTicketTypeId,
-            'priority_ID' => $validated['priority_ID'] ?? $defaultPriorityId,
+            'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
             'sla_ID' => $validated['sla_ID'] ?? null,
             'title' => $validated['title'],
@@ -291,13 +295,16 @@ class TicketController extends Controller
             ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->select(
                 't.ticket_ID',
                 't.title',
                 'pc.category_name',
                 'ts.status_name',
                 't.created_at',
-                'c.client_name'
+                'c.client_name',
+                'm.machine_name',
+                'm.serial_number'
             )
             ->orderByDesc('t.created_at')
             ->limit($limit)
@@ -310,6 +317,7 @@ class TicketController extends Controller
                     'title' => $row->title,
                     'category' => $row->category_name,
                     'status' => $row->status_name,
+                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
                     'sla' => $this->slaLabel($row->created_at),
                     'date' => optional($row->created_at)->format('m/d/Y') ?? now()->format('m/d/Y'),
                 ];
@@ -392,6 +400,16 @@ class TicketController extends Controller
                 ->whereRaw('LOWER(status_name) = ?', ['in progress'])
                 ->value('ticket_status_ID') ?? 2;
 
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+            $changes = [];
+
+            if ($ticket && $ticket->assigned_to != $validated['employee_ids'][0]) {
+                $changes[] = ['field' => 'assigned_to', 'old' => $ticket->assigned_to, 'new' => $validated['employee_ids'][0]];
+            }
+            if ($ticket && array_key_exists('priority_ID', $validated) && $validated['priority_ID'] !== null && $ticket->priority_ID != $validated['priority_ID']) {
+                $changes[] = ['field' => 'priority_ID', 'old' => $ticket->priority_ID, 'new' => $validated['priority_ID']];
+            }
+
             DB::table('tickets')
                 ->where('ticket_ID', $ticketId)
                 ->update([
@@ -413,6 +431,17 @@ class TicketController extends Controller
                     'completed_at' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
+                ]);
+            }
+
+            foreach ($changes as $chg) {
+                DB::table('ticket_audit_logs')->insert([
+                    'ticket_ID' => $ticketId,
+                    'action_type' => 'update',
+                    'action_by_ID' => $assignedBy,
+                    'actor_type' => 'employee',
+                    'details' => json_encode($chg),
+                    'created_at' => now(),
                 ]);
             }
         });

@@ -53,7 +53,11 @@ export default function CSDashboard() {
           highPriority: 0,
           slaWarnings: 0,
         });
-        setTickets(payload.recent_tickets ?? MOCK_TICKETS);
+        setTickets((payload.recent_tickets || MOCK_TICKETS).map(t => ({
+          ...t,
+          updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
+          priority: t.priority || 'Unassigned'
+        })));
       } catch (err) {
         if (!mounted) return;
         setError('Unable to load data from API — using local mock data.');

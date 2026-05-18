@@ -436,6 +436,7 @@ export default function CSIncoming() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All Categories');
   const [slaFilter, setSlaFilter] = useState('All SLA');
+  const [machineFilter, setMachineFilter] = useState('All Machines');
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -485,6 +486,11 @@ export default function CSIncoming() {
     [tickets]
   );
 
+  const machines = useMemo(
+    () => ['All Machines', ...Array.from(new Set(tickets.map((t) => t.equipment).filter(Boolean)))],
+    [tickets]
+  );
+
   const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached'];
 
   const filtered = useMemo(() => {
@@ -492,14 +498,16 @@ export default function CSIncoming() {
     return tickets.filter((t) => {
       if (category !== 'All Categories' && t.category !== category) return false;
       if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
+      if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
       if (!q) return true;
       return (
         t.id.toLowerCase().includes(q) ||
         t.customer.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q)
+        t.title.toLowerCase().includes(q) ||
+        (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, slaFilter]);
+  }, [tickets, search, category, slaFilter, machineFilter]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -539,12 +547,26 @@ export default function CSIncoming() {
         priorityId: priorityMap[updated.priority] ?? 1,
       });
 
-      const refreshed = {
-        ...updated,
-        status: 'Assigned',
-      };
-      setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
-      setModal({ mode: 'summary', ticket: refreshed });
+      // Soft data refetch
+      try {
+        const incoming = await getCSIncomingTickets({ limit: 100 });
+        setTickets(incoming);
+        
+        // Find the newly updated ticket to show in summary
+        const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
+          ...updated,
+          status: 'Assigned',
+        };
+        setModal({ mode: 'summary', ticket: refreshedTicket });
+      } catch (e) {
+        // Fallback to local state if refetch fails
+        const refreshed = {
+          ...updated,
+          status: 'Assigned',
+        };
+        setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
+        setModal({ mode: 'summary', ticket: refreshed });
+      }
       return true;
     } catch (err) {
       setError('Failed to assign ticket. Please try again.');
@@ -583,6 +605,16 @@ export default function CSIncoming() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+            className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
+          >
+            {machines.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
