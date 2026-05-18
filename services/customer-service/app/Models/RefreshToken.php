@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Employee;
 
 class RefreshToken extends Model
 {
@@ -11,6 +12,7 @@ class RefreshToken extends Model
 
     protected $fillable = [
         'client_id',
+        'employee_id',
         'token_hash',
         'expires_at',
     ];
@@ -22,5 +24,10 @@ class RefreshToken extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'employee_id', 'emp_id');
     }
 }

@@ -1,11 +1,10 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 
-/**
- * Guest-only routes (e.g. login). Redirects authenticated users away.
- */
+// Guest route
 export default function GuestRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -19,6 +18,14 @@ export default function GuestRoute({ children }) {
   }
 
   if (isAuthenticated) {
+    if (location.pathname.startsWith('/login/employee')) {
+      const role = (user?.role || '').toString().toLowerCase();
+      if (role.includes('customer service') || role.includes('customer-service') || role === 'cs') {
+        return <Navigate to="/cs/dashboard" replace />;
+      }
+      return <Navigate to="/employee/dashboard" replace />;
+    }
+
     return <Navigate to="/customer-dashboard" replace />;
   }
 

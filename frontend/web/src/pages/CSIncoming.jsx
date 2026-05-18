@@ -1,15 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { SAMPLE_TICKETS, SAMPLE_EMPLOYEES } from '@/data/mockTickets';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
+import { useAuth } from '@/context/AuthContext';
+import {
+  getCSIncomingTickets,
+  getAssignableEmployees,
+  
+} from '@/services/ticketService';
+import { getDepartments, acceptTicket, getTicketFormOptions } from '@/services/ticketService';
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
 ───────────────────────────────────────────── */
-function ConfirmDialog({ onConfirm, onCancel }) {
+function ConfirmDialog({ onConfirm, onCancel, isSaving = false }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl w-[420px] max-w-full shadow-2xl p-7 flex flex-col items-center text-center">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl w-105 max-w-full shadow-2xl p-7 flex flex-col items-center text-center">
         {/* Icon */}
         <div className="w-14 h-14 rounded-full bg-[#252578]/10 flex items-center justify-center mb-4">
           <svg className="w-7 h-7 text-[#252578]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -27,15 +33,17 @@ function ConfirmDialog({ onConfirm, onCancel }) {
         <div className="flex gap-3 w-full">
           <button
             onClick={onCancel}
+            disabled={isSaving}
             className="flex-1 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
           >
             Go Back
           </button>
           <button
             onClick={onConfirm}
+            disabled={isSaving}
             className="flex-1 py-2.5 text-sm font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition-colors shadow-lg shadow-[#252578]/30"
           >
-            Yes, Update
+            {isSaving ? 'Saving...' : 'Yes, Update'}
           </button>
         </div>
       </div>
@@ -46,8 +54,8 @@ function ConfirmDialog({ onConfirm, onCancel }) {
 /* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
-function TicketSummary({ ticket, onClose, onEdit }) {
-  const assignedEmployees = SAMPLE_EMPLOYEES.filter((e) =>
+function TicketSummary({ ticket, employees, onClose, onEdit }) {
+  const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
   );
 
@@ -60,7 +68,7 @@ function TicketSummary({ ticket, onClose, onEdit }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white/95 backdrop-blur-lg rounded-3xl w-[560px] max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)]">
+      <div className="bg-white/95 backdrop-blur-lg rounded-3xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)]">
 
         {/* Scrollable content */}
         <div className="overflow-y-auto flex-1 p-6">
@@ -174,11 +182,12 @@ function TicketSummary({ ticket, onClose, onEdit }) {
 /* ─────────────────────────────────────────────
    ASSIGN MODAL
 ───────────────────────────────────────────── */
-function AssignModal({ ticket, onClose, onSave }) {
+function AssignModal({ ticket, employees, departments, priorityOptions, onClose, onSave }) {
   const [priority, setPriority] = useState(ticket?.priority || 'Low');
   const [department, setDepartment] = useState(ticket?.department || '');
   const [selectedEmployees, setSelectedEmployees] = useState(ticket?.assigned || []);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Lock background scroll
   useEffect(() => {
@@ -189,7 +198,7 @@ function AssignModal({ ticket, onClose, onSave }) {
   if (!ticket) return null;
 
   const employeesInDept = useMemo(() => {
-    const list = SAMPLE_EMPLOYEES.filter((e) =>
+    const list = employees.filter((e) =>
       department ? e.department === department : true
     );
     list.sort((a, b) => {
@@ -210,7 +219,9 @@ function AssignModal({ ticket, onClose, onSave }) {
     setShowConfirm(true);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (isSaving) return;
+
     const updated = {
       ...ticket,
       priority,
@@ -218,15 +229,23 @@ function AssignModal({ ticket, onClose, onSave }) {
       assigned: selectedEmployees,
       status: department ? 'Assigned' : ticket.status,
     };
-    onSave(updated);
-    setShowConfirm(false);
-    onClose();
+
+    setIsSaving(true);
+    try {
+      const saved = await onSave(updated);
+      if (saved) {
+        setShowConfirm(false);
+        onClose();
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="bg-white/90 backdrop-blur-lg rounded-3xl w-[620px] max-w-full max-h-[90vh] flex flex-col relative shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+        <div className="bg-white/90 backdrop-blur-lg rounded-3xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
 
           {/* Scrollable content */}
           <div className="overflow-y-auto flex-1 p-6">
@@ -267,10 +286,9 @@ function AssignModal({ ticket, onClose, onSave }) {
                 className="w-full px-3 py-2.5 text-sm bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
               >
                 <option value="">Select department...</option>
-                <option value="Hardware">Hardware</option>
-                <option value="Software">Software</option>
-                <option value="Diagnostics">Diagnostics</option>
-                <option value="Support">Support</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
               </select>
             </div>
 
@@ -280,7 +298,7 @@ function AssignModal({ ticket, onClose, onSave }) {
                 Priority
               </label>
               <div className="flex gap-2 flex-wrap">
-                {['Critical', 'High', 'Medium', 'Low'].map((p) => (
+                {priorityOptions.map((p) => (
                   <button
                     key={p}
                     onClick={() => setPriority(p)}
@@ -311,7 +329,7 @@ function AssignModal({ ticket, onClose, onSave }) {
               {selectedEmployees.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {selectedEmployees.map((id) => {
-                    const emp = SAMPLE_EMPLOYEES.find((e) => e.id === id);
+                    const emp = employees.find((e) => e.id === id);
                     if (!emp) return null;
                     return (
                       <span
@@ -320,8 +338,10 @@ function AssignModal({ ticket, onClose, onSave }) {
                       >
                         {emp.name}
                         <button
+                          type="button"
                           onClick={() => toggleEmp(id)}
-                          className="ml-0.5 hover:text-red-500 transition-colors font-bold"
+                          disabled={isSaving}
+                          className="ml-0.5 font-bold hover:text-red-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           ×
                         </button>
@@ -371,16 +391,20 @@ function AssignModal({ ticket, onClose, onSave }) {
           {/* Sticky footer */}
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
             <button
+              type="button"
               onClick={onClose}
-              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleAcceptClick}
-              className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30"
+              disabled={isSaving}
+              className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {ticket.status === 'Assigned' ? 'Save Changes' : 'Accept Ticket'}
+              {isSaving ? 'Saving...' : ticket.status === 'Assigned' ? 'Save Changes' : 'Accept Ticket'}
             </button>
           </div>
         </div>
@@ -391,6 +415,7 @@ function AssignModal({ ticket, onClose, onSave }) {
         <ConfirmDialog
           onConfirm={handleConfirm}
           onCancel={() => setShowConfirm(false)}
+          isSaving={isSaving}
         />
       )}
     </>
@@ -401,13 +426,59 @@ function AssignModal({ ticket, onClose, onSave }) {
    MAIN PAGE
 ───────────────────────────────────────────── */
 export default function CSIncoming() {
-  const [tickets, setTickets] = useState(SAMPLE_TICKETS);
+  const { user } = useAuth();
+  const [tickets, setTickets] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [priorityOptions, setPriorityOptions] = useState(['Low','Medium','High','Critical']);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All Categories');
   const [slaFilter, setSlaFilter] = useState('All SLA');
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const [incoming, assignees, deps, options] = await Promise.all([
+          getCSIncomingTickets({ limit: 100 }),
+          getAssignableEmployees(),
+          getDepartments(),
+          getTicketFormOptions(),
+        ]);
+
+        if (!mounted) return;
+        setTickets(incoming);
+        setEmployees(
+          assignees.map((row) => ({
+            id: Number(row.id),
+            name: row.name,
+            status: row.is_active ? 'active' : 'inactive',
+            department: row.department || 'Unassigned',
+          }))
+        );
+        setDepartments((deps?.departments || []).map((d) => d.name));
+        setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
+      } catch {
+        if (!mounted) return;
+        setError('Unable to load incoming tickets from ticket-service.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const categories = useMemo(
     () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category)))],
@@ -452,10 +523,34 @@ export default function CSIncoming() {
     }
   };
 
-  const handleSave = (updated) => {
-    setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    // After saving, show the summary
-    setModal({ mode: 'summary', ticket: updated });
+  const handleSave = async (updated) => {
+    const priorityMap = {
+      Low: 1,
+      Medium: 2,
+      High: 3,
+      Critical: 4,
+    };
+
+    try {
+      await acceptTicket({
+        ticketId: updated.ticket_ID,
+        employeeIds: updated.assigned,
+        assignedByEmail: user?.email,
+        priorityId: priorityMap[updated.priority] ?? 1,
+      });
+
+      const refreshed = {
+        ...updated,
+        status: 'Assigned',
+      };
+      setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
+      setModal({ mode: 'summary', ticket: refreshed });
+      return true;
+    } catch (err) {
+      setError('Failed to assign ticket. Please try again.');
+      console.error(err);
+      return false;
+    }
   };
 
   return (
@@ -466,6 +561,15 @@ export default function CSIncoming() {
         <h1 className="text-3xl font-bold text-[#252578]">Incoming Tickets</h1>
         <p className="text-gray-500 mt-2">Triage and assign new support tickets</p>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+      )}
+
+      {loading ? (
+        <div className="rounded-2xl bg-white p-8 text-center text-gray-500">Loading incoming tickets...</div>
+      ) : (
+        <>
 
       {/* Search & Filters */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center gap-4">
@@ -578,11 +682,14 @@ export default function CSIncoming() {
           />
         </div>
       </div>
+        </>
+      )}
 
       {/* Modals */}
       {modal?.mode === 'summary' && (
         <TicketSummary
           ticket={modal.ticket}
+          employees={employees}
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
         />
@@ -591,6 +698,9 @@ export default function CSIncoming() {
       {modal?.mode === 'assign' && (
         <AssignModal
           ticket={modal.ticket}
+          employees={employees}
+          departments={departments}
+          priorityOptions={priorityOptions}
           onClose={() => setModal(null)}
           onSave={handleSave}
         />

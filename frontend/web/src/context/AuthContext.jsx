@@ -165,7 +165,7 @@ export function AuthProvider({ children }) {
   }, [revalidateSession]);
 
   // Login with email and password
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, mode = 'customer') => {
     try {
       setError(null);
 
@@ -175,6 +175,7 @@ export function AuthProvider({ children }) {
       const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
         email,
         password,
+        mode,
       });
 
       const { user: userData, token, is_first_login: firstLogin } = response.data;
@@ -243,21 +244,26 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     const currentToken = tokenStore.getToken();
 
-    // Clear local auth state 
-    localStorage.removeItem('user');
-    localStorage.removeItem(LOCKOUT_STORAGE_KEY);
-    tokenStore.clearToken();
-
-    setUser(null);
-    setIsAuthenticated(false);
-    setError(null);
-    setIsFirstLogin(false);
-    setIsLoading(false);
-
-    // Clean up the backend token/session and refresh tokens 
-    axiosInstance.post(AUTH_ENDPOINTS.LOGOUT, {}, { withCredentials: true, headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {} }).catch((err) => {
+    try {
+      //logout
+      await axiosInstance.post(
+        AUTH_ENDPOINTS.LOGOUT,
+        {},
+        { withCredentials: true, headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {} }
+      );
+    } catch (err) {
       console.warn('Backend logout cleanup failed:', err);
-    });
+    } finally {
+      localStorage.removeItem('user');
+      localStorage.removeItem(LOCKOUT_STORAGE_KEY);
+      tokenStore.clearToken();
+
+      setUser(null);
+      setIsAuthenticated(false);
+      setError(null);
+      setIsFirstLogin(false);
+      setIsLoading(false);
+    }
 
     return { success: true };
   }, []);

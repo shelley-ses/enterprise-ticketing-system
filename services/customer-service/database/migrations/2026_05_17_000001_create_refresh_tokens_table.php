@@ -9,7 +9,8 @@ return new class extends Migration {
     {
         Schema::create('refresh_tokens', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('client_id');
+            $table->unsignedBigInteger('client_id')->nullable();
+            $table->unsignedBigInteger('employee_id')->nullable();
             $table->string('token_hash', 64)->unique();
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Client;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use App\Services\AuthService;
 use Illuminate\Support\Str;
@@ -23,14 +25,16 @@ class AuthController extends Controller
 
         $request->validate([
             'email' => 'required|email',
-            'password' => 'required|string'
+            'password' => 'required|string',
+            'mode' => 'nullable|in:customer,employee',
         ]);
 
         Log::info('AuthController.login:after_validation');
 
         $result = $this->authService->login(
             $request->email,
-            $request->password
+            $request->password,
+            $request->input('mode', 'customer')
         );
 
         // Return 401 on failed authentication
@@ -78,12 +82,15 @@ class AuthController extends Controller
         }
 
         $client = $rt->client;
-        if (!$client) {
+        $employee = $rt->employee;
+        if (!$client && !$employee) {
             return response()->json(['message' => 'Client not found'], 401);
         }
 
+        $user = $client ?: $employee;
+
         // issue new access token
-        $accessToken = $client->createToken('access-token')->plainTextToken;
+        $accessToken = $user->createToken('access-token')->plainTextToken;
 
         // rotate refresh token
         $rawNew = Str::random(80);
@@ -97,8 +104,10 @@ class AuthController extends Controller
 
         $resp = response()->json([
             'token' => $accessToken,
-            'user' => $client,
-            'is_first_login' => optional($client->credential)->password_change_at === null,
+            'user' => $user,
+            'is_first_login' => $user instanceof Employee
+                ? $user->password_change_at === null
+                : optional($user->credential)->password_change_at === null,
         ], 200);
         $resp->withCookie(cookie('refresh_token', $rawNew, $minutes, '/', null, $secure, true, false, 'Lax'));
         return $resp;
@@ -110,7 +119,9 @@ class AuthController extends Controller
         $isFirstLogin = false;
 
         if ($user) {
-            $isFirstLogin = optional($user->credential)->password_change_at === null;
+            $isFirstLogin = $user instanceof Employee
+                ? $user->password_change_at === null
+                : optional($user->credential)->password_change_at === null;
         }
 
         return response()->json([
@@ -173,12 +184,21 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        $rawRefresh = $request->cookie('refresh_token');
+        if ($rawRefresh) {
+            RefreshToken::where('token_hash', hash('sha256', $rawRefresh))->delete();
+        }
+
         $user = $request->user();
 
         if ($user) {
             $user->tokens()->delete();
             // remove refresh tokens
-            RefreshToken::where('client_id', $user->id)->delete();
+            if ($user instanceof Employee) {
+                RefreshToken::where('employee_id', $user->emp_id)->delete();
+            } else {
+                RefreshToken::where('client_id', $user->id)->delete();
+            }
         }
 
         if ($request->hasSession()) {

@@ -12,12 +12,15 @@ class TicketReferenceSeeder extends Seeder
     public function run(): void
     {
         $now = Carbon::now();
-
-        DB::table('users')->insert([
+        
+        DB::table('users')->upsert([
             [
                 'id' => 1,
                 'name' => 'SBSI Demo Customer',
                 'email' => 'customer@example.com',
+                'role' => 'customer',
+                'department' => null,
+                'is_active' => true,
                 'email_verified_at' => $now,
                 'password' => Hash::make('password'),
                 'remember_token' => null,
@@ -26,17 +29,59 @@ class TicketReferenceSeeder extends Seeder
             ],
             [
                 'id' => 2,
-                'name' => 'SBSI Support Lead',
-                'email' => 'support@example.com',
+                'name' => 'Ava Santos',
+                'email' => 'cs@gmail.com',
+                'role' => 'customer service',
+                'department' => 'Customer Service',
+                'is_active' => true,
                 'email_verified_at' => $now,
                 'password' => Hash::make('password'),
                 'remember_token' => null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+            [
+                'id' => 3,
+                'name' => 'Mark Reyes',
+                'email' => 'employee@gmail.com',
+                'role' => 'service engineer',
+                'department' => 'Service',
+                'is_active' => true,
+                'email_verified_at' => $now,
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 4,
+                'name' => 'John Dela Cruz',
+                'email' => 'tech1@example.com',
+                'role' => 'service engineer',
+                'department' => 'IT',
+                'is_active' => true,
+                'email_verified_at' => $now,
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ], ['id'], ['name', 'email', 'role', 'department', 'is_active', 'email_verified_at', 'password', 'remember_token', 'updated_at']);
 
-        DB::table('machine_categories')->insert([
+        DB::table('clients')->upsert([
+            [
+                'id' => 1,
+                'client_name' => 'SBSI Demo Customer',
+                'address' => 'Quezon City',
+                'contact_number' => '09123456789',
+                'email' => 'customer@example.com',
+                'status' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ], ['id'], ['client_name', 'address', 'contact_number', 'email', 'status', 'updated_at']);
+
+        DB::table('machine_categories')->upsert([
             [
                 'category_ID' => 1,
                 'category_name' => 'Imaging Equipment',
@@ -51,9 +96,9 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['category_ID'], ['category_name', 'description', 'updated_at']);
 
-        DB::table('problem_categories')->insert([
+        DB::table('problem_categories')->upsert([
             [
                 'problem_category_ID' => 1,
                 'category_name' => 'Machine Failure',
@@ -70,9 +115,9 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['problem_category_ID'], ['category_name', 'description', 'is_active', 'updated_at']);
 
-        DB::table('ticket_types')->insert([
+        DB::table('ticket_types')->upsert([
             [
                 'ticket_type_ID' => 1,
                 'type_name' => 'Internal',
@@ -87,9 +132,9 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['ticket_type_ID'], ['type_name', 'description', 'updated_at']);
 
-        DB::table('ticket_priorities')->insert([
+        DB::table('ticket_priorities')->upsert([
             [
                 'priority_ID' => 1,
                 'priority_name' => 'Low',
@@ -118,9 +163,9 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['priority_ID'], ['priority_name', 'color_code', 'updated_at']);
 
-        DB::table('ticket_statuses')->insert([
+        DB::table('ticket_statuses')->upsert([
             [
                 'ticket_status_ID' => 1,
                 'status_name' => 'Open',
@@ -135,9 +180,29 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['ticket_status_ID'], ['status_name', 'color_code', 'updated_at']);
 
-        DB::table('machines')->insert([
+        // Departments used by employees and CS assign modal
+        DB::table('departments')->upsert([
+            [
+                'id' => 1,
+                'name' => 'Service',
+                'description' => 'Service and support team',
+                'is_active' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 2,
+                'name' => 'IT',
+                'description' => 'IT and technical support',
+                'is_active' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ], ['id'], ['name', 'description', 'is_active', 'updated_at']);
+
+        DB::table('machines')->upsert([
             [
                 'machine_ID' => 1,
                 'category_ID' => 1,
@@ -166,9 +231,9 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['machine_ID'], ['category_ID', 'client_ID', 'machine_name', 'serial_number', 'model', 'brand', 'status', 'purchase_date', 'last_maintenance_date', 'updated_at']);
 
-        DB::table('slas')->insert([
+        DB::table('slas')->upsert([
             [
                 'sla_ID' => 1,
                 'sla_name' => 'Standard SLA',
@@ -189,6 +254,6 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-        ]);
+        ], ['sla_ID'], ['sla_name', 'description', 'response_time_minutes', 'resolution_time_minutes', 'is_active', 'updated_at']);
     }
 }

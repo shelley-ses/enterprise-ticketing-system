@@ -17,11 +17,12 @@ export const getCsrfToken = async () => {
 
 // Login with email and password
 
-export const loginUser = async (email, password) => {
+export const loginUser = async (email, password, mode = 'customer') => {
   try {
     const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
       email,
       password,
+      mode,
     });
     return response.data;
   } catch (error) {

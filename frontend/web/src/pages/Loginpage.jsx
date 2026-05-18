@@ -350,9 +350,10 @@ function ForgotPasswordModal({ onClose }) {
 }
 
 // ─── Main Login Page ─────────────────────────────────────────────────────────
-function Loginpage() {
+function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
   const { login, clearError } = useAuth();
+  const isEmployeeLogin = mode === 'employee';
 
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -423,12 +424,21 @@ function Loginpage() {
     setIsSubmitting(true);
 
     try {
-      const result = await login(email, password);
+      const result = await login(email, password, mode);
 
       if (result.success) {
         setLoginError('');
         setAttempts(0);
-        navigate('/customer-dashboard', { replace: true });
+        if (isEmployeeLogin) {
+          const role = (result.user?.role || '').toString().toLowerCase();
+          if (role.includes('customer service') || role.includes('customer-service') || role === 'cs') {
+            navigate('/cs/dashboard', { replace: true });
+          } else {
+            navigate('/employee/dashboard', { replace: true });
+          }
+        } else {
+          navigate('/customer-dashboard', { replace: true });
+        }
       } else {
         // Rate Limit
         if (result.retryAfter) {
@@ -492,8 +502,10 @@ function Loginpage() {
         <div className="right-panel">
           <form className="form-box" onSubmit={handleLogin}>
 
-            <h2 className="title">Welcome Back!</h2>
-            <p className="subtitle">Sign in to the Ticketing Management System</p>
+            <h2 className="title">{isEmployeeLogin ? 'Employee Login' : 'Welcome Back!'}</h2>
+            <p className="subtitle">
+              {isEmployeeLogin ? 'Sign in to the employee portal' : 'Sign in to the Ticketing Management System'}
+            </p>
 
             {/* Lockout banner */}
             {lockedOut && (
@@ -579,15 +591,17 @@ function Loginpage() {
             )}
 
             {/* FORGOT PASSWORD */}
-            <div className="forgot-row">
-              <button
-                type="button"
-                className="forgot-link"
-                onClick={() => setShowForgot(true)}
-              >
-                Forgot Password?
-              </button>
-            </div>
+            {!isEmployeeLogin && (
+              <div className="forgot-row">
+                <button
+                  type="button"
+                  className="forgot-link"
+                  onClick={() => setShowForgot(true)}
+                >
+                  Forgot Password?
+                </button>
+              </div>
+            )}
 
           </form>
         </div>

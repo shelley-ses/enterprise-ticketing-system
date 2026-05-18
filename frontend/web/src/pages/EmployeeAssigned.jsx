@@ -1,6 +1,5 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
-  allTickets as initialTickets,
   statusColors,
   priorityColors,
   slaStatusColors,
@@ -8,14 +7,17 @@ import {
 } from '@/constants/employeeTickets';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
+import { useAuth } from '@/context/AuthContext';
+import { getEmployeeAssignedTickets } from '@/services/ticketService';
 
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
 
 export default function EmployeeAssigned() {
-  const [tickets, setTickets] = useState(() =>
-    initialTickets.map((t) => ({ ...t, rejected: false }))
-  );
+  const { user } = useAuth();
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
@@ -24,6 +26,35 @@ export default function EmployeeAssigned() {
 
   const [summaryTicket, setSummaryTicket] = useState(null);
   const [workTicket, setWorkTicket] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      if (!user?.email) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setLoadError('');
+      try {
+        const list = await getEmployeeAssignedTickets({ employeeEmail: user.email });
+        if (!mounted) return;
+        setTickets(list.map((t) => ({ ...t, rejected: false })));
+      } catch {
+        if (!mounted) return;
+        setLoadError('Unable to load assigned tickets from ticket-service.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.email]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -73,7 +104,15 @@ export default function EmployeeAssigned() {
         <p className="text-sm text-gray-500 mt-1">All tickets assigned to you — work, update, and resolve.</p>
       </div>
 
+      {loadError && (
+        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{loadError}</div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-md p-6">
+        {loading ? (
+          <div className="text-center text-gray-500 py-8">Loading assigned tickets...</div>
+        ) : (
+          <>
         <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
           <div className="relative flex-1 min-w-0">
             <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,6 +238,8 @@ export default function EmployeeAssigned() {
         <p className="text-sm text-gray-500 mt-4">
           Showing {filtered.length} of {activeCount} tickets
         </p>
+          </>
+        )}
       </div>
 
       {summaryTicket && (

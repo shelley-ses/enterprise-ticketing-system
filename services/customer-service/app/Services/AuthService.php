@@ -1,6 +1,7 @@
 <?php
     namespace App\Services;
 
+    use App\Models\Employee;
     use App\Models\Client;
     use App\Models\ClientCredential;
     use App\Models\PasswordResetOtp;
@@ -19,9 +20,19 @@
         const PASSWORD_RESET_OTP_MINUTES = 10;
         const PASSWORD_RESET_MAX_ATTEMPTS = 5;
 
-        public function login($email, $password){
+        public function login($email, $password, $mode = 'customer'){
             $start = microtime(true);
             Log::info('AuthService.login:start', ['email' => $email]);
+
+            if ($mode === 'employee') {
+                return $this->loginEmployee($email, $password, $start);
+            }
+
+            return $this->loginCustomer($email, $password, $start);
+        }
+
+        private function loginCustomer($email, $password, $start)
+        {
 
             $client = Client::with('credential')->where('email', $email)->first();
             Log::info('AuthService.login:after_client_lookup', ['duration_ms' => (microtime(true)-$start)*1000]);
@@ -111,6 +122,79 @@
                 'success' => true,
                 'message' => 'Login successful',
                 'user' => $client,
+                'token' => $accessToken,
+                'is_first_login' => $isFirstLogin,
+                'refresh_token' => $rawRefresh,
+                'refresh_expires_at' => $expiresAt,
+            ];
+        }
+
+        private function loginEmployee($email, $password, $start)
+        {
+            $employee = Employee::where('email', $email)->first();
+            Log::info('AuthService.login:after_employee_lookup', ['duration_ms' => (microtime(true) - $start) * 1000]);
+
+            if (!$employee) {
+                return [
+                    'success' => false,
+                    'message' => 'Wrong username or password',
+                    'user' => null,
+                    'token' => null,
+                ];
+            }
+
+            if ($employee->locked_until && $employee->locked_until->isFuture()) {
+                return [
+                    'success' => false,
+                    'message' => 'Wrong username or password',
+                    'user' => null,
+                    'token' => null,
+                    'locked_until' => $employee->locked_until,
+                ];
+            }
+
+            if (!Hash::check($password, $employee->password_hash)) {
+                $failedLoginCount = $employee->failed_login_count + 1;
+                $employee->failed_login_count = $failedLoginCount;
+
+                if ($failedLoginCount >= self::MAX_FAILED_LOGIN) {
+                    $employee->locked_until = Carbon::now()->addMinutes(self::LOCK_MINUTES);
+                }
+
+                $employee->save();
+
+                return [
+                    'success' => false,
+                    'message' => 'Wrong username or password',
+                    'user' => null,
+                    'token' => null,
+                    'remaining_attempts' => max(0, 5 - $failedLoginCount),
+                    'locked_until' => $employee->locked_until,
+                ];
+            }
+
+            $isFirstLogin = $employee->password_change_at === null;
+
+            $employee->failed_login_count = 0;
+            $employee->locked_until = null;
+            $employee->last_login_at = Carbon::now();
+            $employee->save();
+
+            $accessToken = $employee->createToken('access-token')->plainTextToken;
+            $rawRefresh = Str::random(80);
+            $hash = hash('sha256', $rawRefresh);
+            $expiresAt = Carbon::now()->addDays(14);
+
+            RefreshToken::create([
+                'employee_id' => $employee->emp_id,
+                'token_hash' => $hash,
+                'expires_at' => $expiresAt,
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Login successful',
+                'user' => $employee,
                 'token' => $accessToken,
                 'is_first_login' => $isFirstLogin,
                 'refresh_token' => $rawRefresh,

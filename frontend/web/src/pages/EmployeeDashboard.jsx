@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import assignedStatIcon from '@/assets/cs-assigned.png';
 import pendingIcon from '@/assets/cs-pending.png';
@@ -6,7 +6,6 @@ import unassignedIcon from '@/assets/cs-unassigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
 import {
-  allTickets as initialTickets,
   recentProgress,
   statusColors,
   priorityColors,
@@ -14,6 +13,8 @@ import {
 import EmployeeFilterBar from '@/components/employee/EmployeeFilterBar';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
+import { useAuth } from '@/context/AuthContext';
+import { getEmployeeAssignedTickets } from '@/services/ticketService';
 
 function ChevronRight() {
   return (
@@ -32,6 +33,7 @@ function ArrowRight() {
 }
 
 export default function EmployeeDashboard() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const dateStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -40,9 +42,8 @@ export default function EmployeeDashboard() {
     day: 'numeric',
   }).format(new Date());
 
-  const [tickets, setTickets] = useState(() =>
-    initialTickets.map((t) => ({ ...t, rejected: false }))
-  );
+  const [tickets, setTickets] = useState([]);
+  const [loadingTickets, setLoadingTickets] = useState(true);
   const [summaryTicket, setSummaryTicket] = useState(null);
   const [workTicket, setWorkTicket] = useState(null);
   const [filters, setFilters] = useState({
@@ -53,6 +54,30 @@ export default function EmployeeDashboard() {
   });
 
   const visible = useMemo(() => tickets.filter((t) => !t.rejected), [tickets]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      if (!user?.email) {
+        setLoadingTickets(false);
+        return;
+      }
+      setLoadingTickets(true);
+      try {
+        const list = await getEmployeeAssignedTickets({ employeeEmail: user.email });
+        if (!mounted) return;
+        setTickets(list.map((t) => ({ ...t, rejected: false })));
+      } finally {
+        if (mounted) setLoadingTickets(false);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.email]);
 
   const handleStatusChange = useCallback((id, newStatus) => {
     setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
@@ -111,7 +136,7 @@ export default function EmployeeDashboard() {
 
   return (
     <div className="p-6">
-      <div className="relative rounded-2xl overflow-hidden mb-8 bg-gradient-to-br from-[#252578] via-[#3535a0] to-[#1a1a5c] px-8 py-7 flex flex-col md:flex-row md:items-center gap-4 shadow-md">
+      <div className="relative rounded-2xl overflow-hidden mb-8 bg-linear-to-br from-[#252578] via-[#3535a0] to-[#1a1a5c] px-8 py-7 flex flex-col md:flex-row md:items-center gap-4 shadow-md">
         <div
           className="absolute inset-0 opacity-10"
           style={{ backgroundImage: 'radial-gradient(circle at 80% 50%, #ffffff 0%, transparent 60%)' }}
@@ -153,6 +178,10 @@ export default function EmployeeDashboard() {
           </div>
         ))}
       </div>
+
+      {loadingTickets && (
+        <div className="mb-6 rounded-xl bg-white p-4 text-sm text-gray-500">Loading assigned tickets...</div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-red-50 rounded-2xl shadow-md border border-red-100 p-6">

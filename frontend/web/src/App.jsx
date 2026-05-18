@@ -4,6 +4,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
 import Loginpage from './pages/Loginpage.jsx';
+import LoginChoicePage from './pages/LoginChoicePage.jsx';
 import CustomerLayout from './components/CustomerLayout.jsx';
 import CustomerDashboard from './pages/CustomerDashboard.jsx';
 import TicketCreation from './pages/TicketCreation.jsx';
@@ -26,7 +27,25 @@ function App() {
             path="/login"
             element={
               <GuestRoute>
-                <Loginpage />
+                <LoginChoicePage />
+              </GuestRoute>
+            }
+          />
+
+          <Route
+            path="/login/customer"
+            element={
+              <GuestRoute>
+                <Loginpage mode="customer" />
+              </GuestRoute>
+            }
+          />
+
+          <Route
+            path="/login/employee"
+            element={
+              <GuestRoute>
+                <Loginpage mode="employee" />
               </GuestRoute>
             }
           />
@@ -73,6 +92,9 @@ function App() {
             <Route path="assigned" element={<div className="p-6 text-gray-500">CS Assigned — coming soon.</div>} />
             <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
           </Route>
+
+          <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />
+          <Route path="/customer-login" element={<Navigate to="/login/customer" replace />} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

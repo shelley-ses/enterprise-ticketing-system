@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import pendingIcon from '@/assets/cs-pending.png';
 import assignedIcon from '@/assets/cs-assigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
+import { getCSDashboard } from '@/services/ticketService';
 
 const MOCK_STATS = {
   unassigned: 7,
@@ -29,6 +31,7 @@ function formatSla(iso) {
 }
 
 export default function CSDashboard() {
+  const { refreshKey = 0 } = useOutletContext() || {};
   const [stats, setStats] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,30 +44,16 @@ export default function CSDashboard() {
       setLoading(true);
       setError(null);
       try {
-        // Try to fetch real endpoints (dev backend). If they fail, fall back to mock data.
-        const [sRes, tRes] = await Promise.all([
-          fetch('/api/cs/stats'),
-          fetch('/api/cs/tickets?limit=10'),
-        ]);
-
-        if (sRes.ok && tRes.ok) {
-          const sJson = await sRes.json();
-          const tJson = await tRes.json();
-          if (!mounted) return;
-          setStats({
-            unassigned: sJson.unassigned ?? MOCK_STATS.unassigned,
-            pending: sJson.pending ?? MOCK_STATS.pending,
-            assigned: sJson.assigned ?? MOCK_STATS.assigned,
-            highPriority: sJson.highPriority ?? MOCK_STATS.highPriority,
-            slaWarnings: sJson.slaWarnings ?? MOCK_STATS.slaWarnings,
-          });
-          setTickets(tJson.tickets ?? MOCK_TICKETS);
-        } else {
-          // Fallback to mock if API not available
-          if (!mounted) return;
-          setStats(MOCK_STATS);
-          setTickets(MOCK_TICKETS);
-        }
+        const payload = await getCSDashboard({ limit: 10, forceRefresh: refreshKey > 0 });
+        if (!mounted) return;
+        setStats({
+          unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
+          pending: payload.summary?.in_progress ?? MOCK_STATS.pending,
+          assigned: payload.summary?.resolved ?? MOCK_STATS.assigned,
+          highPriority: 0,
+          slaWarnings: 0,
+        });
+        setTickets(payload.recent_tickets ?? MOCK_TICKETS);
       } catch (err) {
         if (!mounted) return;
         setError('Unable to load data from API — using local mock data.');
@@ -80,7 +69,7 @@ export default function CSDashboard() {
     // const id = setInterval(load, 30000);
     // return () => { mounted = false; clearInterval(id); };
     return () => { mounted = false; };
-  }, []);
+  }, [refreshKey]);
 
   const statItems = stats
     ? [
