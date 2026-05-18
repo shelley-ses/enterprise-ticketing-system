@@ -66,6 +66,19 @@ class TicketReferenceSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
+            [
+                'id' => 5,
+                'name' => 'Bernadette',
+                'email' => 'slosinada@gmail.com',
+                'role' => 'customer',
+                'department' => null,
+                'is_active' => true,
+                'email_verified_at' => $now,
+                'password' => Hash::make('password'),
+                'remember_token' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
         ], ['id'], ['name', 'email', 'role', 'department', 'is_active', 'email_verified_at', 'password', 'remember_token', 'updated_at']);
 
         DB::table('clients')->upsert([

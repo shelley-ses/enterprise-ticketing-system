@@ -82,6 +82,15 @@ function ForgotPasswordModal({ onClose }) {
     otpRefs.current[Math.min(pasted.length, 5)]?.current?.focus();
   };
 
+  const extractError = (err) => {
+    if (typeof err === 'string') return err;
+    if (err?.errors) {
+      const firstKey = Object.keys(err.errors)[0];
+      return err.errors[firstKey][0];
+    }
+    return err?.message || 'An error occurred. Please try again.';
+  };
+
   const handleSendCode = async () => {
     if (!fpEmail || busy) return;
 
@@ -97,7 +106,7 @@ function ForgotPasswordModal({ onClose }) {
       otpRefs.current[0]?.current?.focus();
       setModalMessage('We sent a 6-digit code to your email.');
     } catch (error) {
-      setModalError(error?.message || 'Unable to send the code.');
+      setModalError(extractError(error) || 'Unable to send the code.');
     } finally {
       setBusy(false);
     }
@@ -120,7 +129,7 @@ function ForgotPasswordModal({ onClose }) {
       await verifyPasswordResetOtp(fpEmail.trim(), code);
       setStep(3);
     } catch (error) {
-      setModalError(error?.message || 'Invalid or expired verification code.');
+      setModalError(extractError(error) || 'Invalid or expired verification code.');
     } finally {
       setBusy(false);
     }
@@ -129,8 +138,13 @@ function ForgotPasswordModal({ onClose }) {
   const handleResetPassword = async () => {
     if (busy) return;
 
-    if (!isPasswordValid || newPassword !== confirmPassword) {
-      setModalError('Password does not meet the requirements.');
+    if (!isPasswordValid) {
+      setModalError('Password must meet all format requirements.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setModalError('Passwords do not match.');
       return;
     }
 
@@ -142,8 +156,7 @@ function ForgotPasswordModal({ onClose }) {
       await resetPassword(fpEmail.trim(), otp.join(''), newPassword, confirmPassword);
       setStep(4);
     } catch (error) {
-      const message = error?.message || 'Unable to reset password.';
-      setModalError(message);
+      setModalError(extractError(error) || 'Unable to reset password.');
     } finally {
       setBusy(false);
     }
