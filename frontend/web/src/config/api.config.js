@@ -1,6 +1,7 @@
 // API Config
 export const API_BASE_URL = import.meta.env.VITE_API_URL;
 export const SANCTUM_URL = import.meta.env.VITE_SANCTUM_URL;
+export const TICKET_API_URL = import.meta.env.VITE_TICKET_API_URL;
 
 if(!API_BASE_URL){
   throw new Error("Missing VITE_API_URL in environment variables");
@@ -8,6 +9,10 @@ if(!API_BASE_URL){
 
 if(!SANCTUM_URL){
   throw new Error("Missing SANCTUM_URL in environment variables");
+}
+
+if(!TICKET_API_URL){
+  throw new Error("Missing VITE_TICKET_API_URL in environment variables");
 }
 
 // CSRF Config (Sanctum)

@@ -1,30 +1,120 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Notifications from '@/components/Notifications';
 import QuickActions from '@/components/QuickActions';
 import TicketModal from '@/components/TicketModal';
+import { createTicket, getCustomerDashboard, prefetchTicketFormOptions } from '@/services/ticketService';
+import { useAuth } from '@/context/AuthContext';
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    return null;
+  }
+};
 
 export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState('');
+  const [summary, setSummary] = useState({
+    open: 0,
+    in_progress: 0,
+    resolved: 0,
+    closed: 0,
+  });
+  const [recentTickets, setRecentTickets] = useState([]);
+  const { user } = useAuth();
+  const effectiveUser = user || getStoredUser();
+  const customerName = effectiveUser?.name || 'Customer';
+  const customerId = effectiveUser?.id || 1;
+
+  const statusColorByName = {
+    Open: 'bg-amber-100 text-amber-700',
+    'In Progress': 'bg-blue-100 text-blue-700',
+    Resolved: 'bg-green-100 text-green-700',
+    Closed: 'bg-gray-100 text-gray-700',
+  };
+
+  const loadDashboardData = async ({ forceRefresh = false } = {}) => {
+    setDashboardLoading(true);
+    setDashboardError('');
+
+    try {
+      const data = await getCustomerDashboard({ createdBy: customerId, limit: 5, forceRefresh });
+      setSummary(data?.summary || {
+        open: 0,
+        in_progress: 0,
+        resolved: 0,
+        closed: 0,
+      });
+      setRecentTickets((data?.recent_tickets || []).map((ticket) => ({
+        ...ticket,
+        statusColor: statusColorByName[ticket.status] || 'bg-gray-100 text-gray-700',
+      })));
+    } catch (error) {
+      setDashboardError(error?.response?.data?.message || 'Failed to load dashboard data.');
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    prefetchTicketFormOptions().catch(() => {
+      // Modal handles display error if options cannot be fetched.
+    });
+
+    loadDashboardData().catch(() => {
+      // State handled in loadDashboardData.
+    });
+  }, [customerId]);
+
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
 
   const summaryData = [
-    { title: 'Open Tickets', count: 3, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' },
-    { title: 'In Progress', count: 1, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-200' },
-    { title: 'Resolved', count: 5, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-200' },
-    { title: 'Closed', count: 2, color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
-  ];
-
-  const recentTickets = [
-    { id: 'TKT-001', title: 'MRI Machine Not Powering On', equipment: 'MRI - MRI-3T-B02', status: 'In Progress', statusColor: 'bg-blue-100 text-blue-700' },
-    { id: 'TKT-002', title: 'MRI Machine Not Powering On', equipment: 'MRI - MRI-3T-B02', status: 'Open', statusColor: 'bg-amber-100 text-amber-700' },
-    { id: 'TKT-003', title: 'MRI Machine Not Powering On', equipment: 'MRI - MRI-3T-B02', status: 'Resolved', statusColor: 'bg-green-100 text-green-700' },
+    { title: 'Open Tickets', count: summary.open, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' },
+    { title: 'In Progress', count: summary.in_progress, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-200' },
+    { title: 'Resolved', count: summary.resolved, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-200' },
+    { title: 'Closed', count: summary.closed, color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
   ];
 
   const notifications = [
     { title: 'Engineer Assigned', desc: 'James Reyes has been assigned to your ticket TKT-001 (MRI Machine Not Powering On).', time: '3d ago', unread: true },
     { title: 'Ticket Resolved', desc: 'Your ticket TKT-003 (CT Scan Gantry Rotation Error) has been marked as Resolved.', time: '7d ago', unread: false },
   ];
+
+  const handleCreateTicket = async (payload) => {
+    const response = await createTicket({
+      machine_ID: Number(payload.machine_ID),
+      problem_category_ID: Number(payload.problem_category_ID),
+      created_by: Number(payload.created_by || customerId),
+      ticket_status_ID: 1,
+      title: payload.title,
+      description: payload.description,
+      attachments: payload.attachments || [],
+    });
+
+    if (response?.dashboard_ticket) {
+      const newTicket = {
+        ...response.dashboard_ticket,
+        statusColor: statusColorByName[response.dashboard_ticket.status] || 'bg-gray-100 text-gray-700',
+      };
+
+      setSummary((current) => ({
+        ...current,
+        open: current.open + 1,
+      }));
+      setRecentTickets((current) => [newTicket, ...current].slice(0, 5));
+    }
+
+    loadDashboardData({ forceRefresh: true }).catch(() => {
+      // UI already updated optimistically from create response.
+    });
+
+    setIsTicketModalOpen(false);
+    window.alert('Ticket created successfully.');
+  };
 
   return (
     <div className="flex flex-col xl:flex-row gap-8">
@@ -35,7 +125,7 @@ export default function CustomerDashboard() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <p className="text-gray-500 text-sm font-medium">{dateStr}</p>
-            <h1 className="text-3xl font-bold text-[#252578] mt-1">Welcome back, Jane Doe!</h1>
+            <h1 className="text-3xl font-bold text-[#252578] mt-1">Welcome back, {customerName}!</h1>
             <p className="text-gray-500 mt-2 text-sm">Here's a summary of your equipment support tickets.</p>
           </div>
 
@@ -55,13 +145,14 @@ export default function CustomerDashboard() {
         </div>
 
         {/* Summary Cards */}
+        {dashboardError && <p className="text-sm text-red-500">{dashboardError}</p>}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {summaryData.map((card, idx) => (
             <div key={idx} className={`p-6 rounded-3xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>
                <div className={`absolute top-4 right-4 w-8 h-8 rounded-full ${card.bg} flex items-center justify-center`}>
                   <div className={`w-3 h-3 rounded-sm border-2 ${card.color}`}></div>
                </div>
-               <div className={`text-4xl font-bold ${card.color}`}>{card.count}</div>
+               <div className={`text-4xl font-bold ${card.color}`}>{dashboardLoading ? '-' : card.count}</div>
                <div className={`text-sm font-medium mt-2 ${card.color} opacity-80`}>{card.title}</div>
             </div>
           ))}
@@ -90,6 +181,13 @@ export default function CustomerDashboard() {
                 </tr>
               </thead>
               <tbody>
+                {recentTickets.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="px-4 py-6 text-center text-sm text-gray-500">
+                      {dashboardLoading ? 'Loading recent tickets...' : 'No tickets yet.'}
+                    </td>
+                  </tr>
+                )}
                 {recentTickets.map((t, idx) => (
                   <tr key={idx} className="bg-white shadow-sm hover:shadow-md transition-shadow rounded-2xl group">
                     <td className="px-4 py-4 rounded-l-2xl text-sm font-medium text-gray-800 border-y border-l border-gray-100">{t.id}</td>
@@ -127,10 +225,7 @@ export default function CustomerDashboard() {
       <TicketModal
         isOpen={isTicketModalOpen}
         onClose={() => setIsTicketModalOpen(false)}
-        onSubmit={() => {
-          alert('Ticket submitted successfully!');
-          setIsTicketModalOpen(false);
-        }}
+        onSubmit={handleCreateTicket}
       />
     </div>
   );

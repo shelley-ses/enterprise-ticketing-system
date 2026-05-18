@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\TicketController;
 
 /*
 |--------------------------------------------------------------------------
@@ -17,3 +18,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+Route::get('/ticket-form-options', [TicketController::class, 'formOptions']);
+Route::get('/customer-dashboard', [TicketController::class, 'customerDashboard']);
+Route::post('/tickets', [TicketController::class, 'store']);
