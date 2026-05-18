@@ -138,6 +138,12 @@ class AuthController extends Controller
 
         $result = $this->authService->requestPasswordResetOtp($request->email);
 
+        if (!$result['success']) {
+            return response()->json([
+                'message' => $result['message'],
+            ], 500);
+        }
+
         return response()->json([
             'message' => $result['message'],
             'expires_at' => $result['expires_at'] ?? null,
@@ -176,6 +182,29 @@ class AuthController extends Controller
         ]);
 
         $result = $this->authService->resetPasswordWithOtp($request->email, $request->otp, $request->password);
+
+        return response()->json([
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => [
+                'required',
+                'string',
+                'confirmed',
+                'min:12',
+                'regex:/[A-Z]/',
+                'regex:/[0-9]/',
+                'regex:/[^A-Za-z0-9]/',
+            ],
+        ]);
+
+        $user = $request->user();
+        $result = $this->authService->changePassword($user, $request->current_password, $request->new_password);
 
         return response()->json([
             'message' => $result['message'],

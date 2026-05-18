@@ -226,7 +226,32 @@
                 ]
             );
 
-            Mail::to($email)->send(new ForgotPasswordOtpMail($client, $otp, self::PASSWORD_RESET_OTP_MINUTES));
+            try {
+                Log::info('AuthService.requestPasswordResetOtp:before_mail_send', [
+                    'email' => $email,
+                    'mail_mailer' => config('mail.default'),
+                    'mail_host' => config('mail.mailers.smtp.host'),
+                ]);
+
+                $result = Mail::to($email)->send(new ForgotPasswordOtpMail($client, $otp, self::PASSWORD_RESET_OTP_MINUTES));
+                
+                Log::info('AuthService.requestPasswordResetOtp:after_mail_send', [
+                    'email' => $email,
+                    'result' => $result,
+                ]);
+            } catch (\Throwable $throwable) {
+                Log::error('AuthService.requestPasswordResetOtp:mail_failed', [
+                    'email' => $email,
+                    'message' => $throwable->getMessage(),
+                    'code' => $throwable->getCode(),
+                    'class' => get_class($throwable),
+                ]);
+
+                return [
+                    'success' => false,
+                    'message' => 'Unable to send the OTP email. Please check SMTP settings.',
+                ];
+            }
 
             return [
                 'success' => true,
@@ -305,6 +330,48 @@
             return [
                 'success' => true,
                 'message' => 'Password reset successfully.',
+            ];
+        }
+
+        public function changePassword($user, $currentPassword, $newPassword)
+        {
+            $currentPasswordHash = $user instanceof Employee
+                ? $user->password_hash
+                : $user->credential->password_hash;
+
+            if (!Hash::check($currentPassword, $currentPasswordHash)) {
+                return [
+                    'success' => false,
+                    'message' => 'Current password is incorrect.',
+                ];
+            }
+
+            if (Hash::check($newPassword, $currentPasswordHash)) {
+                return [
+                    'success' => false,
+                    'message' => 'New password cannot be the same as the current password.',
+                ];
+            }
+
+            DB::transaction(function () use ($user, $newPassword) {
+                if ($user instanceof Employee) {
+                    $user->password_hash = Hash::make($newPassword);
+                    $user->password_change_at = Carbon::now();
+                    $user->failed_login_count = 0;
+                    $user->locked_until = null;
+                    $user->save();
+                } else {
+                    $user->credential->password_hash = Hash::make($newPassword);
+                    $user->credential->password_change_at = Carbon::now();
+                    $user->credential->failed_login_count = 0;
+                    $user->credential->locked_until = null;
+                    $user->credential->save();
+                }
+            });
+
+            return [
+                'success' => true,
+                'message' => 'Password changed successfully.',
             ];
         }
     }
