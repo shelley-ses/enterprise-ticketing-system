@@ -3,7 +3,16 @@ import { Link } from 'react-router-dom';
 import Notifications from '@/components/Notifications';
 import QuickActions from '@/components/QuickActions';
 import TicketModal from '@/components/TicketModal';
-import { createTicket, getCustomerDashboard, prefetchTicketFormOptions } from '@/services/ticketService';
+import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import {
+  createTicket,
+  discardCustomerTicketLocally,
+  getCachedTicketFormOptions,
+  getCustomerDashboard,
+  getTicketFormOptions,
+  prefetchTicketFormOptions,
+  saveCustomerTicketDetail,
+} from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 
 const getStoredUser = () => {
@@ -18,6 +27,9 @@ export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(null);
+  const [createdTicket, setCreatedTicket] = useState(null);
   const [summary, setSummary] = useState({
     open: 0,
     in_progress: 0,
@@ -51,6 +63,10 @@ export default function CustomerDashboard() {
       });
       setRecentTickets((data?.recent_tickets || []).map((ticket) => ({
         ...ticket,
+        category: ticket.category || 'General',
+        date_created: ticket.date_created || new Date().toISOString(),
+        last_updated: ticket.last_updated || ticket.date_created || new Date().toISOString(),
+        can_discard: ticket.status === 'Open',
         statusColor: statusColorByName[ticket.status] || 'bg-gray-100 text-gray-700',
       })));
     } catch (error) {
@@ -83,6 +99,23 @@ export default function CustomerDashboard() {
     { title: 'Engineer Assigned', desc: 'James Reyes has been assigned to your ticket TKT-001 (MRI Machine Not Powering On).', time: '3d ago', unread: true },
     { title: 'Ticket Resolved', desc: 'Your ticket TKT-003 (CT Scan Gantry Rotation Error) has been marked as Resolved.', time: '7d ago', unread: false },
   ];
+
+  const handleConfirmDiscard = () => {
+    if (!confirmDiscard) return;
+
+    discardCustomerTicketLocally(confirmDiscard.id);
+    setRecentTickets((current) => current.map((ticket) => (
+      ticket.id === confirmDiscard.id
+        ? { ...ticket, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
+        : ticket
+    )));
+    setSelectedTicket((current) => (
+      current?.id === confirmDiscard.id
+        ? { ...current, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
+        : current
+    ));
+    setConfirmDiscard(null);
+  };
 
   const handleCreateTicket = async (payload) => {
     const response = await createTicket({
@@ -202,7 +235,11 @@ export default function CustomerDashboard() {
                       </span>
                     </td>
                     <td className="px-4 py-4 rounded-r-2xl border-y border-r border-gray-100 text-center">
-                      <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors">
+                      <button
+                        onClick={() => setSelectedTicket(t)}
+                        aria-label={`View ${t.id}`}
+                        className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors"
+                      >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                       </button>
                     </td>
@@ -227,6 +264,27 @@ export default function CustomerDashboard() {
         onClose={() => setIsTicketModalOpen(false)}
         onSubmit={handleCreateTicket}
       />
+
+      {/* Ticket Detail Modal */}
+      <CustomerTicketDetailModal
+        ticket={selectedTicket}
+        onClose={() => setSelectedTicket(null)}
+        onDiscard={(ticket) => setConfirmDiscard(ticket)}
+      />
+
+      {/* Confirm Discard Modal */}
+      {confirmDiscard && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
+            <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded by Customer in your current browser.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setConfirmDiscard(null)} className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
+              <button onClick={handleConfirmDiscard} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

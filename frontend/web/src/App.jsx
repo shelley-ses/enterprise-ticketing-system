@@ -8,6 +8,8 @@ import LoginChoicePage from './pages/LoginChoicePage.jsx';
 import CustomerLayout from './components/CustomerLayout.jsx';
 import CustomerDashboard from './pages/CustomerDashboard.jsx';
 import TicketCreation from './pages/TicketCreation.jsx';
+import MyTickets from './pages/MyTickets.jsx';
+import CustomerHistory from './pages/CustomerHistory.jsx';
 import EmployeeLayout from './components/EmployeeLayout.jsx';
 import EmployeeDashboard from './pages/EmployeeDashboard.jsx';
 import EmployeeAssigned from './pages/EmployeeAssigned.jsx';
@@ -62,7 +64,8 @@ function App() {
             <Route index element={<Navigate to="customer-dashboard" replace />} />
             <Route path="customer-dashboard" element={<CustomerDashboard />} />
             <Route path="create-ticket" element={<TicketCreation />} />
-            <Route path="my-tickets" element={<div className="p-8 text-center text-gray-500">My Tickets — coming soon.</div>} />
+            <Route path="my-tickets" element={<MyTickets />} />
+            <Route path="history" element={<CustomerHistory />} />
             <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
             <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
             <Route path="notifications" element={<div className="p-8 text-center text-gray-500">Notifications — coming soon.</div>} />

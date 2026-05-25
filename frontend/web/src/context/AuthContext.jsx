@@ -19,17 +19,45 @@ const AuthContext = createContext({
   revalidateSession: async () => false,
 });
 const LOCKOUT_STORAGE_KEY = 'login_lockout_until';
+const MOCK_AUTH_ENABLED = import.meta.env.VITE_MOCK_AUTH === 'true';
+const MOCK_TOKEN = 'frontend-dev-token';
+
+const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
+  if (mode === 'employee') {
+    return {
+      id: 2,
+      emp_id: 2,
+      name: 'Frontend Employee',
+      email,
+      role: 'employee',
+    };
+  }
+
+  return {
+    id: 1,
+    name: 'Frontend Customer',
+    email,
+    role: 'customer',
+  };
+};
+
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user'));
+  } catch {
+    return null;
+  }
+};
 
 const hasCookie = (name) => document.cookie.split('; ').some((cookie) => cookie.startsWith(`${name}=`));
 
 const canRefreshSession = () => hasCookie('refresh_token');
 
 const ensureCsrfCookie = async () => {
-  if (hasCookie('XSRF-TOKEN')) {
-    return;
-  }
-
-  await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`);
+  await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`, {
+    withCredentials: true,
+    withXSRFToken: true,
+  });
 };
 
 //logout cleanup 
@@ -63,6 +91,21 @@ export function AuthProvider({ children }) {
 
   // Verify existing token
   const revalidateSession = useCallback(async () => {
+    if (MOCK_AUTH_ENABLED) {
+      const token = tokenStore.getToken();
+      const storedUser = readStoredUser();
+
+      if (token && storedUser) {
+        setUser(storedUser);
+        setIsAuthenticated(true);
+        setIsFirstLogin(false);
+        return true;
+      }
+
+      applyUnauthenticated(setUser, setIsAuthenticated);
+      return false;
+    }
+
     if (window.location.pathname.startsWith('/login')) {
       applyUnauthenticated(setUser, setIsAuthenticated);
       return false;
@@ -169,6 +212,18 @@ export function AuthProvider({ children }) {
     try {
       setError(null);
 
+      if (MOCK_AUTH_ENABLED) {
+        const userData = getMockUser(email, mode);
+
+        tokenStore.setToken(MOCK_TOKEN);
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+        setIsFirstLogin(false);
+
+        return { success: true, user: userData, isFirstLogin: false };
+      }
+
       // For CSRF
       await ensureCsrfCookie();
 
@@ -217,6 +272,23 @@ export function AuthProvider({ children }) {
     try {
       setError(null);
 
+      if (MOCK_AUTH_ENABLED) {
+        const newUser = {
+          id: 3,
+          name: userData?.name || 'Frontend Customer',
+          email: userData?.email || 'frontend@example.com',
+          role: 'customer',
+        };
+
+        tokenStore.setToken(MOCK_TOKEN);
+        localStorage.setItem('user', JSON.stringify(newUser));
+        setUser(newUser);
+        setIsAuthenticated(true);
+        setIsFirstLogin(false);
+
+        return { success: true, user: newUser };
+      }
+
       // CSRF
       await ensureCsrfCookie();
 
@@ -243,6 +315,20 @@ export function AuthProvider({ children }) {
   //For logout
   const logout = useCallback(async () => {
     const currentToken = tokenStore.getToken();
+
+    if (MOCK_AUTH_ENABLED) {
+      localStorage.removeItem('user');
+      localStorage.removeItem(LOCKOUT_STORAGE_KEY);
+      tokenStore.clearToken();
+
+      setUser(null);
+      setIsAuthenticated(false);
+      setError(null);
+      setIsFirstLogin(false);
+      setIsLoading(false);
+
+      return { success: true };
+    }
 
     try {
       //logout
@@ -277,6 +363,18 @@ export function AuthProvider({ children }) {
   const updateProfile = useCallback(async (userData) => {
     try {
       setError(null);
+
+      if (MOCK_AUTH_ENABLED) {
+        const updatedUser = {
+          ...(readStoredUser() || getMockUser()),
+          ...userData,
+        };
+
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        setUser(updatedUser);
+
+        return { success: true, user: updatedUser };
+      }
 
       const response = await axiosInstance.put('/profile', userData);
 

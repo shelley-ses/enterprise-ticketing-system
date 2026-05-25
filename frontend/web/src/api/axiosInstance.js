@@ -11,6 +11,7 @@ import tokenStore from '@/auth/tokenStore';
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true, // for refresh tokens (httpOnly cookies)
+  withXSRFToken: true,
   xsrfCookieName: 'XSRF-TOKEN',
   xsrfHeaderName: 'X-XSRF-TOKEN',
   headers: {
@@ -31,11 +32,31 @@ const AUTH_PATH_PREFIXES = [
 ];
 
 const isAuthEndpoint = (url = '') => AUTH_PATH_PREFIXES.some((path) => url.includes(path));
+const UNSAFE_METHODS = ['post', 'put', 'patch', 'delete'];
+
+const getCookie = (name) => {
+  if (typeof document === 'undefined') return null;
+
+  const cookie = document.cookie
+    .split('; ')
+    .find((item) => item.startsWith(`${name}=`));
+
+  if (!cookie) return null;
+
+  return decodeURIComponent(cookie.split('=').slice(1).join('='));
+};
 
 // Attach token to every request
 
 axiosInstance.interceptors.request.use(
   (config) => {
+    const method = (config.method || 'get').toLowerCase();
+    const xsrfToken = getCookie('XSRF-TOKEN');
+
+    if (UNSAFE_METHODS.includes(method) && xsrfToken) {
+      config.headers['X-XSRF-TOKEN'] = xsrfToken;
+    }
+
     const token = tokenStore.getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

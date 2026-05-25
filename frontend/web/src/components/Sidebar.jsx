@@ -4,12 +4,14 @@ import { NavLink } from 'react-router-dom';
 import homeIcon from '@/assets/home.png';
 import messageIcon from '@/assets/message.png';
 import ticketIcon from '@/assets/ticket.png';
+import historyIcon from '@/assets/c-history.png';
 
 export default function Sidebar() {
   const navItems = [
     { name: 'Home', path: '/customer-dashboard', icon: homeIcon },
     { name: 'Message', path: '/messages', icon: messageIcon },
-    { name: 'History', path: '/my-tickets', icon: ticketIcon },
+    { name: 'My Tickets', path: '/my-tickets', icon: ticketIcon },
+    { name: 'History', path: '/history', icon: historyIcon },
   ];
 
   return (

@@ -30,6 +30,8 @@ let dashboardCache = null;
 let dashboardCacheAt = 0;
 let dashboardInFlight = null;
 const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
+const CUSTOMER_TICKET_OVERRIDES_KEY = 'customer_ticket_overrides';
+const CUSTOMER_TICKET_DETAILS_KEY = 'customer_ticket_details';
 
 let csDashboardCache = null;
 let csDashboardCacheAt = 0;
@@ -63,6 +65,66 @@ const DEPARTMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const isCacheFresh = () => optionsCache && (Date.now() - optionsCacheAt) < OPTIONS_CACHE_TTL_MS;
 const isDashboardCacheFresh = () => dashboardCache && (Date.now() - dashboardCacheAt) < DASHBOARD_CACHE_TTL_MS;
+
+const readJsonStore = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    return JSON.parse(window.localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+};
+
+const writeJsonStore = (key, value) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+};
+
+const getTicketOverrides = () => readJsonStore(CUSTOMER_TICKET_OVERRIDES_KEY, {});
+const getTicketDetails = () => readJsonStore(CUSTOMER_TICKET_DETAILS_KEY, {});
+
+const normalizeCustomerTicket = (ticket = {}) => {
+  const overrides = getTicketOverrides()[ticket.id] || {};
+  const details = getTicketDetails()[ticket.id] || {};
+  const status = overrides.status || ticket.status || 'Open';
+  const now = new Date().toISOString();
+
+  return {
+    ticket_ID: ticket.ticket_ID || details.ticket_ID || Number(String(ticket.id || '').replace(/\D/g, '')) || null,
+    id: ticket.id,
+    title: ticket.title || details.title || 'Untitled ticket',
+    category: ticket.category || details.category || 'General',
+    status,
+    equipment: ticket.equipment || details.equipment || 'Unspecified equipment',
+    description: ticket.description || details.description || '',
+    date_created: ticket.date_created || details.date_created || now,
+    last_updated: overrides.last_updated || ticket.last_updated || details.last_updated || ticket.date_created || now,
+    can_discard: status === 'Open' && !details.accepted_or_delegated,
+  };
+};
+
+export const saveCustomerTicketDetail = (ticket = {}) => {
+  if (!ticket.id) return;
+
+  const details = getTicketDetails();
+  details[ticket.id] = {
+    ...(details[ticket.id] || {}),
+    ...ticket,
+    last_updated: ticket.last_updated || new Date().toISOString(),
+  };
+  writeJsonStore(CUSTOMER_TICKET_DETAILS_KEY, details);
+};
+
+export const discardCustomerTicketLocally = (ticketId) => {
+  const overrides = getTicketOverrides();
+  overrides[ticketId] = {
+    ...(overrides[ticketId] || {}),
+    status: 'Discarded by Customer',
+    last_updated: new Date().toISOString(),
+  };
+  writeJsonStore(CUSTOMER_TICKET_OVERRIDES_KEY, overrides);
+};
 
 const fetchTicketFormOptions = async () => {
   const response = await ticketClient.get('/ticket-form-options');
@@ -130,6 +192,11 @@ export const getCustomerDashboard = async ({ createdBy = 1, limit = 5, forceRefr
   });
 
   return dashboardInFlight;
+};
+
+export const getCustomerTickets = async ({ createdBy = 1, limit = 20, forceRefresh = false } = {}) => {
+  const data = await getCustomerDashboard({ createdBy, limit, forceRefresh });
+  return (data?.recent_tickets || []).map(normalizeCustomerTicket);
 };
 
 export const clearCustomerDashboardCache = () => {
@@ -344,6 +411,15 @@ export const createTicket = async (payload) => {
     clearCustomerDashboardCache();
     clearCSDashboardCache();
     notifyCsTicketRefresh();
+    if (response.data?.dashboard_ticket) {
+      saveCustomerTicketDetail({
+        ...response.data.dashboard_ticket,
+        ticket_ID: response.data.ticket?.ticket_ID,
+        description: response.data.ticket?.description,
+        date_created: response.data.ticket?.created_at,
+        last_updated: response.data.ticket?.updated_at,
+      });
+    }
     return response.data;
   }
 
@@ -351,5 +427,14 @@ export const createTicket = async (payload) => {
   clearCustomerDashboardCache();
   clearCSDashboardCache();
   notifyCsTicketRefresh();
+  if (response.data?.dashboard_ticket) {
+    saveCustomerTicketDetail({
+      ...response.data.dashboard_ticket,
+      ticket_ID: response.data.ticket?.ticket_ID,
+      description: response.data.ticket?.description,
+      date_created: response.data.ticket?.created_at,
+      last_updated: response.data.ticket?.updated_at,
+    });
+  }
   return response.data;
 };

@@ -8,6 +8,7 @@ export const getCsrfToken = async () => {
   try {
     await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`, {
       withCredentials: true,
+      withXSRFToken: true,
     });
   } catch (error) {
     console.error('Error fetching CSRF token:', error);
@@ -19,6 +20,7 @@ export const getCsrfToken = async () => {
 
 export const loginUser = async (email, password, mode = 'customer') => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
       email,
       password,
@@ -33,6 +35,7 @@ export const loginUser = async (email, password, mode = 'customer') => {
 // Register new user accoun
 export const registerUser = async (name, email, password, passwordConfirmation) => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.REGISTER, {
       name,
       email,
@@ -48,6 +51,7 @@ export const registerUser = async (name, email, password, passwordConfirmation) 
 // Logout user
 export const logoutUser = async () => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGOUT);
     return response.data;
   } catch (error) {
@@ -69,6 +73,7 @@ export const getCurrentUser = async () => {
 
 export const requestPasswordReset = async (email) => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.FORGOT_PASSWORD, {
       email,
     });
@@ -82,6 +87,7 @@ export const requestPasswordReset = async (email) => {
 
 export const verifyPasswordResetOtp = async (email, otp) => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.FORGOT_PASSWORD_VERIFY, {
       email,
       otp,
@@ -96,6 +102,7 @@ export const verifyPasswordResetOtp = async (email, otp) => {
 
 export const resetPassword = async (email, otp, password, passwordConfirmation) => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.RESET_PASSWORD, {
       email,
       otp,
@@ -112,6 +119,7 @@ export const resetPassword = async (email, otp, password, passwordConfirmation) 
 
 export const verifyEmail = async (email, code) => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.VERIFY_EMAIL, {
       email,
       code,
@@ -126,6 +134,7 @@ export const verifyEmail = async (email, code) => {
 
 export const refreshToken = async () => {
   try {
+    await getCsrfToken();
     const response = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN);
     return response.data;
   } catch (error) {
