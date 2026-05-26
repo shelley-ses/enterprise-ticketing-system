@@ -21,6 +21,7 @@ import EmployeeHistoryDetail from './pages/EmployeeHistoryDetail.jsx';
 import CSLayout from './components/CSLayout.jsx';
 import CSDashboard from './pages/CSDashboard.jsx';
 import CSIncoming from './pages/CSIncoming.jsx';
+import CSAssigned from './pages/CSAssigned.jsx';
 
 function App() {
   return (
@@ -96,7 +97,7 @@ function App() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<CSDashboard />} />
             <Route path="incoming" element={<CSIncoming />} />
-            <Route path="assigned" element={<div className="p-6 text-gray-500">CS Assigned — coming soon.</div>} />
+            <Route path="assigned" element={<CSAssigned />} />
             <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
           </Route>
 

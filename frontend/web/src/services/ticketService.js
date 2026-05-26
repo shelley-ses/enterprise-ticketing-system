@@ -239,8 +239,82 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
       list = await incomingTicketsInFlight;
     }
   } catch (e) {
-    console.warn("Failed to fetch incoming tickets from service, using cached or empty list:", e);
-    list = incomingTicketsCache || [];
+    console.warn("Failed to fetch incoming tickets from service, using dummy data fallback:", e);
+    const dummyTickets = [
+      {
+        id: 'TKT-2001',
+        title: 'Ventilator Pressure Alarm Fault',
+        customer: "St. Luke's Medical Center",
+        equipment: 'PB980 Ventilator - SN-883921',
+        category: 'Ventilator',
+        sla: 'On Track',
+        date: '2026-05-26',
+        status: 'New',
+        priority: 'Critical',
+        department: 'Biomedical',
+        reassignmentRequested: false,
+        reassignmentRequestedBy: null,
+        reassignmentReason: null,
+        assigned: [],
+      },
+      {
+        id: 'TKT-2002',
+        title: 'MRI Scanner Image Artifacts',
+        customer: 'Philippine General Hospital',
+        equipment: 'Signa 1.5T MRI - SN-992100',
+        category: 'MRI',
+        sla: 'Near Breach',
+        date: '2026-05-25',
+        status: 'Pending',
+        priority: 'High',
+        department: 'Radiology',
+        reassignmentRequested: true,
+        reassignmentRequestedBy: 42,
+        reassignmentReason: 'Need specialist with MRI certification',
+        assigned: [],
+      },
+    ];
+    return dummyTickets;
+  }
+
+  // After fetching, if list is empty, use dummy fallback
+  if (!list || list.length === 0) {
+    console.warn('Incoming tickets list empty, using dummy data fallback.');
+    const dummyTickets = [
+      {
+        id: 'TKT-2001',
+        title: 'Ventilator Pressure Alarm Fault',
+        customer: "St. Luke's Medical Center",
+        equipment: 'PB980 Ventilator - SN-883921',
+        category: 'Ventilator',
+        sla: 'On Track',
+        date: '2026-05-26',
+        status: 'New',
+        priority: 'Critical',
+        department: 'Biomedical',
+        reassignmentRequested: false,
+        reassignmentRequestedBy: null,
+        reassignmentReason: null,
+        assigned: [],
+      },
+      {
+        id: 'TKT-2002',
+        title: 'MRI Scanner Image Artifacts',
+        customer: 'Philippine General Hospital',
+        equipment: 'Signa 1.5T MRI - SN-992100',
+        category: 'MRI',
+        sla: 'Near Breach',
+        date: '2026-05-25',
+        status: 'Pending',
+        priority: 'High',
+        department: 'Radiology',
+        reassignmentRequested: true,
+        reassignmentRequestedBy: 42,
+        reassignmentReason: 'Need specialist with MRI certification',
+        assigned: [],
+      },
+    ];
+    list = dummyTickets;
   }
 
   const overrides = getEmployeeOverrides();
@@ -418,6 +492,46 @@ export const getEmployeeAssignedTickets = async ({ employeeEmail } = {}) => {
         tickets.unshift(dummy);
       }
     });
+
+    // After attempting fetch, if list is empty, use dummy data fallback
+    if (!tickets || tickets.length === 0) {
+      console.warn('Incoming tickets list empty, using dummy data fallback.');
+      const dummyTickets = [
+        {
+          id: 'TKT-2001',
+          title: 'Ventilator Pressure Alarm Fault',
+          customer: "St. Luke's Medical Center",
+          equipment: 'PB980 Ventilator - SN-883921',
+          category: 'Ventilator',
+          sla: 'On Track',
+          date: '2026-05-26',
+          status: 'New',
+          priority: 'Critical',
+          department: 'Biomedical',
+          reassignmentRequested: false,
+          reassignmentRequestedBy: null,
+          reassignmentReason: null,
+          assigned: [],
+        },
+        {
+          id: 'TKT-2002',
+          title: 'MRI Scanner Image Artifacts',
+          customer: 'Philippine General Hospital',
+          equipment: 'Signa 1.5T MRI - SN-992100',
+          category: 'MRI',
+          sla: 'Near Breach',
+          date: '2026-05-25',
+          status: 'Pending',
+          priority: 'High',
+          department: 'Radiology',
+          reassignmentRequested: true,
+          reassignmentRequestedBy: 42,
+          reassignmentReason: 'Need specialist with MRI certification',
+          assigned: [],
+        },
+      ];
+      return dummyTickets;
+    }
 
     const overrides = getEmployeeOverrides();
     return tickets.map(t => ({

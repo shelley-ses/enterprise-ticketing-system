@@ -5,7 +5,8 @@ import pendingIcon from '@/assets/cs-pending.png';
 import assignedIcon from '@/assets/cs-assigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
-import { getCSDashboard } from '@/services/ticketService';
+import { getCSDashboard, getAssignableEmployees, getDepartments, getTicketFormOptions } from '@/services/ticketService';
+import { TicketSummary } from '@/components/CSModals';
 
 const MOCK_STATS = {
   unassigned: 7,
@@ -37,6 +38,11 @@ export default function CSDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [modal, setModal] = useState(null);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [priorityOptions, setPriorityOptions] = useState([]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -44,7 +50,12 @@ export default function CSDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const payload = await getCSDashboard({ limit: 10, forceRefresh: refreshKey > 0 });
+        const [payload, assignees, deps, options] = await Promise.all([
+          getCSDashboard({ limit: 10, forceRefresh: refreshKey > 0 }),
+          getAssignableEmployees(),
+          getDepartments(),
+          getTicketFormOptions(),
+        ]);
         if (!mounted) return;
         setStats({
           unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
@@ -53,6 +64,18 @@ export default function CSDashboard() {
           highPriority: 0,
           slaWarnings: 0,
         });
+        
+        setEmployees(
+          assignees.map((row) => ({
+            id: Number(row.id),
+            name: row.name,
+            status: row.is_active ? 'active' : 'inactive',
+            department: row.department || 'Unassigned',
+          }))
+        );
+        setDepartments((deps?.departments || []).map((d) => d.name));
+        setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
+
         setTickets((payload.recent_tickets || MOCK_TICKETS).map(t => ({
           ...t,
           updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
@@ -84,6 +107,11 @@ export default function CSDashboard() {
         { label: 'SLA Warnings', value: stats.slaWarnings, icon: warnIcon },
       ]
     : [];
+
+  // Dashboard only shows read-only ticket summary
+  const handleRowAction = (t) => {
+    setModal({ mode: 'summary', ticket: t });
+  };
 
   return (
     <div className="p-6">
@@ -130,7 +158,11 @@ export default function CSDashboard() {
                 </thead>
                 <tbody className="text-gray-700">
                   {tickets.map((r, idx) => (
-                    <tr key={r.id + idx} className={`${idx === 0 ? 'bg-blue-50' : ''} border-b`}>
+                    <tr 
+                      key={r.id + idx} 
+                      onClick={() => handleRowAction(r)}
+                      className={`cursor-pointer ${idx === 0 ? 'bg-blue-50' : 'hover:bg-gray-50'} border-b transition-all`}
+                    >
                       <td className="py-3 px-4 font-medium text-sm">{r.id}</td>
                       <td className="py-3 px-4 text-gray-600">{r.customer}</td>
                       <td className="py-3 px-4 text-gray-700">{r.title}</td>
@@ -158,7 +190,11 @@ export default function CSDashboard() {
                 { id: 'TKT-1011', title: 'Anesthesia Machine gas flow sensor error', sla: '2026-03-27T07:00:00Z', status: 'At Risk', tone: 'risk' },
                 { id: 'TKT-1021', title: 'Hematology Analyzer reagent pack error', sla: '2026-03-28T09:00:00Z', status: 'At Risk', tone: 'risk' },
               ].map((s) => (
-                <div key={s.id} className={`${s.tone === 'breached' ? 'bg-red-600 text-white' : 'bg-white'} rounded-lg p-4 border ${s.tone === 'breached' ? '' : 'border-gray-200'}`}>
+                <div 
+                  key={s.id} 
+                  onClick={() => handleRowAction({ ...s, priority: 'High' })}
+                  className={`cursor-pointer hover:opacity-90 transition-all ${s.tone === 'breached' ? 'bg-red-600 text-white' : 'bg-white'} rounded-lg p-4 border ${s.tone === 'breached' ? '' : 'border-gray-200'}`}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-xs uppercase font-medium tracking-wide">{s.id}</div>
@@ -179,6 +215,17 @@ export default function CSDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Read-only Ticket Summary Modal — no edit/reassign from dashboard */}
+      {modal?.mode === 'summary' && (
+        <TicketSummary
+          ticket={modal.ticket}
+          employees={employees}
+          onClose={() => setModal(null)}
+          onEdit={null}
+          onStatusUpdate={null}
+        />
       )}
     </div>
   );
