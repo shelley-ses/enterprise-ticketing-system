@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   statusColors,
   priorityColors,
@@ -6,15 +7,20 @@ import {
   sortTicketsByPriority,
 } from '@/constants/employeeTickets';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
-import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
+import TicketInfoModal from '@/components/employee/TicketInfoModal';
+import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
+
+const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
 
 export default function EmployeeAssigned() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -24,22 +30,20 @@ export default function EmployeeAssigned() {
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
 
-  const [summaryTicket, setSummaryTicket] = useState(null);
-  const [workTicket, setWorkTicket] = useState(null);
+  // Modal state — which modal to show
+  const [pendingTicket, setPendingTicket] = useState(null);   // not-yet-accepted → TicketDetailModal
+  const [infoTicket, setInfoTicket] = useState(null);         // accepted & active → TicketInfoModal
+  const [reassignTicket, setReassignTicket] = useState(null); // reassign flow
 
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
-      if (!user?.email) {
-        setLoading(false);
-        return;
-      }
-
+      const email = user?.email || 'frontend@example.com';
       setLoading(true);
       setLoadError('');
       try {
-        const list = await getEmployeeAssignedTickets({ employeeEmail: user.email });
+        const list = await getEmployeeAssignedTickets({ employeeEmail: email });
         if (!mounted) return;
         setTickets(list.map((t) => ({ ...t, rejected: false })));
       } catch {
@@ -60,7 +64,17 @@ export default function EmployeeAssigned() {
     const q = search.trim().toLowerCase();
     let list = tickets.filter((t) => {
       if (t.rejected) return false;
-      if (statusFilter !== 'All Status' && t.status !== statusFilter) return false;
+      // Hide closed/resolved from Assigned — they live in History
+      if (CLOSED_STATUSES.includes(t.status)) return false;
+      
+      if (statusFilter !== 'All Status') {
+        if (statusFilter === 'Pending Reassign') {
+          if (!t.reassignmentRequested) return false;
+        } else if (t.status !== statusFilter) {
+          return false;
+        }
+      }
+
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
@@ -76,185 +90,315 @@ export default function EmployeeAssigned() {
   }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority]);
 
   const handleAcceptAssignment = useCallback((id) => {
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true } : t)));
-    setSummaryTicket(null);
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
+    );
+    setPendingTicket((prev) =>
+      prev && prev.id === id ? { ...prev, accepted: true } : prev
+    );
   }, []);
 
   const handleRejectAssignment = useCallback((id) => {
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, rejected: true } : t)));
-    setSummaryTicket(null);
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, rejected: true } : t))
+    );
+    setPendingTicket(null);
   }, []);
 
   const handleStatusChange = useCallback((id, newStatus) => {
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+    );
   }, []);
 
-  /** Row / ticket tap: assignment summary first if not accepted; otherwise work (update) modal. */
-  const openTicketFlow = useCallback((t) => {
-    if (!t.accepted) setSummaryTicket(t);
-    else setWorkTicket(t);
-  }, []);
+  /** Decide what to do when a row is clicked */
+  const openTicketFlow = useCallback(
+    (t) => {
+      // Closed / Resolved → redirect to History
+      if (CLOSED_STATUSES.includes(t.status)) {
+        navigate('/employee/progress');
+        return;
+      }
+      // Not yet accepted → show full Accept/Reject modal
+      if (!t.accepted) {
+        setPendingTicket(t);
+        return;
+      }
+      // Accepted & active → show lightweight info modal with Update button
+      setInfoTicket(t);
+    },
+    [navigate]
+  );
 
-  const activeCount = tickets.filter((t) => !t.rejected).length;
+  const activeCount = tickets.filter(
+    (t) => !t.rejected && !CLOSED_STATUSES.includes(t.status)
+  ).length;
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#252578]">My Assigned Tickets</h1>
-        <p className="text-sm text-gray-500 mt-1">All tickets assigned to you — work, update, and resolve.</p>
+        <p className="text-sm text-gray-500 mt-1">
+          All tickets assigned to you — work, update, and resolve.
+        </p>
       </div>
 
       {loadError && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{loadError}</div>
+        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+          {loadError}
+        </div>
       )}
 
       <div className="bg-white rounded-2xl shadow-md p-6">
         {loading ? (
-          <div className="text-center text-gray-500 py-8">Loading assigned tickets...</div>
+          <div className="text-center text-gray-500 py-8">
+            Loading assigned tickets...
+          </div>
         ) : (
           <>
-        <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
-          <div className="relative flex-1 min-w-0">
-            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="search"
-              placeholder="Search ID, title, customer..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
-            />
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              {['All Status', 'Open', 'In Progress', 'Resolved', 'Escalated', 'Closed'].map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            <select className={selectClass} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-              {['All Category', 'MRI', 'CT Scan', 'Ultrasound', 'X-Ray', 'Ventilator', 'Defibrillator'].map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <select className={selectClass} value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
-              {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-            <select className={selectClass} value={sortPriority} onChange={(e) => setSortPriority(e.target.value)}>
-              <option value="Priority">Sort: Priority</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-lg border border-gray-100">
-          <table className="w-full table-fixed text-sm text-left border-collapse">
-            <colgroup>
-              <col className="w-[12%]" />
-              <col className="w-[16%]" />
-              <col className="w-[22%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[12%]" />
-              <col className="w-[10%]" />
-              <col className="w-[8%]" />
-            </colgroup>
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                <th className="py-3 px-2 font-medium">Ticket ID</th>
-                <th className="py-3 px-2 font-medium">Customer</th>
-                <th className="py-3 px-2 font-medium">Title</th>
-                <th className="py-3 px-2 font-medium">Category</th>
-                <th className="py-3 px-2 font-medium">Priority</th>
-                <th className="py-3 px-2 font-medium">Status</th>
-                <th className="py-3 px-2 font-medium">SLA</th>
-                <th className="py-3 px-2 font-medium">Last Update</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-800">
-              {filtered.map((t) => (
-                <tr
-                  key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openTicketFlow(t)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      openTicketFlow(t);
-                    }
-                  }}
-                  className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
+            {/* Filters */}
+            <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
+              <div className="relative flex-1 min-w-0">
+                <svg
+                  className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <td className="py-2.5 px-2 align-middle">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="Attention" />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="font-semibold text-[#252578] text-xs leading-tight">{t.id}</span>
-                          {t.escalated && (
-                            <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-800 shrink-0">
-                              ESC
-                            </span>
-                          )}
-                        </div>
-                        {!t.accepted && (
-                          <span className="text-[10px] text-amber-700 font-medium">Pending acceptance</span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle min-w-0">
-                    <p className="font-semibold text-gray-900 text-xs truncate">{t.customer}</p>
-                    <p className="text-[11px] text-gray-500 truncate">{t.facility}</p>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle min-w-0">
-                    <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">{t.title}</p>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle text-gray-600 text-xs truncate">{t.category}</td>
-                  <td className="py-2.5 px-2 align-middle">
-                    <span className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${priorityColors[t.priority]}`}>
-                      {t.priority}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle">
-                    <span className={`inline-flex max-w-full whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${statusColors[t.status]}`}>
-                      {t.status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle">
-                    <span className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {t.slaStatus}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">{t.lastUpdate}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                <input
+                  type="search"
+                  placeholder="Search ID, title, customer..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <select
+                  className={selectClass}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                    (s) => (
+                      <option key={s} value={s}>{s}</option>
+                    )
+                  )}
+                </select>
+                <select
+                  className={selectClass}
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  {[
+                    'All Category',
+                    'MRI',
+                    'CT Scan',
+                    'Ultrasound',
+                    'X-Ray',
+                    'Ventilator',
+                    'Defibrillator',
+                  ].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                >
+                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={sortPriority}
+                  onChange={(e) => setSortPriority(e.target.value)}
+                >
+                  <option value="Priority">Sort: Priority</option>
+                </select>
+              </div>
+            </div>
 
-        <p className="text-sm text-gray-500 mt-4">
-          Showing {filtered.length} of {activeCount} tickets
-        </p>
+            {/* Table */}
+            <div className="overflow-x-auto rounded-lg border border-gray-100">
+              <table className="w-full table-fixed text-sm text-left border-collapse">
+                <colgroup>
+                  <col className="w-[12%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[8%]" />
+                </colgroup>
+                <thead>
+                  <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
+                    <th className="py-3 px-2 font-medium">Ticket ID</th>
+                    <th className="py-3 px-2 font-medium">Customer</th>
+                    <th className="py-3 px-2 font-medium">Title</th>
+                    <th className="py-3 px-2 font-medium">Category</th>
+                    <th className="py-3 px-2 font-medium">Priority</th>
+                    <th className="py-3 px-2 font-medium">Status</th>
+                    <th className="py-3 px-2 font-medium">SLA</th>
+                    <th className="py-3 px-2 font-medium">Last Update</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-800">
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-gray-400 text-sm"
+                      >
+                        No active tickets found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map((t) => (
+                      <tr
+                        key={t.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openTicketFlow(t)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openTicketFlow(t);
+                          }
+                        }}
+                        className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                      >
+                        <td className="py-2.5 px-2 align-middle">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"
+                              title="Attention"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span className="font-semibold text-[#252578] text-xs leading-tight">
+                                  {t.id}
+                                </span>
+                                {t.escalated && (
+                                  <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-800 shrink-0">
+                                    ESC
+                                  </span>
+                                )}
+                              </div>
+                              {!t.accepted && (
+                                <span className="text-[10px] text-amber-700 font-medium">
+                                  Pending acceptance
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-xs truncate">
+                            {t.customer}
+                          </p>
+                          <p className="text-[11px] text-gray-500 truncate">
+                            {t.facility}
+                          </p>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">
+                            {t.title}
+                          </p>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs truncate">
+                          {t.category}
+                        </td>
+                        <td className="py-2.5 px-2 align-middle">
+                          <span
+                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                              priorityColors[t.priority]
+                            }`}
+                          >
+                            {t.priority}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle">
+                          <span
+                            className={`inline-flex max-w-full whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                              statusColors[t.status]
+                            }`}
+                          >
+                            {t.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle">
+                          <span
+                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                              slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {t.slaStatus}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">
+                          {t.lastUpdate}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-sm text-gray-500 mt-4">
+              Showing {filtered.length} of {activeCount} active tickets
+            </p>
           </>
         )}
       </div>
 
-      {summaryTicket && (
-        <AssignmentSummaryModal
-          ticket={summaryTicket}
-          onClose={() => setSummaryTicket(null)}
+      {/* Modal: Not-yet-accepted ticket (Accept / Request Reassignment) */}
+      {pendingTicket && (
+        <TicketDetailModal
+          ticket={pendingTicket}
+          onClose={() => setPendingTicket(null)}
+          onStatusChange={handleStatusChange}
           onAccept={handleAcceptAssignment}
-          onReject={handleRejectAssignment}
+          onRequestReassign={(t) => {
+            setPendingTicket(null);
+            setReassignTicket(t);
+          }}
         />
       )}
-      {workTicket && (
-        <TicketDetailModal
-          ticket={workTicket}
-          onClose={() => setWorkTicket(null)}
-          onStatusChange={handleStatusChange}
+
+      {/* Modal: Accepted active ticket — lightweight info + Update button */}
+      {infoTicket && (
+        <TicketInfoModal
+          ticket={infoTicket}
+          onClose={() => setInfoTicket(null)}
+        />
+      )}
+
+      {/* Modal: Reassignment request */}
+      {reassignTicket && (
+        <ReassignmentModal
+          ticket={reassignTicket}
+          onClose={() => setReassignTicket(null)}
+          onReassignSuccess={(id) => {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === id
+                  ? { ...t, reassignmentRequested: true, reassignmentStatus: 'Pending' }
+                  : t
+              )
+            );
+          }}
         />
       )}
     </div>

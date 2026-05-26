@@ -5,9 +5,11 @@ import { useAuth } from '@/context/AuthContext';
 import {
   getCSIncomingTickets,
   getAssignableEmployees,
-  
+  getDepartments,
+  acceptTicket,
+  getTicketFormOptions,
+  updateEmployeeTicketOverride,
 } from '@/services/ticketService';
-import { getDepartments, acceptTicket, getTicketFormOptions } from '@/services/ticketService';
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
@@ -54,7 +56,10 @@ function ConfirmDialog({ onConfirm, onCancel, isSaving = false }) {
 /* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
-function TicketSummary({ ticket, employees, onClose, onEdit }) {
+function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+
   const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
   );
@@ -68,8 +73,8 @@ function TicketSummary({ ticket, employees, onClose, onEdit }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white/95 backdrop-blur-lg rounded-3xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)]">
-
+      <div className="bg-white/95 backdrop-blur-lg rounded-3xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative">
+        
         {/* Scrollable content */}
         <div className="overflow-y-auto flex-1 p-6">
           <button
@@ -83,13 +88,174 @@ function TicketSummary({ ticket, employees, onClose, onEdit }) {
           <div className="flex items-center gap-2 mb-5">
             <div className="w-2 h-2 rounded-full bg-green-500" />
             <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
-              Ticket Assigned
+              {ticket.status === 'Pending Validation' ? 'Proof Submitted' : 'Ticket Assigned'}
             </span>
           </div>
 
           <h3 className="text-xl font-bold text-[#252578] mb-5">
             Ticket Summary
           </h3>
+
+          {/* Reassignment Request Approval/Denial Panel */}
+          {ticket.reassignmentRequested && typeof onStatusUpdate === 'function' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-xs text-amber-800 space-y-3">
+              <div>
+                <p className="font-bold uppercase tracking-wider text-[10px] text-amber-900 mb-0.5">Pending Reassignment Request</p>
+                <p className="text-gray-700 font-medium leading-relaxed">&quot;{ticket.reassignmentReason}&quot;</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    const timestamp = new Date().toLocaleString('en-US');
+                    const updated = {
+                      id: ticket.id,
+                      reassignmentRequested: false,
+                      reassignmentStatus: 'Denied',
+                      status: 'Open',
+                      accepted: false,
+                      timeline: [
+                        {
+                          id: `reassign-deny-${Date.now()}`,
+                          type: 'reassign',
+                          text: 'Reassignment request denied by CS. Ticket status reverted to Open.',
+                          timestamp,
+                        }
+                      ]
+                    };
+                    await onStatusUpdate(updated);
+                    onClose();
+                  }}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                >
+                  Deny Request
+                </button>
+                <button
+                  onClick={async () => {
+                    const timestamp = new Date().toLocaleString('en-US');
+                    const updated = {
+                      id: ticket.id,
+                      reassignmentRequested: false,
+                      reassignmentStatus: 'Approved',
+                      timeline: [
+                        {
+                          id: `reassign-approve-${Date.now()}`,
+                          type: 'reassign',
+                          text: 'Reassignment request approved by CS.',
+                          timestamp,
+                        }
+                      ]
+                    };
+                    await onStatusUpdate(updated);
+                    onEdit(); // Opens AssignModal immediately
+                  }}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold"
+                >
+                  Approve & Reassign
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Proof of Completion Validation Panel */}
+          {ticket.status === 'Pending Validation' && typeof onStatusUpdate === 'function' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-5 text-xs text-blue-800 space-y-3">
+              <div>
+                <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
+                {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
+                  <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-24 overflow-y-auto space-y-1">
+                    {ticket.proofAttachments.map((f, i) => (
+                      <div key={i} className="text-gray-600 font-medium truncate flex justify-between">
+                        <span>{f.name}</span>
+                        <span className="text-[10px] text-gray-400">{(f.size / (1024 * 1024)).toFixed(2)} MB</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-400 italic">No files uploaded.</p>
+                )}
+              </div>
+              
+              {showRejectInput ? (
+                <div className="space-y-2">
+                  <label htmlFor="summary-rejection-reason" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">Reason for rejection *</label>
+                  <textarea
+                    id="summary-rejection-reason"
+                    placeholder="Provide a reason for proof rejection (e.g. signature missing, document blurry)..."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]"
+                    required
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowRejectInput(false)}
+                      className="px-2.5 py-1 text-xs border border-gray-200 text-gray-600 rounded-lg font-bold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!rejectionReason.trim()) return;
+                        const timestamp = new Date().toLocaleString('en-US');
+                        const updated = {
+                          id: ticket.id,
+                          status: 'In Progress',
+                          proofRejected: true,
+                          rejectionReason: rejectionReason.trim(),
+                          timeline: [
+                            {
+                              id: `proof-reject-${Date.now()}`,
+                              type: 'proof',
+                              text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
+                              timestamp,
+                            }
+                          ]
+                        };
+                        await onStatusUpdate(updated);
+                        onClose();
+                      }}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                    >
+                      Confirm Rejection
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowRejectInput(true)}
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                  >
+                    Reject Proof
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const timestamp = new Date().toLocaleString('en-US');
+                      const updated = {
+                        id: ticket.id,
+                        status: 'Resolved',
+                        proofRejected: false,
+                        rejectionReason: null,
+                        timeline: [
+                          {
+                            id: `proof-approve-${Date.now()}`,
+                            type: 'proof',
+                            text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
+                            timestamp,
+                          }
+                        ]
+                      };
+                      await onStatusUpdate(updated);
+                      onClose();
+                    }}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold"
+                  >
+                    Approve & Resolve
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Ticket card */}
           <div className="bg-[#252578] text-white rounded-2xl p-4 mb-5">
@@ -164,15 +330,17 @@ function TicketSummary({ ticket, employees, onClose, onEdit }) {
           >
             Close
           </button>
-          <button
-            onClick={onEdit}
-            className="px-6 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 flex items-center gap-1.5"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            Reassign
-          </button>
+          {!ticket.reassignmentRequested && (
+            <button
+              onClick={onEdit}
+              className="px-6 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Reassign
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -437,6 +605,7 @@ export default function CSIncoming() {
   const [category, setCategory] = useState('All Categories');
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
+  const [assignmentFilter, setAssignmentFilter] = useState('All');
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -499,6 +668,14 @@ export default function CSIncoming() {
       if (category !== 'All Categories' && t.category !== category) return false;
       if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
+      
+      // Filter by reassignment status
+      if (assignmentFilter === 'Pending Reassign') {
+        if (!t.reassignmentRequested) return false;
+      } else if (assignmentFilter === 'Pending Validation') {
+        if (t.status !== 'Pending Validation') return false;
+      }
+
       if (!q) return true;
       return (
         t.id.toLowerCase().includes(q) ||
@@ -507,7 +684,7 @@ export default function CSIncoming() {
         (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, slaFilter, machineFilter]);
+  }, [tickets, search, category, slaFilter, machineFilter, assignmentFilter]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -523,8 +700,8 @@ export default function CSIncoming() {
   }, [filtered, page]);
 
   const handleRowAction = (t) => {
-    // If already assigned → show summary first; otherwise go straight to assign
-    if (t.status === 'Assigned') {
+    // If already assigned / pending validation / resolved -> show summary first
+    if (t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending') {
       setModal({ mode: 'summary', ticket: t });
     } else {
       setModal({ mode: 'assign', ticket: t });
@@ -606,6 +783,16 @@ export default function CSIncoming() {
 
         <div className="flex items-center gap-3 flex-wrap">
           <select
+            value={assignmentFilter}
+            onChange={(e) => setAssignmentFilter(e.target.value)}
+            className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
+          >
+            <option value="All">All Assignments</option>
+            <option value="Pending Reassign">Pending Reassign</option>
+            <option value="Pending Validation">Pending Validation</option>
+          </select>
+
+          <select
             value={machineFilter}
             onChange={(e) => setMachineFilter(e.target.value)}
             className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
@@ -673,14 +860,34 @@ export default function CSIncoming() {
                     idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50'
                   } transition-all`}
                 >
-                  <td className="py-4 px-4 font-medium">{t.id}</td>
+                  <td className="py-4 px-4 font-medium">
+                    <div className="flex flex-col gap-0.5">
+                      <span>{t.id}</span>
+                      {t.reassignmentRequested && (
+                        <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
+                          Pending Reassign
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-4 px-4 text-gray-600">{t.customer}</td>
-                  <td className="py-4 px-4 text-gray-700">{t.title}</td>
+                  <td className="py-4 px-4 text-gray-700">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold">{t.title}</span>
+                      {t.status === 'Pending Validation' && (
+                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
+                          Pending Validation
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-4 px-4">
                     <span className="px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
                   </td>
                   <td className="py-4 px-4">
-                    <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">{t.sla}</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      t.status === 'Pending Validation' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+                    }`}>{t.status}</span>
                   </td>
                   <td className="py-4 px-4 text-gray-500">{t.date}</td>
                   <td className="py-4 px-4">
@@ -724,6 +931,17 @@ export default function CSIncoming() {
           employees={employees}
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
+          onStatusUpdate={async (updatedFields) => {
+            updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
+            
+            // Soft reload the list to reflect updates immediately
+            try {
+              const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+              setTickets(incoming);
+            } catch (e) {
+              setTickets(prev => prev.map(t => t.id === (updatedFields.id || modal.ticket.id) ? { ...t, ...updatedFields } : t));
+            }
+          }}
         />
       )}
 

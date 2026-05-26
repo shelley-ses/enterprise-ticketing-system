@@ -226,19 +226,28 @@ const fetchIncomingTickets = async ({ limit = 50 } = {}) => {
 };
 
 export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } = {}) => {
-  if (!forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
-    return incomingTicketsCache;
+  let list = [];
+  try {
+    if (!forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
+      list = incomingTicketsCache;
+    } else if (!forceRefresh && incomingTicketsInFlight) {
+      list = await incomingTicketsInFlight;
+    } else {
+      incomingTicketsInFlight = fetchIncomingTickets({ limit }).finally(() => {
+        incomingTicketsInFlight = null;
+      });
+      list = await incomingTicketsInFlight;
+    }
+  } catch (e) {
+    console.warn("Failed to fetch incoming tickets from service, using cached or empty list:", e);
+    list = incomingTicketsCache || [];
   }
 
-  if (!forceRefresh && incomingTicketsInFlight) {
-    return incomingTicketsInFlight;
-  }
-
-  incomingTicketsInFlight = fetchIncomingTickets({ limit }).finally(() => {
-    incomingTicketsInFlight = null;
-  });
-
-  return incomingTicketsInFlight;
+  const overrides = getEmployeeOverrides();
+  return list.map(t => ({
+    ...t,
+    ...(overrides[t.id] || {}),
+  }));
 };
 
 export const clearIncomingTicketsCache = () => {
@@ -347,12 +356,82 @@ export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByE
 };
 
 export const getEmployeeAssignedTickets = async ({ employeeEmail } = {}) => {
-  const response = await ticketClient.get('/employee-tickets', {
-    params: {
-      employee_email: employeeEmail,
+  const dummyTickets = [
+    {
+      id: 'TKT-9001',
+      title: 'Patient Monitor Connection Drop',
+      customer: "St. Luke's Medical Center",
+      facility: 'Global City - ICU Room 402',
+      equipment: 'PB980 Ventilator - SN-883921',
+      status: 'In Progress',
+      priority: 'Critical',
+      category: 'Ventilator',
+      date: '2026-05-26',
+      slaStatus: 'Near Breach',
+      lastUpdate: 'May 26, 2026',
+      accepted: true,
+      escalated: true,
     },
-  });
-  return response.data?.tickets ?? [];
+    {
+      id: 'TKT-9002',
+      title: 'MRI Scanner Image Artifacts',
+      customer: 'Philippine General Hospital',
+      facility: 'Taft Ave - Radiology Room B',
+      equipment: 'Signa 1.5T MRI - SN-992100',
+      status: 'Open',
+      priority: 'High',
+      category: 'MRI',
+      date: '2026-05-25',
+      slaStatus: 'On Track',
+      lastUpdate: 'May 25, 2026',
+      accepted: false,
+      escalated: false,
+    },
+    {
+      id: 'TKT-9003',
+      title: 'Ventilator Pressure Alarm Fault',
+      customer: 'Makati Medical Center',
+      facility: 'Makati - ER Room 1',
+      equipment: 'PB980 Ventilator - SN-774211',
+      status: 'Escalated',
+      priority: 'Critical',
+      category: 'Ventilator',
+      date: '2026-05-26',
+      slaStatus: 'Breached',
+      lastUpdate: 'May 26, 2026',
+      accepted: true,
+      escalated: true,
+    }
+  ];
+
+  try {
+    const response = await ticketClient.get('/employee-tickets', {
+      params: {
+        employee_email: employeeEmail,
+      },
+    });
+    const tickets = response.data?.tickets ?? [];
+
+    // Prepend dummy tickets if they aren't already present in the list
+    dummyTickets.forEach(dummy => {
+      if (!tickets.some(t => t.id === dummy.id)) {
+        tickets.unshift(dummy);
+      }
+    });
+
+    const overrides = getEmployeeOverrides();
+    return tickets.map(t => ({
+      ...t,
+      ...(overrides[t.id] || {}),
+    }));
+  } catch (error) {
+    console.warn('Failed to fetch from ticket-service, using dummy data fallback:', error);
+    const overrides = getEmployeeOverrides();
+    return dummyTickets.map(t => ({
+      ...t,
+      ...(overrides[t.id] || {}),
+    }));
+  }
 };
 
 export const getCSDashboard = async ({ limit = 10, forceRefresh = false } = {}) => {
@@ -438,3 +517,48 @@ export const createTicket = async (payload) => {
   }
   return response.data;
 };
+
+// Local Storage Helper functions for Employee Actions
+const EMPLOYEE_OVERRIDE_KEY = 'employee_ticket_overrides_v1';
+
+export const getEmployeeOverrides = () => {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(EMPLOYEE_OVERRIDE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+export const updateEmployeeTicketOverride = (ticketId, override) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const all = getEmployeeOverrides();
+    const existing = all[ticketId] || {};
+    
+    // Merge internal notes
+    let mergedNotes = existing.internalNotes || [];
+    if (override.internalNotes) {
+      mergedNotes = [...mergedNotes, ...override.internalNotes];
+    }
+    
+    // Merge timeline
+    let mergedTimeline = existing.timeline || [];
+    if (override.timeline) {
+      mergedTimeline = [...mergedTimeline, ...override.timeline];
+    }
+
+    all[ticketId] = {
+      ...existing,
+      ...override,
+      internalNotes: mergedNotes,
+      timeline: mergedTimeline,
+    };
+    
+    window.localStorage.setItem(EMPLOYEE_OVERRIDE_KEY, JSON.stringify(all));
+    notifyCsTicketRefresh();
+  } catch (err) {
+    console.error('Failed to update employee override:', err);
+  }
+};
+

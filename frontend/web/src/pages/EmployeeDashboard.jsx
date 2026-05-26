@@ -59,13 +59,10 @@ export default function EmployeeDashboard() {
     let mounted = true;
 
     const load = async () => {
-      if (!user?.email) {
-        setLoadingTickets(false);
-        return;
-      }
+      const email = user?.email || 'frontend@example.com';
       setLoadingTickets(true);
       try {
-        const list = await getEmployeeAssignedTickets({ employeeEmail: user.email });
+        const list = await getEmployeeAssignedTickets({ employeeEmail: email });
         if (!mounted) return;
         setTickets(list.map((t) => ({ ...t, rejected: false })));
       } finally {

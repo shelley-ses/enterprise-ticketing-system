@@ -16,6 +16,8 @@ import EmployeeAssigned from './pages/EmployeeAssigned.jsx';
 import EmployeeMachine from './pages/EmployeeMachine.jsx';
 import EmployeeProgress from './pages/EmployeeProgress.jsx';
 import EmployeeRegistration from './pages/EmployeeRegistration.jsx';
+import EmployeeTicketUpdate from './pages/EmployeeTicketUpdate.jsx';
+import EmployeeHistoryDetail from './pages/EmployeeHistoryDetail.jsx';
 import CSLayout from './components/CSLayout.jsx';
 import CSDashboard from './pages/CSDashboard.jsx';
 import CSIncoming from './pages/CSIncoming.jsx';
@@ -78,6 +80,8 @@ function App() {
             <Route path="assigned" element={<EmployeeAssigned />} />
             <Route path="machine" element={<EmployeeMachine />} />
             <Route path="progress" element={<EmployeeProgress />} />
+            <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
+            <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
             <Route path="registration" element={<EmployeeRegistration />} />
           </Route>
 

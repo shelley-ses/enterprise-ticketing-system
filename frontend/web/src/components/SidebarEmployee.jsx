@@ -10,8 +10,8 @@ export default function SidebarEmployee() {
   const navItems = [
     { name: 'Dashboard', path: '/employee/dashboard', icon: dashIcon },
     { name: 'Assigned', path: '/employee/assigned', icon: incomingIcon },
-    { name: 'Machine', path: '/employee/machine', icon: assignedTixIcon },
-    { name: 'Progress', path: '/employee/progress', icon: progressIcon },
+    { name: 'Progress', path: '/employee/machine', icon: assignedTixIcon },
+    { name: 'History', path: '/employee/progress', icon: progressIcon },
     { name: 'Registration', path: '/employee/registration', icon: registrationIcon },
   ];
 
