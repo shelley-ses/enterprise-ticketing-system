@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Employee;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 use App\Services\AuthService;
 use Illuminate\Support\Str;
@@ -65,6 +66,45 @@ class AuthController extends Controller
         }
 
         return $resp;
+    }
+
+    public function employeeStatuses(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user instanceof Employee || $user->role !== 'customer service') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $query = Employee::query()
+            ->where('role', '!=', 'customer service');
+
+        if ($request->has('department') && !empty($request->query('department'))) {
+            $query->where('department', $request->query('department'));
+        }
+
+        $employees = $query->orderBy('first_name')->get();
+
+        $statuses = $employees->map(function (Employee $employee) {
+            $presence = Cache::store('redis')->get('employee:presence:' . $employee->emp_id, []);
+
+            return [
+                'id' => $employee->emp_id,
+                'emp_id' => $employee->emp_id,
+                'email' => $employee->email,
+                'name' => trim($employee->first_name . ' ' . $employee->last_name),
+                'first_name' => $employee->first_name,
+                'last_name' => $employee->last_name,
+                'role' => $employee->role,
+                'department' => $employee->department,
+                'is_active' => (bool) data_get($presence, 'is_active', false),
+                'last_seen_at' => data_get($presence, 'last_seen_at', optional($employee->last_seen_at)->toISOString()),
+            ];
+        });
+
+        return response()->json([
+            'employees' => $statuses,
+        ]);
     }
 
     public function refresh(Request $request)
@@ -221,6 +261,10 @@ class AuthController extends Controller
         $user = $request->user();
 
         if ($user) {
+            if ($user instanceof Employee) {
+                $this->authService->logoutEmployee($user);
+            }
+
             $user->tokens()->delete();
             // remove refresh tokens
             if ($user instanceof Employee) {

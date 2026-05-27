@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('ticket_assignments', function (Blueprint $table) {
             $table->bigIncrements('assignment_ID');
-            $table->foreignId('ticket_ID')->constrained('tickets', 'ticket_ID');
-            $table->foreignId('employee_ID')->constrained('users', 'id');
-            $table->foreignId('assigned_by')->constrained('users', 'id');
+            $table->foreignId('ticket_ID')->constrained('tickets', 'ticket_ID')->cascadeOnDelete();
+            $table->foreignId('employee_ID')->constrained('employees', 'emp_id')->cascadeOnDelete();
+            $table->foreignId('assigned_by')->constrained('employees', 'emp_id')->cascadeOnDelete();
             $table->string('assignment_status')->default('assigned');
             $table->dateTime('assigned_at')->nullable();
             $table->dateTime('completed_at')->nullable();

@@ -22,9 +22,11 @@ class Employee extends Authenticatable
         'last_name',
         'role',
         'department',
+        'is_active',
         'failed_login_count',
         'locked_until',
         'last_login_at',
+        'last_seen_at',
         'password_change_at',
     ];
 
@@ -33,9 +35,11 @@ class Employee extends Authenticatable
     ];
 
     protected $casts = [
+        'is_active' => 'boolean',
         'failed_login_count' => 'integer',
         'locked_until' => 'datetime',
         'last_login_at' => 'datetime',
+        'last_seen_at' => 'datetime',
         'password_change_at' => 'datetime',
     ];
 

@@ -1,6 +1,7 @@
 <?php
     namespace App\Services;
 
+    use App\Events\EmployeeStatusChanged;
     use App\Models\Employee;
     use App\Models\Client;
     use App\Models\ClientCredential;
@@ -11,6 +12,7 @@
     use Illuminate\Support\Facades\Mail;
     use Illuminate\Support\Facades\Log;
     use Illuminate\Support\Facades\DB;
+    use Illuminate\Support\Facades\Cache;
     use Illuminate\Support\Carbon;
     use Illuminate\Support\Str;
 
@@ -178,7 +180,11 @@
             $employee->failed_login_count = 0;
             $employee->locked_until = null;
             $employee->last_login_at = Carbon::now();
+            $employee->last_seen_at = Carbon::now();
+            $employee->is_active = $employee->role !== 'customer service';
             $employee->save();
+
+            $this->syncEmployeePresence($employee);
 
             $accessToken = $employee->createToken('access-token')->plainTextToken;
             $rawRefresh = Str::random(80);
@@ -200,6 +206,21 @@
                 'refresh_token' => $rawRefresh,
                 'refresh_expires_at' => $expiresAt,
             ];
+        }
+
+        public function logoutEmployee(Employee $employee): void
+        {
+            if ($employee->role === 'customer service') {
+                return;
+            }
+
+            $employee->is_active = false;
+            $employee->last_seen_at = Carbon::now();
+            $employee->save();
+
+            Cache::store('redis')->forget($this->employeePresenceKey($employee->emp_id));
+
+            EmployeeStatusChanged::dispatch($employee->refresh());
         }
 
         public function requestPasswordResetOtp($email)
@@ -258,6 +279,29 @@
                 'message' => 'If the email exists, a reset code has been sent.',
                 'expires_at' => $expiresAt,
             ];
+        }
+
+        private function syncEmployeePresence(Employee $employee): void
+        {
+            if ($employee->role === 'customer service') {
+                return;
+            }
+
+            Cache::store('redis')->put(
+                $this->employeePresenceKey($employee->emp_id),
+                [
+                    'is_active' => true,
+                    'last_seen_at' => Carbon::now()->toISOString(),
+                ],
+                now()->addDay()
+            );
+
+            EmployeeStatusChanged::dispatch($employee->refresh());
+        }
+
+        private function employeePresenceKey(int $employeeId): string
+        {
+            return 'employee:presence:' . $employeeId;
         }
 
         public function verifyPasswordResetOtp($email, $otp)

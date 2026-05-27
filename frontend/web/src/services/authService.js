@@ -6,6 +6,11 @@ import { AUTH_ENDPOINTS, SANCTUM_URL } from '@/config/api.config';
 //CSRF
 export const getCsrfToken = async () => {
   try {
+    const hasXsrfCookie = typeof document !== 'undefined' && document.cookie.split('; ').some((cookie) => cookie.startsWith('XSRF-TOKEN='));
+    if (hasXsrfCookie) {
+      return;
+    }
+
     await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`, {
       withCredentials: true,
       withXSRFToken: true,

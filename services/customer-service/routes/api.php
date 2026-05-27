@@ -24,6 +24,7 @@ Route::post('/reset-password', [AuthController::class, 'resetForgotPassword'])->
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/employee-statuses', [AuthController::class, 'employeeStatuses']);
     Route::get('/user', function (Request $request) {
         return $request->user();
     });

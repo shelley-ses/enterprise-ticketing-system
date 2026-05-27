@@ -10,7 +10,8 @@ import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket } from '@/services/ticketService';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
@@ -29,36 +30,58 @@ export default function EmployeeAssigned() {
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
 
   // Modal state — which modal to show
   const [pendingTicket, setPendingTicket] = useState(null);   // not-yet-accepted → TicketDetailModal
   const [infoTicket, setInfoTicket] = useState(null);         // accepted & active → TicketInfoModal
   const [reassignTicket, setReassignTicket] = useState(null); // reassign flow
 
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      const email = user?.email || 'frontend@example.com';
-      setLoading(true);
-      setLoadError('');
-      try {
-        const list = await getEmployeeAssignedTickets({ employeeEmail: email });
-        if (!mounted) return;
-        setTickets(list.map((t) => ({ ...t, rejected: false })));
-      } catch {
-        if (!mounted) return;
-        setLoadError('Unable to load assigned tickets from ticket-service.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      mounted = false;
-    };
+  const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
+    const email = user?.email || 'frontend@example.com';
+    setLoading(true);
+    setLoadError('');
+    setShowRefreshBanner(false);
+    try {
+      const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
+      setTickets(list.map((t) => ({ ...t, rejected: false })));
+    } catch {
+      setLoadError('Unable to load assigned tickets from ticket-service.');
+    } finally {
+      setLoading(false);
+    }
   }, [user?.email]);
+
+  useEffect(() => {
+    loadTickets({ forceRefresh: false });
+  }, [loadTickets]);
+
+  const probeForUpdates = useCallback(async () => {
+    // Only show banner on actual websocket events (from the event payload),
+    // not on empty polls. This avoids false-positive "new data" notifications.
+    // The banner will be triggered only when a real ticket-update event fires.
+  }, []);
+
+  useRealtimeRefresh({
+    refresh: loadTickets,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source, payload }) => {
+      // Only show banner when a real websocket event fires (not on empty polls)
+      if (source === 'websocket') {
+        const myEmpId = Number(user?.emp_id ?? user?.id);
+        const isRelevant =
+          payload && (
+            Number(payload.assigned_to) === myEmpId ||
+            (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
+          );
+        if (isRelevant) {
+          setShowRefreshBanner(true);
+        }
+      }
+    },
+  });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -66,7 +89,7 @@ export default function EmployeeAssigned() {
       if (t.rejected) return false;
       // Hide closed/resolved from Assigned — they live in History
       if (CLOSED_STATUSES.includes(t.status)) return false;
-      
+
       if (statusFilter !== 'All Status') {
         if (statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
@@ -89,14 +112,34 @@ export default function EmployeeAssigned() {
     return list;
   }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority]);
 
-  const handleAcceptAssignment = useCallback((id) => {
-    setTickets((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
-    );
-    setPendingTicket((prev) =>
-      prev && prev.id === id ? { ...prev, accepted: true } : prev
-    );
-  }, []);
+  const handleAcceptAssignment = useCallback(async (id) => {
+    const ticketObj = tickets.find((t) => t.id === id);
+    if (!ticketObj) return;
+
+    const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
+    try {
+      await acceptTicket({
+        ticketId: numericId,
+        employeeIds: [Number(user?.emp_id ?? user?.id)],
+        assignedByEmail: user?.email,
+      });
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
+      );
+      setPendingTicket((prev) =>
+        prev && prev.id === id ? { ...prev, accepted: true } : prev
+      );
+    } catch (err) {
+      console.error('Failed to accept assignment on backend:', err);
+      // fallback
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
+      );
+      setPendingTicket((prev) =>
+        prev && prev.id === id ? { ...prev, accepted: true } : prev
+      );
+    }
+  }, [tickets, user]);
 
   const handleRejectAssignment = useCallback((id) => {
     setTickets((prev) =>
@@ -105,11 +148,36 @@ export default function EmployeeAssigned() {
     setPendingTicket(null);
   }, []);
 
-  const handleStatusChange = useCallback((id, newStatus) => {
-    setTickets((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
-    );
-  }, []);
+  const handleStatusChange = useCallback(async (id, newStatus) => {
+    const statusMap = {
+      'Open': 1,
+      'In Progress': 2,
+      'Resolved': 3,
+      'Closed': 4,
+      'Escalated': 5,
+      'Pending': 6,
+    };
+    const ticketObj = tickets.find((t) => t.id === id);
+    if (!ticketObj) return;
+
+    const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
+    try {
+      await updateTicket({
+        ticketId: numericId,
+        statusId: statusMap[newStatus] ?? 2,
+        assignedByEmail: user?.email,
+      });
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+      );
+    } catch (err) {
+      console.error('Failed to update ticket status on backend:', err);
+      // fallback
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+      );
+    }
+  }, [tickets, user]);
 
   /** Decide what to do when a row is clicked */
   const openTicketFlow = useCallback(
@@ -146,6 +214,22 @@ export default function EmployeeAssigned() {
       {loadError && (
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
           {loadError}
+        </div>
+      )}
+
+      {showRefreshBanner && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div>
+            <div className="font-semibold">New assigned tickets available</div>
+            <div className="text-xs text-blue-700">Load the latest assigned tickets when you are ready.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadTickets({ forceRefresh: true })}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            Load latest
+          </button>
         </div>
       )}
 

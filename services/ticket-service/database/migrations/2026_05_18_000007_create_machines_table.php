@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('machines', function (Blueprint $table) {
             $table->bigIncrements('machine_ID');
             $table->foreignId('category_ID')->constrained('machine_categories', 'category_ID');
-            $table->foreignId('client_ID')->constrained('users', 'id');
+            $table->foreignId('client_ID')->constrained('clients', 'id')->cascadeOnDelete();
             $table->string('machine_name');
             $table->string('serial_number')->unique();
             $table->string('model')->nullable();

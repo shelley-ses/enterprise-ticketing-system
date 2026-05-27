@@ -1,4 +1,5 @@
 import axios from 'axios';
+import axiosInstance from '@/api/axiosInstance';
 import { TICKET_API_URL } from '@/config/api.config';
 import tokenStore from '@/auth/tokenStore';
 
@@ -53,15 +54,26 @@ let incomingTicketsCacheAt = 0;
 let incomingTicketsInFlight = null;
 const INCOMING_TICKETS_CACHE_TTL_MS = 10 * 1000;
 
-let employeesCache = null;
-let employeesCacheAt = 0;
-let employeesInFlight = null;
+let employeesCache = {};
+let employeesCacheAt = {};
+let employeesInFlight = {};
 const EMPLOYEES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 let departmentsCache = null;
 let departmentsCacheAt = 0;
 let departmentsInFlight = null;
 const DEPARTMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let employeeTicketsCache = {};
+let employeeTicketsCacheAt = {};
+let employeeTicketsInFlight = {};
+const EMPLOYEE_TICKETS_CACHE_TTL_MS = 30 * 1000;
+
+export const clearEmployeeTicketsCache = () => {
+  employeeTicketsCache = {};
+  employeeTicketsCacheAt = {};
+  employeeTicketsInFlight = {};
+};
 
 const isCacheFresh = () => optionsCache && (Date.now() - optionsCacheAt) < OPTIONS_CACHE_TTL_MS;
 const isDashboardCacheFresh = () => dashboardCache && (Date.now() - dashboardCacheAt) < DASHBOARD_CACHE_TTL_MS;
@@ -256,36 +268,41 @@ export const clearIncomingTicketsCache = () => {
   incomingTicketsInFlight = null;
 };
 
+const getDeptKey = (dept) => dept || '_all_';
+
 const fetchAssignableEmployees = async ({ department } = {}) => {
-  const response = await ticketClient.get('/assignable-employees', {
+  const key = getDeptKey(department);
+  const response = await axiosInstance.get('/employee-statuses', {
     params: department ? { department } : {},
   });
   const data = response.data?.employees ?? [];
-  employeesCache = data;
-  employeesCacheAt = Date.now();
+  employeesCache[key] = data;
+  employeesCacheAt[key] = Date.now();
   return data;
 };
 
 export const getAssignableEmployees = async ({ department, forceRefresh = false } = {}) => {
-  if (!forceRefresh && employeesCache && (Date.now() - employeesCacheAt) < EMPLOYEES_CACHE_TTL_MS) {
-    return employeesCache;
+  const key = getDeptKey(department);
+  if (!forceRefresh && employeesCache[key] && (Date.now() - employeesCacheAt[key]) < EMPLOYEES_CACHE_TTL_MS) {
+    return employeesCache[key];
   }
 
-  if (!forceRefresh && employeesInFlight) {
-    return employeesInFlight;
+  if (!forceRefresh && employeesInFlight[key]) {
+    return employeesInFlight[key];
   }
 
-  employeesInFlight = fetchAssignableEmployees({ department }).finally(() => {
-    employeesInFlight = null;
+  const promise = fetchAssignableEmployees({ department }).finally(() => {
+    delete employeesInFlight[key];
   });
+  employeesInFlight[key] = promise;
 
-  return employeesInFlight;
+  return promise;
 };
 
 export const clearAssignableEmployeesCache = () => {
-  employeesCache = null;
-  employeesCacheAt = 0;
-  employeesInFlight = null;
+  employeesCache = {};
+  employeesCacheAt = {};
+  employeesInFlight = {};
 };
 
 const fetchDepartments = async () => {
@@ -338,6 +355,7 @@ export const acceptTicket = async ({ ticketId, employeeIds, assignedByEmail, pri
   // The save changes the ticket row, assignment rows, and audit log entries.
   clearIncomingTicketsCache();
   clearCSDashboardCache();
+  clearEmployeeTicketsCache();
   notifyCsTicketRefresh();
   return response.data;
 };
@@ -351,11 +369,12 @@ export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByE
   // Clear both incoming and dashboard caches since status change affects both
   clearIncomingTicketsCache();
   clearCSDashboardCache();
+  clearEmployeeTicketsCache();
   notifyCsTicketRefresh();
   return response.data;
 };
 
-export const getEmployeeAssignedTickets = async ({ employeeEmail } = {}) => {
+const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
   const dummyTickets = [
     {
       id: 'TKT-9001',
@@ -432,6 +451,28 @@ export const getEmployeeAssignedTickets = async ({ employeeEmail } = {}) => {
       ...(overrides[t.id] || {}),
     }));
   }
+};
+
+export const getEmployeeAssignedTickets = async ({ employeeEmail, forceRefresh = false } = {}) => {
+  const emailKey = employeeEmail || 'default';
+
+  if (!forceRefresh && employeeTicketsCache[emailKey] && (Date.now() - employeeTicketsCacheAt[emailKey]) < EMPLOYEE_TICKETS_CACHE_TTL_MS) {
+    return employeeTicketsCache[emailKey];
+  }
+
+  if (!forceRefresh && employeeTicketsInFlight[emailKey]) {
+    return employeeTicketsInFlight[emailKey];
+  }
+
+  employeeTicketsInFlight[emailKey] = fetchEmployeeAssignedTickets({ employeeEmail }).then((data) => {
+    employeeTicketsCache[emailKey] = data;
+    employeeTicketsCacheAt[emailKey] = Date.now();
+    return data;
+  }).finally(() => {
+    employeeTicketsInFlight[emailKey] = null;
+  });
+
+  return employeeTicketsInFlight[emailKey];
 };
 
 export const getCSDashboard = async ({ limit = 10, forceRefresh = false } = {}) => {

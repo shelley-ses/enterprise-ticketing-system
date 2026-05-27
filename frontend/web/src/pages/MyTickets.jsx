@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   createTicket,
   discardCustomerTicketLocally,
@@ -50,6 +51,7 @@ export default function MyTickets({ mode = 'all' }) {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [confirmCreated, setConfirmCreated] = useState(null);
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [filters, setFilters] = useState({
     status: '',
     category: '',
@@ -58,9 +60,10 @@ export default function MyTickets({ mode = 'all' }) {
     search: '',
   });
 
-  const loadTickets = async ({ forceRefresh = false } = {}) => {
+  const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
     setLoading(true);
     setError('');
+    setShowRefreshBanner(false);
 
     try {
       const list = await getCustomerTickets({ createdBy: customerId, limit: 20, forceRefresh });
@@ -70,11 +73,30 @@ export default function MyTickets({ mode = 'all' }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [customerId, isHistory]);
+
+  const probeForUpdates = useCallback(async ({ source }) => {
+    // Only show banner on real websocket events, not empty polls
+    if (source === 'websocket') {
+      setShowRefreshBanner(true);
+    }
+  }, []);
 
   useEffect(() => {
-    loadTickets();
-  }, [customerId]);
+    loadTickets({ forceRefresh: false });
+  }, [loadTickets]);
+
+  useRealtimeRefresh({
+    refresh: loadTickets,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source }) => {
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
+      }
+    },
+  });
 
   const categories = useMemo(() => {
     const unique = new Set(tickets.map((ticket) => ticket.category).filter(Boolean));
@@ -190,10 +212,27 @@ export default function MyTickets({ mode = 'all' }) {
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {showRefreshBanner && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold">New ticket updates available</div>
+              <div className="text-xs text-blue-700">Load the latest ticket list when you are ready.</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadTickets({ forceRefresh: true })}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              Load latest
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
+          <table className="w-full text-left" style={{ minWidth: '900px' }}>
             <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="px-5 py-4">ID</th>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\TicketChanged;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +22,21 @@ class TicketController extends Controller
             return 'At Risk';
         }
         return 'On Track';
+    }
+
+    private function broadcastTicketChange(string $action, int $ticketId, array $payload = []): void
+    {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+
+        event(new TicketChanged(array_merge([
+            'action' => $action,
+            'ticket_ID' => $ticketId,
+            'ticketId' => $ticketId,
+            'updated_at' => now()->toISOString(),
+            'customer_id' => $ticket?->created_by,
+            'assigned_to' => $ticket?->assigned_to,
+            'ticket_status_ID' => $ticket?->ticket_status_ID,
+        ], $payload)));
     }
 
     public function customerDashboard(Request $request)
@@ -210,7 +226,7 @@ class TicketController extends Controller
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
             'created_by' => ['nullable', 'integer', 'exists:clients,id'],
-            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+            'assigned_to' => ['nullable', 'integer', 'exists:employees,emp_id'],
             'ticket_type_ID' => ['nullable', 'integer', 'exists:ticket_types,ticket_type_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
             'ticket_status_ID' => ['nullable', 'integer', 'exists:ticket_statuses,ticket_status_ID'],
@@ -274,6 +290,12 @@ class TicketController extends Controller
             ->where('t.ticket_ID', $ticketId)
             ->first();
 
+        $this->broadcastTicketChange('created', $ticketId, [
+            'status' => 'Open',
+            'title' => $validated['title'],
+            'customer_id' => $validated['created_by'] ?? 1,
+        ]);
+
         return response()->json([
             'message' => 'Ticket created successfully.',
             'ticket' => $ticket,
@@ -333,8 +355,8 @@ class TicketController extends Controller
     {
         $department = $request->query('department');
 
-        $query = DB::table('users')
-            ->select('id', 'name', 'email', 'role', 'department', 'is_active')
+        $query = DB::table('employees')
+            ->select('emp_id as id', 'name', 'email', 'role', 'department', 'is_active')
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer']);
 
@@ -368,14 +390,14 @@ class TicketController extends Controller
     {
         $validated = $request->validate([
             'employee_ids' => ['required', 'array', 'min:1'],
-            'employee_ids.*' => ['integer', 'exists:users,id'],
+            'employee_ids.*' => ['integer', 'exists:employees,emp_id'],
             'assigned_by_email' => ['nullable', 'email'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
         ]);
 
-        $employees = DB::table('users')
-            ->whereIn('id', $validated['employee_ids'])
-            ->select('id', 'role')
+        $employees = DB::table('employees')
+            ->whereIn('emp_id', $validated['employee_ids'])
+            ->select('emp_id as id', 'role')
             ->get();
 
         $invalid = $employees->contains(function ($row) {
@@ -388,9 +410,9 @@ class TicketController extends Controller
             ], 422);
         }
 
-        $assignedBy = DB::table('users')
+        $assignedBy = DB::table('employees')
             ->where('email', $validated['assigned_by_email'] ?? '')
-            ->value('id');
+            ->value('emp_id');
         if (!$assignedBy) {
             $assignedBy = 2;
         }
@@ -446,6 +468,11 @@ class TicketController extends Controller
             }
         });
 
+        $this->broadcastTicketChange('assigned', $ticketId, [
+            'assigned_to' => $validated['employee_ids'][0],
+            'employee_ids' => $validated['employee_ids'],
+        ]);
+
         return response()->json([
             'message' => 'Ticket assigned successfully.',
         ]);
@@ -455,7 +482,7 @@ class TicketController extends Controller
     {
         $validated = $request->validate([
             'employee_ids' => ['nullable', 'array'],
-            'employee_ids.*' => ['integer', 'exists:users,id'],
+            'employee_ids.*' => ['integer', 'exists:employees,emp_id'],
             'assigned_by_email' => ['nullable', 'email'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
         ]);
@@ -465,9 +492,9 @@ class TicketController extends Controller
             return response()->json(['message' => 'Ticket not found'], 404);
         }
 
-        $assignedBy = DB::table('users')
+        $assignedBy = DB::table('employees')
             ->where('email', $validated['assigned_by_email'] ?? '')
-            ->value('id') ?? 2;
+            ->value('emp_id') ?? 2;
 
         $employees = collect($validated['employee_ids'] ?? []);
 
@@ -530,6 +557,11 @@ class TicketController extends Controller
             }
         });
 
+        $this->broadcastTicketChange('accepted', $ticketId, [
+            'assigned_to' => $employees->first(),
+            'employee_ids' => $employees->values()->all(),
+        ]);
+
         return response()->json(['message' => 'Ticket accepted and updated.']);
     }
 
@@ -546,9 +578,9 @@ class TicketController extends Controller
             return response()->json(['message' => 'Ticket not found'], 404);
         }
 
-        $assignedBy = DB::table('users')
+        $assignedBy = DB::table('employees')
             ->where('email', $validated['assigned_by_email'] ?? '')
-            ->value('id') ?? 2;
+            ->value('emp_id') ?? 2;
 
         $changes = [];
 
@@ -591,6 +623,11 @@ class TicketController extends Controller
             }
         });
 
+        $this->broadcastTicketChange('updated', $ticketId, [
+            'ticket_status_ID' => $validated['ticket_status_ID'] ?? $ticket->ticket_status_ID,
+            'priority_ID' => $validated['priority_ID'] ?? $ticket->priority_ID,
+        ]);
+
         return response()->json(['message' => 'Ticket updated successfully.']);
     }
 
@@ -601,7 +638,7 @@ class TicketController extends Controller
             return response()->json(['message' => 'employee_email is required'], 422);
         }
 
-        $employeeId = DB::table('users')->where('email', $employeeEmail)->value('id');
+        $employeeId = DB::table('employees')->where('email', $employeeEmail)->value('emp_id');
         if (!$employeeId) {
             return response()->json(['tickets' => []]);
         }
@@ -613,7 +650,6 @@ class TicketController extends Controller
             ->join('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
             ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
-            ->leftJoin('users as cu', 'cu.id', '=', 't.created_by')
             ->where('ta.employee_ID', $employeeId)
             ->orderByDesc('ta.assigned_at')
             ->select(
@@ -626,13 +662,13 @@ class TicketController extends Controller
                 't.updated_at',
                 'm.machine_name',
                 'm.serial_number',
-                'c.client_name',
-                'cu.name as created_by_name'
+                'c.client_name'
             )
             ->get()
             ->map(function ($row) {
                 return [
                     'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                    'ticket_ID' => $row->ticket_ID,
                     'title' => $row->title,
                     'customer' => $row->client_name ?: 'Unknown Customer',
                     'facility' => null,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import pendingIcon from '@/assets/cs-pending.png';
@@ -6,6 +6,7 @@ import assignedIcon from '@/assets/cs-assigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
 import { getCSDashboard } from '@/services/ticketService';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const MOCK_STATS = {
   unassigned: 7,
@@ -36,44 +37,58 @@ export default function CSDashboard() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
+  const loadDashboard = useCallback(async ({ forceRefresh = false } = {}) => {
+    setLoading(true);
+    setError(null);
+    setShowRefreshBanner(false);
+
+    try {
+      const payload = await getCSDashboard({ limit: 10, forceRefresh: forceRefresh || refreshKey > 0 });
+      setStats({
+        unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
+        pending: payload.summary?.in_progress ?? MOCK_STATS.pending,
+        assigned: payload.summary?.resolved ?? MOCK_STATS.assigned,
+        highPriority: 0,
+        slaWarnings: 0,
+      });
+      setTickets((payload.recent_tickets || MOCK_TICKETS).map((t) => ({
+        ...t,
+        updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
+        priority: t.priority || 'Unassigned',
+      })));
+    } catch (err) {
+      setError('Unable to load data from API — using local mock data.');
+      setStats(MOCK_STATS);
+      setTickets(MOCK_TICKETS);
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshKey]);
+
+  const probeForUpdates = useCallback(async ({ source }) => {
+    // Only show banner on real websocket events, not empty polls
+    if (source === 'websocket') {
+      setShowRefreshBanner(true);
+    }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    loadDashboard({ forceRefresh: false });
+  }, [loadDashboard]);
 
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const payload = await getCSDashboard({ limit: 10, forceRefresh: refreshKey > 0 });
-        if (!mounted) return;
-        setStats({
-          unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
-          pending: payload.summary?.in_progress ?? MOCK_STATS.pending,
-          assigned: payload.summary?.resolved ?? MOCK_STATS.assigned,
-          highPriority: 0,
-          slaWarnings: 0,
-        });
-        setTickets((payload.recent_tickets || MOCK_TICKETS).map(t => ({
-          ...t,
-          updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
-          priority: t.priority || 'Unassigned'
-        })));
-      } catch (err) {
-        if (!mounted) return;
-        setError('Unable to load data from API — using local mock data.');
-        setStats(MOCK_STATS);
-        setTickets(MOCK_TICKETS);
-      } finally {
-        if (mounted) setLoading(false);
+  useRealtimeRefresh({
+    refresh: loadDashboard,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source }) => {
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
       }
-    }
-
-    load();
-    // optional: poll every 30 seconds during development
-    // const id = setInterval(load, 30000);
-    // return () => { mounted = false; clearInterval(id); };
-    return () => { mounted = false; };
-  }, [refreshKey]);
+    },
+  });
 
   const statItems = stats
     ? [
@@ -87,6 +102,21 @@ export default function CSDashboard() {
 
   return (
     <div className="p-6">
+      {showRefreshBanner && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div>
+            <div className="font-semibold">New CS dashboard data available</div>
+            <div className="text-xs text-blue-700">Load the latest queue and ticket summary when ready.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadDashboard({ forceRefresh: true })}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            Load latest
+          </button>
+        </div>
+      )}
       {loading ? (
         <div className="p-8 text-center">Loading dashboard...</div>
       ) : (

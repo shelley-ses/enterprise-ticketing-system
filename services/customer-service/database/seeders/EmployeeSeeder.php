@@ -2,15 +2,15 @@
 
 namespace Database\Seeders;
 
+use App\Models\Employee;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class EmployeeSeeder extends Seeder
 {
     public function run(): void
     {
-        DB::table('employees')->upsert([
+        $employees = [
             [
                 'email' => 'cs@gmail.com',
                 'password_hash' => Hash::make('12345678'),
@@ -27,6 +27,13 @@ class EmployeeSeeder extends Seeder
                 'role' => 'service',
                 'department' => 'Service',
             ],
-        ], ['email'], ['password_hash', 'first_name', 'last_name', 'role', 'department']);
+        ];
+
+        foreach ($employees as $employee) {
+            Employee::updateOrCreate(
+                ['email' => $employee['email']],
+                $employee
+            );
+        }
     }
 }

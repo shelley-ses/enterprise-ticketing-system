@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   statusColors,
@@ -7,8 +7,18 @@ import {
 } from '@/constants/employeeTickets';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const HISTORY_STATUSES = ['Closed', 'Resolved'];
+
+const buildHistorySignature = (list = []) => list
+  .map((ticket) => [
+    ticket.id,
+    ticket.status,
+    ticket.lastUpdate ?? ticket.updated_at ?? '',
+    ticket.reassignmentRequested ? '1' : '0',
+  ].join(':'))
+  .join('|');
 
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
@@ -20,37 +30,53 @@ export default function EmployeeProgress() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
 
-  useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      const email = user?.email || 'frontend@example.com';
-      setLoading(true);
-      setLoadError('');
-      try {
-        const list = await getEmployeeAssignedTickets({ employeeEmail: email });
-        if (!mounted) return;
-        // Show Closed, Resolved, or Reassigned tickets
-        setTickets(
-          list.filter(
-            (t) => HISTORY_STATUSES.includes(t.status) || t.reassignmentRequested
-          )
-        );
-      } catch {
-        if (!mounted) return;
-        setLoadError('Unable to load ticket history.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    load();
-    return () => {
-      mounted = false;
-    };
+  const loadHistory = useCallback(async ({ forceRefresh = false } = {}) => {
+    const email = user?.email || 'frontend@example.com';
+    setLoading(true);
+    setLoadError('');
+    setShowRefreshBanner(false);
+    try {
+      const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
+      // Show Closed, Resolved, or Reassigned tickets
+      setTickets(
+        list.filter(
+          (t) => HISTORY_STATUSES.includes(t.status) || t.reassignmentRequested
+        )
+      );
+    } catch {
+      setLoadError('Unable to load ticket history.');
+    } finally {
+      setLoading(false);
+    }
   }, [user?.email]);
+
+  const probeForUpdates = useCallback(async ({ source }) => {
+    // Only show banner on real websocket events, not empty polls
+    if (source === 'websocket') {
+      setShowRefreshBanner(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory({ forceRefresh: false });
+  }, [loadHistory]);
+
+  useRealtimeRefresh({
+    refresh: loadHistory,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source }) => {
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
+      }
+    },
+  });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -83,6 +109,22 @@ export default function EmployeeProgress() {
       {loadError && (
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
           {loadError}
+        </div>
+      )}
+
+      {showRefreshBanner && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div>
+            <div className="font-semibold">New ticket updates available</div>
+            <div className="text-xs text-blue-700">Load the latest history when you are ready.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadHistory({ forceRefresh: true })}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            Load latest
+          </button>
         </div>
       )}
 

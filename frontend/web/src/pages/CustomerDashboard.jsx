@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Notifications from '@/components/Notifications';
 import QuickActions from '@/components/QuickActions';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   createTicket,
   discardCustomerTicketLocally,
@@ -27,6 +28,7 @@ export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [createdTicket, setCreatedTicket] = useState(null);
@@ -49,9 +51,31 @@ export default function CustomerDashboard() {
     Closed: 'bg-gray-100 text-gray-700',
   };
 
-  const loadDashboardData = async ({ forceRefresh = false } = {}) => {
-    setDashboardLoading(true);
+  const buildDashboardSignature = useCallback((payload) => {
+    const summary = payload?.summary || {};
+    const recentTickets = payload?.recent_tickets || [];
+    return [
+      summary.open ?? 0,
+      summary.in_progress ?? 0,
+      summary.resolved ?? 0,
+      summary.closed ?? 0,
+      ...recentTickets.map((ticket) => [ticket.id, ticket.status, ticket.title].join(':')),
+    ].join('|');
+  }, []);
+
+  const loadDashboardData = useCallback(async ({ forceRefresh = false, source = 'manual', payload } = {}) => {
+    if (source !== 'websocket' && source !== 'poll') {
+      setDashboardLoading(true);
+    }
     setDashboardError('');
+    setShowRefreshBanner(false);
+
+    if (source === 'websocket' || source === 'poll') {
+      const payloadCustomerId = Number(payload?.customer_id);
+      if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
+        return;
+      }
+    }
 
     try {
       const data = await getCustomerDashboard({ createdBy: customerId, limit: 5, forceRefresh });
@@ -74,17 +98,48 @@ export default function CustomerDashboard() {
     } finally {
       setDashboardLoading(false);
     }
-  };
+  }, [customerId]);
+
+  const probeForUpdates = useCallback(async (context = {}) => {
+    const payloadCustomerId = Number(context?.payload?.customer_id);
+    if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
+      return;
+    }
+    // Only show banner on real websocket events, not empty polls
+    if (context?.source === 'websocket') {
+      setShowRefreshBanner(true);
+    }
+  }, [customerId]);
 
   useEffect(() => {
     prefetchTicketFormOptions().catch(() => {
       // Modal handles display error if options cannot be fetched.
     });
 
-    loadDashboardData().catch(() => {
+    loadDashboardData({ forceRefresh: false }).catch(() => {
       // State handled in loadDashboardData.
     });
-  }, [customerId]);
+  }, [loadDashboardData]);
+
+  useRealtimeRefresh({
+    refresh: loadDashboardData,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 0,
+    shouldRefresh: ({ payload }) => {
+      const payloadCustomerId = Number(payload?.customer_id);
+      return !payloadCustomerId || payloadCustomerId === Number(customerId);
+    },
+    deferRefresh: true,
+    onRefreshAvailable: ({ source, payload }) => {
+      const payloadCustomerId = Number(payload?.customer_id);
+      if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
+        return;
+      }
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
+      }
+    },
+  });
 
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
 
@@ -179,6 +234,21 @@ export default function CustomerDashboard() {
 
         {/* Summary Cards */}
         {dashboardError && <p className="text-sm text-red-500">{dashboardError}</p>}
+        {showRefreshBanner && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+            <div>
+              <div className="font-semibold">New dashboard data available</div>
+              <div className="text-xs text-blue-700">Load the latest ticket summary when you are ready.</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadDashboardData({ forceRefresh: true })}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              Load latest
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {summaryData.map((card, idx) => (
             <div key={idx} className={`p-6 rounded-3xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>

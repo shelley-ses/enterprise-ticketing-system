@@ -16,9 +16,11 @@ return new class extends Migration
             $table->string('last_name');
             $table->string('role');
             $table->string('department');
+            $table->boolean('is_active')->default(false);
             $table->unsignedInteger('failed_login_count')->default(0);
             $table->timestamp('locked_until')->nullable();
             $table->timestamp('last_login_at')->nullable();
+            $table->timestamp('last_seen_at')->nullable();
             $table->timestamp('password_change_at')->nullable();
         });
     }

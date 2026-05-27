@@ -1,15 +1,38 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { ticketBroadcast } from '@/services/ticketBroadcast';
 import {
   getCSIncomingTickets,
   getAssignableEmployees,
   getDepartments,
   acceptTicket,
   getTicketFormOptions,
+  prefetchTicketFormOptions,
   updateEmployeeTicketOverride,
 } from '@/services/ticketService';
+
+const normalizeDepartmentName = (value = '') => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+const buildIncomingSignature = (list = []) => list
+  .map((ticket) => [
+    ticket.id ?? ticket.ticket_ID,
+    ticket.status,
+    ticket.updated_at ?? ticket.last_update ?? ticket.created_at ?? '',
+    ticket.reassignmentRequested ? '1' : '0',
+  ].join(':'))
+  .join('|');
+
+const buildEmployeeSignature = (list = []) => list
+  .map((employee) => [
+    employee.id,
+    employee.status,
+    employee.department,
+    employee.last_seen_at ?? '',
+  ].join(':'))
+  .join('|');
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
@@ -183,7 +206,7 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
                     placeholder="Provide a reason for proof rejection (e.g. signature missing, document blurry)..."
                     value={rejectionReason}
                     onChange={(e) => setRejectionReason(e.target.value)}
-                    className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]"
+                    className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-12"
                     required
                   />
                   <div className="flex gap-2">
@@ -356,6 +379,8 @@ function AssignModal({ ticket, employees, departments, priorityOptions, onClose,
   const [selectedEmployees, setSelectedEmployees] = useState(ticket?.assigned || []);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [employeesList, setEmployeesList] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
 
   // Lock background scroll
   useEffect(() => {
@@ -363,19 +388,47 @@ function AssignModal({ ticket, employees, departments, priorityOptions, onClose,
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  // Fetch employees asynchronously on department change
+  useEffect(() => {
+    let active = true;
+    const fetchEmployees = async () => {
+      setLoadingEmployees(true);
+      try {
+        const list = await getAssignableEmployees({ department, forceRefresh: true });
+        if (!active) return;
+        const mapped = list.map((row) => ({
+          id: Number(row.id ?? row.emp_id),
+          name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+          status: row.is_active ? 'active' : 'inactive',
+          department: row.department?.trim() || 'Unassigned',
+        }));
+        setEmployeesList(mapped);
+      } catch (err) {
+        console.error('Failed to load employees for department:', err);
+      } finally {
+        if (active) {
+          setLoadingEmployees(false);
+        }
+      }
+    };
+
+    fetchEmployees();
+    return () => {
+      active = false;
+    };
+  }, [department]);
+
   if (!ticket) return null;
 
-  const employeesInDept = useMemo(() => {
-    const list = employees.filter((e) =>
-      department ? e.department === department : true
-    );
+  const sortedEmployees = useMemo(() => {
+    const list = [...employeesList];
     list.sort((a, b) => {
       if (a.status === 'active' && b.status !== 'active') return -1;
       if (b.status === 'active' && a.status !== 'active') return 1;
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [department]);
+  }, [employeesList]);
 
   const toggleEmp = (id) => {
     setSelectedEmployees((prev) =>
@@ -520,12 +573,16 @@ function AssignModal({ ticket, employees, departments, priorityOptions, onClose,
               )}
 
               <div className="max-h-44 overflow-auto bg-gray-50 rounded-2xl p-2">
-                {employeesInDept.length === 0 ? (
+                {loadingEmployees ? (
                   <div className="text-xs text-gray-500 p-2">
-                    Select a department to see employees
+                    Loading employees...
+                  </div>
+                ) : sortedEmployees.length === 0 ? (
+                  <div className="text-xs text-gray-500 p-2">
+                    {department ? "No employees found in this department" : "Select a department to see employees"}
                   </div>
                 ) : (
-                  employeesInDept.map((emp) => (
+                  sortedEmployees.map((emp) => (
                     <label
                       key={emp.id}
                       className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-white rounded-xl transition-all cursor-pointer"
@@ -606,49 +663,85 @@ export default function CSIncoming() {
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [assignmentFilter, setAssignmentFilter] = useState('All');
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const loadStaticData = useCallback(async () => {
+    const [depsResult, optionsResult] = await Promise.allSettled([
+      getDepartments(),
+      prefetchTicketFormOptions(),
+    ]);
 
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const [incoming, assignees, deps, options] = await Promise.all([
-          getCSIncomingTickets({ limit: 100 }),
-          getAssignableEmployees(),
-          getDepartments(),
-          getTicketFormOptions(),
-        ]);
+    if (depsResult.status === 'fulfilled') {
+      setDepartments((depsResult.value || []).map((d) => d.name));
+    }
 
-        if (!mounted) return;
-        setTickets(incoming);
-        setEmployees(
-          assignees.map((row) => ({
-            id: Number(row.id),
-            name: row.name,
-            status: row.is_active ? 'active' : 'inactive',
-            department: row.department || 'Unassigned',
-          }))
-        );
-        setDepartments((deps?.departments || []).map((d) => d.name));
-        setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
-      } catch {
-        if (!mounted) return;
-        setError('Unable to load incoming tickets from ticket-service.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      mounted = false;
-    };
+    if (optionsResult.status === 'fulfilled') {
+      setPriorityOptions((optionsResult.value?.ticket_priorities || []).map((p) => p.priority_name));
+    }
   }, []);
+
+  const loadLiveData = useCallback(async ({ forceRefresh = false, source = 'manual' } = {}) => {
+    if (source !== 'websocket' && source !== 'poll') {
+      setLoading(true);
+    }
+    setError('');
+    setShowRefreshBanner(false);
+
+    const [incomingResult, assigneesResult] = await Promise.allSettled([
+      getCSIncomingTickets({ limit: 100, forceRefresh }),
+      getAssignableEmployees({ forceRefresh }),
+    ]);
+
+    if (incomingResult.status === 'fulfilled') {
+      setTickets(incomingResult.value);
+    }
+
+    if (assigneesResult.status === 'fulfilled') {
+      setEmployees(
+        assigneesResult.value.map((row) => ({
+          id: Number(row.id ?? row.emp_id),
+          name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+          status: row.is_active ? 'active' : 'inactive',
+            department: row.department?.trim() || 'Unassigned',
+        }))
+      );
+    }
+
+    if (incomingResult.status === 'rejected') {
+      setError('Unable to load incoming tickets from ticket-service.');
+    }
+
+    if (source !== 'websocket' && source !== 'poll') {
+      setLoading(false);
+    }
+  }, []);
+
+  const probeForUpdates = useCallback(async ({ source, payload }) => {
+    // Only show banner on actual websocket events, not empty polls.
+    // Avoid the stale-state bug by not comparing against current tickets/employees.
+    if (source === 'websocket') {
+      setShowRefreshBanner(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStaticData();
+    loadLiveData({ forceRefresh: false });
+  }, [loadStaticData, loadLiveData]);
+
+  useRealtimeRefresh({
+    refresh: loadLiveData,
+    channels: [
+      { name: 'ticket-updates', event: 'ticket.changed' },
+      { name: 'employee-status', event: 'employee.status.changed' },
+    ],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: probeForUpdates,
+  });
 
   const categories = useMemo(
     () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category)))],
@@ -734,6 +827,10 @@ export default function CSIncoming() {
           ...updated,
           status: 'Assigned',
         };
+        
+        // Broadcast the assignment to all listening pages
+        ticketBroadcast.emit('assigned', refreshedTicket);
+        
         setModal({ mode: 'summary', ticket: refreshedTicket });
       } catch (e) {
         // Fallback to local state if refetch fails
@@ -741,6 +838,7 @@ export default function CSIncoming() {
           ...updated,
           status: 'Assigned',
         };
+        ticketBroadcast.emit('assigned', refreshed);
         setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
         setModal({ mode: 'summary', ticket: refreshed });
       }
@@ -763,6 +861,22 @@ export default function CSIncoming() {
 
       {error && (
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+      )}
+
+      {showRefreshBanner && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div>
+            <div className="font-semibold">New tickets available</div>
+            <div className="text-xs text-blue-700">Load the latest incoming tickets and employee statuses when ready.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            Load latest
+          </button>
+        </div>
       )}
 
       {loading ? (
@@ -933,14 +1047,10 @@ export default function CSIncoming() {
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
           onStatusUpdate={async (updatedFields) => {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
-            
-            // Soft reload the list to reflect updates immediately
-            try {
-              const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-              setTickets(incoming);
-            } catch (e) {
-              setTickets(prev => prev.map(t => t.id === (updatedFields.id || modal.ticket.id) ? { ...t, ...updatedFields } : t));
-            }
+
+            setTickets((prev) => prev.map((t) => (
+              t.id === (updatedFields.id || modal.ticket.id) ? { ...t, ...updatedFields } : t
+            )));
           }}
         />
       )}

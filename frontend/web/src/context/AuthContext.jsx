@@ -54,6 +54,10 @@ const hasCookie = (name) => document.cookie.split('; ').some((cookie) => cookie.
 const canRefreshSession = () => hasCookie('refresh_token');
 
 const ensureCsrfCookie = async () => {
+  if (hasCookie('XSRF-TOKEN')) {
+    return;
+  }
+
   await axiosInstance.get(`${SANCTUM_URL}${AUTH_ENDPOINTS.CSRF_TOKEN}`, {
     withCredentials: true,
     withXSRFToken: true,
