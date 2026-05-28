@@ -331,6 +331,22 @@
 
         public function verifyPasswordResetOtp($email, $otp)
         {
+            $client = Client::with('credential')->where('email', $email)->first();
+            $employee = Employee::where('email', $email)->first();
+
+            if ($employee && $employee->locked_until && $employee->locked_until->isFuture()) {
+                return [
+                    'success' => false,
+                    'message' => 'Account is temporarily locked. Please try again later.',
+                ];
+            }
+            if ($client && $client->credential && $client->credential->locked_until && $client->credential->locked_until->isFuture()) {
+                return [
+                    'success' => false,
+                    'message' => 'Account is temporarily locked. Please try again later.',
+                ];
+            }
+
             $record = PasswordResetOtp::where('email', $email)->first();
 
             if (!$record || $record->used_at || $record->expires_at->isPast()) {
@@ -351,6 +367,22 @@
             if (!Hash::check($otp, $record->otp_hash)) {
                 $record->attempts += 1;
                 $record->save();
+
+                if ($record->attempts >= 5) {
+                    if ($employee) {
+                        $employee->locked_until = Carbon::now()->addMinutes(5);
+                        $employee->save();
+                    }
+                    if ($client && $client->credential) {
+                        $client->credential->locked_until = Carbon::now()->addMinutes(5);
+                        $client->credential->save();
+                    }
+                    return [
+                        'success' => false,
+                        'message' => 'Too many invalid attempts. Account has been temporarily locked for 5 minutes.',
+                        'locked' => true,
+                    ];
+                }
 
                 return [
                     'success' => false,
@@ -443,6 +475,22 @@
 
         public function changePassword($user, $currentPassword, $newPassword, $otp = null)
         {
+            if ($user instanceof Employee) {
+                if ($user->locked_until && $user->locked_until->isFuture()) {
+                    return [
+                        'success' => false,
+                        'message' => 'Account is temporarily locked. Please try again later.',
+                    ];
+                }
+            } else {
+                if ($user->credential && $user->credential->locked_until && $user->credential->locked_until->isFuture()) {
+                    return [
+                        'success' => false,
+                        'message' => 'Account is temporarily locked. Please try again later.',
+                    ];
+                }
+            }
+
             $isFirstLogin = $user instanceof Employee
                 ? $user->password_change_at === null
                 : optional($user->credential)->password_change_at === null;
@@ -475,6 +523,20 @@
                 if (!Hash::check($otp, $record->otp_hash)) {
                     $record->attempts += 1;
                     $record->save();
+
+                    if ($record->attempts >= 5) {
+                        if ($user instanceof Employee) {
+                            $user->locked_until = Carbon::now()->addMinutes(5);
+                            $user->save();
+                        } else {
+                            $user->credential->locked_until = Carbon::now()->addMinutes(5);
+                            $user->credential->save();
+                        }
+                        return [
+                            'success' => false,
+                            'message' => 'Too many invalid attempts. Account has been temporarily locked for 5 minutes.',
+                        ];
+                    }
 
                     return [
                         'success' => false,

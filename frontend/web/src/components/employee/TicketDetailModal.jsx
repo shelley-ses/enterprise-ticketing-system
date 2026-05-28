@@ -319,7 +319,7 @@ export default function TicketDetailModal({
                 )}
 
                 {/* 2. Proof of Completion triggering button (external tickets only) */}
-                {isExternal && ticket.status !== 'Resolved' && ticket.status !== 'Pending Validation' && (
+                {isExternal && ticket.status !== 'Resolved' && ticket.status !== 'Pending Evaluation' && (
                   <div className="border border-gray-150 rounded-2xl p-5 bg-green-50/30 border-green-100 flex items-center justify-between flex-wrap gap-4">
                     <div className="max-w-md text-left">
                       {isProofRejected && (
@@ -347,7 +347,7 @@ export default function TicketDetailModal({
                 )}
 
                 {/* 3. Ticket Status updates (In Progress, Pending, Resolved) */}
-                {ticket.status !== 'Pending Validation' && ticket.status !== 'Resolved' && (
+                {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
                   <div className="border border-gray-100 rounded-2xl p-5 bg-gray-50/70 text-left">
                     <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Update Ticket Status</h4>
                     
@@ -369,41 +369,45 @@ export default function TicketDetailModal({
 
                         {statusDraft !== ticket.status && (
                           <div className="space-y-4">
-                            <div>
-                              <label htmlFor="status-remarks" className="block text-[11px] font-semibold text-gray-500 mb-1">Remarks/Notes * (Required on status change)</label>
-                              <textarea
-                                id="status-remarks"
-                                placeholder="Provide detailed notes regarding the status change..."
-                                value={remarks}
-                                onChange={(e) => setRemarks(e.target.value)}
-                                className="w-full text-xs border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[4rem] resize-none"
-                                required
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-semibold text-gray-500 mb-1">Supporting Documentation (Optional file upload)</label>
-                              <input
-                                type="file"
-                                multiple
-                                onChange={(e) => setAttachedFiles(Array.from(e.target.files))}
-                                className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer"
-                              />
-                              {attachedFiles.length > 0 && (
-                                <div className="mt-1.5 flex flex-wrap gap-1">
-                                  {attachedFiles.map((file, idx) => (
-                                    <span key={idx} className="inline-flex items-center text-[9px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600">
-                                      {file.name}
-                                    </span>
-                                  ))}
+                            {statusDraft !== 'Resolved' && (
+                              <>
+                                <div>
+                                  <label htmlFor="status-remarks" className="block text-[11px] font-semibold text-gray-500 mb-1">Remarks/Notes * (Required on status change)</label>
+                                  <textarea
+                                    id="status-remarks"
+                                    placeholder="Provide detailed notes regarding the status change..."
+                                    value={remarks}
+                                    onChange={(e) => setRemarks(e.target.value)}
+                                    className="w-full text-xs border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[4rem] resize-none"
+                                    required
+                                  />
                                 </div>
-                              )}
-                            </div>
+
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-gray-500 mb-1">Supporting Documentation (Optional file upload)</label>
+                                  <input
+                                    type="file"
+                                    multiple
+                                    onChange={(e) => setAttachedFiles(Array.from(e.target.files))}
+                                    className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer"
+                                  />
+                                  {attachedFiles.length > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                      {attachedFiles.map((file, idx) => (
+                                        <span key={idx} className="inline-flex items-center text-[9px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600">
+                                          {file.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            )}
 
                             <button
                               type="button"
                               onClick={() => {
-                                if (!remarks.trim()) {
+                                if (statusDraft !== 'Resolved' && !remarks.trim()) {
                                   setErrorMessage('Remarks are required to change ticket status.');
                                   return;
                                 }

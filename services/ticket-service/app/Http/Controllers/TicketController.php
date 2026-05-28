@@ -835,7 +835,7 @@ class TicketController extends Controller
         }
 
         // Reopening check: Must be within 48 hours of resolution
-        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] == 2) {
+        if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 2 || $validated['ticket_status_ID'] == 8)) {
             if ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4) {
                 $resolvedAt = $ticket->resolved_at ? \Carbon\Carbon::parse($ticket->resolved_at) : null;
                 if ($resolvedAt && $resolvedAt->diffInHours(now()) > 48) {
@@ -902,11 +902,23 @@ class TicketController extends Controller
                 }
                 
                 // Reset metadata if reopened
-                if ($statusToSet == 2 && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4 || $ticket->ticket_status_ID == 6)) {
-                    $update['resolved_at'] = null;
-                    $update['closed_at'] = null;
-                    $update['proof_rejected'] = false;
-                    $update['rejection_reason'] = null;
+                if (($statusToSet == 2 || $statusToSet == 8) && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4 || $ticket->ticket_status_ID == 6)) {
+                    $isProofRejection = ($statusToSet == 2 && $ticket->ticket_status_ID == 6 && (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']));
+
+                    if (!$isProofRejection) {
+                        $update['resolved_at'] = null;
+                        $update['closed_at'] = null;
+                        $update['proof_rejected'] = false;
+                        $update['rejection_reason'] = null;
+                        $update['assigned_to'] = null;
+
+                        // Delete assignments for this ticket
+                        DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
+                    } else {
+                        // It is a proof rejection. Reset resolved/closed dates, but KEEP assignments.
+                        $update['resolved_at'] = null;
+                        $update['closed_at'] = null;
+                    }
                 }
             }
             if (array_key_exists('priority_ID', $validated) && $validated['priority_ID'] !== null) {
@@ -923,7 +935,7 @@ class TicketController extends Controller
 
             foreach ($changes as $chg) {
                 $actionType = 'update';
-                if ($chg['field'] === 'ticket_status_ID' && ($chg['old'] == 3 || $chg['old'] == 4) && $chg['new'] == 2) {
+                if ($chg['field'] === 'ticket_status_ID' && ($chg['old'] == 3 || $chg['old'] == 4) && ($chg['new'] == 2 || $chg['new'] == 8)) {
                     $actionType = 'reopen';
                 }
 
@@ -1005,7 +1017,7 @@ class TicketController extends Controller
         }
 
         // Notify employee/CS if ticket reopened by customer
-        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] == 2 && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4)) {
+        if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 2 || $validated['ticket_status_ID'] == 8) && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4)) {
             $assignedEmployeeId = $ticket->assigned_to;
             if ($assignedEmployeeId) {
                 $this->notifyRecipient(
@@ -1442,15 +1454,21 @@ class TicketController extends Controller
             $timelineText = '';
             if ($log->action_type === 'create') {
                 $timelineText = "Ticket created by customer.";
+            } elseif ($log->action_type === 'reopen') {
+                $timelineText = "Ticket reopened by customer.";
             } elseif ($log->action_type === 'accept') {
-                $timelineText = "Assignment accepted by employee.";
+                $empName = $log->employee_name ?: 'Employee';
+                $timelineText = "Assignment accepted by {$empName}.";
             } elseif ($log->action_type === 'reassign_request') {
+                $empName = $log->employee_name ?: 'Employee';
                 $reason = $details['reason'] ?? '';
-                $timelineText = "Reassignment request submitted by employee. Reason: \"{$reason}\"";
+                $timelineText = "Reassignment request submitted by {$empName}. Reason: \"{$reason}\"";
             } elseif ($log->action_type === 'reassign_approve') {
-                $timelineText = "Reassignment request approved. Ticket status reset to Open.";
+                $empName = $log->employee_name ?: 'CS Representative';
+                $timelineText = "Reassignment request approved by {$empName}. Ticket status reset to Open.";
             } elseif ($log->action_type === 'reassign_deny') {
-                $timelineText = "Reassignment request denied.";
+                $empName = $log->employee_name ?: 'CS Representative';
+                $timelineText = "Reassignment request denied by {$empName}.";
             } elseif ($log->action_type === 'status_change') {
                 $newStatus = $details['status'] ?? '';
                 $remarks = $details['remarks'] ?? '';
@@ -1644,9 +1662,24 @@ class TicketController extends Controller
             'remarks' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
             'attachments' => ['nullable', 'array'],
-            'attachments.*' => ['file', 'max:15360', 'mimes:png,jpg,jpeg,gif,pdf,doc,docx'],
             'is_proof' => ['nullable', 'string'], // Flag to indicate if attachments are proof documents
         ]);
+
+        if ($request->hasFile('attachments')) {
+            foreach ($request->file('attachments') as $file) {
+                if (!$file->isValid()) {
+                    return response()->json(['message' => 'Invalid file upload.'], 422);
+                }
+                if ($file->getSize() > 15728640) {
+                    return response()->json(['message' => 'File size exceeds 15MB limit.'], 422);
+                }
+                $ext = strtolower($file->getClientOriginalExtension());
+                $allowed = ['png', 'jpg', 'jpeg', 'gif', 'pdf', 'doc', 'docx'];
+                if (!in_array($ext, $allowed)) {
+                    return response()->json(['message' => "Extension .{$ext} is not allowed."], 422);
+                }
+            }
+        }
 
         $newStatusName = $validated['status'] ?? null;
         $remarksText = $validated['remarks'] ?? '';
@@ -1654,6 +1687,27 @@ class TicketController extends Controller
         $isProof = filter_var($request->input('is_proof', false), FILTER_VALIDATE_BOOLEAN);
 
         DB::transaction(function () use ($ticketId, $ticket, $empId, $newStatusName, $remarksText, $internalNoteText, $isProof, $request, $assignment) {
+            if ($isProof) {
+                $oldProofs = DB::table('proof_of_completion')
+                    ->where('assignment_ID', $assignment->assignment_ID)
+                    ->get();
+
+                foreach ($oldProofs as $oldProof) {
+                    if ($oldProof->file_path) {
+                        \Illuminate\Support\Facades\Storage::disk('public')->delete($oldProof->file_path);
+                        
+                        DB::table('ticket_attachments')
+                            ->where('ticket_id', $ticketId)
+                            ->where('file_path', $oldProof->file_path)
+                            ->delete();
+                    }
+                }
+
+                DB::table('proof_of_completion')
+                    ->where('assignment_ID', $assignment->assignment_ID)
+                    ->delete();
+            }
+
             $attachmentNames = [];
             $emp = DB::table('employees')->where('emp_id', $empId)->first();
             $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : 'Engineer';
@@ -1802,18 +1856,18 @@ class TicketController extends Controller
                 );
             }
 
-            // 5. If it is a proof upload, update status to Pending Validation
+            // 5. If it is a proof upload, update status to Pending Evaluation
             if ($isProof) {
-                // If proof is uploaded, we update status to Pending Validation
-                $pendingValidationId = DB::table('ticket_statuses')
-                    ->whereRaw('LOWER(status_name) = ?', ['pending validation'])
+                // If proof is uploaded, we update status to Pending Evaluation
+                $pendingEvaluationId = DB::table('ticket_statuses')
+                    ->whereRaw('LOWER(status_name) = ?', ['pending evaluation'])
                     ->value('ticket_status_ID');
 
-                if ($pendingValidationId) {
+                if ($pendingEvaluationId) {
                     DB::table('tickets')
                         ->where('ticket_ID', $ticketId)
                         ->update([
-                            'ticket_status_ID' => $pendingValidationId,
+                            'ticket_status_ID' => $pendingEvaluationId,
                             'proof_rejected' => false,
                             'rejection_reason' => null,
                             'updated_at' => now(),
@@ -1824,7 +1878,7 @@ class TicketController extends Controller
                         'action_type' => 'proof_uploaded',
                         'action_by_ID' => $empId,
                         'actor_type' => 'employee',
-                        'details' => json_encode(['message' => 'Proof of completion uploaded. Ticket status set to Pending Validation.']),
+                        'details' => json_encode(['message' => 'Proof of completion uploaded. Ticket status set to Pending Evaluation.']),
                         'created_at' => now(),
                     ]);
 
@@ -1832,13 +1886,13 @@ class TicketController extends Controller
                     $this->notifyCustomer(
                         $customerId,
                         'Proof of Completion Uploaded',
-                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Status is now Pending Validation.",
+                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Status is now Pending Evaluation.",
                         $ticketId
                     );
 
                     $this->notifyCS(
                         'Proof of Completion Uploaded',
-                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Ticket status set to Pending Validation.",
+                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Ticket status set to Pending Evaluation.",
                         $ticketId
                     );
                 }

@@ -9,7 +9,13 @@ import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
-const HISTORY_STATUSES = ['Closed', 'Resolved'];
+const HISTORY_STATUSES = ['Closed', 'Resolved', 'Pending Evaluation'];
+
+const getDisplayStatus = (ticket) => (
+  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
+    ? 'Resolved'
+    : ticket.status
+);
 
 const buildHistorySignature = (list = []) => list
   .map((ticket) => [
@@ -81,7 +87,9 @@ export default function EmployeeProgress() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
-      if (statusFilter !== 'All Status' && t.status !== statusFilter) return false;
+      const displayStatus = getDisplayStatus(t);
+
+      if (statusFilter !== 'All Status' && displayStatus !== statusFilter) return false;
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (q) {
         const blob =
@@ -288,10 +296,10 @@ export default function EmployeeProgress() {
                         <td className="py-2.5 px-2 align-middle">
                           <span
                             className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              statusColors[t.status] ?? 'bg-gray-100 text-gray-700'
+                              statusColors[getDisplayStatus(t)] ?? 'bg-gray-100 text-gray-700'
                             }`}
                           >
-                            {t.status}
+                            {getDisplayStatus(t)}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 align-middle">

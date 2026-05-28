@@ -116,7 +116,8 @@ export const statusColors = {
   Escalated: 'bg-red-100 text-red-700',
   Closed: 'bg-gray-100 text-gray-700',
   Pending: 'bg-orange-100 text-orange-700',
-  'Pending Validation': 'bg-purple-100 text-purple-700',
+  'Pending Evaluation': 'bg-purple-100 text-purple-700',
+  Reopened: 'bg-red-100 text-red-700',
 };
 
 export const slaStatusColors = {

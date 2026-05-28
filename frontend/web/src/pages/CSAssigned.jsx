@@ -12,6 +12,7 @@ import {
   updateEmployeeTicketOverride,
   getTicketDetails,
   updateTicket,
+  respondReassignment,
 } from '@/services/ticketService';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -63,8 +64,8 @@ export default function CSAssigned() {
       // Reassignment-requested tickets should be handled from the Incoming page
       const assignedTickets = incoming.filter(t =>
         (t.status === 'Assigned' || t.status === 'In Progress' ||
-         t.status === 'Pending Validation' || t.status === 'Resolved' ||
-         t.status === 'Pending') &&
+         t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
+         t.status === 'Pending' || t.status === 'Closed') &&
         !t.reassignmentRequested
       );
       setTickets(assignedTickets);
@@ -149,7 +150,7 @@ export default function CSAssigned() {
   }, [filtered, page]);
 
   const handleRowAction = async (t) => {
-    const isSummary = t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    const isSummary = t.status === 'Assigned' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -188,8 +189,8 @@ export default function CSAssigned() {
         const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         const assignedTickets = incoming.filter(t =>
           (t.status === 'Assigned' || t.status === 'In Progress' ||
-           t.status === 'Pending Validation' || t.status === 'Resolved' ||
-           t.status === 'Pending') &&
+           t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
+           t.status === 'Pending' || t.status === 'Closed') &&
           !t.reassignmentRequested
         );
         setTickets(assignedTickets);
@@ -226,17 +227,19 @@ export default function CSAssigned() {
       )}
 
       {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div 
+          onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
+          className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+        >
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
             </span>
-            <span>New updates are available.</span>
+            <span>New updates are available. Click here to reload.</span>
           </div>
           <button
-            onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
-            className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+            className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition-colors pointer-events-none"
           >
             Refresh Now
           </button>
@@ -343,9 +346,9 @@ export default function CSAssigned() {
                     <td className="py-4 px-4 text-gray-700">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-semibold">{t.title}</span>
-                        {t.status === 'Pending Validation' && !isReassignmentReq && (
+                        {t.status === 'Pending Evaluation' && !isReassignmentReq && (
                           <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
-                            Pending Validation
+                            Pending Evaluation
                           </span>
                         )}
                       </div>
@@ -355,14 +358,15 @@ export default function CSAssigned() {
                     </td>
                     <td className="py-4 px-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        t.status === 'Pending Validation' ? 'bg-purple-100 text-purple-700' :
+                        t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
                         t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
                         t.status === 'Resolved' ? 'bg-green-100 text-green-700' :
                         t.status === 'Closed' ? 'bg-gray-100 text-gray-700' :
                         t.status === 'Escalated' ? 'bg-red-100 text-red-700' :
+                        (t.status === 'Reopened' || t.status === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
                         'bg-gray-100 text-gray-700'
-                      }`}>{t.status}</span>
+                      }`}>{t.status === 'Reopen' ? 'Reopened' : t.status}</span>
                     </td>
                     <td className="py-4 px-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -428,23 +432,33 @@ export default function CSAssigned() {
             
             try {
               const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
-              const statusMap = {
-                'Open': 1,
-                'In Progress': 2,
-                'Resolved': 3,
-                'Closed': 4,
-                'Escalated': 5,
-                'Pending Validation': 6,
-                'Pending': 7,
-              };
               
-              await updateTicket({
-                ticketId: numericId,
-                statusId: statusMap[updatedFields.status] ?? 2,
-                assignedByEmail: user?.email,
-                proof_rejected: updatedFields.proofRejected ?? false,
-                rejection_reason: updatedFields.rejectionReason ?? null,
-              });
+              if (updatedFields.reassignmentStatus) {
+                await respondReassignment({
+                  ticketId: numericId,
+                  action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
+                });
+              } else {
+                const statusMap = {
+                  'Open': 1,
+                  'In Progress': 2,
+                  'Resolved': 3,
+                  'Closed': 4,
+                  'Escalated': 5,
+                  'Pending Evaluation': 6,
+                  'Pending': 7,
+                  'Reopened': 8,
+                  'Reopen': 8,
+                };
+                
+                await updateTicket({
+                  ticketId: numericId,
+                  statusId: statusMap[updatedFields.status] ?? 2,
+                  assignedByEmail: user?.email,
+                  proof_rejected: updatedFields.proofRejected ?? false,
+                  rejection_reason: updatedFields.rejectionReason ?? null,
+                });
+              }
             } catch (err) {
               console.error('Failed to update ticket status on backend:', err);
             }
@@ -454,8 +468,8 @@ export default function CSAssigned() {
               const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
               const assignedTickets = incoming.filter(t =>
                 (t.status === 'Assigned' || t.status === 'In Progress' ||
-                 t.status === 'Pending Validation' || t.status === 'Resolved' ||
-                 t.status === 'Pending') &&
+                 t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
+                 t.status === 'Pending' || t.status === 'Closed') &&
                 !t.reassignmentRequested
               );
               setTickets(assignedTickets);

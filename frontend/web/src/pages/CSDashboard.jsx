@@ -103,15 +103,17 @@ export default function CSDashboard() {
   return (
     <div className="p-6">
       {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div 
+          onClick={() => loadDashboard({ forceRefresh: true })}
+          className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+        >
           <div>
             <div className="font-semibold">New CS dashboard data available</div>
             <div className="text-xs text-blue-700">Load the latest queue and ticket summary when ready.</div>
           </div>
           <button
             type="button"
-            onClick={() => loadDashboard({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
           >
             Load latest
           </button>

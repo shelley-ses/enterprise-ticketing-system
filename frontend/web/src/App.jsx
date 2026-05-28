@@ -23,6 +23,7 @@ import CSLayout from './components/CSLayout.jsx';
 import CSDashboard from './pages/CSDashboard.jsx';
 import CSIncoming from './pages/CSIncoming.jsx';
 import CSAssigned from './pages/CSAssigned.jsx';
+import Notifications from './pages/Notifications.jsx';
 
 function App() {
   return (
@@ -73,7 +74,7 @@ function App() {
             <Route path="history" element={<CustomerHistory />} />
             <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
             <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
-            <Route path="notifications" element={<div className="p-8 text-center text-gray-500">Notifications — coming soon.</div>} />
+            <Route path="notifications" element={<Notifications />} />
           </Route>
 
           {/* Employee Routes (kept separate) */}
@@ -93,6 +94,7 @@ function App() {
             <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
             <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
             <Route path="registration" element={<EmployeeRegistration />} />
+            <Route path="notifications" element={<Notifications />} />
           </Route>
 
             <Route path="/employee-dashboard" element={<Navigate to="/employee/dashboard" replace />} />
@@ -115,6 +117,7 @@ function App() {
             <Route path="incoming" element={<CSIncoming />} />
             <Route path="assigned" element={<CSAssigned />} />
             <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
+            <Route path="notifications" element={<Notifications />} />
           </Route>
 
             <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />

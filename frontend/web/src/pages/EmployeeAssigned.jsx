@@ -10,7 +10,7 @@ import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets, acceptTicket, updateTicket } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
@@ -152,13 +152,33 @@ export default function EmployeeAssigned() {
 
 
   const handleStatusChange = useCallback(async (id, newStatus) => {
+    // If status is 'Pending Evaluation', it has already been submitted to the backend via proof upload.
+    // We only need to update the local ticket status and clear any proof rejection flags.
+    if (newStatus === 'Pending Evaluation') {
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, status: newStatus, proofRejected: false, rejectionReason: null }
+            : t
+        )
+      );
+      return;
+    }
+
     const statusMap = {
       'Open': 1,
       'In Progress': 2,
       'Resolved': 3,
       'Closed': 4,
       'Escalated': 5,
-      'Pending': 6,
+      'Pending Evaluation': 6,
+      'Pending': 7,
+      'Reopened': 8,
     };
     const ticketObj = tickets.find((t) => t.id === id);
     if (!ticketObj) return;
@@ -170,12 +190,22 @@ export default function EmployeeAssigned() {
         statusId: statusMap[newStatus] ?? 2,
         assignedByEmail: user?.email,
       });
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
       setTickets((prev) =>
         prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
       );
     } catch (err) {
       console.error('Failed to update ticket status on backend:', err);
       // fallback
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
       setTickets((prev) =>
         prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
       );

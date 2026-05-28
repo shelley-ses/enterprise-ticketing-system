@@ -11,10 +11,11 @@ export default function useRealtimeRefresh({
   deferRefresh = false,
   onRefreshAvailable,
 }) {
-  // Disable polling when using deferred refresh (only listen to websocket events)
-  const effectiveIntervalMs = deferRefresh ? 0 : intervalMs;
   const refreshRef = useRef(refresh);
   const channelsRef = useRef(channels);
+  const shouldRefreshRef = useRef(shouldRefresh);
+  const onRefreshAvailableRef = useRef(onRefreshAvailable);
+  const deferRefreshRef = useRef(deferRefresh);
 
   useEffect(() => {
     refreshRef.current = refresh;
@@ -25,7 +26,16 @@ export default function useRealtimeRefresh({
   }, [channels]);
 
   useEffect(() => {
+    shouldRefreshRef.current = shouldRefresh;
+    onRefreshAvailableRef.current = onRefreshAvailable;
+    deferRefreshRef.current = deferRefresh;
+  }); // Keep dynamic callbacks fresh on every render
+
+  useEffect(() => {
     if (!enabled || !tokenStore.getToken()) return undefined;
+
+    // Disable polling when using deferred refresh (only listen to websocket events)
+    const effectiveIntervalMs = deferRefreshRef.current ? 0 : intervalMs;
 
     const subscriptions = channelsRef.current.map(({ name, event }) => {
       const channel = echo.channel(name);
@@ -34,13 +44,13 @@ export default function useRealtimeRefresh({
       const handler = (payload) => {
         const context = { forceRefresh: true, source: 'websocket', payload };
 
-        if (typeof shouldRefresh === 'function' && !shouldRefresh(context)) {
-          onRefreshAvailable?.(context);
+        if (typeof shouldRefreshRef.current === 'function' && !shouldRefreshRef.current(context)) {
+          onRefreshAvailableRef.current?.(context);
           return;
         }
 
-        if (deferRefresh) {
-          onRefreshAvailable?.(context);
+        if (deferRefreshRef.current) {
+          onRefreshAvailableRef.current?.(context);
           return;
         }
 
@@ -55,13 +65,13 @@ export default function useRealtimeRefresh({
       ? setInterval(() => {
           const context = { forceRefresh: true, source: 'poll' };
 
-          if (typeof shouldRefresh === 'function' && !shouldRefresh(context)) {
-            onRefreshAvailable?.(context);
+          if (typeof shouldRefreshRef.current === 'function' && !shouldRefreshRef.current(context)) {
+            onRefreshAvailableRef.current?.(context);
             return;
           }
 
-          if (deferRefresh) {
-            onRefreshAvailable?.(context);
+          if (deferRefreshRef.current) {
+            onRefreshAvailableRef.current?.(context);
             return;
           }
 

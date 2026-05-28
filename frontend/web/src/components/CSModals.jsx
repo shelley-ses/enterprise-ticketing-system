@@ -93,7 +93,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             <div className="flex items-center gap-2 mb-5">
               <div className="w-2 h-2 rounded-full bg-green-500" />
               <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
-                {ticket.status === 'Pending Validation' ? 'Proof Submitted' : 'Ticket Assigned'}
+                {ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'}
               </span>
             </div>
 
@@ -186,7 +186,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             )}
 
             {/* Proof of Completion Validation Panel */}
-            {ticket.status === 'Pending Validation' && typeof onStatusUpdate === 'function' && (
+            {ticket.status === 'Pending Evaluation' && typeof onStatusUpdate === 'function' && (
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-5 text-xs text-blue-800 space-y-3">
                 <div>
                   <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
@@ -293,14 +293,14 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           const timestamp = new Date().toLocaleString('en-US');
                           const updated = {
                             id: ticket.id,
-                            status: 'Resolved',
+                            status: 'Closed',
                             proofRejected: false,
                             rejectionReason: null,
                             timeline: [
                               {
                                 id: `proof-approve-${Date.now()}`,
                                 type: 'proof',
-                                text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
+                                text: 'Proof of Completion approved by CS. Ticket Closed successfully.',
                                 timestamp,
                               }
                             ]
@@ -485,7 +485,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             >
               Close
             </button>
-            {!ticket.reassignmentRequested && onEdit && (
+            {!ticket.reassignmentRequested && ticket.status !== 'Closed' && onEdit && (
               <button
                 onClick={onEdit}
                 disabled={isProcessing}

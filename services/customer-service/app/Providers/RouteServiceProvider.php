@@ -33,6 +33,14 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(20)->by($request->ip());
         });
 
+        // OTP request rate limiter (max 3 requests per minute per email/IP)
+        RateLimiter::for('otp_request', function (Request $request) {
+            $email = (string) $request->input('email');
+            $user = $request->user();
+            $key = $email ?: ($user?->email ?: $request->ip());
+            return Limit::perMinute(3)->by($key);
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

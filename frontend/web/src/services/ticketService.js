@@ -316,10 +316,14 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
   }
 
   const overrides = getEmployeeOverrides();
-  return list.map(t => ({
-    ...t,
-    ...(overrides[t.id] || {}),
-  }));
+  return list.map((t) => {
+    const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
+
+    return {
+      ...t,
+      ...overrideFields,
+    };
+  });
 };
 
 export const clearIncomingTicketsCache = () => {
@@ -494,17 +498,25 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
     const tickets = response.data?.tickets ?? [];
 
     const overrides = getEmployeeOverrides();
-    return tickets.map(t => ({
-      ...t,
-      ...(overrides[t.id] || {}),
-    }));
+    return tickets.map((t) => {
+      const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
+
+      return {
+        ...t,
+        ...overrideFields,
+      };
+    });
   } catch (error) {
     console.warn('Failed to fetch from ticket-service, using dummy data fallback:', error);
     const overrides = getEmployeeOverrides();
-    return dummyTickets.map(t => ({
-      ...t,
-      ...(overrides[t.id] || {}),
-    }));
+    return dummyTickets.map((t) => {
+      const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
+
+      return {
+        ...t,
+        ...overrideFields,
+      };
+    });
   }
 };
 

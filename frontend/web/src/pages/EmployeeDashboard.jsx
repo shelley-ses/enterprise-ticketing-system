@@ -14,7 +14,7 @@ import EmployeeFilterBar from '@/components/employee/EmployeeFilterBar';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets, acceptTicket, updateTicket } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 function ChevronRight() {
@@ -94,13 +94,33 @@ export default function EmployeeDashboard() {
   });
 
   const handleStatusChange = useCallback(async (id, newStatus) => {
+    // If status is 'Pending Evaluation', it has already been submitted to the backend via proof upload.
+    // We only need to update the local ticket status and clear any proof rejection flags.
+    if (newStatus === 'Pending Evaluation') {
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, status: newStatus, proofRejected: false, rejectionReason: null }
+            : t
+        )
+      );
+      return;
+    }
+
     const statusMap = {
       'Open': 1,
       'In Progress': 2,
       'Resolved': 3,
       'Closed': 4,
       'Escalated': 5,
-      'Pending': 6,
+      'Pending Evaluation': 6,
+      'Pending': 7,
+      'Reopened': 8,
     };
     const ticketObj = tickets.find((t) => t.id === id);
     if (!ticketObj) return;
@@ -112,10 +132,20 @@ export default function EmployeeDashboard() {
         statusId: statusMap[newStatus] ?? 2,
         assignedByEmail: user?.email,
       });
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
       setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
     } catch (err) {
       console.error('Failed to update ticket status on backend:', err);
       // fallback to optimistic update
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
       setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
     }
   }, [tickets, user]);
@@ -242,15 +272,17 @@ export default function EmployeeDashboard() {
       )}
 
       {showRefreshBanner && (
-        <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div 
+          onClick={() => loadTickets({ forceRefresh: true })}
+          className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+        >
           <div>
             <div className="font-semibold">New assigned tickets available</div>
             <div className="text-xs text-blue-700">Load the latest dashboard data when you are ready.</div>
           </div>
           <button
             type="button"
-            onClick={() => loadTickets({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
           >
             Load latest
           </button>

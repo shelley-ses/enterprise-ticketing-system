@@ -36,6 +36,7 @@ const statusClass = (status) => {
   if (status === 'Pending') return 'bg-purple-100 text-purple-700';
   if (status === 'Resolved') return 'bg-green-100 text-green-700';
   if (status === 'Closed') return 'bg-gray-100 text-gray-700';
+  if (status === 'Reopened') return 'bg-red-100 text-red-700';
   if (status.includes('Discarded')) return 'bg-red-100 text-red-700';
   return 'bg-gray-100 text-gray-700';
 };
@@ -53,6 +54,8 @@ export default function MyTickets({ mode = 'all' }) {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [confirmCreated, setConfirmCreated] = useState(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('Loading...');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [filters, setFilters] = useState({
     status: '',
@@ -171,6 +174,8 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   const handleViewTicket = async (t) => {
+    setLoadingText('Loading ticket details...');
+    setModalLoading(true);
     try {
       const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
       const fullTicket = await getTicketDetails(ticketId);
@@ -186,14 +191,19 @@ export default function MyTickets({ mode = 'all' }) {
     } catch (err) {
       console.error('Failed to load ticket details:', err);
       setSelectedTicket(t);
+    } finally {
+      setModalLoading(false);
     }
   };
 
   const handleReopenTicket = async (ticketId) => {
+    setLoadingText('Reopening ticket...');
+    setModalLoading(true);
     try {
+      const numericId = Number(String(ticketId).replace(/\D/g, ''));
       await updateTicket({
-        ticketId,
-        statusId: 2, // In Progress
+        ticketId: numericId,
+        statusId: 8, // Reopened
       });
       await loadTickets({ forceRefresh: true });
       setSelectedTicket(null);
@@ -201,6 +211,8 @@ export default function MyTickets({ mode = 'all' }) {
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
       window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -342,6 +354,17 @@ export default function MyTickets({ mode = 'all' }) {
             <h2 className="mt-4 text-lg font-bold text-gray-900">Ticket submitted</h2>
             <p className="mt-2 text-sm text-gray-600">{confirmCreated.id} has been created successfully.</p>
             <button onClick={() => setConfirmCreated(null)} className="mt-6 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1f1f66]">Done</button>
+          </div>
+        </div>
+      )}
+
+      {modalLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-[#252578] text-center font-sans">
+              {loadingText}
+            </p>
           </div>
         </div>
       )}

@@ -38,6 +38,12 @@ const buildEmployeeSignature = (list = []) => list
   ].join(':'))
   .join('|');
 
+const getDisplayStatus = (ticket) => (
+  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
+    ? 'Resolved'
+    : ticket.status
+);
+
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
 ───────────────────────────────────────────── */
@@ -116,7 +122,7 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, onR
           <div className="flex items-center gap-2 mb-5">
             <div className="w-2 h-2 rounded-full bg-green-500" />
             <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
-              {ticket.status === 'Pending Validation' ? 'Proof Submitted' : 'Ticket Assigned'}
+              {ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'}
             </span>
           </div>
 
@@ -155,7 +161,7 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, onR
           )}
 
           {/* Proof of Completion Validation Panel */}
-          {ticket.status === 'Pending Validation' && typeof onStatusUpdate === 'function' && (
+          {ticket.status === 'Pending Evaluation' && typeof onStatusUpdate === 'function' && (
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-5 text-xs text-blue-800 space-y-3">
               <div>
                 <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
@@ -262,14 +268,14 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, onR
                         const timestamp = new Date().toLocaleString('en-US');
                         const updated = {
                           id: ticket.id,
-                          status: 'Resolved',
+                          status: 'Closed',
                           proofRejected: false,
                           rejectionReason: null,
                           timeline: [
                             {
                               id: `proof-approve-${Date.now()}`,
                               type: 'proof',
-                              text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
+                              text: 'Proof of Completion approved by CS. Ticket Closed successfully.',
                               timestamp,
                             }
                           ]
@@ -742,7 +748,7 @@ export default function CSIncoming() {
     ]);
 
     if (incomingResult.status === 'fulfilled') {
-      setTickets(incomingResult.value);
+      setTickets(incomingResult.value.filter((ticket) => ticket.status !== 'Pending Evaluation'));
     }
 
     if (assigneesResult.status === 'fulfilled') {
@@ -810,14 +816,15 @@ export default function CSIncoming() {
       
       const isAssigned = t.assigned && t.assigned.length > 0;
       const isPendingReassign = t.reassignmentRequested === true;
-      const isPendingValidation = t.status === 'Pending Validation';
+      const isPendingValidation = t.status === 'Pending Evaluation';
+      const isReopened = t.status === 'Reopened' || t.status === 'Reopen';
 
       // Filter by assignment / reassignment / validation status
       if (assignmentFilter === 'All') {
-        if (isAssigned && !isPendingReassign && !isPendingValidation) return false;
+        if (isAssigned && !isPendingReassign && !isPendingValidation && !isReopened) return false;
       } else if (assignmentFilter === 'Pending Reassign') {
         if (!isPendingReassign) return false;
-      } else if (assignmentFilter === 'Pending Validation') {
+      } else if (assignmentFilter === 'Pending Evaluation') {
         if (!isPendingValidation) return false;
       }
 
@@ -846,7 +853,7 @@ export default function CSIncoming() {
 
   const handleRowAction = async (t) => {
     // If already assigned / pending validation / resolved -> show summary first
-    const isSummary = t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    const isSummary = t.status === 'Assigned' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -883,7 +890,7 @@ export default function CSIncoming() {
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100 });
-        setTickets(incoming);
+        setTickets(incoming.filter((ticket) => ticket.status !== 'Pending Evaluation'));
         
         // Find the newly updated ticket to show in summary
         const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
@@ -917,7 +924,7 @@ export default function CSIncoming() {
     try {
       await respondReassignment({ ticketId, action });
       const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-      setTickets(incoming);
+      setTickets(incoming.filter((ticket) => ticket.status !== 'Pending Evaluation'));
       setModal(null);
       if (action === 'approve') {
         const refreshedTicket = incoming.find(t => t.ticket_ID === ticketId);
@@ -943,15 +950,17 @@ export default function CSIncoming() {
       )}
 
       {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div 
+          onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
+          className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+        >
           <div>
             <div className="font-semibold">New tickets available</div>
             <div className="text-xs text-blue-700">Load the latest incoming tickets and employee statuses when ready.</div>
           </div>
           <button
             type="button"
-            onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
           >
             Load latest
           </button>
@@ -982,7 +991,7 @@ export default function CSIncoming() {
           >
             <option value="All">All Assignments</option>
             <option value="Pending Reassign">Pending Reassign</option>
-            <option value="Pending Validation">Pending Validation</option>
+            <option value="Pending Evaluation">Pending Evaluation</option>
           </select>
 
           <select
@@ -1034,14 +1043,15 @@ export default function CSIncoming() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-left">
             <thead>
-              <tr className="text-gray-500">
-                <th className="py-4 px-4">Ticket ID</th>
-                <th className="py-4 px-4">Customer</th>
-                <th className="py-4 px-4">Title</th>
-                <th className="py-4 px-4">Category</th>
-                <th className="py-4 px-4">SLA Status</th>
-                <th className="py-4 px-4">Date Submitted</th>
-                <th className="py-4 px-4">Action</th>
+              <tr className="text-gray-500 border-b border-gray-100">
+                <th className="py-4 px-4 font-semibold">Ticket ID</th>
+                <th className="py-4 px-4 font-semibold">Customer</th>
+                <th className="py-4 px-4 font-semibold">Title</th>
+                <th className="py-4 px-4 font-semibold">Category</th>
+                <th className="py-4 px-4 font-semibold">Status</th>
+                <th className="py-4 px-4 font-semibold">SLA Status</th>
+                <th className="py-4 px-4 font-semibold">Date Submitted</th>
+                <th className="py-4 px-4 font-semibold text-center">Action</th>
               </tr>
             </thead>
 
@@ -1067,9 +1077,9 @@ export default function CSIncoming() {
                   <td className="py-4 px-4 text-gray-700">
                     <div className="flex flex-col gap-0.5">
                       <span className="font-semibold">{t.title}</span>
-                      {t.status === 'Pending Validation' && (
+                      {t.status === 'Pending Evaluation' && (
                         <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
-                          Pending Validation
+                          Pending Evaluation
                         </span>
                       )}
                     </div>
@@ -1079,16 +1089,30 @@ export default function CSIncoming() {
                   </td>
                   <td className="py-4 px-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      t.status === 'Pending Validation' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
-                    }`}>{t.status}</span>
+                      getDisplayStatus(t) === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
+                      t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                      getDisplayStatus(t) === 'In Progress' ? 'bg-blue-100 text-blue-700' :
+                      getDisplayStatus(t) === 'Resolved' ? 'bg-green-100 text-green-700' :
+                      getDisplayStatus(t) === 'Closed' ? 'bg-gray-100 text-gray-700' :
+                      getDisplayStatus(t) === 'Escalated' ? 'bg-red-100 text-red-700' :
+                      (getDisplayStatus(t) === 'Reopened' || getDisplayStatus(t) === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>{getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}</span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      t.sla === 'Breached' ? 'bg-red-100 text-red-700' :
+                      t.sla === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>{t.sla}</span>
                   </td>
                   <td className="py-4 px-4 text-gray-500">{t.date}</td>
-                  <td className="py-4 px-4">
+                  <td className="py-4 px-4 text-center">
                     <button
                       onClick={() => handleRowAction(t)}
-                      className="p-2 rounded-xl hover:bg-gray-100 transition-all"
+                      className="p-2 rounded-xl hover:bg-gray-105 transition-all"
                     >
-                      <img src={actionIcon} alt="action" className="w-5 h-5" />
+                      <img src={actionIcon} alt="action" className="w-5 h-5 opacity-70" />
                     </button>
                   </td>
                 </tr>
@@ -1121,7 +1145,6 @@ export default function CSIncoming() {
       {modalLoading && (
         <SkeletonLoader variant="modal" />
       )}
-      
       {!modalLoading && modal?.mode === 'summary' && (
         <TicketSummary
           ticket={modal.ticket}
@@ -1137,22 +1160,33 @@ export default function CSIncoming() {
 
             try {
               const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
-              const statusMap = {
-                'Open': 1,
-                'In Progress': 2,
-                'Resolved': 3,
-                'Closed': 4,
-                'Escalated': 5,
-                'Pending Validation': 6,
-              };
               
-              await updateTicket({
-                ticketId: numericId,
-                statusId: statusMap[updatedFields.status] ?? 2,
-                assignedByEmail: user?.email,
-                proof_rejected: updatedFields.proofRejected ?? false,
-                rejection_reason: updatedFields.rejectionReason ?? null,
-              });
+              if (updatedFields.reassignmentStatus) {
+                await respondReassignment({
+                  ticketId: numericId,
+                  action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
+                });
+              } else {
+                const statusMap = {
+                  'Open': 1,
+                  'In Progress': 2,
+                  'Resolved': 3,
+                  'Closed': 4,
+                  'Escalated': 5,
+                  'Pending Evaluation': 6,
+                  'Pending': 7,
+                  'Reopened': 8,
+                  'Reopen': 8,
+                };
+                
+                await updateTicket({
+                  ticketId: numericId,
+                  statusId: statusMap[updatedFields.status] ?? 2,
+                  assignedByEmail: user?.email,
+                  proof_rejected: updatedFields.proofRejected ?? false,
+                  rejection_reason: updatedFields.rejectionReason ?? null,
+                });
+              }
             } catch (err) {
               console.error('Failed to update ticket status on backend:', err);
             }

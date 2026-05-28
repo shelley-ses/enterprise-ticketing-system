@@ -56,6 +56,8 @@ export default function CustomerDashboard() {
     closed: 0,
   });
   const [recentTickets, setRecentTickets] = useState([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('Loading...');
   const { user } = useAuth();
   const effectiveUser = user || getStoredUser();
   const customerName = effectiveUser?.name || 'Customer';
@@ -66,6 +68,7 @@ export default function CustomerDashboard() {
     'In Progress': 'bg-blue-100 text-blue-700',
     Resolved: 'bg-green-100 text-green-700',
     Closed: 'bg-gray-100 text-gray-700',
+    Reopened: 'bg-red-100 text-red-700',
   };
 
   const buildDashboardSignature = useCallback((payload) => {
@@ -193,6 +196,8 @@ export default function CustomerDashboard() {
   };
 
   const handleViewTicket = async (t) => {
+    setLoadingText('Loading ticket details...');
+    setModalLoading(true);
     try {
       const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
       const fullTicket = await getTicketDetails(ticketId);
@@ -208,14 +213,19 @@ export default function CustomerDashboard() {
     } catch (err) {
       console.error('Failed to load ticket details:', err);
       setSelectedTicket(t);
+    } finally {
+      setModalLoading(false);
     }
   };
 
   const handleReopenTicket = async (ticketId) => {
+    setLoadingText('Reopening ticket...');
+    setModalLoading(true);
     try {
+      const numericId = Number(String(ticketId).replace(/\D/g, ''));
       await updateTicket({
-        ticketId,
-        statusId: 2, // In Progress
+        ticketId: numericId,
+        statusId: 8, // Reopened
       });
       await loadDashboardData({ forceRefresh: true });
       setSelectedTicket(null);
@@ -223,6 +233,8 @@ export default function CustomerDashboard() {
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
       window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -289,15 +301,17 @@ export default function CustomerDashboard() {
         {/* Summary Cards */}
         {dashboardError && <p className="text-sm text-red-500">{dashboardError}</p>}
         {showRefreshBanner && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div 
+            onClick={() => loadDashboardData({ forceRefresh: true })}
+            className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+          >
             <div>
               <div className="font-semibold">New dashboard data available</div>
               <div className="text-xs text-blue-700">Load the latest ticket summary when you are ready.</div>
             </div>
             <button
               type="button"
-              onClick={() => loadDashboardData({ forceRefresh: true })}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
             >
               Load latest
             </button>
@@ -407,6 +421,17 @@ export default function CustomerDashboard() {
               <button onClick={() => setConfirmDiscard(null)} className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
               <button onClick={handleConfirmDiscard} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Discard</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {modalLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-[#252578] text-center font-sans">
+              {loadingText}
+            </p>
           </div>
         </div>
       )}

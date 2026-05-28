@@ -14,6 +14,14 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
+const getDisplayStatus = (ticket) => (
+  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
+    ? 'Resolved'
+    : ticket.proofRejected
+      ? 'Proof Rejected'
+      : ticket.status
+);
+
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
 
@@ -184,7 +192,7 @@ export default function EmployeeMachine() {
                   <option value="All Status">All Status</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Pending">Pending</option>
-                  <option value="Pending Validation">Pending Validation</option>
+                  <option value="Pending Evaluation">Pending Evaluation</option>
                   <option value="Pending Reassign">Pending Reassign</option>
                 </select>
 
@@ -276,18 +284,18 @@ export default function EmployeeMachine() {
                         <td className="py-3 px-2">
                           <span
                             className={`inline-flex whitespace-nowrap px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                              t.proofRejected
+                              getDisplayStatus(t) === 'Proof Rejected'
                                 ? 'bg-rose-50 text-rose-700 border-rose-200'
                                 : t.reassignmentRequested
                                   ? 'bg-amber-50 text-amber-700 border-amber-200'
                                   : t.status === 'Pending'
                                     ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : t.status === 'Pending Validation'
+                                    : t.status === 'Pending Evaluation'
                                       ? 'bg-purple-50 text-purple-700 border-purple-200'
                                       : 'bg-blue-50 text-blue-700 border-blue-100'
                             }`}
                           >
-                            {t.proofRejected ? 'Proof Rejected' : (t.reassignmentRequested ? 'Pending Reassign' : t.status)}
+                            {t.reassignmentRequested ? 'Pending Reassign' : getDisplayStatus(t)}
                           </span>
                         </td>
                         <td className="py-3 px-2">

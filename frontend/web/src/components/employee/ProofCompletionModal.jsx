@@ -94,6 +94,11 @@ export default function ProofCompletionModal({
       return;
     }
 
+    if (!remarks.trim()) {
+      setErrorMessage('Remarks are required when submitting proof of completion.');
+      return;
+    }
+
     const fileError = validateFiles(proofFiles);
     if (fileError) {
       setErrorMessage(fileError);
@@ -116,10 +121,10 @@ export default function ProofCompletionModal({
       await updateEmployeeTicket(numericId, formData);
       
       if (typeof onStatusChange === 'function') {
-        onStatusChange(ticket.id, 'Pending Validation');
+        onStatusChange(ticket.id, 'Pending Evaluation');
       }
 
-      setSuccessMessage('Proof of completion submitted successfully! Status updated to Pending Validation.');
+      setSuccessMessage('Proof of completion submitted successfully! Status updated to Pending Evaluation.');
       setErrorMessage('');
       setProofFiles([]);
       

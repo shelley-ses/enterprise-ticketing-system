@@ -221,7 +221,7 @@ export default function EmployeeTicketUpdate() {
       {/* Back button */}
       <button
         onClick={() => {
-          const activeStatuses = ['In Progress', 'Pending', 'Pending Validation'];
+          const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation'];
           if (ticket && activeStatuses.includes(ticket.status)) {
             navigate('/employee/machine');
           } else {
@@ -233,7 +233,7 @@ export default function EmployeeTicketUpdate() {
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
-        {ticket && ['In Progress', 'Pending', 'Pending Validation'].includes(ticket.status)
+        {ticket && ['In Progress', 'Pending', 'Pending Evaluation'].includes(ticket.status)
           ? 'Back to Progress Queue'
           : 'Back to Assigned Tickets'}
       </button>
@@ -369,7 +369,7 @@ export default function EmployeeTicketUpdate() {
 
             {/* Proof of Completion */}
             {isExternal &&
-              (statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Validation') && (
+              (statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
                 <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
                   <div className="max-w-lg">
                     {isProofRejected && (
@@ -425,7 +425,7 @@ export default function EmployeeTicketUpdate() {
               )}
 
             {/* Status Update */}
-            {ticket.status !== 'Pending Validation' && ticket.status !== 'Resolved' && (
+            {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
               <div className="bg-white rounded-2xl shadow-md p-6">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
                   Update Ticket Status
@@ -449,57 +449,61 @@ export default function EmployeeTicketUpdate() {
                       </select>
                     </div>
 
-                    {statusDraft !== ticket.status && (
+                     {statusDraft !== ticket.status && (
                       <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Remarks / Notes <span className="text-red-500">*</span>{' '}
-                            <span className="text-gray-400 font-normal">(required on status change)</span>
-                          </label>
-                          <textarea
-                            placeholder="Provide detailed notes about this status change..."
-                            value={remarks}
-                            disabled={isSaving}
-                            onChange={(e) => setRemarks(e.target.value)}
-                            rows={4}
-                            className="w-full text-sm border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 resize-none disabled:opacity-50"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Supporting Documentation{' '}
-                            <span className="text-gray-400 font-normal">(optional)</span>
-                          </label>
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,.png,.docx"
-                            disabled={isSaving}
-                            onChange={handleFileChange}
-                            className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer disabled:opacity-50"
-                          />
-                          {attachedFiles.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {attachedFiles.map((file, idx) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center gap-1 text-[10px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600"
-                                >
-                                  <span>{file.name}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                                    className="text-red-500 font-bold hover:text-red-700 ml-1"
-                                    title="Remove file"
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
+                        {statusDraft !== 'Resolved' && (
+                          <>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                                Remarks / Notes <span className="text-red-500">*</span>{' '}
+                                <span className="text-gray-400 font-normal">(required on status change)</span>
+                              </label>
+                              <textarea
+                                placeholder="Provide detailed notes about this status change..."
+                                value={remarks}
+                                disabled={isSaving}
+                                onChange={(e) => setRemarks(e.target.value)}
+                                rows={4}
+                                className="w-full text-sm border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 resize-none disabled:opacity-50"
+                              />
                             </div>
-                          )}
-                        </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                                Supporting Documentation{' '}
+                                <span className="text-gray-400 font-normal">(optional)</span>
+                              </label>
+                              <input
+                                type="file"
+                                multiple
+                                accept=".pdf,.png,.docx"
+                                disabled={isSaving}
+                                onChange={handleFileChange}
+                                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer disabled:opacity-50"
+                              />
+                              {attachedFiles.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {attachedFiles.map((file, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 text-[10px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600"
+                                    >
+                                      <span>{file.name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                        className="text-red-500 font-bold hover:text-red-700 ml-1"
+                                        title="Remove file"
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
 
                         {statusDraft === 'Resolved' && isExternal ? (
                           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-xs font-semibold text-center">
@@ -510,7 +514,7 @@ export default function EmployeeTicketUpdate() {
                             type="button"
                             disabled={isSaving}
                             onClick={() => {
-                              if (!remarks.trim()) {
+                              if (statusDraft !== 'Resolved' && !remarks.trim()) {
                                 setErrorMessage('Remarks are required to change ticket status.');
                                 return;
                               }

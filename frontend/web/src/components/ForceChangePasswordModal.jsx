@@ -95,9 +95,9 @@ export default function ForceChangePasswordModal() {
 
       setSuccess(true);
 
-      // Re-validate session so isFirstLogin flips to false
+      // Log out on success to force user redirection back to the login page
       setTimeout(async () => {
-        await revalidateSession();
+        await logout();
       }, 1800);
     } catch (err) {
       const msg =

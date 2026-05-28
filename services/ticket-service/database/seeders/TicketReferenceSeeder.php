@@ -201,7 +201,7 @@ class TicketReferenceSeeder extends Seeder
             ],
             [
                 'ticket_status_ID' => 6,
-                'status_name' => 'Pending Validation',
+                'status_name' => 'Pending Evaluation',
                 'color_code' => '#d97706',
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -210,6 +210,13 @@ class TicketReferenceSeeder extends Seeder
                 'ticket_status_ID' => 7,
                 'status_name' => 'Pending',
                 'color_code' => '#d97706',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'ticket_status_ID' => 8,
+                'status_name' => 'Reopened',
+                'color_code' => '#ef4444',
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
