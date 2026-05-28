@@ -247,7 +247,12 @@ class AuthController extends Controller
 
     public function changePassword(Request $request)
     {
-        $request->validate([
+        $user = $request->user();
+        $isFirstLogin = $user instanceof Employee
+            ? $user->password_change_at === null
+            : optional($user->credential)->password_change_at === null;
+
+        $rules = [
             'current_password' => 'required|string',
             'new_password' => [
                 'required',
@@ -258,10 +263,20 @@ class AuthController extends Controller
                 'regex:/[0-9]/',
                 'regex:/[^A-Za-z0-9]/',
             ],
-        ]);
+        ];
 
-        $user = $request->user();
-        $result = $this->authService->changePassword($user, $request->current_password, $request->new_password);
+        if ($isFirstLogin) {
+            $rules['otp'] = 'required|digits:6';
+        }
+
+        $request->validate($rules);
+
+        $result = $this->authService->changePassword(
+            $user,
+            $request->current_password,
+            $request->new_password,
+            $request->input('otp')
+        );
 
         return response()->json([
             'message' => $result['message'],

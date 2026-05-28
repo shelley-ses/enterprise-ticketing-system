@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
+import AuthGate from '@/routes/AuthGate';
 import Loginpage from './pages/Loginpage.jsx';
 import LoginChoicePage from './pages/LoginChoicePage.jsx';
 import CustomerLayout from './components/CustomerLayout.jsx';
@@ -60,7 +61,7 @@ function App() {
           <Route
             path="/"
             element={
-              <PrivateRoute>
+              <PrivateRoute role="customer">
                 <CustomerLayout />
               </PrivateRoute>
             }
@@ -76,7 +77,14 @@ function App() {
           </Route>
 
           {/* Employee Routes (kept separate) */}
-          <Route path="/employee" element={<EmployeeLayout />}>
+          <Route
+            path="/employee"
+            element={
+              <PrivateRoute role="employee">
+                <EmployeeLayout />
+              </PrivateRoute>
+            }
+          >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<EmployeeDashboard />} />
             <Route path="assigned" element={<EmployeeAssigned />} />
@@ -94,7 +102,14 @@ function App() {
             <Route path="/employee-registration" element={<Navigate to="/employee/registration" replace />} />
 
           {/* Customer Service (CS) Routes */}
-          <Route path="/cs" element={<CSLayout />}>
+          <Route
+            path="/cs"
+            element={
+              <PrivateRoute role="cs">
+                <CSLayout />
+              </PrivateRoute>
+            }
+          >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<CSDashboard />} />
             <Route path="incoming" element={<CSIncoming />} />

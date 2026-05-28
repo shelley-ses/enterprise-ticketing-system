@@ -8,6 +8,7 @@
     use App\Models\PasswordResetOtp;
     use App\Models\RefreshToken;
     use App\Mail\ForgotPasswordOtpMail;
+    use App\Mail\FirstLoginOtpMail;
     use Illuminate\Support\Facades\Hash;
     use Illuminate\Support\Facades\Mail;
     use Illuminate\Support\Facades\Log;
@@ -101,6 +102,18 @@
             $credential->last_login_at = Carbon::now();
             $credential->save();
 
+            if ($isFirstLogin) {
+                $sent = $this->sendFirstLoginOtp($email, $client->client_name);
+                if (!$sent) {
+                    return [
+                        'success' => false,
+                        'message' => 'Unable to send verification OTP email. Please check SMTP settings.',
+                        'user' => null,
+                        'token' => null,
+                    ];
+                }
+            }
+
             Log::info('AuthService.login:after_credential_save', ['duration_ms' => (microtime(true)-$start)*1000]);
 
             // create access token (short-lived)
@@ -183,6 +196,18 @@
             $employee->last_seen_at = Carbon::now();
             $employee->is_active = $employee->role !== 'customer service';
             $employee->save();
+
+            if ($isFirstLogin) {
+                $sent = $this->sendFirstLoginOtp($email, trim($employee->first_name . ' ' . $employee->last_name));
+                if (!$sent) {
+                    return [
+                        'success' => false,
+                        'message' => 'Unable to send verification OTP email. Please check SMTP settings.',
+                        'user' => null,
+                        'token' => null,
+                    ];
+                }
+            }
 
             $this->syncEmployeePresence($employee);
 
@@ -377,8 +402,87 @@
             ];
         }
 
-        public function changePassword($user, $currentPassword, $newPassword)
+        private function sendFirstLoginOtp($email, $name)
         {
+            $otp = (string) random_int(100000, 999999);
+            $expiresAt = Carbon::now()->addMinutes(self::PASSWORD_RESET_OTP_MINUTES);
+
+            PasswordResetOtp::updateOrCreate(
+                ['email' => $email],
+                [
+                    'otp_hash' => Hash::make($otp),
+                    'attempts' => 0,
+                    'expires_at' => $expiresAt,
+                    'used_at' => null,
+                ]
+            );
+
+            try {
+                Log::info('AuthService.sendFirstLoginOtp:before_mail_send', [
+                    'email' => $email,
+                    'mail_mailer' => config('mail.default'),
+                    'mail_host' => config('mail.mailers.smtp.host'),
+                ]);
+
+                Mail::to($email)->send(new FirstLoginOtpMail($name, $otp, self::PASSWORD_RESET_OTP_MINUTES));
+                
+                Log::info('AuthService.sendFirstLoginOtp:after_mail_send', [
+                    'email' => $email,
+                ]);
+
+                return true;
+            } catch (\Throwable $throwable) {
+                Log::error('AuthService.sendFirstLoginOtp:mail_failed', [
+                    'email' => $email,
+                    'message' => $throwable->getMessage(),
+                ]);
+
+                return false;
+            }
+        }
+
+        public function changePassword($user, $currentPassword, $newPassword, $otp = null)
+        {
+            $isFirstLogin = $user instanceof Employee
+                ? $user->password_change_at === null
+                : optional($user->credential)->password_change_at === null;
+
+            if ($isFirstLogin) {
+                if (empty($otp)) {
+                    return [
+                        'success' => false,
+                        'message' => 'OTP is required for first-time password change.',
+                    ];
+                }
+
+                $email = $user->email;
+                $record = PasswordResetOtp::where('email', $email)->first();
+
+                if (!$record || $record->used_at || $record->expires_at->isPast()) {
+                    return [
+                        'success' => false,
+                        'message' => 'Invalid or expired verification code.',
+                    ];
+                }
+
+                if ($record->attempts >= self::PASSWORD_RESET_MAX_ATTEMPTS) {
+                    return [
+                        'success' => false,
+                        'message' => 'Too many invalid attempts. Please request a new code.',
+                    ];
+                }
+
+                if (!Hash::check($otp, $record->otp_hash)) {
+                    $record->attempts += 1;
+                    $record->save();
+
+                    return [
+                        'success' => false,
+                        'message' => 'Invalid or expired verification code.',
+                    ];
+                }
+            }
+
             $currentPasswordHash = $user instanceof Employee
                 ? $user->password_hash
                 : $user->credential->password_hash;
@@ -397,7 +501,7 @@
                 ];
             }
 
-            DB::transaction(function () use ($user, $newPassword) {
+            DB::transaction(function () use ($user, $newPassword, $isFirstLogin) {
                 if ($user instanceof Employee) {
                     $user->password_hash = Hash::make($newPassword);
                     $user->password_change_at = Carbon::now();
@@ -410,6 +514,13 @@
                     $user->credential->failed_login_count = 0;
                     $user->credential->locked_until = null;
                     $user->credential->save();
+                }
+
+                if ($isFirstLogin) {
+                    $email = $user->email;
+                    PasswordResetOtp::where('email', $email)->update([
+                        'used_at' => Carbon::now()
+                    ]);
                 }
             });
 
