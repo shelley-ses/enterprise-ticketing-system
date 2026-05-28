@@ -201,12 +201,20 @@ class TicketReferenceSeeder extends Seeder
             ],
             [
                 'ticket_status_ID' => 6,
+                'status_name' => 'Pending Validation',
+                'color_code' => '#d97706',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'ticket_status_ID' => 7,
                 'status_name' => 'Pending',
                 'color_code' => '#d97706',
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
         ], ['ticket_status_ID'], ['status_name', 'color_code', 'updated_at']);
+
 
         // Departments used by employees and CS assign modal
         DB::table('departments')->upsert([

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
-import { TICKET_API_URL } from '@/config/api.config';
+import { TICKET_API_URL, AUTH_ENDPOINTS } from '@/config/api.config';
 import tokenStore from '@/auth/tokenStore';
+import { refreshAccessToken } from '@/auth/refreshSession';
 
 const ticketClient = axios.create({
   baseURL: TICKET_API_URL,
@@ -21,6 +22,34 @@ ticketClient.interceptors.request.use((config) => {
 
   return config;
 });
+
+ticketClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry
+    ) {
+      originalRequest._retry = true;
+      const refreshed = await refreshAccessToken();
+      const currentToken = tokenStore.getToken();
+      if (refreshed && currentToken) {
+        originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+        return ticketClient(originalRequest);
+      }
+
+      tokenStore.clearToken();
+      localStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('auth:unauthorized'));
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 let optionsCache = null;
 let optionsCacheAt = 0;
@@ -94,13 +123,14 @@ const writeJsonStore = (key, value) => {
 };
 
 const getTicketOverrides = () => readJsonStore(CUSTOMER_TICKET_OVERRIDES_KEY, {});
-const getTicketDetails = () => readJsonStore(CUSTOMER_TICKET_DETAILS_KEY, {});
+const getLocalTicketDetailsStore = () => readJsonStore(CUSTOMER_TICKET_DETAILS_KEY, {});
 
 const normalizeCustomerTicket = (ticket = {}) => {
   const overrides = getTicketOverrides()[ticket.id] || {};
-  const details = getTicketDetails()[ticket.id] || {};
+  const details = getLocalTicketDetailsStore()[ticket.id] || {};
   const status = overrides.status || ticket.status || 'Open';
   const now = new Date().toISOString();
+  const assigned_to = ticket.assigned_to || details.assigned_to || null;
 
   return {
     ticket_ID: ticket.ticket_ID || details.ticket_ID || Number(String(ticket.id || '').replace(/\D/g, '')) || null,
@@ -112,14 +142,15 @@ const normalizeCustomerTicket = (ticket = {}) => {
     description: ticket.description || details.description || '',
     date_created: ticket.date_created || details.date_created || now,
     last_updated: overrides.last_updated || ticket.last_updated || details.last_updated || ticket.date_created || now,
-    can_discard: status === 'Open' && !details.accepted_or_delegated,
+    can_discard: status === 'Open' && !assigned_to,
+    assigned_to,
   };
 };
 
 export const saveCustomerTicketDetail = (ticket = {}) => {
   if (!ticket.id) return;
 
-  const details = getTicketDetails();
+  const details = getLocalTicketDetailsStore();
   details[ticket.id] = {
     ...(details[ticket.id] || {}),
     ...ticket,
@@ -128,14 +159,9 @@ export const saveCustomerTicketDetail = (ticket = {}) => {
   writeJsonStore(CUSTOMER_TICKET_DETAILS_KEY, details);
 };
 
-export const discardCustomerTicketLocally = (ticketId) => {
-  const overrides = getTicketOverrides();
-  overrides[ticketId] = {
-    ...(overrides[ticketId] || {}),
-    status: 'Discarded by Customer',
-    last_updated: new Date().toISOString(),
-  };
-  writeJsonStore(CUSTOMER_TICKET_OVERRIDES_KEY, overrides);
+export const discardCustomerTicket = async (ticketId) => {
+  const response = await ticketClient.delete(`/tickets/${ticketId}`);
+  return response.data;
 };
 
 const fetchTicketFormOptions = async () => {
@@ -289,46 +315,6 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
     return dummyTickets;
   }
 
-  // After fetching, if list is empty, use dummy fallback
-  if (!list || list.length === 0) {
-    console.warn('Incoming tickets list empty, using dummy data fallback.');
-    const dummyTickets = [
-      {
-        id: 'TKT-2001',
-        title: 'Ventilator Pressure Alarm Fault',
-        customer: "St. Luke's Medical Center",
-        equipment: 'PB980 Ventilator - SN-883921',
-        category: 'Ventilator',
-        sla: 'On Track',
-        date: '2026-05-26',
-        status: 'New',
-        priority: 'Critical',
-        department: 'Biomedical',
-        reassignmentRequested: false,
-        reassignmentRequestedBy: null,
-        reassignmentReason: null,
-        assigned: [],
-      },
-      {
-        id: 'TKT-2002',
-        title: 'MRI Scanner Image Artifacts',
-        customer: 'Philippine General Hospital',
-        equipment: 'Signa 1.5T MRI - SN-992100',
-        category: 'MRI',
-        sla: 'Near Breach',
-        date: '2026-05-25',
-        status: 'Pending',
-        priority: 'High',
-        department: 'Radiology',
-        reassignmentRequested: true,
-        reassignmentRequestedBy: 42,
-        reassignmentReason: 'Need specialist with MRI certification',
-        assigned: [],
-      },
-    ];
-    list = dummyTickets;
-  }
-
   const overrides = getEmployeeOverrides();
   return list.map(t => ({
     ...t,
@@ -434,11 +420,13 @@ export const acceptTicket = async ({ ticketId, employeeIds, assignedByEmail, pri
   return response.data;
 };
 
-export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByEmail } = {}) => {
+export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByEmail, proof_rejected, rejection_reason } = {}) => {
   const response = await ticketClient.patch(`/tickets/${ticketId}`, {
     ticket_status_ID: statusId,
     priority_ID: priorityId,
     assigned_by_email: assignedByEmail,
+    proof_rejected,
+    rejection_reason,
   });
   // Clear both incoming and dashboard caches since status change affects both
   clearIncomingTicketsCache();
@@ -504,53 +492,6 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
       },
     });
     const tickets = response.data?.tickets ?? [];
-
-    // Prepend dummy tickets if they aren't already present in the list
-    dummyTickets.forEach(dummy => {
-      if (!tickets.some(t => t.id === dummy.id)) {
-        tickets.unshift(dummy);
-      }
-    });
-
-    // After attempting fetch, if list is empty, use dummy data fallback
-    if (!tickets || tickets.length === 0) {
-      console.warn('Incoming tickets list empty, using dummy data fallback.');
-      const dummyTickets = [
-        {
-          id: 'TKT-2001',
-          title: 'Ventilator Pressure Alarm Fault',
-          customer: "St. Luke's Medical Center",
-          equipment: 'PB980 Ventilator - SN-883921',
-          category: 'Ventilator',
-          sla: 'On Track',
-          date: '2026-05-26',
-          status: 'New',
-          priority: 'Critical',
-          department: 'Biomedical',
-          reassignmentRequested: false,
-          reassignmentRequestedBy: null,
-          reassignmentReason: null,
-          assigned: [],
-        },
-        {
-          id: 'TKT-2002',
-          title: 'MRI Scanner Image Artifacts',
-          customer: 'Philippine General Hospital',
-          equipment: 'Signa 1.5T MRI - SN-992100',
-          category: 'MRI',
-          sla: 'Near Breach',
-          date: '2026-05-25',
-          status: 'Pending',
-          priority: 'High',
-          department: 'Radiology',
-          reassignmentRequested: true,
-          reassignmentRequestedBy: 42,
-          reassignmentReason: 'Need specialist with MRI certification',
-          assigned: [],
-        },
-      ];
-      return dummyTickets;
-    }
 
     const overrides = getEmployeeOverrides();
     return tickets.map(t => ({
@@ -716,4 +657,68 @@ export const updateEmployeeTicketOverride = (ticketId, override) => {
     console.error('Failed to update employee override:', err);
   }
 };
+
+export const requestReassignment = async ({ ticketId, reason }) => {
+  const response = await ticketClient.post(`/tickets/${ticketId}/reassign-request`, {
+    reason,
+  });
+  clearEmployeeTicketsCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
+export const respondReassignment = async ({ ticketId, action }) => {
+  const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, {
+    action,
+  });
+  clearEmployeeTicketsCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
+export const getReassignmentRequests = async (params = {}) => {
+  const response = await ticketClient.get('/reassignment-requests', {
+    params,
+  });
+  return response.data?.requests ?? [];
+};
+
+export const getTicketDetails = async (ticketId) => {
+  const response = await ticketClient.get(`/tickets/${ticketId}`);
+  return response.data;
+};
+
+export const updateEmployeeTicket = async (ticketId, formData) => {
+  const response = await ticketClient.post(`/tickets/${ticketId}/employee-update`, formData, {
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  clearEmployeeTicketsCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
+export const getNotifications = async () => {
+  const response = await ticketClient.get('/notifications');
+  return response.data;
+};
+
+export const markNotificationsRead = async () => {
+  const response = await ticketClient.post('/notifications/mark-read');
+  return response.data;
+};
+
+export const markNotificationRead = async (id) => {
+  const response = await ticketClient.post(`/notifications/${id}/read`);
+  return response.data;
+};
+
 

@@ -7,12 +7,15 @@ import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   createTicket,
-  discardCustomerTicketLocally,
+  discardCustomerTicket,
   getCachedTicketFormOptions,
   getCustomerDashboard,
   getTicketFormOptions,
   prefetchTicketFormOptions,
   saveCustomerTicketDetail,
+  getNotifications,
+  getTicketDetails,
+  updateTicket,
 } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 
@@ -24,6 +27,19 @@ const getStoredUser = () => {
   }
 };
 
+const formatTimeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
 export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(true);
@@ -32,6 +48,7 @@ export default function CustomerDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [createdTicket, setCreatedTicket] = useState(null);
+  const [dbNotifications, setDbNotifications] = useState([]);
   const [summary, setSummary] = useState({
     open: 0,
     in_progress: 0,
@@ -90,9 +107,16 @@ export default function CustomerDashboard() {
         category: ticket.category || 'General',
         date_created: ticket.date_created || new Date().toISOString(),
         last_updated: ticket.last_updated || ticket.date_created || new Date().toISOString(),
-        can_discard: ticket.status === 'Open',
+        can_discard: ticket.status === 'Open' && !ticket.assigned_to,
         statusColor: statusColorByName[ticket.status] || 'bg-gray-100 text-gray-700',
       })));
+
+      try {
+        const notifData = await getNotifications();
+        setDbNotifications(notifData.notifications || []);
+      } catch (err) {
+        console.warn('Failed to load notifications for customer dashboard:', err);
+      }
     } catch (error) {
       setDashboardError(error?.response?.data?.message || 'Failed to load dashboard data.');
     } finally {
@@ -150,26 +174,56 @@ export default function CustomerDashboard() {
     { title: 'Closed', count: summary.closed, color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
   ];
 
-  const notifications = [
-    { title: 'Engineer Assigned', desc: 'James Reyes has been assigned to your ticket TKT-001 (MRI Machine Not Powering On).', time: '3d ago', unread: true },
-    { title: 'Ticket Resolved', desc: 'Your ticket TKT-003 (CT Scan Gantry Rotation Error) has been marked as Resolved.', time: '7d ago', unread: false },
-  ];
+  // Removed shadowed notifications array mapping to avoid ReferenceError, and we pass slice directly to Notifications component.
 
-  const handleConfirmDiscard = () => {
+  const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
 
-    discardCustomerTicketLocally(confirmDiscard.id);
-    setRecentTickets((current) => current.map((ticket) => (
-      ticket.id === confirmDiscard.id
-        ? { ...ticket, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
-        : ticket
-    )));
-    setSelectedTicket((current) => (
-      current?.id === confirmDiscard.id
-        ? { ...current, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
-        : current
-    ));
-    setConfirmDiscard(null);
+    try {
+      const ticketId = confirmDiscard.ticket_ID || parseInt(String(confirmDiscard.id || '').replace(/\D/g, ''), 10);
+      await discardCustomerTicket(ticketId);
+      setConfirmDiscard(null);
+      setSelectedTicket(null);
+      window.alert('Ticket discarded successfully.');
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to discard ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to discard ticket.');
+    }
+  };
+
+  const handleViewTicket = async (t) => {
+    try {
+      const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+      const fullTicket = await getTicketDetails(ticketId);
+      setSelectedTicket({
+        ...t,
+        ...fullTicket,
+        description: fullTicket.description || t.description || '',
+        resolved_at: fullTicket.resolved_at || null,
+        proofAttachments: fullTicket.proofAttachments || [],
+        proofFiles: fullTicket.proofFiles || [],
+        can_discard: (fullTicket.status || t.status) === 'Open' && !fullTicket.assigned_to,
+      });
+    } catch (err) {
+      console.error('Failed to load ticket details:', err);
+      setSelectedTicket(t);
+    }
+  };
+
+  const handleReopenTicket = async (ticketId) => {
+    try {
+      await updateTicket({
+        ticketId,
+        statusId: 2, // In Progress
+      });
+      await loadDashboardData({ forceRefresh: true });
+      setSelectedTicket(null);
+      window.alert('Ticket reopened successfully.');
+    } catch (err) {
+      console.error('Failed to reopen ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
+    }
   };
 
   const handleCreateTicket = async (payload) => {
@@ -306,7 +360,7 @@ export default function CustomerDashboard() {
                     </td>
                     <td className="px-4 py-4 rounded-r-2xl border-y border-r border-gray-100 text-center">
                       <button
-                        onClick={() => setSelectedTicket(t)}
+                        onClick={() => handleViewTicket(t)}
                         aria-label={`View ${t.id}`}
                         className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors"
                       >
@@ -324,7 +378,7 @@ export default function CustomerDashboard() {
 
       {/* Right Column - Notifications & Quick Actions */}
       <div className="w-full xl:w-96 flex flex-col gap-6">
-        <Notifications notifications={notifications} />
+        <Notifications notifications={dbNotifications.slice(0, 3)} />
         <QuickActions onOpenTicketModal={() => setIsTicketModalOpen(true)} />
       </div>
 
@@ -340,6 +394,7 @@ export default function CustomerDashboard() {
         ticket={selectedTicket}
         onClose={() => setSelectedTicket(null)}
         onDiscard={(ticket) => setConfirmDiscard(ticket)}
+        onReopen={(ticketId) => handleReopenTicket(ticketId)}
       />
 
       {/* Confirm Discard Modal */}

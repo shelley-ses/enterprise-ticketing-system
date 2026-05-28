@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
 
@@ -40,6 +40,18 @@ export default function EmployeeHistoryDetail() {
     }
     return events;
   }, [ticket]);
+
+  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
+
+  const sortedTimelineEvents = useMemo(() => {
+    const sorted = [...timelineEvents];
+    sorted.sort((a, b) => {
+      const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timelineSortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+    return sorted;
+  }, [timelineEvents, timelineSortOrder]);
 
   if (!ticket) {
     return (
@@ -244,15 +256,27 @@ export default function EmployeeHistoryDetail() {
 
       {/* Chronological Timeline */}
       <div className="bg-white rounded-2xl shadow-md p-6">
-        <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
-          Ticket Timeline &amp; History
-        </h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+            Ticket Timeline &amp; History
+          </h3>
+          <button
+            type="button"
+            onClick={() => setTimelineSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252578]/5 hover:bg-[#252578]/10 border border-[#252578]/10 rounded-xl text-xs font-bold text-[#252578] transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
+            </svg>
+            {timelineSortOrder === 'asc' ? 'Showing: Oldest First' : 'Showing: Newest First'}
+          </button>
+        </div>
 
-        {timelineEvents.length === 0 ? (
+        {sortedTimelineEvents.length === 0 ? (
           <p className="text-sm text-gray-400 italic">No timeline events recorded.</p>
         ) : (
           <div className="relative pl-6 space-y-4 border-l-2 border-gray-100 ml-3 py-1.5">
-            {timelineEvents.map((evt, idx) => {
+            {sortedTimelineEvents.map((evt, idx) => {
               const dotColor =
                 evt.type === 'system'
                   ? 'bg-[#252578]'

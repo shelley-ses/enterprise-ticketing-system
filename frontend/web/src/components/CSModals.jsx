@@ -47,6 +47,7 @@ export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "
 export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Reassignment specific states
   const [showReassignDeny, setShowReassignDeny] = useState(false);
@@ -190,11 +191,23 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                 <div>
                   <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
                   {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
-                    <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-24 overflow-y-auto space-y-1">
+                    <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-2">
                       {ticket.proofAttachments.map((f, i) => (
-                        <div key={i} className="text-gray-600 font-medium truncate flex justify-between">
-                          <span>{f.name}</span>
-                          <span className="text-[10px] text-gray-400">{(f.size / (1024 * 1024)).toFixed(2)} MB</span>
+                        <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
+                          <a
+                            href={f.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0"
+                          >
+                            <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                            <span className="truncate">{f.name}</span>
+                          </a>
+                          <span className="text-[10px] text-gray-400 font-medium shrink-0">
+                            {f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -222,63 +235,86 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         Cancel
                       </button>
                       <button
+                        disabled={isProcessing}
                         onClick={async () => {
                           if (!rejectionReason.trim()) return;
-                          const timestamp = new Date().toLocaleString('en-US');
-                          const updated = {
-                            id: ticket.id,
-                            status: 'In Progress',
-                            proofRejected: true,
-                            rejectionReason: rejectionReason.trim(),
-                            timeline: [
-                              {
-                                id: `proof-reject-${Date.now()}`,
-                                type: 'proof',
-                                text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
-                                timestamp,
-                              }
-                            ]
-                          };
-                          await onStatusUpdate(updated);
-                          onClose();
+                          setIsProcessing(true);
+                          try {
+                            const timestamp = new Date().toLocaleString('en-US');
+                            const updated = {
+                              id: ticket.id,
+                              status: 'In Progress',
+                              proofRejected: true,
+                              rejectionReason: rejectionReason.trim(),
+                              timeline: [
+                                {
+                                  id: `proof-reject-${Date.now()}`,
+                                  type: 'proof',
+                                  text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
+                                  timestamp,
+                                }
+                              ]
+                            };
+                            await onStatusUpdate(updated);
+                            onClose();
+                          } catch (err) {
+                            console.error(err);
+                            setIsProcessing(false);
+                          }
                         }}
-                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Confirm Rejection
+                        {isProcessing ? 'Processing...' : 'Confirm Rejection'}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex gap-2">
                     <button
+                      disabled={isProcessing}
                       onClick={() => setShowRejectInput(true)}
-                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
                     >
                       Reject Proof
                     </button>
                     <button
+                      disabled={isProcessing}
                       onClick={async () => {
-                        const timestamp = new Date().toLocaleString('en-US');
-                        const updated = {
-                          id: ticket.id,
-                          status: 'Resolved',
-                          proofRejected: false,
-                          rejectionReason: null,
-                          timeline: [
-                            {
-                              id: `proof-approve-${Date.now()}`,
-                              type: 'proof',
-                              text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
-                              timestamp,
-                            }
-                          ]
-                        };
-                        await onStatusUpdate(updated);
-                        onClose();
+                        if (!ticket.department) {
+                          window.alert('Cannot resolve ticket: Department is not set.');
+                          return;
+                        }
+                        if (!ticket.assigned || ticket.assigned.length === 0) {
+                          window.alert('Cannot resolve ticket: No employees are assigned.');
+                          return;
+                        }
+                        setIsProcessing(true);
+                        try {
+                          const timestamp = new Date().toLocaleString('en-US');
+                          const updated = {
+                            id: ticket.id,
+                            status: 'Resolved',
+                            proofRejected: false,
+                            rejectionReason: null,
+                            timeline: [
+                              {
+                                id: `proof-approve-${Date.now()}`,
+                                type: 'proof',
+                                text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
+                                timestamp,
+                              }
+                            ]
+                          };
+                          await onStatusUpdate(updated);
+                          onClose();
+                        } catch (err) {
+                          console.error(err);
+                          setIsProcessing(false);
+                        }
                       }}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold"
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Approve & Resolve
+                      {isProcessing ? 'Processing...' : 'Approve & Resolve'}
                     </button>
                   </div>
                 )}
@@ -347,6 +383,96 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                 )}
               </div>
+
+              {/* Remarks History Log */}
+              {ticket.remarks && ticket.remarks.length > 0 && (
+                <div className="bg-gray-50 rounded-xl px-4 py-3">
+                  <div className="text-xs font-medium text-gray-500 mb-2">
+                    Remarks History
+                  </div>
+                  <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
+                    {ticket.remarks.map((rem) => (
+                      <div key={rem.id} className="bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex justify-between items-start mb-1 text-[10px]">
+                          <span className="font-bold text-[#252578]">{rem.author}</span>
+                          <span className="text-gray-400">
+                            {new Date(rem.timestamp).toLocaleDateString()} at {new Date(rem.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-700 leading-relaxed font-semibold italic">
+                          &quot;{rem.remark}&quot;
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Attachments */}
+              {ticket.attachments && ticket.attachments.length > 0 && (
+                <div className="bg-gray-50 rounded-xl px-4 py-3">
+                  <div className="text-xs font-medium text-gray-500 mb-2">
+                    Attachments
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {ticket.attachments.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                            <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                          </div>
+                        </div>
+                        {file.url && (
+                          <a
+                            href={file.url}
+                            download={file.name}
+                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                          >
+                            Download
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Proof of Completion Attachments */}
+              {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
+                <div className="bg-gray-50 rounded-xl px-4 py-3">
+                  <div className="text-xs font-medium text-gray-500 mb-2">
+                    Proof of Completion Documents
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {ticket.proofAttachments.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+                          </div>
+                        </div>
+                        {file.url && (
+                          <a
+                            href={file.url}
+                            download={file.name}
+                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0"
+                          >
+                            Download
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -354,14 +480,16 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
             <button
               onClick={onClose}
-              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+              disabled={isProcessing}
+              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Close
             </button>
             {!ticket.reassignmentRequested && onEdit && (
               <button
                 onClick={onEdit}
-                className="px-6 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 flex items-center gap-1.5"
+                disabled={isProcessing}
+                className="px-6 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />

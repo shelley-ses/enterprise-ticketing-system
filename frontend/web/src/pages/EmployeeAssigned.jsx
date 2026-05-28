@@ -31,6 +31,12 @@ export default function EmployeeAssigned() {
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
+
+  // Compute pending counts for display
+  const pendingCount = useMemo(() => {
+    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && !t.accepted).length;
+  }, [tickets]);
 
   // Modal state — which modal to show
   const [pendingTicket, setPendingTicket] = useState(null);   // not-yet-accepted → TicketDetailModal
@@ -90,6 +96,9 @@ export default function EmployeeAssigned() {
       // Hide closed/resolved from Assigned — they live in History
       if (CLOSED_STATUSES.includes(t.status)) return false;
 
+      // Only show unaccepted tickets in this queue
+      if (t.accepted) return false;
+
       if (statusFilter !== 'All Status') {
         if (statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
@@ -117,29 +126,22 @@ export default function EmployeeAssigned() {
     if (!ticketObj) return;
 
     const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
+    setIsAccepting(true);
     try {
       await acceptTicket({
         ticketId: numericId,
         employeeIds: [Number(user?.emp_id ?? user?.id)],
         assignedByEmail: user?.email,
       });
-      setTickets((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
-      );
-      setPendingTicket((prev) =>
-        prev && prev.id === id ? { ...prev, accepted: true } : prev
-      );
+      setIsAccepting(false);
+      setPendingTicket(null);
+      // Navigate to the progress tab immediately upon acceptance
+      navigate('/employee/machine');
     } catch (err) {
       console.error('Failed to accept assignment on backend:', err);
-      // fallback
-      setTickets((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, accepted: true } : t))
-      );
-      setPendingTicket((prev) =>
-        prev && prev.id === id ? { ...prev, accepted: true } : prev
-      );
+      setIsAccepting(false);
     }
-  }, [tickets, user]);
+  }, [tickets, user, navigate]);
 
   const handleRejectAssignment = useCallback((id) => {
     setTickets((prev) =>
@@ -147,6 +149,7 @@ export default function EmployeeAssigned() {
     );
     setPendingTicket(null);
   }, []);
+
 
   const handleStatusChange = useCallback(async (id, newStatus) => {
     const statusMap = {
@@ -344,7 +347,7 @@ export default function EmployeeAssigned() {
                         colSpan={8}
                         className="py-12 text-center text-gray-400 text-sm"
                       >
-                        No active tickets found.
+                        No active tickets found in this tab.
                       </td>
                     </tr>
                   ) : (
@@ -365,7 +368,9 @@ export default function EmployeeAssigned() {
                         <td className="py-2.5 px-2 align-middle">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span
-                              className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                t.reassignmentRequested ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
+                              }`}
                               title="Attention"
                             />
                             <div className="min-w-0">
@@ -381,7 +386,7 @@ export default function EmployeeAssigned() {
                               </div>
                               {!t.accepted && (
                                 <span className="text-[10px] text-amber-700 font-medium">
-                                  Pending acceptance
+                                  {t.reassignmentRequested ? 'Reassignment requested' : 'Pending acceptance'}
                                 </span>
                               )}
                             </div>
@@ -414,11 +419,15 @@ export default function EmployeeAssigned() {
                         </td>
                         <td className="py-2.5 px-2 align-middle">
                           <span
-                            className={`inline-flex max-w-full whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              statusColors[t.status]
+                            className={`inline-flex max-w-full whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              t.reassignmentRequested
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : t.rejected
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                             }`}
                           >
-                            {t.status}
+                            {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : 'open')}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 align-middle">
@@ -441,9 +450,10 @@ export default function EmployeeAssigned() {
             </div>
 
             <p className="text-sm text-gray-500 mt-4">
-              Showing {filtered.length} of {activeCount} active tickets
+              Showing {filtered.length} of {pendingCount} tickets
             </p>
           </>
+
         )}
       </div>
 
@@ -458,6 +468,7 @@ export default function EmployeeAssigned() {
             setPendingTicket(null);
             setReassignTicket(t);
           }}
+          isAccepting={isAccepting}
         />
       )}
 

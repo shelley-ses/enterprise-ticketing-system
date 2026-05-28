@@ -25,8 +25,19 @@ Route::get('/cs-dashboard', [TicketController::class, 'csDashboard'])->middlewar
 Route::get('/cs-incoming', [TicketController::class, 'csIncoming'])->middleware('no-cache');
 Route::get('/departments', [TicketController::class, 'getDepartments']);
 Route::get('/assignable-employees', [TicketController::class, 'assignableEmployees']);
-Route::post('/tickets/{ticketId}/assign', [TicketController::class, 'assignTicket'])->middleware('auth:sanctum');
-Route::patch('/tickets/{ticketId}/accept', [TicketController::class, 'acceptTicket'])->middleware('auth:sanctum');
-Route::patch('/tickets/{ticketId}', [TicketController::class, 'updateTicket'])->middleware('auth:sanctum');
-Route::get('/employee-tickets', [TicketController::class, 'employeeTickets']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/tickets/{ticketId}/assign', [TicketController::class, 'assignTicket']);
+    Route::patch('/tickets/{ticketId}/accept', [TicketController::class, 'acceptTicket']);
+    Route::get('/tickets/{ticketId}', [TicketController::class, 'show']);
+    Route::post('/tickets/{ticketId}/employee-update', [TicketController::class, 'employeeUpdate']);
+    Route::patch('/tickets/{ticketId}', [TicketController::class, 'updateTicket']);
+    Route::get('/employee-tickets', [TicketController::class, 'employeeTickets']);
+    Route::post('/tickets/{ticketId}/reassign-request', [TicketController::class, 'reassignRequest']);
+    Route::post('/tickets/{ticketId}/reassign-respond', [TicketController::class, 'reassignRespond']);
+    Route::get('/reassignment-requests', [TicketController::class, 'reassignmentRequests']);
+    Route::get('/notifications', [TicketController::class, 'getNotifications']);
+    Route::post('/notifications/mark-read', [TicketController::class, 'markNotificationsRead']);
+    Route::post('/notifications/{id}/read', [TicketController::class, 'markNotificationRead']);
+    Route::delete('/tickets/{ticketId}', [TicketController::class, 'destroy']);
+});
 Route::post('/tickets', [TicketController::class, 'store']);

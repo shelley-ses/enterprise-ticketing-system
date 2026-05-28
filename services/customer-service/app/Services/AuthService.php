@@ -293,7 +293,7 @@
                     'is_active' => true,
                     'last_seen_at' => Carbon::now()->toISOString(),
                 ],
-                now()->addDay()
+                60
             );
 
             EmployeeStatusChanged::dispatch($employee->refresh());

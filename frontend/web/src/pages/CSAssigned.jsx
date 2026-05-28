@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   getCSIncomingTickets,
   getAssignableEmployees,
@@ -9,8 +10,11 @@ import {
   acceptTicket,
   getTicketFormOptions,
   updateEmployeeTicketOverride,
+  getTicketDetails,
+  updateTicket,
 } from '@/services/ticketService';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
+import SkeletonLoader from '@/components/SkeletonLoader';
 
 export default function CSAssigned() {
   const { user } = useAuth();
@@ -19,62 +23,88 @@ export default function CSAssigned() {
   const [departments, setDepartments] = useState([]);
   const [priorityOptions, setPriorityOptions] = useState(['Low','Medium','High','Critical']);
   const [loading, setLoading] = useState(true);
+  const [modalLoading, setModalLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All Categories');
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const [incoming, assignees, deps, options] = await Promise.all([
-          getCSIncomingTickets({ limit: 100 }),
-          getAssignableEmployees(),
-          getDepartments(),
-          getTicketFormOptions(),
-        ]);
-
-        if (!mounted) return;
-        // Assigned page: only show properly assigned tickets (not reassignment-requested ones)
-        // Reassignment-requested tickets should be handled from the Incoming page
-        const assignedTickets = incoming.filter(t =>
-          (t.status === 'Assigned' || t.status === 'In Progress' ||
-           t.status === 'Pending Validation' || t.status === 'Resolved') &&
-          !t.reassignmentRequested
-        );
-        setTickets(assignedTickets);
-        
-        setEmployees(
-          assignees.map((row) => ({
-            id: Number(row.id),
-            name: row.name,
-            status: row.is_active ? 'active' : 'inactive',
-            department: row.department || 'Unassigned',
-          }))
-        );
-        setDepartments((deps?.departments || []).map((d) => d.name));
-        setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
-      } catch {
-        if (!mounted) return;
-        setError('Unable to load assigned tickets from ticket-service.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      mounted = false;
-    };
+  const loadStaticData = useCallback(async () => {
+    try {
+      const [deps, options] = await Promise.all([
+        getDepartments(),
+        getTicketFormOptions(),
+      ]);
+      setDepartments((deps?.departments || []).map((d) => d.name));
+      setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
+    } catch (e) {
+      console.warn('Failed to load static options:', e);
+    }
   }, []);
+
+  const loadLiveData = useCallback(async ({ forceRefresh = false, source = 'manual' } = {}) => {
+    if (source !== 'websocket' && source !== 'poll') {
+      setLoading(true);
+    }
+    setError('');
+    setShowRefreshBanner(false);
+    try {
+      const [incoming, assignees] = await Promise.all([
+        getCSIncomingTickets({ limit: 100, forceRefresh }),
+        getAssignableEmployees({ forceRefresh }),
+      ]);
+
+      // Assigned page: only show properly assigned tickets (not reassignment-requested ones)
+      // Reassignment-requested tickets should be handled from the Incoming page
+      const assignedTickets = incoming.filter(t =>
+        (t.status === 'Assigned' || t.status === 'In Progress' ||
+         t.status === 'Pending Validation' || t.status === 'Resolved' ||
+         t.status === 'Pending') &&
+        !t.reassignmentRequested
+      );
+      setTickets(assignedTickets);
+      
+      setEmployees(
+        assignees.map((row) => ({
+          id: Number(row.id),
+          name: row.name,
+          status: row.is_active ? 'active' : 'inactive',
+          department: row.department || 'Unassigned',
+        }))
+      );
+    } catch {
+      setError('Unable to load assigned tickets from ticket-service.');
+    } finally {
+      if (source !== 'websocket' && source !== 'poll') {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStaticData();
+    loadLiveData({ forceRefresh: false });
+  }, [loadStaticData, loadLiveData]);
+
+  useRealtimeRefresh({
+    refresh: loadLiveData,
+    channels: [
+      { name: 'ticket-updates', event: 'ticket.changed' },
+      { name: 'employee-status', event: 'employee.status.changed' },
+    ],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source }) => {
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
+      }
+    },
+  });
 
   const categories = useMemo(
     () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category)))],
@@ -118,9 +148,23 @@ export default function CSAssigned() {
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, page]);
 
-  const handleRowAction = (t) => {
-    // Always show summary first for already assigned tickets
-    setModal({ mode: 'summary', ticket: t });
+  const handleRowAction = async (t) => {
+    const isSummary = t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    if (isSummary) {
+      setModalLoading(true);
+      try {
+        const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+        const details = await getTicketDetails(ticketId);
+        setModal({ mode: 'summary', ticket: details });
+      } catch (err) {
+        console.warn('Failed to load full ticket details, fallback to list item:', err);
+        setModal({ mode: 'summary', ticket: t });
+      } finally {
+        setModalLoading(false);
+      }
+    } else {
+      setModal({ mode: 'assign', ticket: t });
+    }
   };
 
   const handleSave = async (updated) => {
@@ -142,7 +186,12 @@ export default function CSAssigned() {
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-        const assignedTickets = incoming.filter(t => t.status !== 'New' && t.status !== 'Pending');
+        const assignedTickets = incoming.filter(t =>
+          (t.status === 'Assigned' || t.status === 'In Progress' ||
+           t.status === 'Pending Validation' || t.status === 'Resolved' ||
+           t.status === 'Pending') &&
+          !t.reassignmentRequested
+        );
         setTickets(assignedTickets);
         
         const refreshedTicket = assignedTickets.find(t => t.ticket_ID === updated.ticket_ID) || {
@@ -174,6 +223,24 @@ export default function CSAssigned() {
 
       {error && (
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+      )}
+
+      {showRefreshBanner && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+            </span>
+            <span>New updates are available.</span>
+          </div>
+          <button
+            onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
+            className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+          >
+            Refresh Now
+          </button>
+        </div>
       )}
 
       {loading ? (
@@ -288,7 +355,13 @@ export default function CSAssigned() {
                     </td>
                     <td className="py-4 px-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        t.status === 'Pending Validation' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                        t.status === 'Pending Validation' ? 'bg-purple-100 text-purple-700' :
+                        t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                        t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
+                        t.status === 'Resolved' ? 'bg-green-100 text-green-700' :
+                        t.status === 'Closed' ? 'bg-gray-100 text-gray-700' :
+                        t.status === 'Escalated' ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-700'
                       }`}>{t.status}</span>
                     </td>
                     <td className="py-4 px-4">
@@ -340,7 +413,11 @@ export default function CSAssigned() {
       )}
 
       {/* Modals */}
-      {modal?.mode === 'summary' && (
+      {modalLoading && (
+        <SkeletonLoader variant="modal" />
+      )}
+
+      {!modalLoading && modal?.mode === 'summary' && (
         <TicketSummary
           ticket={modal.ticket}
           employees={employees}
@@ -349,10 +426,38 @@ export default function CSAssigned() {
           onStatusUpdate={async (updatedFields) => {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
             
+            try {
+              const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
+              const statusMap = {
+                'Open': 1,
+                'In Progress': 2,
+                'Resolved': 3,
+                'Closed': 4,
+                'Escalated': 5,
+                'Pending Validation': 6,
+                'Pending': 7,
+              };
+              
+              await updateTicket({
+                ticketId: numericId,
+                statusId: statusMap[updatedFields.status] ?? 2,
+                assignedByEmail: user?.email,
+                proof_rejected: updatedFields.proofRejected ?? false,
+                rejection_reason: updatedFields.rejectionReason ?? null,
+              });
+            } catch (err) {
+              console.error('Failed to update ticket status on backend:', err);
+            }
+
             // Soft reload the list to reflect updates immediately
             try {
               const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-              const assignedTickets = incoming.filter(t => t.status !== 'New' && t.status !== 'Pending');
+              const assignedTickets = incoming.filter(t =>
+                (t.status === 'Assigned' || t.status === 'In Progress' ||
+                 t.status === 'Pending Validation' || t.status === 'Resolved' ||
+                 t.status === 'Pending') &&
+                !t.reassignmentRequested
+              );
               setTickets(assignedTickets);
             } catch (e) {
               setTickets(prev => prev.map(t => (t.id === (updatedFields.id || modal.ticket.id)) ? { ...t, ...updatedFields } : t));

@@ -41,20 +41,25 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
   };
 };
 
+const normalizeUser = (userData) => {
+  if (!userData) return null;
+  return {
+    ...userData,
+    role: userData.role || 'customer',
+  };
+};
+
 const readStoredUser = () => {
   try {
-    return JSON.parse(localStorage.getItem('user'));
+    return normalizeUser(JSON.parse(localStorage.getItem('user')));
   } catch {
     return null;
   }
 };
 
-const hasCookie = (name) => document.cookie.split('; ').some((cookie) => cookie.startsWith(`${name}=`));
-
-const canRefreshSession = () => hasCookie('refresh_token');
-
 const ensureCsrfCookie = async () => {
-  if (hasCookie('XSRF-TOKEN')) {
+  const hasXsrfCookie = document.cookie.split('; ').some((cookie) => cookie.startsWith('XSRF-TOKEN='));
+  if (hasXsrfCookie) {
     return;
   }
 
@@ -81,16 +86,7 @@ export function AuthProvider({ children }) {
   const [isFirstLogin, setIsFirstLogin] = useState(false);
 
   useEffect(() => {
-    const trapBrowserHistory = () => {
-      window.history.pushState(null, '', window.location.href);
-    };
-
-    window.history.pushState(null, '', window.location.href);
-    window.addEventListener('popstate', trapBrowserHistory);
-
-    return () => {
-      window.removeEventListener('popstate', trapBrowserHistory);
-    };
+    return undefined;
   }, []);
 
   // Verify existing token
@@ -100,7 +96,7 @@ export function AuthProvider({ children }) {
       const storedUser = readStoredUser();
 
       if (token && storedUser) {
-        setUser(storedUser);
+        setUser(normalizeUser(storedUser));
         setIsAuthenticated(true);
         setIsFirstLogin(false);
         return true;
@@ -121,21 +117,26 @@ export function AuthProvider({ children }) {
         const userData = resp.data?.user;
         const firstLogin = Boolean(resp.data?.is_first_login);
         if (userData) {
-          setUser(userData);
-          localStorage.setItem('user', JSON.stringify(userData));
+          const normalized = normalizeUser(userData);
+          setUser(normalized);
+          localStorage.setItem('user', JSON.stringify(normalized));
         }
         setIsAuthenticated(true);
         setIsFirstLogin(firstLogin);
         return true;
-      } catch {
-        applyUnauthenticated(setUser, setIsAuthenticated);
+      } catch (err) {
+        if (err.response?.status === 401) {
+          applyUnauthenticated(setUser, setIsAuthenticated);
+          return false;
+        }
+        const storedUser = readStoredUser();
+        if (storedUser) {
+          setUser(normalizeUser(storedUser));
+          setIsAuthenticated(true);
+          return true;
+        }
         return false;
       }
-    }
-
-    if (!canRefreshSession()) {
-      applyUnauthenticated(setUser, setIsAuthenticated);
-      return false;
     }
 
     try {
@@ -144,10 +145,11 @@ export function AuthProvider({ children }) {
       const userData = resp.data?.user;
       if (newToken) {
         tokenStore.setToken(newToken);
-        setUser(userData || null);
+        const normalized = normalizeUser(userData);
+        setUser(normalized);
         setIsAuthenticated(true);
         setIsFirstLogin(Boolean(resp.data?.is_first_login));
-        if (userData) localStorage.setItem('user', JSON.stringify(userData));
+        if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
         return true;
       }
     } catch {
@@ -178,38 +180,28 @@ export function AuthProvider({ children }) {
   // For browser back and next
 
   useEffect(() => {
-    const syncAuthWithSession = () => {
-      if (!tokenStore.getToken()) {
-        setIsAuthenticated((prev) => {
-          if (prev) {
-            setUser(null);
-            localStorage.removeItem('user');
-          }
-          return false;
-        });
-      }
+    const onPageShow = () => {
+      revalidateSession();
     };
 
-    const onPageShow = (event) => {
-      if (event.persisted) {
-        revalidateSession();
-      } else {
-        if (canRefreshSession()) {
-          revalidateSession();
-        } else {
-          syncAuthWithSession();
-        }
-      }
-    };
-
-    window.addEventListener('popstate', syncAuthWithSession);
     window.addEventListener('pageshow', onPageShow);
 
     return () => {
-      window.removeEventListener('popstate', syncAuthWithSession);
       window.removeEventListener('pageshow', onPageShow);
     };
   }, [revalidateSession]);
+
+  
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      applyUnauthenticated(setUser, setIsAuthenticated);
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
+  }, []);
+
 
   // Login with email and password
   const login = useCallback(async (email, password, mode = 'customer') => {
@@ -240,13 +232,14 @@ export function AuthProvider({ children }) {
       const { user: userData, token, is_first_login: firstLogin } = response.data;
 
       // Store auth data in memory and set user
+      const normalized = normalizeUser(userData);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(normalized));
+      setUser(normalized);
       setIsAuthenticated(true);
       setIsFirstLogin(Boolean(firstLogin));
 
-      return { success: true, user: userData, isFirstLogin: Boolean(firstLogin) };
+      return { success: true, user: normalized, isFirstLogin: Boolean(firstLogin) };
     } catch (err) {
       // IP LIMITER
       if (err.response?.status === 429) {
@@ -300,13 +293,14 @@ export function AuthProvider({ children }) {
 
       const { user: newUser, token } = response.data;
 
+      const normalized = normalizeUser(newUser);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(newUser));
+      localStorage.setItem('user', JSON.stringify(normalized));
 
-      setUser(newUser);
+      setUser(normalized);
       setIsAuthenticated(true);
 
-      return { success: true, user: newUser };
+      return { success: true, user: normalized };
     } catch (err) {
       const errorMessage = err.response?.data?.message || 'Registration failed';
       setError(errorMessage);
@@ -383,18 +377,38 @@ export function AuthProvider({ children }) {
       const response = await axiosInstance.put('/profile', userData);
 
       const updatedUser = response.data.user;
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
+      const normalized = normalizeUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(normalized));
+      setUser(normalized);
 
-      return { success: true, user: updatedUser };
+      return { success: true, user: normalized };
     } catch (err) {
       const errorMessage = err.response?.data?.message || 'Failed to update profile';
       setError(errorMessage);
       return { success: false, error: errorMessage };
-    } finally {
-      // profile updates use local loading indicators where needed
     }
   }, []);
+
+  // Heartbeat loop for employees
+  useEffect(() => {
+    if (!isAuthenticated || !user || user.role === 'customer' || user.role === 'customer service') {
+      return undefined;
+    }
+
+    const sendHeartbeat = async () => {
+      try {
+        await axiosInstance.post('/heartbeat');
+      } catch (err) {
+        console.warn('Failed to send heartbeat presence ping:', err);
+      }
+    };
+
+    // Send immediate heartbeat on login/mount
+    sendHeartbeat();
+
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, user]);
 
   const value = {
     user,

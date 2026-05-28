@@ -11,6 +11,7 @@ export default function TicketDetailModal({
   onStatusChange,
   onAccept,
   onRequestReassign,
+  isAccepting = false,
 }) {
   const [statusDraft, setStatusDraft] = useState('');
   const [remarks, setRemarks] = useState('');
@@ -36,6 +37,7 @@ export default function TicketDetailModal({
     setShowStatusConfirm(false);
     setNewInternalNote('');
     setShowProofModal(false);
+    setTimelineSortOrder('asc');
   }, [ticket]);
 
   if (!ticket) return null;
@@ -70,6 +72,18 @@ export default function TicketDetailModal({
 
     return events;
   }, [ticket]);
+
+  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
+
+  const sortedTimelineEvents = useMemo(() => {
+    const sorted = [...timelineEvents];
+    sorted.sort((a, b) => {
+      const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timelineSortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+    return sorted;
+  }, [timelineEvents, timelineSortOrder]);
 
   // Handle file validation (max 15MB each, allowed image/pdf/doc)
   const validateFiles = (files) => {
@@ -245,36 +259,49 @@ export default function TicketDetailModal({
                 UNACCEPTED STATE PANEL (Accept / Request Reassignment)
                ──────────────────────────────────────────────────────── */}
             {!isAccepted ? (
-              <div className="border border-gray-150 rounded-2xl p-6 bg-slate-50 text-center space-y-4">
-                <h4 className="text-sm font-bold text-gray-800">Pending Assignment Action</h4>
-                <p className="text-xs text-gray-500 leading-relaxed max-w-md mx-auto">
-                  You are currently assigned to this ticket. Please accept this assignment to begin work, or request a reassignment if you cannot complete it.
-                </p>
-                <div className="flex gap-3 justify-center pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof onRequestReassign === 'function') {
-                        onRequestReassign(ticket);
-                      }
-                    }}
-                    className="px-6 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-xs font-semibold rounded-xl transition-all"
-                  >
-                    Request Reassignment
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof onAccept === 'function') {
-                        onAccept(ticket.id);
-                      }
-                    }}
-                    className="px-8 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/25"
-                  >
-                    Accept
-                  </button>
+              ticket.reassignmentRequested ? (
+                <div className="border border-amber-100 rounded-2xl p-6 bg-amber-50/30 text-center space-y-3">
+                  <h4 className="text-sm font-bold text-amber-900">Reassignment Request Pending</h4>
+                  <p className="text-xs text-amber-800 leading-relaxed max-w-md mx-auto">
+                    You have requested reassignment for this ticket with the reason:<br/>
+                    <strong className="italic">&quot;{ticket.reassignmentReason || ticket.reassignment_reason}&quot;</strong><br/>
+                    Awaiting CS coordinator review and action.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="border border-gray-150 rounded-2xl p-6 bg-slate-50 text-center space-y-4">
+                  <h4 className="text-sm font-bold text-gray-800">Pending Assignment Action</h4>
+                  <p className="text-xs text-gray-500 leading-relaxed max-w-md mx-auto">
+                    You are currently assigned to this ticket. Please accept this assignment to begin work, or request a reassignment if you cannot complete it.
+                  </p>
+                  <div className="flex gap-3 justify-center pt-2">
+                    <button
+                      type="button"
+                      disabled={isAccepting}
+                      onClick={() => {
+                        if (typeof onRequestReassign === 'function') {
+                          onRequestReassign(ticket);
+                        }
+                      }}
+                      className="px-6 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-xs font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Request Reassignment
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isAccepting}
+                      onClick={() => {
+                        if (typeof onAccept === 'function') {
+                          onAccept(ticket.id);
+                        }
+                      }}
+                      className="px-8 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isAccepting ? 'Accepting...' : 'Accept'}
+                    </button>
+                  </div>
+                </div>
+              )
             ) : (
               // ────────────────────────────────────────────────────────
               // ACCEPTED FULL MANAGEMENT PANEL
@@ -467,9 +494,21 @@ export default function TicketDetailModal({
 
                 {/* 5. Chronological History Timeline */}
                 <div className="space-y-3 text-left">
-                  <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Ticket Timeline & History</h4>
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Ticket Timeline & History</h4>
+                    <button
+                      type="button"
+                      onClick={() => setTimelineSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-[#252578]/5 hover:bg-[#252578]/10 border border-[#252578]/10 rounded-xl text-[10px] font-bold text-[#252578] transition-colors"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
+                      </svg>
+                      {timelineSortOrder === 'asc' ? 'Oldest' : 'Newest'}
+                    </button>
+                  </div>
                   <div className="relative pl-6 space-y-4 border-l border-gray-200 ml-3 py-1.5">
-                    {timelineEvents.map((evt, idx) => (
+                    {sortedTimelineEvents.map((evt, idx) => (
                       <div key={evt.id || idx} className="relative text-xs">
                         {/* Circle dot marker */}
                         <div className="absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#252578] shadow" />
@@ -479,7 +518,7 @@ export default function TicketDetailModal({
                           </span>
                           <span>{evt.timestamp}</span>
                         </div>
-                        <p className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
+                        <p className="text-gray-700 leading-relaxed font-semibold bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
                           {evt.text}
                         </p>
                       </div>

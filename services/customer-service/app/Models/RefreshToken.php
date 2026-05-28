@@ -17,8 +17,8 @@ class RefreshToken extends Model
         'expires_at',
     ];
 
-    protected $dates = [
-        'expires_at',
+    protected $casts = [
+        'expires_at' => 'datetime',
     ];
 
     public function client(): BelongsTo

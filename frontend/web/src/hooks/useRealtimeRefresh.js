@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import echo from '@/services/echo';
+import tokenStore from '@/auth/tokenStore';
 
 export default function useRealtimeRefresh({
   refresh,
@@ -24,10 +25,12 @@ export default function useRealtimeRefresh({
   }, [channels]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || !tokenStore.getToken()) return undefined;
 
     const subscriptions = channelsRef.current.map(({ name, event }) => {
       const channel = echo.channel(name);
+      const eventName = event.startsWith('.') ? event : `.${event}`;
+      
       const handler = (payload) => {
         const context = { forceRefresh: true, source: 'websocket', payload };
 
@@ -44,8 +47,8 @@ export default function useRealtimeRefresh({
         refreshRef.current?.(context);
       };
 
-      channel.listen(event, handler);
-      return { channel, event };
+      channel.listen(eventName, handler);
+      return { channel, eventName };
     });
 
     const timer = effectiveIntervalMs
@@ -68,9 +71,9 @@ export default function useRealtimeRefresh({
 
     return () => {
       if (timer) clearInterval(timer);
-      subscriptions.forEach(({ channel, event }) => {
+      subscriptions.forEach(({ channel, eventName }) => {
         if (channel?.stopListening) {
-          channel.stopListening(event);
+          channel.stopListening(eventName);
         }
       });
     };

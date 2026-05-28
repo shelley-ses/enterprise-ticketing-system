@@ -1,13 +1,9 @@
 import axios from 'axios';
 import { API_BASE_URL, AUTH_ENDPOINTS } from '@/config/api.config';
 import tokenStore from '@/auth/tokenStore';
+import { refreshAccessToken } from '@/auth/refreshSession';
 
-/**
-  - CSRF token injection for stateful requests
-  - Bearer token injection for token-based requests
-  - Credentials (cookies) for cross-origin requests
-  - Error handling and token refresh
- */
+
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true, // for refresh tokens (httpOnly cookies)
@@ -101,24 +97,18 @@ axiosInstance.interceptors.response.use(
 
       // Retry original request
       originalRequest._retry = true;
-      try {
-        const refreshResp = await axiosInstance.post(
-          AUTH_ENDPOINTS.REFRESH_TOKEN,
-          {},
-          { withCredentials: true }
-        );
-        const newToken = refreshResp.data?.token;
-        if (newToken) {
-          tokenStore.setToken(newToken);
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
-          return axiosInstance(originalRequest);
-        }
-      } catch {
-        // fall through to clear auth
+      const refreshed = await refreshAccessToken();
+      const currentToken = tokenStore.getToken();
+      if (refreshed && currentToken) {
+        originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+        return axiosInstance(originalRequest);
       }
 
       tokenStore.clearToken();
       localStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('auth:unauthorized'));
+      }
     }
 
     return Promise.reject(error);

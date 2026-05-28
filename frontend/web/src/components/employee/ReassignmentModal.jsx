@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { updateEmployeeTicketOverride } from '@/services/ticketService';
+import { requestReassignment } from '@/services/ticketService';
 
 export default function ReassignmentModal({
   ticket,
@@ -14,7 +14,7 @@ export default function ReassignmentModal({
 
   if (!ticket) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reason.trim()) {
       setErrorMessage('Please provide a reason for the reassignment request.');
@@ -24,22 +24,8 @@ export default function ReassignmentModal({
     setIsSubmitting(true);
     setErrorMessage('');
     try {
-      const timestamp = new Date().toLocaleString('en-US');
-      const update = {
-        reassignmentRequested: true,
-        reassignmentReason: reason.trim(),
-        reassignmentStatus: 'Pending',
-        timeline: [
-          {
-            id: `reassign-${Date.now()}`,
-            type: 'reassign',
-            text: `Reassignment requested. Reason: "${reason.trim()}"`,
-            timestamp,
-          }
-        ]
-      };
-
-      updateEmployeeTicketOverride(ticket.id, update);
+      const numericId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+      await requestReassignment({ ticketId: numericId, reason: reason.trim() });
       
       // Optimistically update local ticket properties
       ticket.reassignmentRequested = true;
@@ -53,7 +39,7 @@ export default function ReassignmentModal({
       setSuccessMessage('Reassignment request submitted successfully!');
       setIsSubmitted(true);
     } catch (err) {
-      setErrorMessage('Failed to submit reassignment request. Please try again.');
+      setErrorMessage(err.response?.data?.message || 'Failed to submit reassignment request. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

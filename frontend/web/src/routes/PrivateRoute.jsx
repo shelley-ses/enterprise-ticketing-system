@@ -4,8 +4,19 @@ import tokenStore from '@/auth/tokenStore';
 
 // Private Route
 
-export default function PrivateRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth();
+const checkIsCS = (role = '') => {
+  const r = role.toLowerCase();
+  return r.includes('customer service') || r.includes('customer-service') || r === 'cs';
+};
+
+const checkIsEmployee = (role = '') => {
+  const r = role.toLowerCase();
+  if (checkIsCS(r)) return false;
+  return r === 'employee' || r.includes('service') || r.includes('engineer');
+};
+
+export default function PrivateRoute({ children, role }) {
+  const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -21,6 +32,31 @@ export default function PrivateRoute({ children }) {
 
   if (!isAuthenticated || !tokenStore.getToken()) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (role) {
+    const userRole = (user?.role || 'customer').toString().toLowerCase();
+    const normalizedRole = role.toLowerCase();
+
+    if (normalizedRole === 'employee') {
+      const isEmployee = checkIsEmployee(userRole);
+      if (!isEmployee) {
+        const isCS = checkIsCS(userRole);
+        return <Navigate to={isCS ? '/cs/dashboard' : '/customer-dashboard'} replace />;
+      }
+    } else if (normalizedRole === 'customer service' || normalizedRole === 'customer-service' || normalizedRole === 'cs') {
+      const isCS = checkIsCS(userRole);
+      if (!isCS) {
+        const isEmployee = checkIsEmployee(userRole);
+        return <Navigate to={isEmployee ? '/employee/dashboard' : '/customer-dashboard'} replace />;
+      }
+    } else if (normalizedRole === 'customer') {
+      const isCustomer = !checkIsCS(userRole) && !checkIsEmployee(userRole);
+      if (!isCustomer) {
+        const isEmployee = checkIsEmployee(userRole);
+        return <Navigate to={isEmployee ? '/employee/dashboard' : '/cs/dashboard'} replace />;
+      }
+    }
   }
 
   return children;

@@ -1,10 +1,293 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  getReassignmentRequests,
+  respondReassignment,
+  getNotifications,
+  markNotificationsRead,
+  markNotificationRead
+} from '@/services/ticketService';
+import { useAuth } from '@/context/AuthContext';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 export default function Notifications() {
+  const { user } = useAuth();
+  const isCS = user && user.role === 'customer service';
+
+  const [requests, setRequests] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [actioningId, setActioningId] = useState(null); // request_id of the item being approved/denied
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
+  const loadData = useCallback(async ({ source = 'manual' } = {}) => {
+    if (source !== 'websocket' && source !== 'poll') {
+      setLoading(true);
+    }
+    setError('');
+    try {
+      if (isCS) {
+        // CS about pending requests to review
+        const pending = await getReassignmentRequests({ status: 'pending' });
+        setRequests(pending);
+      }
+      // Load general database notifications
+      const data = await getNotifications();
+      setNotifications(data.notifications || []);
+      setShowRefreshBanner(false);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to fetch notifications.');
+    } finally {
+      if (source !== 'websocket' && source !== 'poll') {
+        setLoading(false);
+      }
+    }
+  }, [isCS]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useRealtimeRefresh({
+    refresh: loadData,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    deferRefresh: true,
+    onRefreshAvailable: ({ source }) => {
+      if (source === 'websocket') {
+        setShowRefreshBanner(true);
+      }
+    },
+  });
+
+  const handleAction = async (requestId, ticketId, action) => {
+    setActioningId(requestId);
+    setError('');
+    setSuccess('');
+    try {
+      await respondReassignment({ ticketId, action });
+      setSuccess(`Successfully ${action === 'approve' ? 'approved' : 'denied'} reassignment request.`);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError(`Failed to ${action} reassignment request.`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markNotificationsRead();
+      setSuccess('All notifications marked as read.');
+      window.dispatchEvent(new Event('notifications:updated'));
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError('Failed to mark notifications as read.');
+    }
+  };
+
+  const handleMarkOneRead = async (id) => {
+    try {
+      await markNotificationRead(id);
+      window.dispatchEvent(new Event('notifications:updated'));
+      await loadData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const formatTimeAgo = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-semibold text-gray-800">Notifications (Temporary)</h1>
-      <p className="mt-4 text-gray-600">This is a placeholder notifications page. Replace with actual notifications UI later.</p>
+    <div className="p-8 max-w-4xl mx-auto">
+      <div className="mb-8 flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-extrabold text-[#252578] tracking-tight">
+            Notifications & Alerts
+          </h1>
+          <p className="text-gray-500 mt-2 text-sm">
+            Stay updated with real-time ticket status updates and remarks.
+          </p>
+        </div>
+        {notifications.filter(n => !n.is_read).length > 0 && (
+          <button
+            onClick={handleMarkAllRead}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors shrink-0 mb-1"
+          >
+            Mark all as read
+          </button>
+        )}
+      </div>
+
+      {showRefreshBanner && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+          <div>
+            <div className="font-semibold">Updates available</div>
+            <div className="text-xs text-blue-700">New notifications or status updates are available.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadData({ forceRefresh: true })}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
+          >
+            Load latest
+          </button>
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-6 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span>{success}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-6 rounded-2xl bg-rose-50 border border-rose-100 text-rose-800 p-4 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+          <div className="w-10 h-10 border-4 border-[#252578] border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-sm font-semibold">Loading notifications...</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {/* CS Reassignment Approval Panel */}
+          {isCS && requests.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">Pending Reassignment Requests</h2>
+              <div className="space-y-4">
+                {requests.map((req) => {
+                  const isProcessing = actioningId === req.request_id;
+                  return (
+                    <div
+                      key={req.request_id}
+                      className="bg-white rounded-3xl border border-gray-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col md:flex-row justify-between items-start md:items-center gap-6 hover:shadow-[0_8px_30px_rgb(0,0,0,0.05)] transition-shadow duration-300 animate-in fade-in zoom-in-95 duration-200"
+                    >
+                      <div className="space-y-3 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-[#252578] bg-blue-50 px-2.5 py-1 rounded-lg">
+                            {req.id}
+                          </span>
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-700 animate-pulse">
+                            Reassignment Pending
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-medium">
+                            Requested on {new Date(req.requested_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-gray-900 truncate leading-snug">
+                            {req.ticket_title}
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-0.5 font-medium">
+                            Requested by: <strong className="text-gray-700">{req.employee_name}</strong>
+                          </p>
+                        </div>
+                        <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-800 space-y-1">
+                          <p className="font-bold text-amber-900 uppercase tracking-wider text-[9px]">Reason for request:</p>
+                          <p className="italic leading-relaxed font-semibold">&quot;{req.reason}&quot;</p>
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-row md:flex-col lg:flex-row gap-2 shrink-0 w-full md:w-auto">
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleAction(req.request_id, req.ticket_id, 'deny')}
+                          className="flex-1 md:flex-none py-2.5 px-4 rounded-xl border border-rose-200 text-rose-700 font-bold hover:bg-rose-50 text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Deny Request
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleAction(req.request_id, req.ticket_id, 'approve')}
+                          className="flex-1 md:flex-none py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isProcessing ? 'Processing...' : 'Approve & Reassign'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Unified General Notification Feed */}
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">Recent Notifications</h2>
+            {notifications.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-gray-100 p-12 text-center shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
+                <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-gray-100 text-gray-400">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold text-gray-800">All caught up!</h3>
+                <p className="text-sm text-gray-500 mt-1">There are no recent notifications.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    onClick={() => { if (!n.is_read) handleMarkOneRead(n.id); }}
+                    className={`bg-white rounded-3xl border border-gray-100 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-gray-200 transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : ''}`}
+                  >
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${!n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start mb-1 gap-4">
+                        <h3 className="text-sm font-bold text-gray-900 leading-snug">{n.title}</h3>
+                        <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatTimeAgo(n.created_at)}</span>
+                      </div>
+                      <p className="text-xs text-gray-600 leading-relaxed font-medium">{n.message}</p>
+                      {n.ticket_id && (
+                        <span className="inline-block text-[9px] font-extrabold text-[#252578] bg-blue-50 px-2 py-0.5 rounded-md mt-2">
+                          TKT-{String(n.ticket_id).padStart(4, '0')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

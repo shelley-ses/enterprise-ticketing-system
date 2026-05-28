@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { ticketBroadcast } from '@/services/ticketBroadcast';
@@ -12,6 +13,9 @@ import {
   getTicketFormOptions,
   prefetchTicketFormOptions,
   updateEmployeeTicketOverride,
+  respondReassignment,
+  getTicketDetails,
+  updateTicket,
 } from '@/services/ticketService';
 
 const normalizeDepartmentName = (value = '') => value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -79,9 +83,10 @@ function ConfirmDialog({ onConfirm, onCancel, isSaving = false }) {
 /* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
-function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
+function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, onRespondReassignment }) {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
@@ -120,7 +125,7 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
           </h3>
 
           {/* Reassignment Request Approval/Denial Panel */}
-          {ticket.reassignmentRequested && typeof onStatusUpdate === 'function' && (
+          {ticket.reassignmentRequested && typeof onRespondReassignment === 'function' && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-xs text-amber-800 space-y-3">
               <div>
                 <p className="font-bold uppercase tracking-wider text-[10px] text-amber-900 mb-0.5">Pending Reassignment Request</p>
@@ -129,24 +134,8 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const timestamp = new Date().toLocaleString('en-US');
-                    const updated = {
-                      id: ticket.id,
-                      reassignmentRequested: false,
-                      reassignmentStatus: 'Denied',
-                      status: 'Open',
-                      accepted: false,
-                      timeline: [
-                        {
-                          id: `reassign-deny-${Date.now()}`,
-                          type: 'reassign',
-                          text: 'Reassignment request denied by CS. Ticket status reverted to Open.',
-                          timestamp,
-                        }
-                      ]
-                    };
-                    await onStatusUpdate(updated);
-                    onClose();
+                    const tId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+                    await onRespondReassignment(tId, 'deny');
                   }}
                   className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
                 >
@@ -154,22 +143,8 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
                 </button>
                 <button
                   onClick={async () => {
-                    const timestamp = new Date().toLocaleString('en-US');
-                    const updated = {
-                      id: ticket.id,
-                      reassignmentRequested: false,
-                      reassignmentStatus: 'Approved',
-                      timeline: [
-                        {
-                          id: `reassign-approve-${Date.now()}`,
-                          type: 'reassign',
-                          text: 'Reassignment request approved by CS.',
-                          timestamp,
-                        }
-                      ]
-                    };
-                    await onStatusUpdate(updated);
-                    onEdit(); // Opens AssignModal immediately
+                    const tId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+                    await onRespondReassignment(tId, 'approve');
                   }}
                   className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold"
                 >
@@ -185,11 +160,23 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
               <div>
                 <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
                 {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
-                  <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-24 overflow-y-auto space-y-1">
+                  <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-2">
                     {ticket.proofAttachments.map((f, i) => (
-                      <div key={i} className="text-gray-600 font-medium truncate flex justify-between">
-                        <span>{f.name}</span>
-                        <span className="text-[10px] text-gray-400">{(f.size / (1024 * 1024)).toFixed(2)} MB</span>
+                      <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
+                        <a
+                          href={f.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0"
+                        >
+                          <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                          <span className="truncate">{f.name}</span>
+                        </a>
+                        <span className="text-[10px] text-gray-400 font-medium shrink-0">
+                          {f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -217,63 +204,86 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
                       Cancel
                     </button>
                     <button
+                      disabled={isProcessing}
                       onClick={async () => {
                         if (!rejectionReason.trim()) return;
-                        const timestamp = new Date().toLocaleString('en-US');
-                        const updated = {
-                          id: ticket.id,
-                          status: 'In Progress',
-                          proofRejected: true,
-                          rejectionReason: rejectionReason.trim(),
-                          timeline: [
-                            {
-                              id: `proof-reject-${Date.now()}`,
-                              type: 'proof',
-                              text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
-                              timestamp,
-                            }
-                          ]
-                        };
-                        await onStatusUpdate(updated);
-                        onClose();
+                        setIsProcessing(true);
+                        try {
+                          const timestamp = new Date().toLocaleString('en-US');
+                          const updated = {
+                            id: ticket.id,
+                            status: 'In Progress',
+                            proofRejected: true,
+                            rejectionReason: rejectionReason.trim(),
+                            timeline: [
+                              {
+                                id: `proof-reject-${Date.now()}`,
+                                type: 'proof',
+                                text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
+                                timestamp,
+                              }
+                            ]
+                          };
+                          await onStatusUpdate(updated);
+                          onClose();
+                        } catch (err) {
+                          console.error(err);
+                          setIsProcessing(false);
+                        }
                       }}
-                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Confirm Rejection
+                      {isProcessing ? 'Processing...' : 'Confirm Rejection'}
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="flex gap-2">
                   <button
+                    disabled={isProcessing}
                     onClick={() => setShowRejectInput(true)}
-                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
                   >
                     Reject Proof
                   </button>
                   <button
+                    disabled={isProcessing}
                     onClick={async () => {
-                      const timestamp = new Date().toLocaleString('en-US');
-                      const updated = {
-                        id: ticket.id,
-                        status: 'Resolved',
-                        proofRejected: false,
-                        rejectionReason: null,
-                        timeline: [
-                          {
-                            id: `proof-approve-${Date.now()}`,
-                            type: 'proof',
-                            text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
-                            timestamp,
-                          }
-                        ]
-                      };
-                      await onStatusUpdate(updated);
-                      onClose();
+                      if (!ticket.department) {
+                        window.alert('Cannot resolve ticket: Department is not set.');
+                        return;
+                      }
+                      if (!ticket.assigned || ticket.assigned.length === 0) {
+                        window.alert('Cannot resolve ticket: No employees are assigned.');
+                        return;
+                      }
+                      setIsProcessing(true);
+                      try {
+                        const timestamp = new Date().toLocaleString('en-US');
+                        const updated = {
+                          id: ticket.id,
+                          status: 'Resolved',
+                          proofRejected: false,
+                          rejectionReason: null,
+                          timeline: [
+                            {
+                              id: `proof-approve-${Date.now()}`,
+                              type: 'proof',
+                              text: 'Proof of Completion approved by CS. Ticket Resolved successfully.',
+                              timestamp,
+                            }
+                          ]
+                        };
+                        await onStatusUpdate(updated);
+                        onClose();
+                      } catch (err) {
+                        console.error(err);
+                        setIsProcessing(false);
+                      }
                     }}
-                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold"
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Approve & Resolve
+                    {isProcessing ? 'Processing...' : 'Approve & Resolve'}
                   </button>
                 </div>
               )}
@@ -349,7 +359,8 @@ function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
           <button
             onClick={onClose}
-            className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+            disabled={isProcessing}
+            className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Close
           </button>
@@ -610,6 +621,40 @@ function AssignModal({ ticket, employees, departments, priorityOptions, onClose,
                   ))
                 )}
               </div>
+
+              {/* Attachments */}
+              {ticket.attachments && ticket.attachments.length > 0 && (
+                <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4">
+                  <div className="text-xs font-medium text-gray-500 mb-2">
+                    Attachments
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {ticket.attachments.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                          </div>
+                        </div>
+                        {file.url && (
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                          >
+                            View
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -667,6 +712,7 @@ export default function CSIncoming() {
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
+  const [modalLoading, setModalLoading] = useState(false);
 
   const loadStaticData = useCallback(async () => {
     const [depsResult, optionsResult] = await Promise.allSettled([
@@ -762,11 +808,17 @@ export default function CSIncoming() {
       if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
       
-      // Filter by reassignment status
-      if (assignmentFilter === 'Pending Reassign') {
-        if (!t.reassignmentRequested) return false;
+      const isAssigned = t.assigned && t.assigned.length > 0;
+      const isPendingReassign = t.reassignmentRequested === true;
+      const isPendingValidation = t.status === 'Pending Validation';
+
+      // Filter by assignment / reassignment / validation status
+      if (assignmentFilter === 'All') {
+        if (isAssigned && !isPendingReassign && !isPendingValidation) return false;
+      } else if (assignmentFilter === 'Pending Reassign') {
+        if (!isPendingReassign) return false;
       } else if (assignmentFilter === 'Pending Validation') {
-        if (t.status !== 'Pending Validation') return false;
+        if (!isPendingValidation) return false;
       }
 
       if (!q) return true;
@@ -792,10 +844,21 @@ export default function CSIncoming() {
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, page]);
 
-  const handleRowAction = (t) => {
+  const handleRowAction = async (t) => {
     // If already assigned / pending validation / resolved -> show summary first
-    if (t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending') {
-      setModal({ mode: 'summary', ticket: t });
+    const isSummary = t.status === 'Assigned' || t.status === 'Pending Validation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    if (isSummary) {
+      setModalLoading(true);
+      try {
+        const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+        const details = await getTicketDetails(ticketId);
+        setModal({ mode: 'summary', ticket: details });
+      } catch (err) {
+        console.warn('Failed to load full ticket details, fallback to list item:', err);
+        setModal({ mode: 'summary', ticket: t });
+      } finally {
+        setModalLoading(false);
+      }
     } else {
       setModal({ mode: 'assign', ticket: t });
     }
@@ -850,9 +913,25 @@ export default function CSIncoming() {
     }
   };
 
+  const handleRespondReassignment = async (ticketId, action) => {
+    try {
+      await respondReassignment({ ticketId, action });
+      const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+      setTickets(incoming);
+      setModal(null);
+      if (action === 'approve') {
+        const refreshedTicket = incoming.find(t => t.ticket_ID === ticketId);
+        if (refreshedTicket) {
+          setModal({ mode: 'assign', ticket: refreshedTicket });
+        }
+      }
+    } catch (err) {
+      setError(`Failed to respond to reassignment request: ${err.message}`);
+    }
+  };
+
   return (
     <div className="p-6">
-
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-[#252578]">Incoming Tickets</h1>
@@ -1039,7 +1118,11 @@ export default function CSIncoming() {
       )}
 
       {/* Modals */}
-      {modal?.mode === 'summary' && (
+      {modalLoading && (
+        <SkeletonLoader variant="modal" />
+      )}
+      
+      {!modalLoading && modal?.mode === 'summary' && (
         <TicketSummary
           ticket={modal.ticket}
           employees={employees}
@@ -1051,11 +1134,34 @@ export default function CSIncoming() {
             setTickets((prev) => prev.map((t) => (
               t.id === (updatedFields.id || modal.ticket.id) ? { ...t, ...updatedFields } : t
             )));
+
+            try {
+              const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
+              const statusMap = {
+                'Open': 1,
+                'In Progress': 2,
+                'Resolved': 3,
+                'Closed': 4,
+                'Escalated': 5,
+                'Pending Validation': 6,
+              };
+              
+              await updateTicket({
+                ticketId: numericId,
+                statusId: statusMap[updatedFields.status] ?? 2,
+                assignedByEmail: user?.email,
+                proof_rejected: updatedFields.proofRejected ?? false,
+                rejection_reason: updatedFields.rejectionReason ?? null,
+              });
+            } catch (err) {
+              console.error('Failed to update ticket status on backend:', err);
+            }
           }}
+          onRespondReassignment={handleRespondReassignment}
         />
       )}
 
-      {modal?.mode === 'assign' && (
+      {!modalLoading && modal?.mode === 'assign' && (
         <AssignModal
           ticket={modal.ticket}
           employees={employees}

@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('proof_of_completion', function (Blueprint $table) {
             $table->bigIncrements('proof_ID');
-            $table->foreignId('assignment_ID')->constrained('ticket_assignments', 'assignment_ID');
+            $table->foreignId('assignment_ID')->constrained('ticket_assignments', 'assignment_ID')->cascadeOnDelete();
             $table->string('file_name');
             $table->string('file_path');
             $table->string('file_type')->nullable();

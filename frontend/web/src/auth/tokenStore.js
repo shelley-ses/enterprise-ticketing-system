@@ -3,7 +3,7 @@ const TOKEN_STORAGE_KEY = 'access_token';
 let accessToken = null;
 
 try {
-  accessToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  accessToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
 } catch {
   accessToken = null;
 }
@@ -14,8 +14,10 @@ export function setToken(token) {
   try {
     if (token) {
       sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
     } else {
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
     }
   } catch {
     // Ignore storage failures and keep the in-memory token.
@@ -31,6 +33,7 @@ export function clearToken() {
 
   try {
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {
     // Ignore storage failures.
   }

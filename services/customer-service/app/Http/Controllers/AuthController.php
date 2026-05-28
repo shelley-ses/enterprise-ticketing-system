@@ -76,6 +76,23 @@ class AuthController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
+        // Cleanup stale active DB statuses before mapping
+        $activeDbEmployees = Employee::where('is_active', true)->where('role', '!=', 'customer service')->get();
+        $staleEmpIds = [];
+        foreach ($activeDbEmployees as $emp) {
+            $hasPresence = Cache::store('redis')->has('employee:presence:' . $emp->emp_id);
+            if (!$hasPresence) {
+                $staleEmpIds[] = $emp->emp_id;
+            }
+        }
+        if (!empty($staleEmpIds)) {
+            Employee::whereIn('emp_id', $staleEmpIds)->update(['is_active' => false]);
+            $updatedEmps = Employee::whereIn('emp_id', $staleEmpIds)->get();
+            foreach ($updatedEmps as $emp) {
+                \App\Events\EmployeeStatusChanged::dispatch($emp);
+            }
+        }
+
         $query = Employee::query()
             ->where('role', '!=', 'customer service');
 
@@ -287,5 +304,36 @@ class AuthController extends Controller
         $resp->withCookie(cookie()->forget('refresh_token'));
 
         return $resp;
+    }
+
+    public function heartbeat(Request $request)
+    {
+        $user = $request->user();
+        if (!$user || !($user instanceof Employee)) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $redisKey = 'employee:presence:' . $user->emp_id;
+        $presence = [
+            'is_active' => true,
+            'last_seen_at' => now()->toISOString(),
+        ];
+
+        Cache::store('redis')->put($redisKey, $presence, 60);
+
+        $wasInactive = !$user->is_active;
+
+        $user->last_seen_at = now();
+        $user->is_active = true;
+        $user->save();
+
+        if ($wasInactive) {
+            \App\Events\EmployeeStatusChanged::dispatch($user->refresh());
+        }
+
+        return response()->json([
+            'is_active' => true,
+            'last_seen_at' => $user->last_seen_at->toISOString(),
+        ]);
     }
 }

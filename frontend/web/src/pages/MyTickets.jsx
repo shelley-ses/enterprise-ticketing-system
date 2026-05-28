@@ -5,11 +5,13 @@ import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   createTicket,
-  discardCustomerTicketLocally,
+  discardCustomerTicket,
   getCachedTicketFormOptions,
   getCustomerTickets,
   getTicketFormOptions,
   saveCustomerTicketDetail,
+  getTicketDetails,
+  updateTicket,
 } from '@/services/ticketService';
 
 const STATUSES = ['Open', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
@@ -152,21 +154,54 @@ export default function MyTickets({ mode = 'all' }) {
     await loadTickets({ forceRefresh: true });
   };
 
-  const handleConfirmDiscard = () => {
+  const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
 
-    discardCustomerTicketLocally(confirmDiscard.id);
-    setTickets((current) => current.map((ticket) => (
-      ticket.id === confirmDiscard.id
-        ? { ...ticket, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
-        : ticket
-    )));
-    setSelectedTicket((current) => (
-      current?.id === confirmDiscard.id
-        ? { ...current, status: 'Discarded by Customer', last_updated: new Date().toISOString(), can_discard: false }
-        : current
-    ));
-    setConfirmDiscard(null);
+    try {
+      const ticketId = confirmDiscard.ticket_ID || parseInt(String(confirmDiscard.id || '').replace(/\D/g, ''), 10);
+      await discardCustomerTicket(ticketId);
+      setConfirmDiscard(null);
+      setSelectedTicket(null);
+      window.alert('Ticket discarded successfully.');
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to discard ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to discard ticket.');
+    }
+  };
+
+  const handleViewTicket = async (t) => {
+    try {
+      const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+      const fullTicket = await getTicketDetails(ticketId);
+      setSelectedTicket({
+        ...t,
+        ...fullTicket,
+        description: fullTicket.description || t.description || '',
+        resolved_at: fullTicket.resolved_at || null,
+        proofAttachments: fullTicket.proofAttachments || [],
+        proofFiles: fullTicket.proofFiles || [],
+        can_discard: (fullTicket.status || t.status) === 'Open' && !fullTicket.assigned_to,
+      });
+    } catch (err) {
+      console.error('Failed to load ticket details:', err);
+      setSelectedTicket(t);
+    }
+  };
+
+  const handleReopenTicket = async (ticketId) => {
+    try {
+      await updateTicket({
+        ticketId,
+        statusId: 2, // In Progress
+      });
+      await loadTickets({ forceRefresh: true });
+      setSelectedTicket(null);
+      window.alert('Ticket reopened successfully.');
+    } catch (err) {
+      console.error('Failed to reopen ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
+    }
   };
 
   return (
@@ -266,7 +301,7 @@ export default function MyTickets({ mode = 'all' }) {
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.date_created)}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.last_updated)}</td>
                   <td className="px-5 py-4 text-center">
-                    <button onClick={() => setSelectedTicket(ticket)} className="rounded-full p-2 text-blue-600 hover:bg-blue-50" aria-label={`View ${ticket.id}`}>
+                    <button onClick={() => handleViewTicket(ticket)} className="rounded-full p-2 text-blue-600 hover:bg-blue-50" aria-label={`View ${ticket.id}`}>
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -281,7 +316,7 @@ export default function MyTickets({ mode = 'all' }) {
       </div>
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} />
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId) => handleReopenTicket(ticketId)} />
 
       {confirmDiscard && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">

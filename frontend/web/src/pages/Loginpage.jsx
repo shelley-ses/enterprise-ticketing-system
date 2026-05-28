@@ -21,6 +21,17 @@ const LOCKOUT_STORAGE_KEY_PREFIX = 'login_lockout_until_';
 
 const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 
+const checkIsCS = (role = '') => {
+  const r = role.toLowerCase();
+  return r.includes('customer service') || r.includes('customer-service') || r === 'cs';
+};
+
+const checkIsEmployee = (role = '') => {
+  const r = role.toLowerCase();
+  if (checkIsCS(r)) return false;
+  return r === 'employee' || r.includes('service') || r.includes('engineer');
+};
+
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
 function ForgotPasswordModal({ onClose }) {
   const [step, setStep] = useState(1);
@@ -442,13 +453,11 @@ function Loginpage({ mode = 'customer' }) {
       if (result.success) {
         setLoginError('');
         setAttempts(0);
-        if (isEmployeeLogin) {
-          const role = (result.user?.role || '').toString().toLowerCase();
-          if (role.includes('customer service') || role.includes('customer-service') || role === 'cs') {
-            navigate('/cs/dashboard', { replace: true });
-          } else {
-            navigate('/employee/dashboard', { replace: true });
-          }
+        const role = (result.user?.role || 'customer').toString().toLowerCase();
+        if (checkIsCS(role)) {
+          navigate('/cs/dashboard', { replace: true });
+        } else if (checkIsEmployee(role)) {
+          navigate('/employee/dashboard', { replace: true });
         } else {
           navigate('/customer-dashboard', { replace: true });
         }
