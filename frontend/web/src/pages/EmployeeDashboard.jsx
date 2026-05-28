@@ -140,7 +140,13 @@ export default function EmployeeDashboard() {
         />
         <div className="relative z-10 flex-1">
           <p className="text-white/70 text-sm font-medium mb-1">{dateStr}</p>
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Welcome back, Engr. John Doe!</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+  Welcome back, Engr. John Doe!
+  <span className="ml-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-400/20 border border-green-400/40 text-green-300 text-xs font-semibold align-middle">
+    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+    Active
+  </span>
+</h1>
           <p className="text-white/70 text-sm">Here&apos;s a summary of your equipment support tickets.</p>
         </div>
         <div className="relative z-10 flex flex-col gap-2 shrink-0">
