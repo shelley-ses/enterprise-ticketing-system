@@ -62,7 +62,7 @@ export default function EmployeeProgress() {
   }, [user?.email]);
 
   const probeForUpdates = useCallback(async ({ source }) => {
-    // Only show banner on real websocket events, not empty polls
+    
     if (source === 'websocket') {
       setShowRefreshBanner(true);
     }

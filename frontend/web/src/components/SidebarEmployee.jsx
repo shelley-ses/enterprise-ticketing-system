@@ -5,12 +5,14 @@ import incomingIcon from '@/assets/cs-incomingtix.png';
 import assignedTixIcon from '@/assets/cs-assignedtix.png';
 import progressIcon from '@/assets/progress.png';
 import registrationIcon from '@/assets/registration.png';
+import ticketIcon from '@/assets/ticket.png';
 
 export default function SidebarEmployee() {
   const navItems = [
     { name: 'Dashboard', path: '/employee/dashboard', icon: dashIcon },
     { name: 'Assigned', path: '/employee/assigned', icon: incomingIcon },
     { name: 'Progress', path: '/employee/machine', icon: assignedTixIcon },
+    { name: 'My Tickets', path: '/employee/my-tickets', icon: ticketIcon },
     { name: 'History', path: '/employee/progress', icon: progressIcon },
     { name: 'Registration', path: '/employee/registration', icon: registrationIcon },
   ];
@@ -22,6 +24,7 @@ export default function SidebarEmployee() {
           <NavLink
             key={item.name}
             to={item.path}
+            state={item.state}
             className={({ isActive }) =>
               `flex items-center gap-4 px-5 py-3 rounded-2xl transition-all duration-200 ${
                 isActive

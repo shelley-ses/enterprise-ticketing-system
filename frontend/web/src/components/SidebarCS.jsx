@@ -4,12 +4,14 @@ import dashIcon from '@/assets/cs-dashboard.png';
 import incomingIcon from '@/assets/cs-incomingtix.png';
 import assignedIcon from '@/assets/cs-assignedtix.png';
 import analyticsIcon from '@/assets/cs-analytics.png';
+import ticketIcon from '@/assets/ticket.png';
 
 export default function SidebarCS() {
   const navItems = [
     { name: 'Dashboard', path: '/cs/dashboard', icon: dashIcon },
     { name: 'Incoming', path: '/cs/incoming', icon: incomingIcon },
     { name: 'Assigned', path: '/cs/assigned', icon: assignedIcon },
+    { name: 'My Tickets', path: '/cs/my-tickets', icon: ticketIcon },
     { name: 'Analytics', path: '/cs/analytics', icon: analyticsIcon },
   ];
 

@@ -90,29 +90,67 @@ export default function CustomerDashboard() {
     setDashboardError('');
     setShowRefreshBanner(false);
 
-    if (source === 'websocket' || source === 'poll') {
-      const payloadCustomerId = Number(payload?.customer_id);
-      if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
-        return;
-      }
-    }
-
     try {
-      const data = await getCustomerDashboard({ createdBy: customerId, limit: 5, forceRefresh });
-      setSummary(data?.summary || {
-        open: 0,
-        in_progress: 0,
-        resolved: 0,
-        closed: 0,
-      });
-      setRecentTickets((data?.recent_tickets || []).map((ticket) => ({
-        ...ticket,
-        category: ticket.category || 'General',
-        date_created: ticket.date_created || new Date().toISOString(),
-        last_updated: ticket.last_updated || ticket.date_created || new Date().toISOString(),
-        can_discard: ticket.status === 'Open' && !ticket.assigned_to,
-        statusColor: statusColorByName[ticket.status] || 'bg-gray-100 text-gray-700',
-      })));
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      if (stored.length === 0) {
+        const mockCustomerTickets = [
+          {
+            id: 'TKT-2001',
+            ticket_ID: 2001,
+            title: 'Defibrillator battery error on unit 4',
+            category: 'Hardware Issue',
+            equipment: 'Defibrillator - DF-400',
+            status: 'Open',
+            description: 'The battery indicator is flashing red even when fully charged. Unit 4 in emergency room.',
+            date_created: new Date(Date.now() - 4 * 3600000).toISOString(),
+            last_updated: new Date(Date.now() - 4 * 3600000).toISOString(),
+            is_internal: false,
+            ticket_type: 'External',
+            can_discard: true,
+          },
+          {
+            id: 'TKT-2002',
+            ticket_ID: 2002,
+            title: 'CT Scanner calibration drift',
+            category: 'Calibration Required',
+            equipment: 'CT Scanner - CT-3000',
+            status: 'In Progress',
+            description: 'Artifacts visible in scans, calibration calibration tool shows offset of 1.2mm.',
+            date_created: new Date(Date.now() - 30 * 3600000).toISOString(),
+            last_updated: new Date(Date.now() - 15 * 3600000).toISOString(),
+            is_internal: false,
+            ticket_type: 'External',
+            can_discard: false,
+          }
+        ];
+        localStorage.setItem('customer_created_tickets', JSON.stringify(mockCustomerTickets));
+        setSummary({
+          open: 1,
+          in_progress: 1,
+          resolved: 0,
+          closed: 0,
+        });
+        setRecentTickets(mockCustomerTickets.map(t => ({
+          ...t,
+          statusColor: statusColorByName[t.status] || 'bg-gray-100 text-gray-700'
+        })));
+      } else {
+        const openCount = stored.filter(t => t.status === 'Open').length;
+        const inProgressCount = stored.filter(t => t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Reopened').length;
+        const resolvedCount = stored.filter(t => t.status === 'Resolved').length;
+        const closedCount = stored.filter(t => t.status === 'Closed' || t.status.includes('Discarded')).length;
+        
+        setSummary({
+          open: openCount,
+          in_progress: inProgressCount,
+          resolved: resolvedCount,
+          closed: closedCount,
+        });
+        setRecentTickets(stored.slice(0, 5).map(t => ({
+          ...t,
+          statusColor: statusColorByName[t.status] || 'bg-gray-100 text-gray-700'
+        })));
+      }
 
       try {
         const notifData = await getNotifications();
@@ -121,22 +159,15 @@ export default function CustomerDashboard() {
         console.warn('Failed to load notifications for customer dashboard:', err);
       }
     } catch (error) {
-      setDashboardError(error?.response?.data?.message || 'Failed to load dashboard data.');
+      setDashboardError('Failed to load dashboard data.');
     } finally {
       setDashboardLoading(false);
     }
   }, [customerId]);
 
   const probeForUpdates = useCallback(async (context = {}) => {
-    const payloadCustomerId = Number(context?.payload?.customer_id);
-    if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
-      return;
-    }
     // Only show banner on real websocket events, not empty polls
-    if (context?.source === 'websocket') {
-      setShowRefreshBanner(true);
-    }
-  }, [customerId]);
+  }, []);
 
   useEffect(() => {
     prefetchTicketFormOptions().catch(() => {
@@ -152,20 +183,7 @@ export default function CustomerDashboard() {
     refresh: loadDashboardData,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 0,
-    shouldRefresh: ({ payload }) => {
-      const payloadCustomerId = Number(payload?.customer_id);
-      return !payloadCustomerId || payloadCustomerId === Number(customerId);
-    },
     deferRefresh: true,
-    onRefreshAvailable: ({ source, payload }) => {
-      const payloadCustomerId = Number(payload?.customer_id);
-      if (payloadCustomerId && payloadCustomerId !== Number(customerId)) {
-        return;
-      }
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
   });
 
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
@@ -182,13 +200,30 @@ export default function CustomerDashboard() {
   const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
 
+    const isMock = String(confirmDiscard.id).startsWith('TKT-') || (confirmDiscard.ticket_ID && confirmDiscard.ticket_ID >= 1000);
+    if (isMock) {
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const updatedList = stored.map(t => {
+        if (t.id === confirmDiscard.id) {
+          return { ...t, status: 'Discarded' };
+        }
+        return t;
+      });
+      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      setConfirmDiscard(null);
+      setSelectedTicket(null);
+      window.alert('Ticket discarded successfully.');
+      loadDashboardData();
+      return;
+    }
+
     try {
       const ticketId = confirmDiscard.ticket_ID || parseInt(String(confirmDiscard.id || '').replace(/\D/g, ''), 10);
       await discardCustomerTicket(ticketId);
       setConfirmDiscard(null);
       setSelectedTicket(null);
       window.alert('Ticket discarded successfully.');
-      window.location.reload();
+      loadDashboardData();
     } catch (err) {
       console.error('Failed to discard ticket:', err);
       window.alert(err?.response?.data?.message || 'Failed to discard ticket.');
@@ -196,6 +231,19 @@ export default function CustomerDashboard() {
   };
 
   const handleViewTicket = async (t) => {
+    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    if (isMock) {
+      setSelectedTicket({
+        ...t,
+        description: t.description || '',
+        resolved_at: t.resolved_at || null,
+        proofAttachments: t.proofAttachments || [],
+        proofFiles: t.proofFiles || [],
+        can_discard: t.status === 'Open' && !t.assigned_to,
+      });
+      return;
+    }
+
     setLoadingText('Loading ticket details...');
     setModalLoading(true);
     try {
@@ -218,7 +266,76 @@ export default function CustomerDashboard() {
     }
   };
 
-  const handleReopenTicket = async (ticketId) => {
+  const handleResolveTicket = async (ticketId) => {
+    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    if (isMock) {
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const updatedList = stored.map(t => {
+        if (t.id === ticketId || t.ticket_ID === ticketId) {
+          const timestamp = new Date().toISOString();
+          const timeline = t.timeline || [
+            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
+          ];
+          return {
+            ...t,
+            status: 'Resolved',
+            resolved_at: timestamp,
+            last_updated: timestamp,
+            timeline: [
+              ...timeline,
+              {
+                id: `status-resolved-${Date.now()}`,
+                type: 'status',
+                text: 'Ticket resolved by creator.',
+                timestamp,
+              }
+            ]
+          };
+        }
+        return t;
+      });
+      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      setSelectedTicket(null);
+      window.alert('Ticket resolved successfully.');
+      loadDashboardData();
+      return;
+    }
+  };
+
+  const handleReopenTicket = async (ticketId, reason) => {
+    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    if (isMock) {
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const updatedList = stored.map(t => {
+        if (t.id === ticketId || t.ticket_ID === ticketId) {
+          const timestamp = new Date().toISOString();
+          const timeline = t.timeline || [
+            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
+          ];
+          return {
+            ...t,
+            status: 'Reopened',
+            last_updated: timestamp,
+            timeline: [
+              ...timeline,
+              {
+                id: `status-reopened-${Date.now()}`,
+                type: 'status',
+                text: `Ticket reopened. Reason: "${reason}"`,
+                timestamp,
+              }
+            ]
+          };
+        }
+        return t;
+      });
+      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      setSelectedTicket(null);
+      window.alert('Ticket reopened successfully.');
+      loadDashboardData();
+      return;
+    }
+
     setLoadingText('Reopening ticket...');
     setModalLoading(true);
     try {
@@ -227,9 +344,9 @@ export default function CustomerDashboard() {
         ticketId: numericId,
         statusId: 8, // Reopened
       });
-      await loadDashboardData({ forceRefresh: true });
       setSelectedTicket(null);
       window.alert('Ticket reopened successfully.');
+      loadDashboardData();
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
       window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
@@ -239,35 +356,39 @@ export default function CustomerDashboard() {
   };
 
   const handleCreateTicket = async (payload) => {
-    const response = await createTicket({
-      machine_ID: Number(payload.machine_ID),
-      problem_category_ID: Number(payload.problem_category_ID),
-      created_by: Number(payload.created_by || customerId),
-      ticket_status_ID: 1,
-      title: payload.title,
-      description: payload.description,
-      attachments: payload.attachments || [],
-    });
-
-    if (response?.dashboard_ticket) {
+    try {
+      const options = getCachedTicketFormOptions() || await getTicketFormOptions();
+      const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
+      const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
+      
+      const newIdVal = Math.floor(2003 + Math.random() * 9000);
       const newTicket = {
-        ...response.dashboard_ticket,
-        statusColor: statusColorByName[response.dashboard_ticket.status] || 'bg-gray-100 text-gray-700',
+        id: `TKT-${newIdVal}`,
+        ticket_ID: newIdVal,
+        title: payload.title,
+        category,
+        equipment,
+        status: 'Open',
+        description: payload.description,
+        date_created: new Date().toISOString(),
+        last_updated: new Date().toISOString(),
+        attachments: payload.attachments || [],
+        is_internal: false,
+        ticket_type: 'External',
+        can_discard: true,
       };
 
-      setSummary((current) => ({
-        ...current,
-        open: current.open + 1,
-      }));
-      setRecentTickets((current) => [newTicket, ...current].slice(0, 5));
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const updatedList = [newTicket, ...stored];
+      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      
+      setIsTicketModalOpen(false);
+      window.alert('Ticket created successfully.');
+      loadDashboardData();
+    } catch (err) {
+      console.error(err);
+      window.alert('Failed to create ticket.');
     }
-
-    loadDashboardData({ forceRefresh: true }).catch(() => {
-      // UI already updated optimistically from create response.
-    });
-
-    setIsTicketModalOpen(false);
-    window.alert('Ticket created successfully.');
   };
 
   return (
@@ -404,12 +525,15 @@ export default function CustomerDashboard() {
       />
 
       {/* Ticket Detail Modal */}
-      <CustomerTicketDetailModal
-        ticket={selectedTicket}
-        onClose={() => setSelectedTicket(null)}
-        onDiscard={(ticket) => setConfirmDiscard(ticket)}
-        onReopen={(ticketId) => handleReopenTicket(ticketId)}
-      />
+      {selectedTicket && (
+        <CustomerTicketDetailModal
+          ticket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
+          onDiscard={(ticket) => setConfirmDiscard(ticket)}
+          onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)}
+          onResolve={(ticketId) => handleResolveTicket(ticketId)}
+        />
+      )}
 
       {/* Confirm Discard Modal */}
       {confirmDiscard && (

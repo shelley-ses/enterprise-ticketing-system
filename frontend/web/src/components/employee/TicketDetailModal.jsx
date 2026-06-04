@@ -193,7 +193,7 @@ export default function TicketDetailModal({
     <>
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm overflow-y-auto py-10" onClick={onClose}>
         <div
-          className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl mx-4 my-auto relative flex flex-col max-h-[85vh]"
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 my-auto relative flex flex-col max-h-[85vh]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

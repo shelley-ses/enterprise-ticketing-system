@@ -19,6 +19,7 @@ import EmployeeProgress from './pages/EmployeeProgress.jsx';
 import EmployeeRegistration from './pages/EmployeeRegistration.jsx';
 import EmployeeTicketUpdate from './pages/EmployeeTicketUpdate.jsx';
 import EmployeeHistoryDetail from './pages/EmployeeHistoryDetail.jsx';
+import EmployeeMyTickets from './pages/EmployeeMyTickets.jsx';
 import CSLayout from './components/CSLayout.jsx';
 import CSDashboard from './pages/CSDashboard.jsx';
 import CSIncoming from './pages/CSIncoming.jsx';
@@ -91,6 +92,7 @@ function App() {
             <Route path="assigned" element={<EmployeeAssigned />} />
             <Route path="machine" element={<EmployeeMachine />} />
             <Route path="progress" element={<EmployeeProgress />} />
+            <Route path="my-tickets" element={<EmployeeMyTickets />} />
             <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
             <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
             <Route path="registration" element={<EmployeeRegistration />} />
@@ -116,6 +118,7 @@ function App() {
             <Route path="dashboard" element={<CSDashboard />} />
             <Route path="incoming" element={<CSIncoming />} />
             <Route path="assigned" element={<CSAssigned />} />
+            <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
             <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
             <Route path="notifications" element={<Notifications />} />
           </Route>

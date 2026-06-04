@@ -31,6 +31,7 @@ export default function CSAssigned() {
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -68,7 +69,62 @@ export default function CSAssigned() {
          t.status === 'Pending' || t.status === 'Closed') &&
         !t.reassignmentRequested
       );
-      setTickets(assignedTickets);
+      
+      const mockInternal = {
+        id: 'TKT-9084',
+        ticket_ID: 9084,
+        title: 'Biochemistry Analyzer calibration check',
+        category: 'Calibration Required',
+        priority: 'Low',
+        status: 'In Progress',
+        customer: 'Internal Staff',
+        facility: 'Lab C',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        date_created: new Date(Date.now() - 12 * 3600000).toISOString(),
+        date: new Date(Date.now() - 12 * 3600000).toLocaleDateString(),
+        sla: 'On Track',
+        sla_status: 'On Track',
+      };
+      const mockExternal = {
+        id: 'TKT-2008',
+        ticket_ID: 2008,
+        title: 'MRI scanner liquid helium level alert',
+        category: 'Hardware Issue',
+        priority: 'Critical',
+        status: 'In Progress',
+        customer: 'Metro Imaging Center',
+        facility: 'Suite A',
+        is_internal: false,
+        ticket_type: 'External',
+        type: 'External',
+        date_created: new Date(Date.now() - 6 * 3600000).toISOString(),
+        date: new Date(Date.now() - 6 * 3600000).toLocaleDateString(),
+        sla: 'Breached',
+        sla_status: 'Breached',
+      };
+
+      const mockClosed = {
+        id: 'TKT-9085',
+        ticket_ID: 9085,
+        title: 'Weekly laboratory freezer sensor check',
+        category: 'Hardware Issue',
+        priority: 'Low',
+        status: 'Closed',
+        customer: 'Internal Staff',
+        facility: 'Main Lab A',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        date_created: new Date(Date.now() - 72 * 3600000).toISOString(),
+        date: new Date(Date.now() - 72 * 3600000).toLocaleDateString(),
+        resolved_at: new Date(Date.now() - 6 * 3600000).toISOString(),
+        sla: 'On Track',
+        sla_status: 'On Track',
+      };
+
+      setTickets([...assignedTickets, mockInternal, mockExternal, mockClosed]);
       
       setEmployees(
         assignees.map((row) => ({
@@ -125,6 +181,13 @@ export default function CSAssigned() {
       if (category !== 'All Categories' && t.category !== category) return false;
       if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
+      if (typeFilter === 'internal') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (!isInternal) return false;
+      } else if (typeFilter === 'external') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (isInternal) return false;
+      }
       
       if (!q) return true;
       return (
@@ -134,7 +197,7 @@ export default function CSAssigned() {
         (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, slaFilter, machineFilter]);
+  }, [tickets, search, category, slaFilter, machineFilter, typeFilter]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -150,6 +213,12 @@ export default function CSAssigned() {
   }, [filtered, page]);
 
   const handleRowAction = async (t) => {
+    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    if (isMock) {
+      setModal({ mode: 'summary', ticket: t });
+      return;
+    }
+
     const isSummary = t.status === 'Assigned' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed';
     if (isSummary) {
       setModalLoading(true);
@@ -175,6 +244,15 @@ export default function CSAssigned() {
       High: 3,
       Critical: 4,
     };
+
+    const isMock = String(updated.id).startsWith('TKT-') || (updated.ticket_ID && updated.ticket_ID >= 1000);
+    if (isMock) {
+      const refreshed = { ...updated, status: 'Assigned' };
+      setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));
+      setModal({ mode: 'summary', ticket: refreshed });
+      window.alert('Ticket assigned successfully.');
+      return true;
+    }
 
     try {
       await acceptTicket({
@@ -217,9 +295,27 @@ export default function CSAssigned() {
     <div className="p-6">
 
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#252578]">Assigned Tickets</h1>
-        <p className="text-gray-500 mt-2">Manage and track ongoing assigned support tickets</p>
+      <div className="mb-8 flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-3xl font-bold text-[#252578]">Assigned Tickets</h1>
+          <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
+            {['all', 'external', 'internal'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  typeFilter === type
+                    ? 'bg-[#252578] text-white'
+                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-gray-500 mt-1">Manage and track ongoing assigned support tickets</p>
       </div>
 
       {error && (
@@ -252,46 +348,51 @@ export default function CSAssigned() {
         <>
 
       {/* Search & Filters */}
-      <div className="mb-6 flex flex-col lg:flex-row lg:items-center gap-4">
-        <div className="flex-1">
+      <div className="mb-6 flex flex-row flex-wrap items-center gap-3 w-full">
+        <div className="flex-grow max-w-md min-w-[200px] shrink-0">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tickets, customers..."
-            className="w-full px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
+            className="w-full px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm text-sm"
           />
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <select
-            value={machineFilter}
-            onChange={(e) => setMachineFilter(e.target.value)}
-            className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
-          >
-            {machines.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        <select
+          value={machineFilter}
+          onChange={(e) => setMachineFilter(e.target.value)}
+          className="w-36 px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578]/20 outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
+        >
+          {machines.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
 
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
-          >
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="w-36 px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578]/20 outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
+        >
+          {categories.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
 
-          <select
-            value={slaFilter}
-            onChange={(e) => setSlaFilter(e.target.value)}
-            className="px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
-          >
-            {slaOptions.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
+          {slaOptions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSlaFilter(s)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                slaFilter === s
+                  ? 'bg-[#252578] text-white shadow-lg'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -309,6 +410,7 @@ export default function CSAssigned() {
               <tr className="text-gray-500 border-b border-gray-100">
                 <th className="py-4 px-4 font-semibold">Ticket ID</th>
                 <th className="py-4 px-4 font-semibold">Customer</th>
+                <th className="py-4 px-4 font-semibold">Type</th>
                 <th className="py-4 px-4 font-semibold">Title</th>
                 <th className="py-4 px-4 font-semibold">Category</th>
                 <th className="py-4 px-4 font-semibold">Status</th>
@@ -343,6 +445,17 @@ export default function CSAssigned() {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-gray-600">{t.customer}</td>
+                    <td className="py-4 px-4">
+                      <span
+                        className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
+                      </span>
+                    </td>
                     <td className="py-4 px-4 text-gray-700">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-semibold">{t.title}</span>
@@ -353,11 +466,11 @@ export default function CSAssigned() {
                         )}
                       </div>
                     </td>
-                    <td className="py-4 px-4">
-                      <span className="px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
+                     <td className="py-4 px-4">
+                      <span className="inline-flex whitespace-nowrap px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
                         t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
                         t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
@@ -369,7 +482,7 @@ export default function CSAssigned() {
                       }`}>{t.status === 'Reopen' ? 'Reopened' : t.status}</span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
                         t.sla === 'Breached' ? 'bg-red-100 text-red-700' :
                         t.sla === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
                         'bg-green-100 text-green-700'

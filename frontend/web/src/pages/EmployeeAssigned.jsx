@@ -32,6 +32,7 @@ export default function EmployeeAssigned() {
   const [sortPriority, setSortPriority] = useState('Priority');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   // Compute pending counts for display
   const pendingCount = useMemo(() => {
@@ -50,7 +51,75 @@ export default function EmployeeAssigned() {
     setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
-      setTickets(list.map((t) => ({ ...t, rejected: false })));
+      const mockInternal = {
+        id: 'TKT-9081',
+        ticket_ID: 9081,
+        title: 'Centrifuge calibration drift check',
+        category: 'Calibration Required',
+        priority: 'High',
+        status: 'Open',
+        customer: 'Internal Staff',
+        facility: 'Main Lab A',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        accepted: false,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        sla: '24h',
+      };
+      const mockInternal2 = {
+        id: 'TKT-9082',
+        ticket_ID: 9082,
+        title: 'HPLC column backpressure spike diagnostic',
+        category: 'Calibration Required',
+        priority: 'Medium',
+        status: 'In Progress',
+        customer: 'Internal Staff',
+        facility: 'Lab B',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        accepted: false,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        sla: '36h',
+      };
+      const mockInternal3 = {
+        id: 'TKT-9083',
+        ticket_ID: 9083,
+        title: 'Biosafety Cabinet airflow verification',
+        category: 'Calibration Required',
+        priority: 'Low',
+        status: 'Open',
+        customer: 'Internal Staff',
+        facility: 'Main Lab A',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        accepted: false,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        sla: '72h',
+      };
+      const mockExternal = {
+        id: 'TKT-2005',
+        ticket_ID: 2005,
+        title: 'Defibrillator display flicker',
+        category: 'Hardware Issue',
+        priority: 'Medium',
+        status: 'In Progress',
+        customer: 'City Hospital',
+        facility: 'ER Room 2',
+        is_internal: false,
+        ticket_type: 'External',
+        type: 'External',
+        accepted: false,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        sla: '48h',
+      };
+      setTickets([...list.map((t) => ({ ...t, rejected: false })), mockInternal, mockInternal2, mockInternal3, mockExternal]);
     } catch {
       setLoadError('Unable to load assigned tickets from ticket-service.');
     } finally {
@@ -107,6 +176,14 @@ export default function EmployeeAssigned() {
         }
       }
 
+      if (typeFilter === 'internal') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (!isInternal) return false;
+      } else if (typeFilter === 'external') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (isInternal) return false;
+      }
+
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
@@ -119,7 +196,7 @@ export default function EmployeeAssigned() {
       list = sortTicketsByPriority(list, 'desc');
     }
     return list;
-  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority]);
+  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority, typeFilter]);
 
   const handleAcceptAssignment = useCallback(async (id) => {
     const ticketObj = tickets.find((t) => t.id === id);
@@ -237,8 +314,26 @@ export default function EmployeeAssigned() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#252578]">My Assigned Tickets</h1>
+      <div className="mb-6 flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-2xl font-bold text-[#252578]">My Assigned Tickets</h1>
+          <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
+            {['all', 'external', 'internal'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  typeFilter === type
+                    ? 'bg-[#252578] text-white'
+                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-sm text-gray-500 mt-1">
           All tickets assigned to you — work, update, and resolve.
         </p>
@@ -274,8 +369,8 @@ export default function EmployeeAssigned() {
         ) : (
           <>
             {/* Filters */}
-            <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
-              <div className="relative flex-1 min-w-0">
+            <div className="flex flex-row flex-wrap items-center gap-3 mb-6">
+              <div className="relative w-52 sm:w-60 shrink-0">
                 <svg
                   className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
                   fill="none"
@@ -297,52 +392,51 @@ export default function EmployeeAssigned() {
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
                 />
               </div>
-              <div className="flex flex-wrap gap-3">
-                <select
-                  className={selectClass}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
-                    (s) => (
-                      <option key={s} value={s}>{s}</option>
-                    )
-                  )}
-                </select>
-                <select
-                  className={selectClass}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  {[
-                    'All Category',
-                    'MRI',
-                    'CT Scan',
-                    'Ultrasound',
-                    'X-Ray',
-                    'Ventilator',
-                    'Defibrillator',
-                  ].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select
-                  className={selectClass}
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-                <select
-                  className={selectClass}
-                  value={sortPriority}
-                  onChange={(e) => setSortPriority(e.target.value)}
-                >
-                  <option value="Priority">Sort: Priority</option>
-                </select>
-              </div>
+
+              <select
+                className={selectClass}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                  (s) => (
+                    <option key={s} value={s}>{s}</option>
+                  )
+                )}
+              </select>
+              <select
+                className={selectClass}
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                {[
+                  'All Category',
+                  'MRI',
+                  'CT Scan',
+                  'Ultrasound',
+                  'X-Ray',
+                  'Ventilator',
+                  'Defibrillator',
+                ].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                className={selectClass}
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <select
+                className={selectClass}
+                value={sortPriority}
+                onChange={(e) => setSortPriority(e.target.value)}
+              >
+                <option value="Priority">Sort: Priority</option>
+              </select>
             </div>
 
             {/* Table */}
@@ -350,11 +444,12 @@ export default function EmployeeAssigned() {
               <table className="w-full table-fixed text-sm text-left border-collapse">
                 <colgroup>
                   <col className="w-[12%]" />
-                  <col className="w-[16%]" />
-                  <col className="w-[22%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
                   <col className="w-[12%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
                   <col className="w-[10%]" />
                   <col className="w-[8%]" />
                 </colgroup>
@@ -362,6 +457,7 @@ export default function EmployeeAssigned() {
                   <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
                     <th className="py-3 px-2 font-medium">Ticket ID</th>
                     <th className="py-3 px-2 font-medium">Customer</th>
+                    <th className="py-3 px-2 font-medium">Type</th>
                     <th className="py-3 px-2 font-medium">Title</th>
                     <th className="py-3 px-2 font-medium">Category</th>
                     <th className="py-3 px-2 font-medium">Priority</th>
@@ -374,7 +470,7 @@ export default function EmployeeAssigned() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="py-12 text-center text-gray-400 text-sm"
                       >
                         No active tickets found in this tab.
@@ -426,9 +522,17 @@ export default function EmployeeAssigned() {
                           <p className="font-semibold text-gray-900 text-xs truncate">
                             {t.customer}
                           </p>
-                          <p className="text-[11px] text-gray-500 truncate">
-                            {t.facility}
-                          </p>
+                        </td>
+                        <td className="py-2.5 px-2 align-middle">
+                          <span
+                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                              (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
+                          </span>
                         </td>
                         <td className="py-2.5 px-2 align-middle min-w-0">
                           <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">
@@ -451,13 +555,15 @@ export default function EmployeeAssigned() {
                           <span
                             className={`inline-flex max-w-full whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                               t.reassignmentRequested
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                ? 'bg-amber-55 text-amber-700 border-amber-200'
                                 : t.rejected
                                   ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                  : t.status === 'In Progress'
+                                    ? 'bg-blue-50 text-blue-700 border-blue-100'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                             }`}
                           >
-                            {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : 'open')}
+                            {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : t.status.toLowerCase())}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 align-middle">

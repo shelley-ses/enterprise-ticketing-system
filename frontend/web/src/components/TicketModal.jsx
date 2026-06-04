@@ -17,6 +17,8 @@ const allowedFileTypes = [
 ];
 
 export default function TicketModal({ isOpen, onClose, onSubmit }) {
+  if (!isOpen) return null;
+
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -152,7 +154,12 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       label: category.category_name,
     }));
 
-  if (!isOpen) return null;
+  const isFormValid = Boolean(
+    formData.title?.trim() &&
+    formData.problem_category_ID &&
+    formData.machine_ID &&
+    formData.description?.trim()
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -303,8 +310,8 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
             </button>
             <button
               type="submit"
-              disabled={loadingOptions || isSubmitting}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-8 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={loadingOptions || isSubmitting || !isFormValid}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-8 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSubmitting && (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

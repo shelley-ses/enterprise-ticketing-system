@@ -8,6 +8,7 @@ import {
 } from '@/constants/employeeTickets';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
+import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -21,6 +22,15 @@ const getDisplayStatus = (ticket) => (
       ? 'Proof Rejected'
       : ticket.status
 );
+
+const isInternalTicket = (ticket) => (
+  ticket?.title?.startsWith('[Internal]')
+  || ticket?.is_internal
+  || ticket?.ticket_type === 'Internal'
+  || ticket?.type === 'Internal'
+);
+
+const getTicketTypeLabel = (ticket) => (isInternalTicket(ticket) ? 'Internal' : 'External');
 
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
@@ -38,6 +48,7 @@ export default function EmployeeMachine() {
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   // Modal states
   const [infoTicket, setInfoTicket] = useState(null);
@@ -54,7 +65,52 @@ export default function EmployeeMachine() {
       const activeTickets = list.filter(
         (t) => t.accepted && !CLOSED_STATUSES.includes(t.status)
       );
-      setTickets(activeTickets);
+
+      const mockResolvedInternal = {
+        id: 'TKT-9091',
+        ticket_ID: 9091,
+        title: 'Centrifuge calibration drift check',
+        category: 'Calibration Required',
+        priority: 'High',
+        status: 'Resolved',
+        customer: 'Internal Staff',
+        facility: 'Main Lab A',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        accepted: true,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        resolved_at: new Date(Date.now() - 1 * 3600000).toISOString(),
+        last_updated: new Date(Date.now() - 1 * 3600000).toISOString(),
+        sla: '24h',
+        slaStatus: 'Normal',
+        can_discard: false,
+      };
+
+      const mockClosedInternal = {
+        id: 'TKT-9092',
+        ticket_ID: 9092,
+        title: 'Lab Freezer cooling system failure',
+        category: 'Hardware Issue',
+        priority: 'Critical',
+        status: 'Closed',
+        customer: 'Internal Staff',
+        facility: 'Storage B',
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        accepted: true,
+        rejected: false,
+        date: new Date().toLocaleDateString(),
+        resolved_at: new Date(Date.now() - 2 * 3600000).toISOString(),
+        last_updated: new Date(Date.now() - 2 * 3600000).toISOString(),
+        sla: '12h',
+        slaStatus: 'Normal',
+        can_discard: false,
+      };
+
+      setTickets([...activeTickets, mockResolvedInternal, mockClosedInternal]);
     } catch (err) {
       setLoadError('Unable to load active progress tickets.');
     } finally {
@@ -97,6 +153,14 @@ export default function EmployeeMachine() {
         }
       }
 
+      if (typeFilter === 'internal') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (!isInternal) return false;
+      } else if (typeFilter === 'external') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (isInternal) return false;
+      }
+
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
@@ -110,7 +174,7 @@ export default function EmployeeMachine() {
       list = sortTicketsByPriority(list, 'desc');
     }
     return list;
-  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority]);
+  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority, typeFilter]);
 
   const openTicketFlow = (t) => {
     setInfoTicket(t);
@@ -121,11 +185,59 @@ export default function EmployeeMachine() {
     navigate('/employee/ticket-update', { state: { ticket: t } });
   };
 
+  const handleReopenProgressTicket = (ticketId, reason) => {
+    const timestamp = new Date().toISOString();
+    setTickets((prev) =>
+      prev.map((t) => {
+        if (t.id === ticketId || t.ticket_ID === ticketId) {
+          const timeline = t.timeline || [
+            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created || new Date().toISOString() }
+          ];
+          return {
+            ...t,
+            status: 'Reopened',
+            last_updated: timestamp,
+            timeline: [
+              ...timeline,
+              {
+                id: `status-reopened-${Date.now()}`,
+                type: 'status',
+                text: `Ticket reopened. Reason: "${reason}"`,
+                timestamp,
+              }
+            ]
+          };
+        }
+        return t;
+      })
+    );
+    setInfoTicket(null);
+    window.alert('Ticket reopened successfully.');
+  };
+
   return (
     <div className="p-6">
       {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#252578]">My Progress Queue</h1>
+      <div className="mb-6 flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-2xl font-bold text-[#252578]">My Progress Queue</h1>
+          <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
+            {['all', 'external', 'internal'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  typeFilter === type
+                    ? 'bg-[#252578] text-white'
+                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-sm text-gray-500 mt-1">
           Track and update tickets that you have accepted and are currently working on.
         </p>
@@ -159,8 +271,8 @@ export default function EmployeeMachine() {
         ) : (
           <>
             {/* Filters */}
-            <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
-              <div className="relative flex-1 min-w-0">
+            <div className="flex flex-row flex-wrap items-center gap-3 mb-6">
+              <div className="relative w-52 sm:w-60 shrink-0">
                 <svg
                   className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
                   fill="none"
@@ -183,53 +295,54 @@ export default function EmployeeMachine() {
                 />
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <select
-                  className={selectClass}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="All Status">All Status</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Pending Evaluation">Pending Evaluation</option>
-                  <option value="Pending Reassign">Pending Reassign</option>
-                </select>
+              <select
+                className={selectClass}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="All Status">All Status</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Pending">Pending</option>
+                <option value="Pending Evaluation">Pending Evaluation</option>
+                <option value="Pending Reassign">Pending Reassign</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Closed">Closed</option>
+                <option value="Reopened">Reopened</option>
+              </select>
 
-                <select
-                  className={selectClass}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  <option value="All Category">All Category</option>
-                  <option value="MRI">MRI</option>
-                  <option value="CT Scan">CT Scan</option>
-                  <option value="Ultrasound">Ultrasound</option>
-                  <option value="X-Ray">X-Ray</option>
-                  <option value="Ventilator">Ventilator</option>
-                </select>
+              <select
+                className={selectClass}
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="All Category">All Category</option>
+                <option value="MRI">MRI</option>
+                <option value="CT Scan">CT Scan</option>
+                <option value="Ultrasound">Ultrasound</option>
+                <option value="X-Ray">X-Ray</option>
+                <option value="Ventilator">Ventilator</option>
+              </select>
 
-                <select
-                  className={selectClass}
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  <option value="All Priority">All Priority</option>
-                  <option value="Critical">Critical</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                </select>
+              <select
+                className={selectClass}
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                <option value="All Priority">All Priority</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
 
-                <select
-                  className={selectClass}
-                  value={sortPriority}
-                  onChange={(e) => setSortPriority(e.target.value)}
-                >
-                  <option value="Priority">Sort: Default</option>
-                  <option value="Standard">Sort: Standard</option>
-                </select>
-              </div>
+              <select
+                className={selectClass}
+                value={sortPriority}
+                onChange={(e) => setSortPriority(e.target.value)}
+              >
+                <option value="Priority">Sort: Default</option>
+                <option value="Standard">Sort: Standard</option>
+              </select>
             </div>
 
             {/* List */}
@@ -238,19 +351,20 @@ export default function EmployeeMachine() {
                 <thead>
                   <tr className="border-b border-gray-100 text-gray-400 text-xs font-bold uppercase tracking-wider">
                     <th className="pb-3 pl-4">Ticket ID</th>
-                    <th className="pb-3 px-2">Customer & Facility</th>
-                    <th className="pb-3 px-2">Subject / Title</th>
-                    <th className="pb-3 px-2">Category</th>
-                    <th className="pb-3 px-2">Priority</th>
-                    <th className="pb-3 px-2">Status</th>
-                    <th className="pb-3 px-2">SLA Status</th>
-                    <th className="pb-3 px-2">Last Updated</th>
+                    <th className="pb-3 px-4">Customer</th>
+                    <th className="pb-3 px-4">Type</th>
+                    <th className="pb-3 px-4">Subject / Title</th>
+                    <th className="pb-3 px-4">Category</th>
+                    <th className="pb-3 px-4">Priority</th>
+                    <th className="pb-3 px-4">Status</th>
+                    <th className="pb-3 px-4">SLA Status</th>
+                    <th className="pb-3 px-4">Last Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 text-gray-700 text-sm">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-12 text-gray-400 italic">
+                      <td colSpan={9} className="text-center py-12 text-gray-400 italic">
                         No active accepted tickets found in your progress queue.
                       </td>
                     </tr>
@@ -261,29 +375,39 @@ export default function EmployeeMachine() {
                         onClick={() => openTicketFlow(t)}
                         className="hover:bg-gray-55/60 cursor-pointer transition-colors"
                       >
-                        <td className="py-3 pl-4 font-bold text-[#252578] whitespace-nowrap">
+                        <td className="py-4 pl-4 font-normal text-[#252578] text-sm whitespace-nowrap">
                           {t.id}
                         </td>
-                        <td className="py-3 px-2 max-w-[12rem] truncate">
-                          <p className="font-semibold text-gray-900 text-xs truncate">{t.customer}</p>
-                          <p className="text-[10px] text-gray-500 truncate">{t.facility || '—'}</p>
+                        <td className="py-4 px-4 text-gray-600 text-sm truncate max-w-[12rem]">
+                          {t.customer}
                         </td>
-                        <td className="py-3 px-2 font-semibold text-gray-800 text-xs truncate max-w-[16rem]">
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
+                              isInternalTicket(t)
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {getTicketTypeLabel(t)}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 font-normal text-gray-700 text-sm truncate max-w-[16rem]">
                           {t.title}
                         </td>
-                        <td className="py-3 px-2 text-gray-500 text-xs">{t.category}</td>
-                        <td className="py-3 px-2">
+                        <td className="py-4 px-4 text-gray-600 text-sm">{t.category}</td>
+                        <td className="py-4 px-4">
                           <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
                               priorityColors[t.priority]
                             }`}
                           >
                             {t.priority}
                           </span>
                         </td>
-                        <td className="py-3 px-2">
+                        <td className="py-4 px-4">
                           <span
-                            className={`inline-flex whitespace-nowrap px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold border ${
                               getDisplayStatus(t) === 'Proof Rejected'
                                 ? 'bg-rose-50 text-rose-700 border-rose-200'
                                 : t.reassignmentRequested
@@ -298,16 +422,9 @@ export default function EmployeeMachine() {
                             {t.reassignmentRequested ? 'Pending Reassign' : getDisplayStatus(t)}
                           </span>
                         </td>
-                        <td className="py-3 px-2">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {t.slaStatus}
-                          </span>
+                        <td className="py-4 px-4">
                         </td>
-                        <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
+                        <td className="py-4 px-4 text-gray-500 text-sm whitespace-nowrap">
                           {t.lastUpdate}
                         </td>
                       </tr>
@@ -325,7 +442,15 @@ export default function EmployeeMachine() {
       </div>
 
       {/* Detail management modal */}
-      {infoTicket && (
+      {infoTicket && (infoTicket.status === 'Closed' || infoTicket.status === 'Resolved' || infoTicket.status === 'Reopened') ? (
+        <CustomerTicketDetailModal
+          ticket={infoTicket}
+          onClose={() => setInfoTicket(null)}
+          onDiscard={null}
+          allowReopen={false}
+          onReopen={(ticketId, reason) => handleReopenProgressTicket(ticketId, reason)}
+        />
+      ) : infoTicket && (
         <TicketInfoModal
           ticket={infoTicket}
           onClose={() => setInfoTicket(null)}

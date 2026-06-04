@@ -10,7 +10,7 @@ export default function CustomerLayout() {
       
       <div className="flex flex-1 gap-6 pt-24 pb-8 px-6 lg:px-12">
         {/* Sidebar */}
-        <div className="flex-shrink-0">
+        <div className="w-[88px] flex-shrink-0 z-20">
           <Sidebar />
         </div>
         

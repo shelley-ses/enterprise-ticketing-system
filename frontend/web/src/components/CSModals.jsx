@@ -477,7 +477,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
+          <div className="flex flex-wrap justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
             <button
               onClick={onClose}
               disabled={isProcessing}
@@ -485,6 +485,116 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             >
               Close
             </button>
+            
+            {ticket.status !== 'Resolved' && ticket.status !== 'Closed' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsProcessing(true);
+                  try {
+                    const timestamp = new Date().toLocaleString('en-US');
+                    await onStatusUpdate({
+                      id: ticket.id,
+                      status: 'Resolved',
+                      timeline: [
+                        {
+                          id: `status-resolved-${Date.now()}`,
+                          type: 'status',
+                          text: 'Ticket resolved by CS Representative.',
+                          timestamp,
+                        }
+                      ]
+                    });
+                    onClose();
+                  } catch (err) {
+                    console.error(err);
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Resolve Ticket
+              </button>
+            )}
+
+            {ticket.status !== 'Closed' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsProcessing(true);
+                  try {
+                    const timestamp = new Date().toLocaleString('en-US');
+                    await onStatusUpdate({
+                      id: ticket.id,
+                      status: 'Closed',
+                      timeline: [
+                        {
+                          id: `status-closed-${Date.now()}`,
+                          type: 'status',
+                          text: 'Ticket closed by CS Representative.',
+                          timestamp,
+                        }
+                      ]
+                    });
+                    onClose();
+                  } catch (err) {
+                    console.error(err);
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="px-5 py-2.5 bg-gray-700 hover:bg-gray-800 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Close Ticket
+              </button>
+            )}
+
+            {(() => {
+              const resolvedAt = ticket.resolved_at ? new Date(ticket.resolved_at) : null;
+              const isReopenable = ticket.status === 'Closed' && 
+                resolvedAt && !isNaN(resolvedAt.getTime()) && 
+                (new Date() - resolvedAt) < (48 * 60 * 60 * 1000);
+
+              if (isReopenable) {
+                return (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsProcessing(true);
+                      try {
+                        const timestamp = new Date().toLocaleString('en-US');
+                        await onStatusUpdate({
+                          id: ticket.id,
+                          status: 'Reopened',
+                          timeline: [
+                            {
+                              id: `status-reopened-${Date.now()}`,
+                              type: 'status',
+                              text: 'Ticket reopened by CS Representative.',
+                              timestamp,
+                            }
+                          ]
+                        });
+                        onClose();
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                    disabled={isProcessing}
+                    className="px-5 py-2.5 bg-[#252578] hover:bg-[#1e1e60] text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    Reopen Ticket
+                  </button>
+                );
+              }
+              return null;
+            })()}
+
             {!ticket.reassignmentRequested && ticket.status !== 'Closed' && onEdit && (
               <button
                 onClick={onEdit}
@@ -746,6 +856,40 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 )}
               </div>
             </div>
+
+            {/* Attachments */}
+            {ticket.attachments && ticket.attachments.length > 0 && (
+              <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4">
+                <div className="text-xs font-medium text-gray-500 mb-2">
+                  Attachments
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {ticket.attachments.map((file, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                          {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                        </div>
+                      </div>
+                      {file.url && (
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                        >
+                          View
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Sticky footer */}

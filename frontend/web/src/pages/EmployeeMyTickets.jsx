@@ -6,25 +6,14 @@ import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   createTicket,
-  discardCustomerTicket,
   getCachedTicketFormOptions,
-  getCustomerTickets,
   getTicketFormOptions,
-  saveCustomerTicketDetail,
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
 
 const STATUSES = ['Open', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
-const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
-
-const getStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || 'null');
-  } catch {
-    return null;
-  }
-};
+const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded'];
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -42,20 +31,20 @@ const statusClass = (status) => {
   return 'bg-gray-100 text-gray-700';
 };
 
-export default function MyTickets({ mode = 'all' }) {
+export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employee' }) {
   const isHistory = mode === 'history';
   const { user } = useAuth();
-  const effectiveUser = user || getStoredUser();
-  const customerId = effectiveUser?.id || 1;
   const location = useLocation();
+
+  const storageKey = roleContext === 'cs' ? 'cs_created_tickets' : 'employee_created_tickets';
 
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(location.state?.openCreateModal || false);
   const [selectedTicket, setSelectedTicket] = useState(null);
-  const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [confirmCreated, setConfirmCreated] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
@@ -73,43 +62,62 @@ export default function MyTickets({ mode = 'all' }) {
     setShowRefreshBanner(false);
 
     try {
-      let stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
-      if (stored.length > 0 && !stored.some(t => t.id === 'TKT-2004')) {
+      let stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      if (stored.length > 0 && !stored.some(t => t.id === 'TKT-1004')) {
         stored = [];
       }
       if (stored.length === 0) {
-        const mockCustomerTickets = [
+        const mockTickets = [
           {
-            id: 'TKT-2001',
-            ticket_ID: 2001,
-            title: 'Defibrillator battery error on unit 4',
+            id: 'TKT-1001',
+            ticket_ID: 1001,
+            title: 'Centrifuge lid latch faulty in Lab A',
             category: 'Hardware Issue',
-            equipment: 'Defibrillator - DF-400',
+            equipment: 'Centrifuge - CF-100-A2',
             status: 'Open',
-            description: 'The battery indicator is flashing red even when fully charged. Unit 4 in emergency room.',
-            date_created: new Date(Date.now() - 4 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 4 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
+            description: 'The latch of the centrifuge in Lab A is not locking properly. Needs replacement.',
+            date_created: new Date(Date.now() - 2 * 3600000).toISOString(),
+            last_updated: new Date(Date.now() - 2 * 3600000).toISOString(),
+            is_internal: true,
+            ticket_type: 'Internal',
             can_discard: true,
           },
           {
-            id: 'TKT-2002',
-            ticket_ID: 2002,
-            title: 'CT Scanner calibration drift',
-            category: 'Calibration Required',
-            equipment: 'CT Scanner - CT-3000',
+            id: 'TKT-1002',
+            ticket_ID: 1002,
+            title: 'Vitals monitor software update required',
+            category: 'Software / System Error',
+            equipment: 'Patient Monitor - PM-200-S1',
             status: 'In Progress',
-            description: 'Artifacts visible in scans, calibration calibration tool shows offset of 1.2mm.',
-            date_created: new Date(Date.now() - 30 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 15 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
+            description: 'The software version on Patient Monitor PM-200-S1 is outdated. Requesting upgrade to version 4.2.',
+            date_created: new Date(Date.now() - 24 * 3600000).toISOString(),
+            last_updated: new Date(Date.now() - 12 * 3600000).toISOString(),
+            is_internal: true,
+            ticket_type: 'Internal',
             can_discard: false,
           },
           {
-            id: 'TKT-2004',
-            ticket_ID: 2004,
+            id: 'TKT-1003',
+            ticket_ID: 1003,
+            title: 'Biochemistry Analyzer calibration check',
+            category: 'Calibration Required',
+            equipment: 'Biochem Analyzer - BA-500',
+            status: 'Resolved',
+            description: 'Weekly calibration check. Values are within normal deviation ranges.',
+            date_created: new Date(Date.now() - 48 * 3600000).toISOString(),
+            last_updated: new Date(Date.now() - 36 * 3600000).toISOString(),
+            resolved_at: new Date(Date.now() - 36 * 3600000).toISOString(),
+            is_internal: true,
+            ticket_type: 'Internal',
+            can_discard: false,
+            timeline: [
+              { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: new Date(Date.now() - 48 * 3600000).toISOString() },
+              { id: 'status-resolved', type: 'status', text: 'Ticket resolved.', timestamp: new Date(Date.now() - 36 * 3600000).toISOString() }
+            ]
+          },
+          {
+            id: 'TKT-1004',
+            ticket_ID: 1004,
             title: 'Defibrillator pad replacement check',
             category: 'Hardware Issue',
             equipment: 'Defibrillator - DF-400',
@@ -118,8 +126,8 @@ export default function MyTickets({ mode = 'all' }) {
             date_created: new Date(Date.now() - 72 * 3600000).toISOString(),
             last_updated: new Date(Date.now() - 6 * 3600000).toISOString(),
             resolved_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
+            is_internal: true,
+            ticket_type: 'Internal',
             can_discard: false,
             timeline: [
               { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: new Date(Date.now() - 72 * 3600000).toISOString() },
@@ -127,21 +135,15 @@ export default function MyTickets({ mode = 'all' }) {
             ]
           }
         ];
-        localStorage.setItem('customer_created_tickets', JSON.stringify(mockCustomerTickets));
-        setTickets(mockCustomerTickets);
+        localStorage.setItem(storageKey, JSON.stringify(mockTickets));
+        setTickets(mockTickets);
       } else {
         setTickets(stored);
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to load tickets.');
+      setError('Failed to load tickets.');
     } finally {
       setLoading(false);
-    }
-  }, [customerId]);
-
-  const probeForUpdates = useCallback(async ({ source }) => {
-    if (source === 'websocket') {
-      setShowRefreshBanner(true);
     }
   }, []);
 
@@ -197,7 +199,7 @@ export default function MyTickets({ mode = 'all' }) {
     const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
     const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
     
-    const newIdVal = Math.floor(2003 + Math.random() * 9000);
+    const newIdVal = Math.floor(1004 + Math.random() * 9000);
     const newTicket = {
       id: `TKT-${newIdVal}`,
       ticket_ID: newIdVal,
@@ -209,14 +211,14 @@ export default function MyTickets({ mode = 'all' }) {
       date_created: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       attachments: payload.attachments || [],
-      is_internal: false,
-      ticket_type: 'External',
+      is_internal: true,
+      ticket_type: 'Internal',
       can_discard: true,
     };
 
-    const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+    const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
     const updatedList = [newTicket, ...stored];
-    localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+    localStorage.setItem(storageKey, JSON.stringify(updatedList));
     setTickets(updatedList);
     setConfirmCreated(newTicket);
     setIsModalOpen(false);
@@ -227,14 +229,31 @@ export default function MyTickets({ mode = 'all' }) {
 
     const isMock = String(confirmDiscard.id).startsWith('TKT-') || (confirmDiscard.ticket_ID && confirmDiscard.ticket_ID >= 1000);
     if (isMock) {
-      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
-        if (t.id === confirmDiscard.id) {
-          return { ...t, status: 'Discarded' };
+        if (t.id === confirmDiscard.id || t.ticket_ID === confirmDiscard.ticket_ID) {
+          const timestamp = new Date().toISOString();
+          const timeline = t.timeline || [
+            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
+          ];
+          return {
+            ...t,
+            status: 'Discarded',
+            last_updated: timestamp,
+            timeline: [
+              ...timeline,
+              {
+                id: `status-discarded-${Date.now()}`,
+                type: 'status',
+                text: 'Ticket discarded by creator.',
+                timestamp,
+              }
+            ]
+          };
         }
         return t;
       });
-      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
       setTickets(updatedList);
       setConfirmDiscard(null);
       setSelectedTicket(null);
@@ -242,9 +261,14 @@ export default function MyTickets({ mode = 'all' }) {
       return;
     }
 
+    setLoadingText('Discarding ticket...');
+    setModalLoading(true);
     try {
       const ticketId = confirmDiscard.ticket_ID || parseInt(String(confirmDiscard.id || '').replace(/\D/g, ''), 10);
-      await discardCustomerTicket(ticketId);
+      await updateTicket({
+        ticketId: ticketId,
+        statusId: 9, // Discarded
+      });
       setConfirmDiscard(null);
       setSelectedTicket(null);
       window.alert('Ticket discarded successfully.');
@@ -252,6 +276,8 @@ export default function MyTickets({ mode = 'all' }) {
     } catch (err) {
       console.error('Failed to discard ticket:', err);
       window.alert(err?.response?.data?.message || 'Failed to discard ticket.');
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -294,7 +320,7 @@ export default function MyTickets({ mode = 'all' }) {
   const handleResolveTicket = async (ticketId) => {
     const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
     if (isMock) {
-      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
           const timestamp = new Date().toISOString();
@@ -319,18 +345,36 @@ export default function MyTickets({ mode = 'all' }) {
         }
         return t;
       });
-      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
       window.alert('Ticket resolved successfully.');
       return;
+    }
+
+    setLoadingText('Resolving ticket...');
+    setModalLoading(true);
+    try {
+      const numericId = Number(String(ticketId).replace(/\D/g, ''));
+      await updateTicket({
+        ticketId: numericId,
+        statusId: 3, // Resolved
+      });
+      setSelectedTicket(null);
+      window.alert('Ticket resolved successfully.');
+      loadTickets({ forceRefresh: true });
+    } catch (err) {
+      console.error('Failed to resolve ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to resolve ticket.');
+    } finally {
+      setModalLoading(false);
     }
   };
 
   const handleCloseTicket = async (ticketId) => {
     const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
     if (isMock) {
-      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
           const timestamp = new Date().toISOString();
@@ -355,7 +399,7 @@ export default function MyTickets({ mode = 'all' }) {
         }
         return t;
       });
-      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
       window.alert('Ticket closed successfully.');
@@ -384,7 +428,7 @@ export default function MyTickets({ mode = 'all' }) {
   const handleReopenTicket = async (ticketId, reason) => {
     const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
     if (isMock) {
-      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
           const timestamp = new Date().toISOString();
@@ -408,7 +452,7 @@ export default function MyTickets({ mode = 'all' }) {
         }
         return t;
       });
-      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
       window.alert('Ticket reopened successfully.');
@@ -435,25 +479,23 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="p-6 flex flex-col gap-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-3xl font-bold text-[#252578]">{isHistory ? 'Ticket History' : 'My Tickets'}</h1>
+          <h1 className="text-3xl font-bold text-[#252578]">My Tickets</h1>
           <p className="mt-1 text-sm text-gray-500">
-            {isHistory ? 'Review completed and discarded tickets.' : 'Track and manage your submitted support tickets.'}
+            Track and manage your submitted support tickets.
           </p>
         </div>
-        {!isHistory && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-            Create Ticket
-          </button>
-        )}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Create Ticket
+        </button>
       </div>
 
       <div className="grid gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm md:grid-cols-5">
@@ -546,13 +588,14 @@ export default function MyTickets({ mode = 'all' }) {
       </div>
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} />
+      
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={null} />
 
       {confirmDiscard && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
-            <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded by Customer in your current browser.</p>
+            <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded in your current browser.</p>
             <div className="mt-6 flex justify-end gap-3">
               <button onClick={() => setConfirmDiscard(null)} className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
               <button onClick={handleConfirmDiscard} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Discard</button>
