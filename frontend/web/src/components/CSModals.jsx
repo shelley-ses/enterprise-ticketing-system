@@ -519,7 +519,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               </button>
             )}
 
-            {ticket.status !== 'Closed' && (
+            {ticket.status === 'Resolved' && (
               <button
                 type="button"
                 onClick={async () => {

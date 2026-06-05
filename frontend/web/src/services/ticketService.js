@@ -280,6 +280,7 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
     console.warn("Failed to fetch incoming tickets from service, using dummy data fallback:", e);
     const dummyTickets = [
       {
+        isMock: true,
         id: 'TKT-2001',
         title: 'Ventilator Pressure Alarm Fault',
         customer: "St. Luke's Medical Center",
@@ -296,6 +297,7 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
         assigned: [],
       },
       {
+        isMock: true,
         id: 'TKT-2002',
         title: 'MRI Scanner Image Artifacts',
         customer: 'Philippine General Hospital',
@@ -443,6 +445,7 @@ export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByE
 const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
   const dummyTickets = [
     {
+      isMock: true,
       id: 'TKT-9001',
       title: 'Patient Monitor Connection Drop',
       customer: "St. Luke's Medical Center",
@@ -458,6 +461,7 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
       escalated: true,
     },
     {
+      isMock: true,
       id: 'TKT-9002',
       title: 'MRI Scanner Image Artifacts',
       customer: 'Philippine General Hospital',
@@ -473,6 +477,7 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
       escalated: false,
     },
     {
+      isMock: true,
       id: 'TKT-9003',
       title: 'Ventilator Pressure Alarm Fault',
       customer: 'Makati Medical Center',

@@ -179,6 +179,7 @@ class TicketController extends Controller
         $recentTickets = DB::table('tickets as t')
             ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
             ->select(
                 't.ticket_ID',
                 't.title',
@@ -186,7 +187,9 @@ class TicketController extends Controller
                 'm.serial_number',
                 'ts.status_name',
                 't.created_at',
-                't.assigned_to'
+                't.updated_at',
+                't.assigned_to',
+                'pc.category_name'
             )
             ->where('t.created_by', $createdBy)
             ->orderByDesc('t.created_at')
@@ -194,9 +197,13 @@ class TicketController extends Controller
             ->get()
             ->map(fn ($row) => [
                 'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
+                'ticket_ID' => $row->ticket_ID,
                 'title' => $row->title,
+                'category' => $row->category_name,
                 'equipment' => $row->machine_name . ' - ' . $row->serial_number,
                 'status' => $row->status_name,
+                'date_created' => $row->created_at,
+                'last_updated' => $row->updated_at ?? $row->created_at,
                 'assigned_to' => $row->assigned_to,
             ])
             ->values();
@@ -347,14 +354,47 @@ class TicketController extends Controller
             'attachments.*.mimes' => 'Attachments must be PDF, JPG, PNG, or DOCX files.',
         ]);
 
-        $defaultTicketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID') ?? 1;
+        $user = auth('sanctum')->user() ?? $request->user();
+
+        $ticketTypeId = null;
+        if ($user) {
+            if ($user instanceof \App\Models\Client) {
+                // Comes from a customer/client => External
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
+            } else {
+                // Comes from an employee (Employee or User model) => Internal
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
+            }
+        }
+
+        // Fallbacks if user is not authenticated:
+        if (!$ticketTypeId) {
+            if ($request->has('ticket_type_ID')) {
+                $ticketTypeId = $request->input('ticket_type_ID');
+            } elseif ($request->input('ticket_type') === 'External' || $request->input('is_internal') === false) {
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
+            } elseif ($request->input('ticket_type') === 'Internal' || $request->input('is_internal') === true) {
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
+            }
+        }
+
+        // If still not resolved, default to External if created_by is provided, else Internal
+        if (!$ticketTypeId) {
+            if ($request->has('created_by')) {
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
+            } else {
+                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
+            }
+        }
+
+        $finalTicketTypeId = $ticketTypeId ?? 1;
 
         $ticketId = DB::table('tickets')->insertGetId([
             'machine_ID' => $validated['machine_ID'],
             'problem_category_ID' => $validated['problem_category_ID'],
             'created_by' => $validated['created_by'] ?? 1,
             'assigned_to' => $validated['assigned_to'] ?? null,
-            'ticket_type_ID' => $validated['ticket_type_ID'] ?? $defaultTicketTypeId,
+            'ticket_type_ID' => $validated['ticket_type_ID'] ?? $finalTicketTypeId,
             'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
             'sla_ID' => $validated['sla_ID'] ?? null,
@@ -434,6 +474,7 @@ class TicketController extends Controller
             ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
             ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
+            ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
                 't.title',
@@ -444,44 +485,61 @@ class TicketController extends Controller
                 't.created_at',
                 'c.client_name',
                 'm.machine_name',
-                'm.serial_number'
+                'm.serial_number',
+                'tt.type_name as ticket_type'
             )
             ->orderByDesc('t.created_at')
             ->limit($limit)
-            ->get()
-            ->map(function ($row) {
-                $assignedIds = DB::table('ticket_assignments')
-                    ->where('ticket_ID', $row->ticket_ID)
-                    ->pluck('employee_ID')
-                    ->map(fn($id) => (int)$id)
-                    ->all();
+            ->get();
 
-                $pendingReassign = DB::table('reassignment_requests')
-                    ->where('ticket_id', $row->ticket_ID)
-                    ->where('status', 'pending')
-                    ->first();
+        $ticketIds = $rows->pluck('ticket_ID')->toArray();
 
-                return [
-                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
-                    'ticket_ID' => (int) $row->ticket_ID,
-                    'customer' => $row->client_name ?: 'Unknown Customer',
-                    'title' => $row->title,
-                    'category' => $row->category_name,
-                    'status' => $row->status_name,
-                    'priority' => $row->priority_name,
-                    'department' => $row->department,
-                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                    'sla' => $this->slaLabel($row->created_at),
-                    'date' => optional($row->created_at)->format('m/d/Y') ?? now()->format('m/d/Y'),
-                    'assigned' => $assignedIds,
-                    'reassignmentRequested' => !empty($pendingReassign),
-                    'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
-                ];
-            })
-            ->values();
+        $assignments = collect();
+        $pendingReassigns = collect();
+
+        if (!empty($ticketIds)) {
+            $assignments = DB::table('ticket_assignments')
+                ->whereIn('ticket_ID', $ticketIds)
+                ->get()
+                ->groupBy('ticket_ID');
+
+            $pendingReassigns = DB::table('reassignment_requests')
+                ->whereIn('ticket_id', $ticketIds)
+                ->where('status', 'pending')
+                ->get()
+                ->keyBy('ticket_id');
+        }
+
+        $incomingTickets = $rows->map(function ($row) use ($assignments, $pendingReassigns) {
+            $assignedIds = isset($assignments[$row->ticket_ID])
+                ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
+                : [];
+
+            $pendingReassign = $pendingReassigns->get($row->ticket_ID);
+
+            return [
+                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                'ticket_ID' => (int) $row->ticket_ID,
+                'customer' => $row->client_name ?: 'Unknown Customer',
+                'title' => $row->title,
+                'category' => $row->category_name,
+                'status' => $row->status_name,
+                'priority' => $row->priority_name,
+                'department' => $row->department,
+                'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+                'sla' => $this->slaLabel($row->created_at),
+                'date' => optional($row->created_at)->format('m/d/Y') ?? now()->format('m/d/Y'),
+                'assigned' => $assignedIds,
+                'reassignmentRequested' => !empty($pendingReassign),
+                'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
+                'type' => $row->ticket_type ?? 'External',
+                'ticket_type' => $row->ticket_type ?? 'External',
+                'is_internal' => ($row->ticket_type ?? '') === 'Internal',
+            ];
+        })->values();
 
         return response()->json([
-            'incoming_tickets' => $rows,
+            'incoming_tickets' => $incomingTickets,
         ]);
     }
 
@@ -852,9 +910,6 @@ class TicketController extends Controller
 
         if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
             $statusToSet = $validated['ticket_status_ID'];
-            if ($statusToSet == 3) {
-                $statusToSet = 4; // Resolved becomes Closed
-            }
             if ($ticket->ticket_status_ID != $statusToSet) {
                 $changes[] = ['field' => 'ticket_status_ID', 'old' => $ticket->ticket_status_ID, 'new' => $statusToSet];
             }
@@ -889,11 +944,13 @@ class TicketController extends Controller
             $update = ['updated_at' => now()];
             if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
                 $statusToSet = $validated['ticket_status_ID'];
-                if ($statusToSet == 3) {
-                    $statusToSet = 4; // Resolved becomes Closed
-                }
                 $update['ticket_status_ID'] = $statusToSet;
                 
+                if ($statusToSet == 3) {
+                    if (!$ticket->resolved_at) {
+                        $update['resolved_at'] = now();
+                    }
+                }
                 if ($statusToSet == 4) {
                     if (!$ticket->resolved_at) {
                         $update['resolved_at'] = now();
@@ -1055,13 +1112,14 @@ class TicketController extends Controller
             return response()->json(['tickets' => []]);
         }
 
-        $tickets = DB::table('ticket_assignments as ta')
+        $rows = DB::table('ticket_assignments as ta')
             ->join('tickets as t', 't.ticket_ID', '=', 'ta.ticket_ID')
-            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->join('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
-            ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->leftJoin('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+            ->leftJoin('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->where('ta.employee_ID', $employeeId)
             ->orderByDesc('ta.assigned_at')
             ->select(
@@ -1077,37 +1135,49 @@ class TicketController extends Controller
                 'c.client_name',
                 'ta.assignment_status',
                 't.proof_rejected',
-                't.rejection_reason'
+                't.rejection_reason',
+                'tt.type_name as ticket_type'
             )
-            ->get()
-            ->map(function ($row) {
-                $pendingReassign = DB::table('reassignment_requests')
-                    ->where('ticket_id', $row->ticket_ID)
-                    ->where('status', 'pending')
-                    ->first();
+            ->get();
 
-                return [
-                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
-                    'ticket_ID' => $row->ticket_ID,
-                    'title' => $row->title,
-                    'customer' => $row->client_name ?: 'Unknown Customer',
-                    'facility' => null,
-                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                    'status' => $row->status_name,
-                    'priority' => $row->priority_name,
-                    'category' => $row->category_name,
-                    'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
-                    'slaStatus' => $this->slaLabel($row->created_at),
-                    'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
-                    'accepted' => $row->assignment_status === 'accepted',
-                    'escalated' => strtolower((string) $row->priority_name) === 'critical',
-                    'reassignmentRequested' => !empty($pendingReassign),
-                    'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
-                    'proofRejected' => (bool)$row->proof_rejected,
-                    'rejectionReason' => $row->rejection_reason,
-                ];
-            })
-            ->values();
+        $ticketIds = $rows->pluck('ticket_ID')->toArray();
+        $pendingReassigns = collect();
+
+        if (!empty($ticketIds)) {
+            $pendingReassigns = DB::table('reassignment_requests')
+                ->whereIn('ticket_id', $ticketIds)
+                ->where('status', 'pending')
+                ->get()
+                ->keyBy('ticket_id');
+        }
+
+        $tickets = $rows->map(function ($row) use ($pendingReassigns) {
+            $pendingReassign = $pendingReassigns->get($row->ticket_ID);
+
+            return [
+                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                'ticket_ID' => $row->ticket_ID,
+                'title' => $row->title,
+                'customer' => $row->client_name ?: 'Unknown Customer',
+                'facility' => null,
+                'equipment' => ($row->machine_name || $row->serial_number) ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : 'Unspecified Equipment',
+                'status' => $row->status_name ?? 'Open',
+                'priority' => $row->priority_name ?? 'Low',
+                'category' => $row->category_name ?? 'General',
+                'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
+                'slaStatus' => $this->slaLabel($row->created_at),
+                'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
+                'accepted' => $row->assignment_status === 'accepted',
+                'escalated' => strtolower((string) ($row->priority_name ?? '')) === 'critical',
+                'reassignmentRequested' => !empty($pendingReassign),
+                'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
+                'proofRejected' => (bool)$row->proof_rejected,
+                'rejectionReason' => $row->rejection_reason,
+                'type' => $row->ticket_type ?? 'External',
+                'ticket_type' => $row->ticket_type ?? 'External',
+                'is_internal' => ($row->ticket_type ?? '') === 'Internal',
+            ];
+        })->values();
 
         return response()->json([
             'tickets' => $tickets,
@@ -1753,14 +1823,17 @@ class TicketController extends Controller
 
                 if ($statusId && $statusId != $ticket->ticket_status_ID) {
                     $statusChanged = true;
-                    // If status is resolved, set resolved_at and change statusId to 4 (Closed)
                     $updateFields = [
                         'updated_at' => now(),
                     ];
 
                     if ($newStatusName === 'Resolved' || $statusId == 3) {
-                        $statusId = 4; // Resolved becomes Closed
                         $updateFields['resolved_at'] = now();
+                    }
+                    if ($newStatusName === 'Closed' || $statusId == 4) {
+                        if (!$ticket->resolved_at) {
+                            $updateFields['resolved_at'] = now();
+                        }
                         $updateFields['closed_at'] = now();
                     }
                     $updateFields['ticket_status_ID'] = $statusId;
@@ -1776,7 +1849,7 @@ class TicketController extends Controller
                         'action_by_ID' => $empId,
                         'actor_type' => 'employee',
                         'details' => json_encode([
-                            'status' => $newStatusName === 'Resolved' ? 'Closed' : $newStatusName,
+                            'status' => $newStatusName,
                             'remarks' => $remarksText,
                             'files' => $attachmentNames,
                         ]),
@@ -1784,7 +1857,7 @@ class TicketController extends Controller
                     ]);
 
                     // Notify customer & CS of status change
-                    $statusNameToNotify = $newStatusName === 'Resolved' ? 'Closed' : $newStatusName;
+                    $statusNameToNotify = $newStatusName;
                     $this->notifyCustomer(
                         $customerId,
                         'Ticket Status Updated',

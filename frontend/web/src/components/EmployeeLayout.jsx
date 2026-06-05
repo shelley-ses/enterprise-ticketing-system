@@ -8,7 +8,7 @@ export default function EmployeeLayout() {
     <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
       <Header />
       <div className="flex flex-1 gap-6 pt-24 pb-8 px-6 lg:px-12">
-        <div className="w-[88px] flex-shrink-0 z-20">
+        <div className="w-[88px] hover:w-64 flex-shrink-0 z-20 transition-all duration-300 ease-in-out">
           <SidebarEmployee />
         </div>
         <main className="flex-1 min-w-0">

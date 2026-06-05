@@ -73,65 +73,8 @@ export default function MyTickets({ mode = 'all' }) {
     setShowRefreshBanner(false);
 
     try {
-      let stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
-      if (stored.length > 0 && !stored.some(t => t.id === 'TKT-2004')) {
-        stored = [];
-      }
-      if (stored.length === 0) {
-        const mockCustomerTickets = [
-          {
-            id: 'TKT-2001',
-            ticket_ID: 2001,
-            title: 'Defibrillator battery error on unit 4',
-            category: 'Hardware Issue',
-            equipment: 'Defibrillator - DF-400',
-            status: 'Open',
-            description: 'The battery indicator is flashing red even when fully charged. Unit 4 in emergency room.',
-            date_created: new Date(Date.now() - 4 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 4 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
-            can_discard: true,
-          },
-          {
-            id: 'TKT-2002',
-            ticket_ID: 2002,
-            title: 'CT Scanner calibration drift',
-            category: 'Calibration Required',
-            equipment: 'CT Scanner - CT-3000',
-            status: 'In Progress',
-            description: 'Artifacts visible in scans, calibration calibration tool shows offset of 1.2mm.',
-            date_created: new Date(Date.now() - 30 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 15 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
-            can_discard: false,
-          },
-          {
-            id: 'TKT-2004',
-            ticket_ID: 2004,
-            title: 'Defibrillator pad replacement check',
-            category: 'Hardware Issue',
-            equipment: 'Defibrillator - DF-400',
-            status: 'Closed',
-            description: 'Inspect defibrillator pad expiration dates and replace them if outdated.',
-            date_created: new Date(Date.now() - 72 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 6 * 3600000).toISOString(),
-            resolved_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-            is_internal: false,
-            ticket_type: 'External',
-            can_discard: false,
-            timeline: [
-              { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: new Date(Date.now() - 72 * 3600000).toISOString() },
-              { id: 'status-closed', type: 'status', text: 'Ticket closed by system.', timestamp: new Date(Date.now() - 6 * 3600000).toISOString() }
-            ]
-          }
-        ];
-        localStorage.setItem('customer_created_tickets', JSON.stringify(mockCustomerTickets));
-        setTickets(mockCustomerTickets);
-      } else {
-        setTickets(stored);
-      }
+      const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh });
+      setTickets(ticketsList);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load tickets.');
     } finally {
@@ -193,39 +136,33 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   const handleCreateTicket = async (payload) => {
-    const options = getCachedTicketFormOptions() || await getTicketFormOptions();
-    const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
-    const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
-    
-    const newIdVal = Math.floor(2003 + Math.random() * 9000);
-    const newTicket = {
-      id: `TKT-${newIdVal}`,
-      ticket_ID: newIdVal,
-      title: payload.title,
-      category,
-      equipment,
-      status: 'Open',
-      description: payload.description,
-      date_created: new Date().toISOString(),
-      last_updated: new Date().toISOString(),
-      attachments: payload.attachments || [],
-      is_internal: false,
-      ticket_type: 'External',
-      can_discard: true,
-    };
-
-    const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
-    const updatedList = [newTicket, ...stored];
-    localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
-    setTickets(updatedList);
-    setConfirmCreated(newTicket);
-    setIsModalOpen(false);
+    setLoadingText('Submitting ticket...');
+    setModalLoading(true);
+    try {
+      const response = await createTicket({
+        ...payload,
+        created_by: customerId,
+      });
+      
+      const created = response.ticket 
+        ? { id: 'TKT-' + String(response.ticket.ticket_ID).padStart(3, '0') }
+        : { id: 'TKT-' + String(response.ticket_ID || 'new').padStart(3, '0') };
+        
+      setConfirmCreated(created);
+      setIsModalOpen(false);
+      loadTickets({ forceRefresh: true });
+    } catch (err) {
+      console.error(err);
+      window.alert(err?.response?.data?.message || 'Failed to create ticket.');
+    } finally {
+      setModalLoading(false);
+    }
   };
 
   const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
 
-    const isMock = String(confirmDiscard.id).startsWith('TKT-') || (confirmDiscard.ticket_ID && confirmDiscard.ticket_ID >= 1000);
+    const isMock = !!confirmDiscard.isMock;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {
@@ -256,7 +193,7 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   const handleViewTicket = async (t) => {
-    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    const isMock = !!t.isMock;
     if (isMock) {
       setSelectedTicket({
         ...t,
@@ -292,7 +229,7 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   const handleResolveTicket = async (ticketId) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {
@@ -325,10 +262,28 @@ export default function MyTickets({ mode = 'all' }) {
       window.alert('Ticket resolved successfully.');
       return;
     }
+
+    setLoadingText('Resolving ticket...');
+    setModalLoading(true);
+    try {
+      const numericId = Number(String(ticketId).replace(/\D/g, ''));
+      await updateTicket({
+        ticketId: numericId,
+        statusId: 3, // Resolved
+      });
+      setSelectedTicket(null);
+      window.alert('Ticket resolved successfully.');
+      loadTickets({ forceRefresh: true });
+    } catch (err) {
+      console.error('Failed to resolve ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to resolve ticket.');
+    } finally {
+      setModalLoading(false);
+    }
   };
 
   const handleCloseTicket = async (ticketId) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {
@@ -382,7 +337,7 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   const handleReopenTicket = async (ticketId, reason) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {

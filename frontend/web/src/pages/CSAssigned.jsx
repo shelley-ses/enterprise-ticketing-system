@@ -70,61 +70,7 @@ export default function CSAssigned() {
         !t.reassignmentRequested
       );
       
-      const mockInternal = {
-        id: 'TKT-9084',
-        ticket_ID: 9084,
-        title: 'Biochemistry Analyzer calibration check',
-        category: 'Calibration Required',
-        priority: 'Low',
-        status: 'In Progress',
-        customer: 'Internal Staff',
-        facility: 'Lab C',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        date_created: new Date(Date.now() - 12 * 3600000).toISOString(),
-        date: new Date(Date.now() - 12 * 3600000).toLocaleDateString(),
-        sla: 'On Track',
-        sla_status: 'On Track',
-      };
-      const mockExternal = {
-        id: 'TKT-2008',
-        ticket_ID: 2008,
-        title: 'MRI scanner liquid helium level alert',
-        category: 'Hardware Issue',
-        priority: 'Critical',
-        status: 'In Progress',
-        customer: 'Metro Imaging Center',
-        facility: 'Suite A',
-        is_internal: false,
-        ticket_type: 'External',
-        type: 'External',
-        date_created: new Date(Date.now() - 6 * 3600000).toISOString(),
-        date: new Date(Date.now() - 6 * 3600000).toLocaleDateString(),
-        sla: 'Breached',
-        sla_status: 'Breached',
-      };
-
-      const mockClosed = {
-        id: 'TKT-9085',
-        ticket_ID: 9085,
-        title: 'Weekly laboratory freezer sensor check',
-        category: 'Hardware Issue',
-        priority: 'Low',
-        status: 'Closed',
-        customer: 'Internal Staff',
-        facility: 'Main Lab A',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        date_created: new Date(Date.now() - 72 * 3600000).toISOString(),
-        date: new Date(Date.now() - 72 * 3600000).toLocaleDateString(),
-        resolved_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-        sla: 'On Track',
-        sla_status: 'On Track',
-      };
-
-      setTickets([...assignedTickets, mockInternal, mockExternal, mockClosed]);
+      setTickets(assignedTickets);
       
       setEmployees(
         assignees.map((row) => ({
@@ -145,7 +91,7 @@ export default function CSAssigned() {
 
   useEffect(() => {
     loadStaticData();
-    loadLiveData({ forceRefresh: false });
+    loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
 
   useRealtimeRefresh({
@@ -213,7 +159,7 @@ export default function CSAssigned() {
   }, [filtered, page]);
 
   const handleRowAction = async (t) => {
-    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    const isMock = !!t.isMock;
     if (isMock) {
       setModal({ mode: 'summary', ticket: t });
       return;
@@ -245,7 +191,7 @@ export default function CSAssigned() {
       Critical: 4,
     };
 
-    const isMock = String(updated.id).startsWith('TKT-') || (updated.ticket_ID && updated.ticket_ID >= 1000);
+    const isMock = !!updated.isMock;
     if (isMock) {
       const refreshed = { ...updated, status: 'Assigned' };
       setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));

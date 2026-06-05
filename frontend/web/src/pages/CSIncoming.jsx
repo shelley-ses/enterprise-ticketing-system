@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -52,6 +53,7 @@ const getDisplayStatus = (ticket) => (
 ───────────────────────────────────────────── */
 export default function CSIncoming() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -99,41 +101,7 @@ export default function CSIncoming() {
 
     if (incomingResult.status === 'fulfilled') {
       const list = incomingResult.value.filter((ticket) => ticket.status !== 'Pending Evaluation');
-      const mockInternal = {
-        id: 'TKT-9083',
-        ticket_ID: 9083,
-        title: 'Centrifuge power supply noise',
-        category: 'Hardware Issue',
-        priority: 'Medium',
-        status: 'Open',
-        customer: 'Internal Staff',
-        facility: 'Lab B',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        date_created: new Date(Date.now() - 1 * 3600000).toISOString(),
-        date: new Date(Date.now() - 1 * 3600000).toLocaleDateString(),
-        sla: 'On Track',
-        sla_status: 'On Track',
-      };
-      const mockExternal = {
-        id: 'TKT-2007',
-        ticket_ID: 2007,
-        title: 'Vitals monitor software update required',
-        category: 'Software / System Error',
-        priority: 'Medium',
-        status: 'Open',
-        customer: 'Community Health Center',
-        facility: 'Room 102',
-        is_internal: false,
-        ticket_type: 'External',
-        type: 'External',
-        date_created: new Date(Date.now() - 2 * 3600000).toISOString(),
-        date: new Date(Date.now() - 2 * 3600000).toLocaleDateString(),
-        sla: 'At Risk',
-        sla_status: 'At Risk',
-      };
-      setTickets([...list, mockInternal, mockExternal]);
+      setTickets(list);
     }
 
     if (assigneesResult.status === 'fulfilled') {
@@ -166,7 +134,7 @@ export default function CSIncoming() {
 
   useEffect(() => {
     loadStaticData();
-    loadLiveData({ forceRefresh: false });
+    loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
 
   useRealtimeRefresh({
@@ -271,7 +239,7 @@ export default function CSIncoming() {
       Critical: 4,
     };
 
-    const isMock = String(updated.id).startsWith('TKT-') || (updated.ticket_ID && updated.ticket_ID >= 1000);
+    const isMock = !!updated.isMock;
     if (isMock) {
       const refreshed = {
         ...updated,
@@ -279,8 +247,8 @@ export default function CSIncoming() {
       };
       ticketBroadcast.emit('assigned', refreshed);
       setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID || t.id === updated.id ? refreshed : t)));
-      setModal({ mode: 'summary', ticket: refreshed });
       window.alert('Ticket assigned successfully.');
+      navigate('/cs/assigned');
       return true;
     }
 
@@ -297,7 +265,7 @@ export default function CSIncoming() {
         const incoming = await getCSIncomingTickets({ limit: 100 });
         setTickets(incoming.filter((ticket) => ticket.status !== 'Pending Evaluation'));
         
-        // Find the newly updated ticket to show in summary
+        // Find the newly updated ticket
         const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
           ...updated,
           status: 'Assigned',
@@ -306,7 +274,7 @@ export default function CSIncoming() {
         // Broadcast the assignment to all listening pages
         ticketBroadcast.emit('assigned', refreshedTicket);
         
-        setModal({ mode: 'summary', ticket: refreshedTicket });
+        navigate('/cs/assigned');
       } catch (e) {
         // Fallback to local state if refetch fails
         const refreshed = {
@@ -315,7 +283,7 @@ export default function CSIncoming() {
         };
         ticketBroadcast.emit('assigned', refreshed);
         setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
-        setModal({ mode: 'summary', ticket: refreshed });
+        navigate('/cs/assigned');
       }
       return true;
     } catch (err) {
@@ -326,7 +294,12 @@ export default function CSIncoming() {
   };
 
   const handleRespondReassignment = async (ticketId, action) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const ticket = tickets.find(t => {
+      const tId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+      const targetId = Number(String(ticketId).replace(/\D/g, ''));
+      return tId === targetId;
+    });
+    const isMock = ticket ? !!ticket.isMock : false;
     if (isMock) {
       setTickets((prev) => prev.filter((t) => t.ticket_ID !== ticketId && t.id !== ticketId));
       setModal(null);

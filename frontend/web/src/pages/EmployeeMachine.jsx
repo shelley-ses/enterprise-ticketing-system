@@ -110,7 +110,7 @@ export default function EmployeeMachine() {
         can_discard: false,
       };
 
-      setTickets([...activeTickets, mockResolvedInternal, mockClosedInternal]);
+      setTickets(activeTickets);
     } catch (err) {
       setLoadError('Unable to load active progress tickets.');
     } finally {
@@ -119,7 +119,7 @@ export default function EmployeeMachine() {
   }, [user?.email]);
 
   useEffect(() => {
-    loadTickets({ forceRefresh: false });
+    loadTickets({ forceRefresh: true });
   }, [loadTickets]);
 
   useRealtimeRefresh({

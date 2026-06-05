@@ -227,7 +227,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
 
-    const isMock = String(confirmDiscard.id).startsWith('TKT-') || (confirmDiscard.ticket_ID && confirmDiscard.ticket_ID >= 1000);
+    const isMock = !!confirmDiscard.isMock;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
@@ -282,7 +282,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleViewTicket = async (t) => {
-    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    const isMock = !!t.isMock;
     if (isMock) {
       setSelectedTicket({
         ...t,
@@ -318,7 +318,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleResolveTicket = async (ticketId) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
@@ -372,7 +372,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleCloseTicket = async (ticketId) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {
@@ -426,7 +426,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleReopenTicket = async (ticketId, reason) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updatedList = stored.map(t => {

@@ -69,7 +69,7 @@ export default function EmployeeProgress() {
   }, []);
 
   useEffect(() => {
-    loadHistory({ forceRefresh: false });
+    loadHistory({ forceRefresh: true });
   }, [loadHistory]);
 
   useRealtimeRefresh({

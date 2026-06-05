@@ -16,7 +16,7 @@ export default function SidebarCS() {
   ];
 
   return (
-    <aside className="sticky top-0 h-screen w-[88px] hover:w-64 bg-[#252578] text-white transition-all duration-300 ease-in-out rounded-3xl shadow-[0_8px_30px_rgba(37,37,120,0.2)] flex flex-col overflow-hidden group">
+    <aside className="sticky top-0 h-screen w-full bg-[#252578] text-white transition-all duration-300 ease-in-out rounded-3xl shadow-[0_8px_30px_rgba(37,37,120,0.2)] flex flex-col overflow-hidden group">
       <nav className="flex flex-col gap-4 mt-24 px-3">
         {navItems.map((item) => (
           <NavLink

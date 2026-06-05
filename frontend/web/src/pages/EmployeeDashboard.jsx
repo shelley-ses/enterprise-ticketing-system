@@ -93,7 +93,7 @@ export default function EmployeeDashboard() {
       const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
       const updated = await Promise.all(
         stored.slice(0, 5).map(async (t) => {
-          const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+          const isMock = !!t.isMock;
           if (isMock) {
             return t;
           }
@@ -128,7 +128,7 @@ export default function EmployeeDashboard() {
   }, []);
 
   const handleResolveMyTicket = async (ticketId) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedMyTicket ? !!selectedMyTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
       const updatedList = stored.map(t => {
@@ -164,7 +164,7 @@ export default function EmployeeDashboard() {
   };
 
   const handleReopenMyTicket = async (ticketId, reason) => {
-    const isMock = String(ticketId).startsWith('TKT-') || Number(String(ticketId).replace(/\D/g, '')) >= 1000;
+    const isMock = selectedMyTicket ? !!selectedMyTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
       const updatedList = stored.map(t => {
@@ -217,7 +217,7 @@ export default function EmployeeDashboard() {
   };
 
   const handleViewMyTicket = async (t) => {
-    const isMock = String(t.id).startsWith('TKT-') || (t.ticket_ID && t.ticket_ID >= 1000);
+    const isMock = !!t.isMock;
     if (isMock) {
       setSelectedMyTicket({
         ...t,

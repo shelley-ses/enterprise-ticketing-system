@@ -51,75 +51,7 @@ export default function EmployeeAssigned() {
     setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
-      const mockInternal = {
-        id: 'TKT-9081',
-        ticket_ID: 9081,
-        title: 'Centrifuge calibration drift check',
-        category: 'Calibration Required',
-        priority: 'High',
-        status: 'Open',
-        customer: 'Internal Staff',
-        facility: 'Main Lab A',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        accepted: false,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        sla: '24h',
-      };
-      const mockInternal2 = {
-        id: 'TKT-9082',
-        ticket_ID: 9082,
-        title: 'HPLC column backpressure spike diagnostic',
-        category: 'Calibration Required',
-        priority: 'Medium',
-        status: 'In Progress',
-        customer: 'Internal Staff',
-        facility: 'Lab B',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        accepted: false,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        sla: '36h',
-      };
-      const mockInternal3 = {
-        id: 'TKT-9083',
-        ticket_ID: 9083,
-        title: 'Biosafety Cabinet airflow verification',
-        category: 'Calibration Required',
-        priority: 'Low',
-        status: 'Open',
-        customer: 'Internal Staff',
-        facility: 'Main Lab A',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        accepted: false,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        sla: '72h',
-      };
-      const mockExternal = {
-        id: 'TKT-2005',
-        ticket_ID: 2005,
-        title: 'Defibrillator display flicker',
-        category: 'Hardware Issue',
-        priority: 'Medium',
-        status: 'In Progress',
-        customer: 'City Hospital',
-        facility: 'ER Room 2',
-        is_internal: false,
-        ticket_type: 'External',
-        type: 'External',
-        accepted: false,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        sla: '48h',
-      };
-      setTickets([...list.map((t) => ({ ...t, rejected: false })), mockInternal, mockInternal2, mockInternal3, mockExternal]);
+      setTickets(list.map((t) => ({ ...t, rejected: false })));
     } catch {
       setLoadError('Unable to load assigned tickets from ticket-service.');
     } finally {
@@ -128,7 +60,7 @@ export default function EmployeeAssigned() {
   }, [user?.email]);
 
   useEffect(() => {
-    loadTickets({ forceRefresh: false });
+    loadTickets({ forceRefresh: true });
   }, [loadTickets]);
 
   const probeForUpdates = useCallback(async () => {
