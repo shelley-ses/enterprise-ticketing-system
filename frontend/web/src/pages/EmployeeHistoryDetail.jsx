@@ -171,7 +171,8 @@ export default function EmployeeHistoryDetail() {
               return (
                 <div
                   key={idx}
-                  className="border border-gray-100 rounded-xl overflow-hidden shadow-sm"
+                  onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
+                  className="border border-gray-100 rounded-xl overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                 >
                   {isImage(fileName) ? (
                     <img
@@ -202,7 +203,7 @@ export default function EmployeeHistoryDetail() {
                       </div>
                     </div>
                   )}
-                  <div className="px-3 py-2 border-t border-gray-100">
+                  <div className="px-3 py-2 border-t border-gray-100 bg-gray-55">
                     <p className="text-[10px] text-gray-500 truncate">{fileName}</p>
                   </div>
                 </div>
@@ -227,12 +228,13 @@ export default function EmployeeHistoryDetail() {
               return (
                 <div
                   key={idx}
-                  className="border border-green-100 rounded-xl overflow-hidden shadow-sm"
+                  onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
+                  className="border border-green-100 rounded-xl overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                 >
                   {isImage(fileName) ? (
                     <img src={fileUrl} alt={fileName} className="w-full h-36 object-cover" />
                   ) : (
-                    <div className="flex items-center gap-3 p-4 bg-green-50 h-36">
+                    <div className="flex items-center gap-3 p-4 bg-green-55 h-36">
                       <div className="w-10 h-10 rounded-xl bg-green-700/10 flex items-center justify-center shrink-0">
                         <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -244,7 +246,7 @@ export default function EmployeeHistoryDetail() {
                       </div>
                     </div>
                   )}
-                  <div className="px-3 py-2 border-t border-green-100">
+                  <div className="px-3 py-2 border-t border-green-100 bg-green-50/30">
                     <p className="text-[10px] text-gray-500 truncate">{fileName}</p>
                   </div>
                 </div>

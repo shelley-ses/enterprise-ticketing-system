@@ -686,9 +686,11 @@ export const requestReassignment = async ({ ticketId, reason }) => {
   return response.data;
 };
 
-export const respondReassignment = async ({ ticketId, action }) => {
+export const respondReassignment = async ({ ticketId, action, newEmployeeId, reason }) => {
   const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, {
     action,
+    new_employee_id: newEmployeeId,
+    reason,
   });
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();

@@ -4,10 +4,15 @@ import {
   respondReassignment,
   getNotifications,
   markNotificationsRead,
-  markNotificationRead
+  markNotificationRead,
+  getAssignableEmployees,
+  getDepartments,
+  getTicketDetails,
 } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { AssignModal } from '@/components/CSModals';
+
 
 export default function Notifications() {
   const { user } = useAuth();
@@ -20,6 +25,17 @@ export default function Notifications() {
   const [success, setSuccess] = useState('');
   const [actioningId, setActioningId] = useState(null); // request_id of the item being approved/denied
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [assignModalData, setAssignModalData] = useState(null);
+
+  useEffect(() => {
+    if (isCS) {
+      getAssignableEmployees().then(setEmployees).catch(console.error);
+      getDepartments().then(setDepartments).catch(console.error);
+    }
+  }, [isCS]);
+
 
   const loadData = useCallback(async ({ source = 'manual' } = {}) => {
     if (source !== 'websocket' && source !== 'poll') {
@@ -62,12 +78,12 @@ export default function Notifications() {
     },
   });
 
-  const handleAction = async (requestId, ticketId, action) => {
+  const handleAction = async (requestId, ticketId, action, extraParams = {}) => {
     setActioningId(requestId);
     setError('');
     setSuccess('');
     try {
-      await respondReassignment({ ticketId, action });
+      await respondReassignment({ ticketId, action, ...extraParams });
       setSuccess(`Successfully ${action === 'approve' ? 'approved' : 'denied'} reassignment request.`);
       await loadData();
     } catch (err) {
@@ -77,6 +93,34 @@ export default function Notifications() {
       setActioningId(null);
     }
   };
+
+  const handleAssignSave = async (updated) => {
+    setError('');
+    setSuccess('');
+    try {
+      const newEmpId = updated.assigned[0];
+      if (!newEmpId) {
+        window.alert('Please select at least one employee.');
+        return false;
+      }
+
+      await respondReassignment({
+        ticketId: updated.ticket_ID,
+        action: 'approve',
+        newEmployeeId: newEmpId,
+      });
+
+      setSuccess('Successfully approved reassignment and reassigned ticket.');
+      setAssignModalData(null);
+      await loadData();
+      return true;
+    } catch (err) {
+      console.error(err);
+      setError('Failed to approve and reassign ticket.');
+      return false;
+    }
+  };
+
 
   const handleMarkAllRead = async () => {
     try {
@@ -221,7 +265,15 @@ export default function Notifications() {
                         <button
                           type="button"
                           disabled={isProcessing}
-                          onClick={() => handleAction(req.request_id, req.ticket_id, 'deny')}
+                          onClick={async () => {
+                            const reason = window.prompt("Enter the reason for denying reassignment:");
+                            if (reason === null) return; // cancelled
+                            if (!reason.trim()) {
+                              window.alert("A reason is required to deny reassignment.");
+                              return;
+                            }
+                            await handleAction(req.request_id, req.ticket_id, 'deny', { reason: reason.trim() });
+                          }}
                           className="flex-1 md:flex-none py-2.5 px-4 rounded-xl border border-rose-200 text-rose-700 font-bold hover:bg-rose-50 text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Deny Request
@@ -229,12 +281,24 @@ export default function Notifications() {
                         <button
                           type="button"
                           disabled={isProcessing}
-                          onClick={() => handleAction(req.request_id, req.ticket_id, 'approve')}
+                          onClick={async () => {
+                            setActioningId(req.request_id);
+                            try {
+                              const details = await getTicketDetails(req.ticket_id);
+                              setAssignModalData(details);
+                            } catch (err) {
+                              console.error(err);
+                              setError('Failed to load ticket details for assignment.');
+                            } finally {
+                              setActioningId(null);
+                            }
+                          }}
                           className="flex-1 md:flex-none py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {isProcessing ? 'Processing...' : 'Approve & Reassign'}
+                          {actioningId === req.request_id ? 'Loading...' : 'Approve & Reassign'}
                         </button>
                       </div>
+
                     </div>
                   );
                 })}
@@ -287,6 +351,16 @@ export default function Notifications() {
             )}
           </div>
         </div>
+      )}
+      {assignModalData && (
+        <AssignModal
+          ticket={assignModalData}
+          employees={employees}
+          departments={departments}
+          priorityOptions={['Low', 'Medium', 'High', 'Critical']}
+          onClose={() => setAssignModalData(null)}
+          onSave={handleAssignSave}
+        />
       )}
     </div>
   );
