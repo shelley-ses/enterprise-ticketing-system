@@ -15,7 +15,7 @@ import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails, getInternalTickets, getEmployeeProfile } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 function ChevronRight() {
@@ -37,6 +37,7 @@ function ArrowRight() {
 const statusClass = (status) => {
   if (status === 'Open') return 'bg-amber-100 text-amber-700';
   if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
+  if (status === 'Pending Assignment') return 'bg-amber-100 text-amber-700';
   if (status === 'Pending') return 'bg-purple-100 text-purple-700';
   if (status === 'Resolved') return 'bg-green-100 text-green-700';
   if (status === 'Closed') return 'bg-gray-100 text-gray-700';
@@ -67,6 +68,7 @@ export default function EmployeeDashboard() {
     date: '',
   });
 
+  const [employeeName, setEmployeeName] = useState('');
   const [myRecentTickets, setMyRecentTickets] = useState([]);
   const [loadingMyTickets, setLoadingMyTickets] = useState(true);
   const [selectedMyTicket, setSelectedMyTicket] = useState(null);
@@ -90,36 +92,25 @@ export default function EmployeeDashboard() {
   const loadMyTickets = useCallback(async () => {
     setLoadingMyTickets(true);
     try {
-      const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
-      const updated = await Promise.all(
-        stored.slice(0, 5).map(async (t) => {
-          const isMock = !!t.isMock;
-          if (isMock) {
-            return t;
-          }
-          try {
-            const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-            const detail = await getTicketDetails(numericId);
-            return {
-              ...t,
-              ...detail,
-              status: detail.status || t.status,
-              last_updated: detail.last_updated || t.last_updated,
-            };
-          } catch (e) {
-            console.warn(`Failed to update ticket ${t.id} from backend:`, e);
-            return t;
-          }
-        })
-      );
-      setMyRecentTickets(updated);
-      
-      const fullList = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
-      const updatedFullList = fullList.map(item => {
-        const found = updated.find(u => u.id === item.id);
-        return found ? found : item;
-      });
-      localStorage.setItem('employee_created_tickets', JSON.stringify(updatedFullList));
+      const apiTickets = await getInternalTickets();
+      if (apiTickets.length > 0) {
+        setMyRecentTickets(apiTickets.slice(0, 5));
+      } else {
+        const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
+        const updated = await Promise.all(
+          stored.slice(0, 5).map(async (t) => {
+            if (!!t.isMock) return t;
+            try {
+              const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+              const detail = await getTicketDetails(numericId);
+              return { ...t, ...detail, status: detail.status || t.status };
+            } catch {
+              return t;
+            }
+          })
+        );
+        setMyRecentTickets(updated);
+      }
     } catch (err) {
       console.error('Failed to load my tickets on dashboard:', err);
     } finally {
@@ -255,6 +246,7 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     loadTickets({ forceRefresh: false });
     loadMyTickets();
+    getEmployeeProfile().then(p => setEmployeeName(p.name)).catch(() => {});
   }, [loadTickets, loadMyTickets]);
 
   const handleRefreshAll = useCallback(async (opts = {}) => {
@@ -350,14 +342,17 @@ export default function EmployeeDashboard() {
         employeeIds: [Number(user?.emp_id ?? user?.id)],
         assignedByEmail: user?.email,
       });
-      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true } : t)));
+      // Optimistic update first so UI feels instant
+      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true, status: 'In Progress' } : t)));
+      // Then force a fresh fetch from the server to confirm the accepted state
+      loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to accept assignment on backend:', err);
-      // fallback to optimistic update
-      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true } : t)));
+      // fallback to optimistic update only
+      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true, status: 'In Progress' } : t)));
     }
     setSummaryTicket(null);
-  }, [tickets, user]);
+  }, [tickets, user, loadTickets]);
 
   const handleRejectAssignment = useCallback((id) => {
     setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, rejected: true } : t)));
@@ -365,13 +360,18 @@ export default function EmployeeDashboard() {
   }, []);
 
   const openTicketFlow = useCallback((t) => {
-    if (!t.accepted) setSummaryTicket(t);
-    else setWorkTicket(t);
+    // If the ticket is In Progress (or beyond), it was already accepted — open the work modal.
+    // This guards against stale cache returning accepted: false for an already-accepted ticket.
+    if (t.accepted || t.status === 'In Progress' || t.status === 'Pending Evaluation' || t.status === 'Pending') {
+      setWorkTicket(t);
+    } else {
+      setSummaryTicket(t);
+    }
   }, []);
 
   const stats = useMemo(() => {
     const active = visible.filter(
-      (t) => t.status === 'Open' || t.status === 'In Progress' || t.status === 'Escalated'
+      (t) => t.status === 'Open' || t.status === 'Pending Assignment' || t.status === 'In Progress' || t.status === 'Escalated'
     ).length;
     const inProg = visible.filter((t) => t.status === 'In Progress').length;
     const done = visible.filter((t) => t.status === 'Resolved').length;
@@ -398,7 +398,7 @@ export default function EmployeeDashboard() {
     [visible, filters]
   );
 
-  const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Open');
+  const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Pending Assignment' || t.status === 'Open');
   const urgentTicket = visible.find((t) => t.status === 'Escalated');
   const escalatedTicket = visible.find((t) => t.priority === 'Critical' && t.status !== 'Resolved');
 
@@ -415,7 +415,7 @@ export default function EmployeeDashboard() {
         <div className="relative z-10 flex-1">
           <p className="text-white/70 text-sm font-medium mb-1">{dateStr}</p>
           <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
-  Welcome back, Engr. John Doe!
+  Welcome back, {employeeName || user?.name || 'Employee'}!
   <span className="ml-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-400/20 border border-green-400/40 text-green-300 text-xs font-semibold align-middle">
     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
     Active

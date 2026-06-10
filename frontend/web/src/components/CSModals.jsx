@@ -692,7 +692,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
       priority,
       department: department || null,
       assigned: selectedEmployees,
-      status: department ? 'Assigned' : ticket.status,
+      status: department ? 'Pending Assignment' : ticket.status,
     };
 
     setIsSaving(true);
@@ -722,7 +722,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
             </button>
 
             <h3 className="text-xl font-bold text-[#252578] mb-4">
-              {ticket.status === 'Assigned' || ticket.reassignmentStatus === 'Approved' ? 'Reassign Ticket' : 'Assign Ticket'}
+              {ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved' ? 'Reassign Ticket' : 'Assign Ticket'}
             </h3>
 
             {/* Ticket Info */}
@@ -908,7 +908,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
               disabled={isSaving}
               className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSaving ? 'Saving...' : (ticket.status === 'Assigned' || ticket.reassignmentStatus === 'Approved') ? 'Save Changes' : 'Assign Ticket'}
+              {isSaving ? 'Saving...' : (ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved') ? 'Save Changes' : 'Assign Ticket'}
             </button>
           </div>
         </div>

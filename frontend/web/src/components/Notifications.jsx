@@ -1,9 +1,10 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const formatTimeAgo = (dateStr) => {
   if (!dateStr) return '';
   const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr; // fallback to original string 
+  if (isNaN(date.getTime())) return dateStr;
   
   return date.toLocaleString('en-US', {
     month: 'short',
@@ -15,10 +16,30 @@ const formatTimeAgo = (dateStr) => {
 };
 
 export default function Notifications({ notifications = [] }) {
+  const navigate = useNavigate();
   const unreadCount = notifications.filter(n => {
     if (n.unread !== undefined) return n.unread;
     return !n.is_read;
   }).length;
+
+  const handleNotificationClick = (n) => {
+    let path = null;
+    if (n.data) {
+      try {
+        const parsed = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+        if (parsed.link) {
+          const url = new URL(parsed.link);
+          path = url.pathname;
+        }
+      } catch { }
+    }
+    if (!path && n.ticket_id) {
+      path = `/tickets/${n.ticket_id}`;
+    }
+    if (path) {
+      navigate(path);
+    }
+  };
 
   return (
     <div className="bg-white rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-gray-100">
@@ -50,7 +71,7 @@ export default function Notifications({ notifications = [] }) {
             const isUnread = notification.unread !== undefined ? notification.unread : !notification.is_read;
 
             return (
-              <div key={idx} className="flex gap-3 p-4 rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer border border-transparent hover:border-gray-200">
+              <div key={idx} onClick={() => handleNotificationClick(notification)} className="flex gap-3 p-4 rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer border border-transparent hover:border-gray-200">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isUnread ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />

@@ -43,8 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/tickets/{ticketId}', [TicketController::class, 'destroy']);
     Route::get('/employee/worklogs', [WorkLogController::class, 'index']);
     Route::get('/employee/worklogs/export', [WorkLogController::class, 'export']);
+    Route::get('/employee/profile', [TicketController::class, 'employeeProfile']);
     Route::get('/employee/tickets/internal', [TicketController::class, 'internalTickets']);
-    Route::post('/tickets/{ticketId}/internal/close', [TicketController::class, 'closeInternalTicket']);
-    Route::post('/tickets/{ticketId}/internal/reopen', [TicketController::class, 'reopenInternalTicket']);
 });
 Route::post('/tickets', [TicketController::class, 'store']);
