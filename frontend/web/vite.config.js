@@ -19,4 +19,11 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Ensure these packages are pre-bundled / not externalized by Vite
+  optimizeDeps: {
+    include: ['laravel-echo', 'pusher-js'],
+  },
+  ssr: {
+    noExternal: ['laravel-echo', 'pusher-js'],
+  },
 })

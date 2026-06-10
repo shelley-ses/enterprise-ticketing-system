@@ -17,7 +17,8 @@ export default function AuthGate({ children }) {
   }
 
   if (isAuthenticated && isFirstLogin) {
-    return <ForceChangePasswordModal />;
+    // TODO: Enable force change password modal back when ready
+    // return <ForceChangePasswordModal />;
   }
 
   return children;

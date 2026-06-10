@@ -24,6 +24,7 @@ const echo = new Echo({
   wsPort,
   forceTLS: false,
   encrypted: false,
+  disableStats: true,
   enabledTransports: ['ws', 'wss'],
   cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || 'mt1'
 })

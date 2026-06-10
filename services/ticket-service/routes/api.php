@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TicketController;
+use App\Http\Controllers\WorkLogController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,7 @@ Route::get('/cs-incoming', [TicketController::class, 'csIncoming'])->middleware(
 Route::get('/departments', [TicketController::class, 'getDepartments']);
 Route::get('/assignable-employees', [TicketController::class, 'assignableEmployees']);
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/tickets/internal', [TicketController::class, 'storeInternalTicket']);
     Route::post('/tickets/{ticketId}/assign', [TicketController::class, 'assignTicket']);
     Route::patch('/tickets/{ticketId}/accept', [TicketController::class, 'acceptTicket']);
     Route::get('/tickets/{ticketId}', [TicketController::class, 'show']);
@@ -36,8 +38,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tickets/{ticketId}/reassign-respond', [TicketController::class, 'reassignRespond']);
     Route::get('/reassignment-requests', [TicketController::class, 'reassignmentRequests']);
     Route::get('/notifications', [TicketController::class, 'getNotifications']);
-    Route::post('/notifications/mark-read', [TicketController::class, 'markNotificationsRead']);
-    Route::post('/notifications/{id}/read', [TicketController::class, 'markNotificationRead']);
+    Route::patch('/notifications/read-all', [TicketController::class, 'markNotificationsRead']);
+    Route::patch('/notifications/{id}/read', [TicketController::class, 'markNotificationRead']);
     Route::delete('/tickets/{ticketId}', [TicketController::class, 'destroy']);
+    Route::get('/employee/worklogs', [WorkLogController::class, 'index']);
+    Route::get('/employee/worklogs/export', [WorkLogController::class, 'export']);
+    Route::get('/employee/tickets/internal', [TicketController::class, 'internalTickets']);
+    Route::post('/tickets/{ticketId}/internal/close', [TicketController::class, 'closeInternalTicket']);
+    Route::post('/tickets/{ticketId}/internal/reopen', [TicketController::class, 'reopenInternalTicket']);
 });
 Route::post('/tickets', [TicketController::class, 'store']);

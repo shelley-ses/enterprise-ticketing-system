@@ -76,6 +76,7 @@ class TicketReferenceSeeder extends Seeder
                 'status' => true,
                 'created_at' => $now,
                 'updated_at' => $now,
+                'password_change_at' => $now,
             ],
         ], ['id'], ['client_name', 'address', 'contact_number', 'email', 'status', 'updated_at']);
 

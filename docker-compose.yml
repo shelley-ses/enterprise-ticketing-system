@@ -34,6 +34,8 @@ services:
       context: ./services/customer-service
     container_name: capstone-reverb
     restart: always
+    volumes:
+      - ./services/customer-service:/var/www
     environment:
       REVERB_APP_ID: local
       REVERB_APP_KEY: local

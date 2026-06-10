@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Events\TicketChanged;
+use App\Mail\TicketNotificationMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 
 class TicketController extends Controller
 {
@@ -93,7 +95,10 @@ class TicketController extends Controller
 
         $this->broadcastTicketChange('notifications_read', 0);
 
-        return response()->json(['message' => 'All notifications marked as read.']);
+        return response()->json([
+            'message' => 'All notifications marked as read.',
+            'unread_count' => 0,
+        ]);
     }
 
     public function markNotificationRead(Request $request, int $id)
@@ -112,12 +117,24 @@ class TicketController extends Controller
                 'updated_at' => now(),
             ]);
 
+        $updatedNotification = DB::table('notifications')->where('id', $id)->first();
+
+        $unreadCount = DB::table('notifications')
+            ->where('recipient_id', $recipientId)
+            ->where('recipient_type', $recipientType)
+            ->where('is_read', false)
+            ->count();
+
         $this->broadcastTicketChange('notification_read', 0);
 
-        return response()->json(['message' => 'Notification marked as read.']);
+        return response()->json([
+            'message' => 'Notification marked as read.',
+            'notification' => $updatedNotification,
+            'unread_count' => $unreadCount,
+        ]);
     }
 
-    private function notifyRecipient(int $recipientId, string $recipientType, string $title, string $message, ?int $ticketId = null): void
+    private function notifyRecipient(int $recipientId, string $recipientType, string $title, string $message, ?int $ticketId = null, ?array $data = null): void
     {
         DB::table('notifications')->insert([
             'recipient_id' => $recipientId,
@@ -125,23 +142,74 @@ class TicketController extends Controller
             'title' => $title,
             'message' => $message,
             'ticket_id' => $ticketId,
+            'data' => $data ? json_encode($data) : null,
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
     }
 
-    private function notifyCS(string $title, string $message, ?int $ticketId = null): void
+    private function sendTicketEmail(int $empId, string $subject, string $message, int $ticketId, string $ticketTitle, string $category, string $priority): void
     {
-        $csUsers = DB::table('employees')->where('role', 'customer service')->pluck('emp_id');
-        foreach ($csUsers as $csEmpId) {
-            $this->notifyRecipient($csEmpId, 'employee', $title, $message, $ticketId);
+        $employee = DB::table('employees')->where('emp_id', $empId)->first();
+        if (!$employee || !$employee->email) {
+            return;
+        }
+
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketLink = url("/tickets/{$ticketId}");
+
+        try {
+            Mail::to($employee->email)->send(new TicketNotificationMail(
+                $subject,
+                $message,
+                $ticketRef,
+                $ticketTitle,
+                $category,
+                $priority,
+                $ticketLink
+            ));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to send ticket email to {$employee->email}: {$e->getMessage()}");
         }
     }
 
-    private function notifyCustomer(int $customerId, string $title, string $message, ?int $ticketId = null): void
+    private function sendCustomerEmail(int $customerId, string $subject, string $message, int $ticketId, string $ticketTitle, string $category, string $priority): void
     {
-        $this->notifyRecipient($customerId, 'client', $title, $message, $ticketId);
+        $client = DB::table('clients')->where('id', $customerId)->first();
+        if (!$client || !$client->email) {
+            return;
+        }
+
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketLink = url("/tickets/{$ticketId}");
+
+        try {
+            Mail::to($client->email)->send(new TicketNotificationMail(
+                $subject,
+                $message,
+                $ticketRef,
+                $ticketTitle,
+                $category,
+                $priority,
+                $ticketLink
+            ));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to send customer email to {$client->email}: {$e->getMessage()}");
+        }
+    }
+
+    private function notifyCS(string $title, string $message, ?int $ticketId = null, ?array $data = null): void
+    {
+        $csUsers = DB::table('employees')->where('role', 'customer service')->pluck('emp_id');
+        foreach ($csUsers as $csEmpId) {
+            $this->notifyRecipient($csEmpId, 'employee', $title, $message, $ticketId, $data);
+        }
+    }
+
+    private function notifyCustomer(int $customerId, string $title, string $message, ?int $ticketId = null, ?array $data = null): void
+    {
+        $this->notifyRecipient($customerId, 'client', $title, $message, $ticketId, $data);
     }
 
     public function customerDashboard(Request $request)
@@ -388,13 +456,17 @@ class TicketController extends Controller
         }
 
         $finalTicketTypeId = $ticketTypeId ?? 1;
+        $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
+        $isInternal = ($validated['ticket_type_ID'] ?? $finalTicketTypeId) == $internalTypeId;
 
         $ticketId = DB::table('tickets')->insertGetId([
             'machine_ID' => $validated['machine_ID'],
             'problem_category_ID' => $validated['problem_category_ID'],
             'created_by' => $validated['created_by'] ?? 1,
+            'requested_by' => ($user && !($user instanceof \App\Models\Client)) ? $user->emp_id : null,
             'assigned_to' => $validated['assigned_to'] ?? null,
             'ticket_type_ID' => $validated['ticket_type_ID'] ?? $finalTicketTypeId,
+            'is_internal' => $isInternal,
             'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
             'sla_ID' => $validated['sla_ID'] ?? null,
@@ -437,11 +509,31 @@ class TicketController extends Controller
             ->where('t.ticket_ID', $ticketId)
             ->first();
 
-        $clientName = DB::table('clients')->where('id', $validated['created_by'] ?? 1)->value('client_name') ?? 'Customer';
+        $customerId = $validated['created_by'] ?? 1;
+        $clientName = DB::table('clients')->where('id', $customerId)->value('client_name') ?? 'Customer';
         $this->notifyCS(
             'New Ticket Created',
             "New Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created by " . $clientName . ".",
             $ticketId
+        );
+
+        $this->notifyCustomer(
+            $customerId,
+            'Ticket Created',
+            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created successfully. Our team will review it shortly.",
+            $ticketId
+        );
+
+        $categoryName = DB::table('problem_categories')->where('problem_category_ID', $validated['problem_category_ID'])->value('category_name') ?? '';
+        $priorityName = DB::table('ticket_priorities')->where('priority_ID', $validated['priority_ID'] ?? 1)->value('priority_name') ?? '';
+        $this->sendCustomerEmail(
+            $customerId,
+            'Ticket Created',
+            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created successfully.",
+            $ticketId,
+            $validated['title'],
+            $categoryName,
+            $priorityName
         );
 
         $this->broadcastTicketChange('created', $ticketId, [
@@ -463,11 +555,110 @@ class TicketController extends Controller
         ], 201);
     }
 
+    public function storeInternalTicket(Request $request)
+    {
+        $user = $request->user();
+        if (!$user || $user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Only employees can create internal tickets.'], 403);
+        }
+
+        $validated = $request->validate([
+            'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
+            'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
+            'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['required', 'string'],
+            'attachments' => ['nullable', 'array'],
+            'attachments.*' => ['file', 'max:5120', 'mimes:pdf,jpg,jpeg,png,docx'],
+        ], [
+            'attachments.*.max' => 'Each attachment must be 5MB or smaller.',
+            'attachments.*.mimes' => 'Attachments must be PDF, JPG, PNG, or DOCX files.',
+        ]);
+
+        $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
+        $empId = $user->emp_id;
+
+        $ticketId = DB::table('tickets')->insertGetId([
+            'machine_ID' => $validated['machine_ID'],
+            'problem_category_ID' => $validated['problem_category_ID'],
+            'created_by' => 1,
+            'requested_by' => $empId,
+            'assigned_to' => null,
+            'ticket_type_ID' => $internalTypeId,
+            'is_internal' => true,
+            'priority_ID' => $validated['priority_ID'] ?? null,
+            'ticket_status_ID' => 1,
+            'sla_ID' => null,
+            'title' => $validated['title'],
+            'description' => $validated['description'],
+            'resolved_at' => null,
+            'closed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => $ticketId,
+            'action_type' => 'create',
+            'action_by_ID' => $empId,
+            'actor_type' => 'employee',
+            'details' => json_encode([
+                'machine_ID' => $validated['machine_ID'],
+                'problem_category_ID' => $validated['problem_category_ID'],
+                'title' => $validated['title'],
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $storedAttachments = [];
+        foreach ($request->file('attachments', []) as $attachment) {
+            $storedPath = $attachment->store("ticket-attachments/{$ticketId}", 'public');
+
+            $attachmentId = DB::table('ticket_attachments')->insertGetId([
+                'ticket_id' => $ticketId,
+                'file_name' => $attachment->getClientOriginalName(),
+                'file_path' => $storedPath,
+                'file_type' => $attachment->getClientMimeType(),
+                'uploaded_at' => now(),
+            ]);
+
+            $storedAttachments[] = [
+                'attachment_id' => $attachmentId,
+                'ticket_id' => $ticketId,
+                'file_name' => $attachment->getClientOriginalName(),
+                'file_path' => '/storage/' . $storedPath,
+                'file_type' => $attachment->getClientMimeType(),
+                'uploaded_at' => now()->toDateTimeString(),
+            ];
+        }
+
+        $this->notifyCS(
+            'New Internal Ticket Created',
+            "New internal ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created and awaits CSR delegation.",
+            $ticketId
+        );
+
+        $this->broadcastTicketChange('created', $ticketId, [
+            'status' => 'Open',
+            'title' => $validated['title'],
+        ]);
+
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+
+        return response()->json([
+            'message' => 'Internal ticket created successfully.',
+            'ticket' => $ticket,
+            'id' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+            'attachments' => $storedAttachments,
+        ], 201);
+    }
+
     public function csIncoming(Request $request)
     {
         $limit = max(1, min((int) $request->query('limit', 50), 200));
+        $typeFilter = $request->query('type');
 
-        $rows = DB::table('tickets as t')
+        $query = DB::table('tickets as t')
             ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
@@ -478,6 +669,7 @@ class TicketController extends Controller
             ->select(
                 't.ticket_ID',
                 't.title',
+                't.is_internal',
                 'pc.category_name',
                 'ts.status_name',
                 'tp.priority_name',
@@ -487,8 +679,15 @@ class TicketController extends Controller
                 'm.machine_name',
                 'm.serial_number',
                 'tt.type_name as ticket_type'
-            )
-            ->orderByDesc('t.created_at')
+            );
+
+        if ($typeFilter === 'internal') {
+            $query->where('t.is_internal', true);
+        } elseif ($typeFilter === 'external') {
+            $query->where('t.is_internal', false);
+        }
+
+        $rows = $query->orderByDesc('t.created_at')
             ->limit($limit)
             ->get();
 
@@ -534,7 +733,7 @@ class TicketController extends Controller
                 'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
                 'type' => $row->ticket_type ?? 'External',
                 'ticket_type' => $row->ticket_type ?? 'External',
-                'is_internal' => ($row->ticket_type ?? '') === 'Internal',
+                'is_internal' => (bool)$row->is_internal,
             ];
         })->values();
 
@@ -667,28 +866,75 @@ class TicketController extends Controller
             $empNames = DB::table('employees')->whereIn('emp_id', $validated['employee_ids'])->selectRaw("CONCAT(first_name, ' ', last_name) as name")->pluck('name')->all();
             $empNamesStr = implode(', ', $empNames);
 
+            $categoryName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $priorityName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID)->value('priority_name') ?? '';
+            $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+            $ticketLink = url("/tickets/{$ticketId}");
+
+            $notificationData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'title' => $title,
+                'category' => $categoryName,
+                'priority' => $priorityName,
+                'link' => $ticketLink,
+            ];
+
             foreach ($validated['employee_ids'] as $employeeId) {
                 $this->notifyRecipient(
                     $employeeId,
                     'employee',
                     'Ticket Assigned',
-                    "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" has been assigned to you.",
-                    $ticketId
+                    "Ticket {$ticketRef}: \"" . $title . "\" has been assigned to you.",
+                    $ticketId,
+                    $notificationData
+                );
+
+                $this->sendTicketEmail(
+                    $employeeId,
+                    'Ticket Assigned',
+                    "Ticket {$ticketRef}: \"{$title}\" has been assigned to you.",
+                    $ticketId,
+                    $title,
+                    $categoryName,
+                    $priorityName
                 );
             }
 
             $this->notifyCustomer(
                 $customerId,
                 'Engineer Assigned',
-                "Engineer " . $empNamesStr . " has been assigned to your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\".",
-                $ticketId
+                "Engineer " . $empNamesStr . " has been assigned to your ticket {$ticketRef}: \"" . $title . "\".",
+                $ticketId,
+                $notificationData
+            );
+
+            $this->sendCustomerEmail(
+                $customerId,
+                'Engineer Assigned',
+                "Engineer(s) have been assigned to your ticket {$ticketRef}: \"" . $title . "\".",
+                $ticketId,
+                $title,
+                $categoryName,
+                $priorityName
             );
 
             $this->notifyCS(
                 'Ticket Assigned',
-                "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" has been assigned to " . $empNamesStr . ".",
+                "Ticket {$ticketRef}: \"" . $title . "\" has been assigned to " . $empNamesStr . ".",
                 $ticketId
             );
+
+            if ($ticket->requested_by) {
+                $this->notifyRecipient(
+                    $ticket->requested_by,
+                    'employee',
+                    'Ticket Assigned',
+                    "Your requested ticket {$ticketRef}: \"" . $title . "\" has been assigned to " . $empNamesStr . ".",
+                    $ticketId,
+                    $notificationData
+                );
+            }
         }
 
         $this->broadcastTicketChange('assigned', $ticketId, [
@@ -696,8 +942,13 @@ class TicketController extends Controller
             'employee_ids' => $validated['employee_ids'],
         ]);
 
+        $updatedTicket = DB::table('tickets')
+            ->where('ticket_ID', $ticketId)
+            ->first();
+
         return response()->json([
             'message' => 'Ticket assigned successfully.',
+            'ticket' => $updatedTicket,
         ]);
     }
 
@@ -760,6 +1011,18 @@ class TicketController extends Controller
                     'Ticket Accepted',
                     "Engineer " . $empName . " has accepted and is now working on your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\".",
                     $ticketId
+                );
+
+                $catNameAcc = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                $prioNameAcc = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+                $this->sendCustomerEmail(
+                    $customerId,
+                    'Ticket Accepted',
+                    "Engineer " . $empName . " has accepted and is now working on your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\".",
+                    $ticketId,
+                    $title,
+                    $catNameAcc,
+                    $prioNameAcc
                 );
 
                 $this->notifyCS(
@@ -852,6 +1115,25 @@ class TicketController extends Controller
                 ]);
             }
         });
+
+        $this->notifyCustomer(
+            $ticket->created_by,
+            'Ticket Accepted',
+            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $ticket->title . "\" has been accepted and is now in progress.",
+            $ticketId
+        );
+
+        $catName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+        $prioName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+        $this->sendCustomerEmail(
+            $ticket->created_by,
+            'Ticket Accepted',
+            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $ticket->title . "\" has been accepted and is now in progress.",
+            $ticketId,
+            $ticket->title,
+            $catName,
+            $prioName
+        );
 
         $this->broadcastTicketChange('accepted', $ticketId, [
             'assigned_to' => $employees->first(),
@@ -1011,20 +1293,48 @@ class TicketController extends Controller
         if (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']) {
             $assignedEmployeeId = $ticket->assigned_to;
             if ($assignedEmployeeId) {
+                $ticketRefForProof = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+                $proofRejectData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRefForProof,
+                    'reason' => $validated['rejection_reason'] ?? '',
+                    'link' => url("/tickets/{$ticketId}"),
+                    'type' => 'proof_rejected',
+                ];
                 $this->notifyRecipient(
                     $assignedEmployeeId,
                     'employee',
                     'Proof of Completion Rejected',
-                    "Your proof of completion for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been rejected. Reason: \"" . ($validated['rejection_reason'] ?? '') . "\".",
-                    $ticketId
+                    "Your proof of completion for ticket {$ticketRefForProof} has been rejected. Reason: \"" . ($validated['rejection_reason'] ?? '') . "\".",
+                    $ticketId,
+                    $proofRejectData
                 );
             }
             
+            $proofRejectCustData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+                'type' => 'proof_rejected',
+                'link' => url("/tickets/{$ticketId}"),
+            ];
             $this->notifyCustomer(
                 $ticket->created_by,
                 'Proof of Completion Rejected',
                 "The proof of completion for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been rejected by customer service.",
-                $ticketId
+                $ticketId,
+                $proofRejectCustData
+            );
+
+            $catNameRej = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $prioNameRej = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+            $this->sendCustomerEmail(
+                $ticket->created_by,
+                'Proof of Completion Rejected',
+                "The proof of completion for your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been rejected.",
+                $ticketId,
+                $ticket->title,
+                $catNameRej,
+                $prioNameRej
             );
         } else if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 3 || $validated['ticket_status_ID'] == 4) && $ticket->ticket_status_ID == 6) {
             $assignedEmployeeId = $ticket->assigned_to;
@@ -1038,11 +1348,30 @@ class TicketController extends Controller
                 );
             }
             
+            $closedData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+                'type' => 'ticket_closed',
+                'link' => url("/tickets/{$ticketId}"),
+            ];
             $this->notifyCustomer(
                 $ticket->created_by,
                 'Ticket Closed',
                 "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been marked as Closed.",
-                $ticketId
+                $ticketId,
+                $closedData
+            );
+
+            $catNameClose = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $prioNameClose = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+            $this->sendCustomerEmail(
+                $ticket->created_by,
+                'Ticket Closed',
+                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been marked as Closed.",
+                $ticketId,
+                $ticket->title,
+                $catNameClose,
+                $prioNameClose
             );
         }
 
@@ -1064,11 +1393,61 @@ class TicketController extends Controller
             }
             
             if ($detailText) {
+                $ticketRefFields = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+                $customerTitle = 'Ticket Updated';
+                $customerData = null;
+
+                // Dedicated notifications for Resolved/Closed via updateTicket
+                if ($field === 'ticket_status_ID') {
+                    $newStatusName = DB::table('ticket_statuses')->where('ticket_status_ID', $newVal)->value('status_name') ?? '';
+                    if ($newStatusName === 'Resolved') {
+                        $customerTitle = 'Ticket Resolved';
+                        $customerData = [
+                            'ticket_id' => $ticketId,
+                            'ticket_ref' => $ticketRefFields,
+                            'type' => 'ticket_resolved',
+                            'link' => url("/tickets/{$ticketId}"),
+                            'feedback_link' => url("/feedback/{$ticketId}"),
+                        ];
+                    } elseif ($newStatusName === 'Closed') {
+                        $customerTitle = 'Ticket Closed';
+                        $customerData = [
+                            'ticket_id' => $ticketId,
+                            'ticket_ref' => $ticketRefFields,
+                            'type' => 'ticket_closed',
+                            'link' => url("/tickets/{$ticketId}"),
+                        ];
+                    }
+                }
+
                 $this->notifyCustomer(
                     $ticket->created_by,
-                    'Ticket Updated',
-                    "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " {$detailText}.",
-                    $ticketId
+                    $customerTitle,
+                    "Your ticket {$ticketRefFields} {$detailText}.",
+                    $ticketId,
+                    $customerData
+                );
+
+                if ($ticket->requested_by) {
+                    $this->notifyRecipient(
+                        $ticket->requested_by,
+                        'employee',
+                        'Ticket Updated',
+                        "Your requested ticket {$ticketRefFields} {$detailText}.",
+                        $ticketId
+                    );
+                }
+
+                $catName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                $prioName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+                $this->sendCustomerEmail(
+                    $ticket->created_by,
+                    $customerTitle,
+                    "Your ticket {$ticketRefFields}: \"" . $ticket->title . "\" {$detailText}.",
+                    $ticketId,
+                    $ticket->title,
+                    $catName,
+                    $prioName
                 );
             }
         }
@@ -1085,6 +1464,23 @@ class TicketController extends Controller
                     $ticketId
                 );
             }
+            $this->notifyCustomer(
+                $ticket->created_by,
+                'Ticket Reopened',
+                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened.",
+                $ticketId
+            );
+            $catNameR = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $prioNameR = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+            $this->sendCustomerEmail(
+                $ticket->created_by,
+                'Ticket Reopened',
+                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened.",
+                $ticketId,
+                $ticket->title,
+                $catNameR,
+                $prioNameR
+            );
             $this->notifyCS(
                 'Ticket Reopened by Customer',
                 "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened by the customer.",
@@ -1184,6 +1580,189 @@ class TicketController extends Controller
         ]);
     }
 
+    public function internalTickets(Request $request)
+    {
+        $user = $request->user();
+        if (!$user || $user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $internalTypeId = DB::table('ticket_types')
+            ->whereRaw('LOWER(type_name) = ?', ['internal'])
+            ->value('ticket_type_ID');
+
+        $rows = DB::table('tickets as t')
+            ->join('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
+            ->leftJoin('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+            ->where('t.ticket_type_ID', $internalTypeId)
+            ->where('t.requested_by', $user->emp_id)
+            ->orderByDesc('t.created_at')
+            ->select(
+                't.ticket_ID',
+                't.title',
+                't.description',
+                'pc.category_name',
+                'ts.status_name',
+                'tp.priority_name',
+                't.created_at',
+                't.updated_at',
+                'm.machine_name',
+                'm.serial_number',
+                'c.client_name',
+                'tt.type_name as ticket_type'
+            )
+            ->get();
+
+        $tickets = $rows->map(function ($row) {
+            return [
+                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                'ticket_ID' => $row->ticket_ID,
+                'title' => $row->title,
+                'description' => $row->description,
+                'category' => $row->category_name ?? 'General',
+                'status' => $row->status_name ?? 'Open',
+                'priority' => $row->priority_name ?? 'Low',
+                'customer' => $row->client_name ?: 'Unknown Customer',
+                'equipment' => ($row->machine_name || $row->serial_number) ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : 'Unspecified Equipment',
+                'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
+                'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
+                'slaStatus' => $this->slaLabel($row->created_at),
+                'type' => $row->ticket_type ?? 'Internal',
+                'is_internal' => true,
+            ];
+        })->values();
+
+        return response()->json([
+            'tickets' => $tickets,
+        ]);
+    }
+
+    public function closeInternalTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $empId = $user->emp_id;
+
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+        if (!$ticket->requested_by) {
+            return response()->json(['message' => 'This endpoint is only for internal tickets.'], 403);
+        }
+        if ($ticket->requested_by != $empId) {
+            return response()->json(['message' => 'You are not the requestor of this ticket.'], 403);
+        }
+        if ($ticket->ticket_status_ID != 3) {
+            return response()->json(['message' => 'Ticket must be in Resolved status to close.'], 422);
+        }
+
+        DB::transaction(function () use ($ticketId, $empId) {
+            $now = now();
+            DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                'ticket_status_ID' => 4,
+                'closed_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'status_change',
+                'action_by_ID' => $empId,
+                'actor_type' => 'employee',
+                'details' => json_encode([
+                    'status' => 'Closed',
+                ]),
+                'created_at' => $now,
+            ]);
+        });
+
+        $this->broadcastTicketChange('updated', $ticketId);
+
+        return response()->json(['message' => 'Ticket closed successfully.']);
+    }
+
+    public function reopenInternalTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $empId = $user->emp_id;
+
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+        if (!$ticket->requested_by) {
+            return response()->json(['message' => 'This endpoint is only for internal tickets.'], 403);
+        }
+        if ($ticket->requested_by != $empId) {
+            return response()->json(['message' => 'You are not the requestor of this ticket.'], 403);
+        }
+        if ($ticket->ticket_status_ID != 3 && $ticket->ticket_status_ID != 4) {
+            return response()->json(['message' => 'Ticket must be in Resolved or Closed status to reopen.'], 422);
+        }
+
+        $resolvedAt = $ticket->resolved_at ? \Carbon\Carbon::parse($ticket->resolved_at) : null;
+        if ($resolvedAt && $resolvedAt->diffInHours(now()) > 48) {
+            return response()->json(['message' => 'Cannot reopen ticket: More than 48 hours have passed since resolution.'], 422);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string'],
+        ]);
+
+        $assignedEmployeeIds = [];
+        DB::transaction(function () use ($ticketId, $empId, $validated, $ticket, &$assignedEmployeeIds) {
+            $now = now();
+            DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                'ticket_status_ID' => 8,
+                'resolved_at' => null,
+                'closed_at' => null,
+                'updated_at' => $now,
+            ]);
+
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'reopen',
+                'action_by_ID' => $empId,
+                'actor_type' => 'employee',
+                'details' => json_encode([
+                    'reason' => $validated['reason'],
+                    'reopened_by' => 'requestor',
+                ]),
+                'created_at' => $now,
+            ]);
+
+            $assignedEmployeeIds = DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->pluck('employee_ID')
+                ->all();
+        });
+
+        // Notify assigned employees
+        foreach ($assignedEmployeeIds as $assignedId) {
+            $this->notifyRecipient(
+                $assignedId,
+                'employee',
+                'Ticket Reopened by Requestor',
+                "Your assigned ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened by the requestor. Reason: \"" . $validated['reason'] . "\".",
+                $ticketId
+            );
+        }
+
+        $this->broadcastTicketChange('updated', $ticketId);
+
+        return response()->json(['message' => 'Ticket reopened successfully.']);
+    }
+
     public function reassignRequest(Request $request, int $ticketId)
     {
         $validated = $request->validate([
@@ -1246,18 +1825,43 @@ class TicketController extends Controller
             $title = $ticket->title;
             $emp = DB::table('employees')->where('emp_id', $empId)->first();
             $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : 'Engineer';
+            $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+            $reassignLink = url("/reassignment-requests");
+
+            $csData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'title' => $title,
+                'requesting_employee' => $empName,
+                'reason' => $validated['reason'],
+                'link' => $reassignLink,
+                'type' => 'reassignment_request',
+            ];
 
             $this->notifyCS(
                 'Reassignment Requested',
-                "Engineer " . $empName . " has requested reassignment for Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\". Reason: \"" . $validated['reason'] . "\".",
-                $ticketId
+                "Engineer " . $empName . " has requested reassignment for Ticket {$ticketRef}: \"" . $title . "\". Reason: \"" . $validated['reason'] . "\".",
+                $ticketId,
+                $csData
             );
 
             $this->notifyCustomer(
                 $customerId,
                 'Reassignment Requested',
-                "Engineer " . $empName . " has requested reassignment for your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\".",
+                "Engineer " . $empName . " has requested reassignment for your ticket {$ticketRef}: \"" . $title . "\".",
                 $ticketId
+            );
+
+            $catNameReas = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $prioNameReas = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+            $this->sendCustomerEmail(
+                $customerId,
+                'Reassignment Requested',
+                "Engineer " . $empName . " has requested reassignment for your ticket {$ticketRef}: \"" . $title . "\".",
+                $ticketId,
+                $title,
+                $catNameReas,
+                $prioNameReas
             );
         }
 
@@ -1271,9 +1875,9 @@ class TicketController extends Controller
 
     public function reassignRespond(Request $request, int $ticketId)
     {
-        $validated = $request->validate([
+        $rules = [
             'action' => ['required', 'string', 'in:approve,deny'],
-        ]);
+        ];
 
         $user = $request->user();
         if (!$user || $user->role !== 'customer service') {
@@ -1298,7 +1902,20 @@ class TicketController extends Controller
 
         $targetEmpId = $pendingRequest->employee_id;
 
-        DB::transaction(function () use ($ticketId, $pendingRequest, $validated, $csEmpId, $targetEmpId) {
+        if ($request->input('action') === 'approve') {
+            $rules['new_employee_id'] = ['required', 'integer', 'exists:employees,emp_id'];
+        } else {
+            $rules['reason'] = ['required', 'string'];
+        }
+
+        $validated = $request->validate($rules);
+
+        $newEmpId = null;
+        if ($validated['action'] === 'approve') {
+            $newEmpId = $validated['new_employee_id'];
+        }
+
+        DB::transaction(function () use ($ticketId, $pendingRequest, $validated, $csEmpId, $targetEmpId, $newEmpId) {
             if ($validated['action'] === 'approve') {
                 DB::table('reassignment_requests')
                     ->where('request_id', $pendingRequest->request_id)
@@ -1313,24 +1930,38 @@ class TicketController extends Controller
                     ->where('employee_ID', $targetEmpId)
                     ->delete();
 
-                $openStatusId = DB::table('ticket_statuses')
-                    ->whereRaw('LOWER(status_name) = ?', ['open'])
-                    ->value('ticket_status_ID') ?? 1;
+                $inProgressId = DB::table('ticket_statuses')
+                    ->whereRaw('LOWER(status_name) = ?', ['in progress'])
+                    ->value('ticket_status_ID') ?? 2;
 
                 DB::table('tickets')
                     ->where('ticket_ID', $ticketId)
                     ->update([
-                        'assigned_to' => null,
-                        'ticket_status_ID' => $openStatusId,
+                        'assigned_to' => $newEmpId,
+                        'ticket_status_ID' => $inProgressId,
                         'updated_at' => now(),
                     ]);
+
+                DB::table('ticket_assignments')->insert([
+                    'ticket_ID' => $ticketId,
+                    'employee_ID' => $newEmpId,
+                    'assigned_by' => $csEmpId,
+                    'assignment_status' => 'assigned',
+                    'assigned_at' => now(),
+                    'completed_at' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
                 DB::table('ticket_audit_logs')->insert([
                     'ticket_ID' => $ticketId,
                     'action_type' => 'reassign_approve',
                     'action_by_ID' => $csEmpId,
                     'actor_type' => 'employee',
-                    'details' => json_encode(['message' => 'Reassignment request approved. Ticket status set to Open.']),
+                    'details' => json_encode([
+                        'message' => 'Reassignment request approved.',
+                        'new_employee_id' => $newEmpId,
+                    ]),
                     'created_at' => now(),
                 ]);
             } else {
@@ -1355,7 +1986,10 @@ class TicketController extends Controller
                     'action_type' => 'reassign_deny',
                     'action_by_ID' => $csEmpId,
                     'actor_type' => 'employee',
-                    'details' => json_encode(['message' => 'Reassignment request denied.']),
+                    'details' => json_encode([
+                        'message' => 'Reassignment request denied.',
+                        'reason' => $validated['reason'] ?? '',
+                    ]),
                     'created_at' => now(),
                 ]);
             }
@@ -1365,29 +1999,114 @@ class TicketController extends Controller
         if ($ticket) {
             $customerId = $ticket->created_by;
             $title = $ticket->title;
-            $actionStr = $validated['action'] === 'approve' ? 'Approved' : 'Rejected';
+            $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+            $categoryName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+            $priorityName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID)->value('priority_name') ?? '';
+            $ticketLink = url("/tickets/{$ticketId}");
 
-            $this->notifyRecipient(
-                $targetEmpId,
-                'employee',
-                $validated['action'] === 'approve' ? 'Reassignment Approved' : 'Reassignment Rejected',
-                "Your reassignment request for Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" was " . strtolower($actionStr) . ".",
-                $ticketId
-            );
+            if ($validated['action'] === 'approve') {
+                $newEmpData = DB::table('employees')->where('emp_id', $newEmpId)->first();
+                $newEmpName = $newEmpData ? ($newEmpData->first_name . ' ' . $newEmpData->last_name) : 'Engineer';
+
+                $requestorData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'title' => $title,
+                    'link' => $ticketLink,
+                    'type' => 'reassignment_approved',
+                    'new_employee' => $newEmpName,
+                ];
+
+                $this->notifyRecipient(
+                    $targetEmpId,
+                    'employee',
+                    'Ticket Reassigned',
+                    "Your reassignment request for Ticket {$ticketRef}: \"" . $title . "\" was approved. The ticket has been reassigned to {$newEmpName}.",
+                    $ticketId,
+                    $requestorData
+                );
+
+                $assignData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'title' => $title,
+                    'category' => $categoryName,
+                    'priority' => $priorityName,
+                    'link' => $ticketLink,
+                    'type' => 'ticket_assigned',
+                ];
+
+                $this->notifyRecipient(
+                    $newEmpId,
+                    'employee',
+                    'Ticket Reassigned',
+                    "Ticket {$ticketRef}: \"" . $title . "\" has been reassigned to you.",
+                    $ticketId,
+                    $assignData
+                );
+
+                $this->sendTicketEmail(
+                    $newEmpId,
+                    'Ticket Reassigned',
+                    "Ticket {$ticketRef}: \"{$title}\" has been reassigned to you.",
+                    $ticketId,
+                    $title,
+                    $categoryName,
+                    $priorityName
+                );
+
+                $this->notifyCS(
+                    'Reassignment Approved',
+                    "Reassignment request for Ticket {$ticketRef}: \"" . $title . "\" was approved. Ticket reassigned to {$newEmpName}.",
+                    $ticketId
+                );
+            } else {
+                $denialData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'title' => $title,
+                    'link' => $ticketLink,
+                    'type' => 'reassignment_denied',
+                    'reason' => $validated['reason'] ?? '',
+                ];
+
+                $this->notifyRecipient(
+                    $targetEmpId,
+                    'employee',
+                    'Reassignment Rejected',
+                    "Your reassignment request for Ticket {$ticketRef}: \"" . $title . "\" was rejected. Reason: \"" . ($validated['reason'] ?? '') . "\".",
+                    $ticketId,
+                    $denialData
+                );
+
+                $this->notifyCS(
+                    'Reassignment Rejected',
+                    "Reassignment request for Ticket {$ticketRef}: \"" . $title . "\" was rejected by CSR. Reason: \"" . ($validated['reason'] ?? '') . "\".",
+                    $ticketId
+                );
+            }
 
             $this->notifyCustomer(
                 $customerId,
                 $validated['action'] === 'approve' ? 'Ticket Reassigned' : 'Reassignment Rejected',
                 $validated['action'] === 'approve'
-                    ? "Reassignment request for your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" was approved. We are assigning a new engineer shortly."
-                    : "Reassignment request for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" was rejected.",
+                    ? "Reassignment request for your ticket {$ticketRef}: \"" . $title . "\" was approved. The ticket has been reassigned to a new engineer."
+                    : "Reassignment request for ticket {$ticketRef}: \"" . $title . "\" was rejected.",
                 $ticketId
             );
 
-            $this->notifyCS(
-                $validated['action'] === 'approve' ? 'Reassignment Approved' : 'Reassignment Rejected',
-                "Reassignment request for Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $title . "\" was " . strtolower($actionStr) . ".",
-                $ticketId
+            $reassignEmailSubject = $validated['action'] === 'approve' ? 'Ticket Reassigned' : 'Reassignment Rejected';
+            $reassignEmailMessage = $validated['action'] === 'approve'
+                ? "Reassignment request for your ticket {$ticketRef}: \"" . $title . "\" was approved. The ticket has been reassigned to a new engineer."
+                : "Reassignment request for ticket {$ticketRef}: \"" . $title . "\" was rejected.";
+            $this->sendCustomerEmail(
+                $customerId,
+                $reassignEmailSubject,
+                $reassignEmailMessage,
+                $ticketId,
+                $title,
+                $categoryName,
+                $priorityName
             );
         }
 
@@ -1467,6 +2186,7 @@ class TicketController extends Controller
             ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
             ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
                 't.title',
@@ -1482,7 +2202,10 @@ class TicketController extends Controller
                 't.assigned_to',
                 't.proof_rejected',
                 't.rejection_reason',
-                't.resolved_at'
+                't.resolved_at',
+                't.closed_at',
+                't.is_internal',
+                'tt.type_name as ticket_type'
             )
             ->where('t.ticket_ID', $ticketId)
             ->first();
@@ -1568,6 +2291,41 @@ class TicketController extends Controller
                     'type' => 'system',
                     'text' => $timelineText,
                     'timestamp' => $formattedTime,
+                ];
+            }
+        }
+
+        // Build status history from audit logs
+        $statusHistory = [];
+        // Include the initial status
+        $statusHistory[] = [
+            'status' => 'Open',
+            'timestamp' => optional($ticket->created_at)->format('Y-m-d H:i:s') ?? '',
+            'actor' => 'System',
+        ];
+        foreach ($auditLogs as $log) {
+            if ($log->action_type === 'status_change') {
+                $details = json_decode($log->details, true);
+                $statusHistory[] = [
+                    'status' => $details['status'] ?? '',
+                    'timestamp' => $log->created_at ? \Carbon\Carbon::parse($log->created_at)->format('Y-m-d H:i:s') : '',
+                    'actor' => $log->employee_name ?: 'Employee',
+                ];
+            } elseif ($log->action_type === 'update') {
+                $details = json_decode($log->details, true);
+                if (($details['field'] ?? '') === 'ticket_status_ID') {
+                    $statusName = DB::table('ticket_statuses')->where('ticket_status_ID', $details['new'] ?? 0)->value('status_name') ?? 'Unknown';
+                    $statusHistory[] = [
+                        'status' => $statusName,
+                        'timestamp' => $log->created_at ? \Carbon\Carbon::parse($log->created_at)->format('Y-m-d H:i:s') : '',
+                        'actor' => $log->employee_name ?: 'CS Representative',
+                    ];
+                }
+            } elseif ($log->action_type === 'create') {
+                $statusHistory[] = [
+                    'status' => 'Open',
+                    'timestamp' => $log->created_at ? \Carbon\Carbon::parse($log->created_at)->format('Y-m-d H:i:s') : '',
+                    'actor' => 'Customer',
                 ];
             }
         }
@@ -1699,6 +2457,9 @@ class TicketController extends Controller
             'proofFiles' => $proofAttachments,
             'assigned' => $assigned,
             'department' => $department,
+            'status_history' => $statusHistory,
+            'ticket_type' => $ticket->ticket_type ?? 'External',
+            'is_internal' => (bool)$ticket->is_internal,
         ]);
     }
 
@@ -1858,17 +2619,60 @@ class TicketController extends Controller
 
                     // Notify customer & CS of status change
                     $statusNameToNotify = $newStatusName;
+                    $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+
+                    $customerTitle = 'Ticket Status Updated';
+                    if ($newStatusName === 'Resolved') {
+                        $customerTitle = 'Ticket Resolved';
+                    } elseif ($newStatusName === 'Pending') {
+                        $customerTitle = 'Ticket Pending';
+                    }
+
+                    $customerNotificationData = null;
+                    if ($newStatusName === 'Resolved') {
+                        $customerNotificationData = [
+                            'ticket_id' => $ticketId,
+                            'ticket_ref' => $ticketRef,
+                            'type' => 'ticket_resolved',
+                            'link' => url("/tickets/{$ticketId}"),
+                            'feedback_link' => url("/feedback/{$ticketId}"),
+                        ];
+                    }
+
                     $this->notifyCustomer(
                         $customerId,
-                        'Ticket Status Updated',
-                        "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " status has been updated to \"" . $statusNameToNotify . "\". Remark: \"" . $remarksText . "\".",
-                        $ticketId
+                        $customerTitle,
+                        "Your ticket {$ticketRef} status has been updated to \"" . $statusNameToNotify . "\". Remark: \"" . $remarksText . "\".",
+                        $ticketId,
+                        $customerNotificationData
                     );
 
                     $this->notifyCS(
                         'Ticket Status Updated',
-                        "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " status updated to \"" . $statusNameToNotify . "\" by " . $empName . ". Remark: \"" . $remarksText . "\".",
+                        "Ticket {$ticketRef} status updated to \"" . $statusNameToNotify . "\" by " . $empName . ". Remark: \"" . $remarksText . "\".",
                         $ticketId
+                    );
+
+                    if ($ticket->requested_by && $ticket->requested_by != $empId) {
+                        $this->notifyRecipient(
+                            $ticket->requested_by,
+                            'employee',
+                            'Ticket Status Updated',
+                            "Your requested ticket {$ticketRef} status has been updated to \"" . $statusNameToNotify . "\".",
+                            $ticketId
+                        );
+                    }
+
+                    $catName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                    $prioName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+                    $this->sendCustomerEmail(
+                        $customerId,
+                        $customerTitle,
+                        "Your ticket {$ticketRef}: \"" . $ticket->title . "\" status has been updated to \"" . $statusNameToNotify . "\".",
+                        $ticketId,
+                        $ticket->title,
+                        $catName,
+                        $prioName
                     );
                 }
             }
@@ -1890,6 +2694,18 @@ class TicketController extends Controller
                         'New Remark Added',
                         "Engineer " . $empName . " added a remark: \"" . $remarksText . "\" on ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ".",
                         $ticketId
+                    );
+
+                    $catNameRem = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                    $prioNameRem = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+                    $this->sendCustomerEmail(
+                        $customerId,
+                        'New Remark Added',
+                        "Engineer " . $empName . " added a remark: \"" . $remarksText . "\" on your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ".",
+                        $ticketId,
+                        $ticket->title,
+                        $catNameRem,
+                        $prioNameRem
                     );
 
                     $this->notifyCS(
@@ -1956,17 +2772,39 @@ class TicketController extends Controller
                     ]);
 
                     // Notify customer & CS
+                    $ticketRefProof = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+                    $proofUploadData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRefProof,
+                        'employee_name' => $empName,
+                        'link' => url("/tickets/{$ticketId}"),
+                        'type' => 'proof_uploaded',
+                    ];
                     $this->notifyCustomer(
                         $customerId,
                         'Proof of Completion Uploaded',
-                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Status is now Pending Evaluation.",
-                        $ticketId
+                        "Proof of completion has been uploaded for ticket {$ticketRefProof} by " . $empName . ". Status is now Pending Evaluation.",
+                        $ticketId,
+                        $proofUploadData
+                    );
+
+                    $catNameProof = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                    $prioNameProof = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+                    $this->sendCustomerEmail(
+                        $customerId,
+                        'Proof of Completion Uploaded',
+                        "Proof of completion has been uploaded for your ticket {$ticketRefProof} by " . $empName . ". Status is now Pending Evaluation.",
+                        $ticketId,
+                        $ticket->title,
+                        $catNameProof,
+                        $prioNameProof
                     );
 
                     $this->notifyCS(
                         'Proof of Completion Uploaded',
-                        "Proof of completion has been uploaded for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " by " . $empName . ". Ticket status set to Pending Evaluation.",
-                        $ticketId
+                        "Proof of completion has been uploaded for ticket {$ticketRefProof} by " . $empName . ". Ticket status set to Pending Evaluation.",
+                        $ticketId,
+                        $proofUploadData
                     );
                 }
             }
