@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import FilePreviewModal from './FilePreviewModal';
+
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
@@ -48,11 +50,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Reassignment specific states
   const [showReassignDeny, setShowReassignDeny] = useState(false);
-  const [showReassignApprove, setShowReassignApprove] = useState(false);
   const [reassignDenyReason, setReassignDenyReason] = useState('');
+  const [showReassignApprove, setShowReassignApprove] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
 
   const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
@@ -66,8 +67,6 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   };
 
   const getRequestingEmployeeName = () => {
-    // Attempt to find the employee who requested this, could be based on a field in ticket
-    // Or just "Employee" if not provided directly
     if (ticket.reassignmentRequestedBy) {
         const emp = employees.find(e => e.id === ticket.reassignmentRequestedBy);
         return emp ? emp.name : `Employee ID: ${ticket.reassignmentRequestedBy}`;
@@ -196,9 +195,11 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
                           <a
                             href={f.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: f.name, url: f.url });
+                            }}
+                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0 cursor-pointer"
                           >
                             <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -422,17 +423,25 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                            <p 
+                              onClick={() => setPreviewFile({ name: file.name, url: file.url })}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
+                            >
+                              {file.name}
+                            </p>
                             <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
                           </div>
                         </div>
                         {file.url && (
                           <a
                             href={file.url}
-                            download={file.name}
-                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: file.name, url: file.url });
+                            }}
+                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                           >
-                            Download
+                            View
                           </a>
                         )}
                       </div>
@@ -455,17 +464,25 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                            <p 
+                              onClick={() => setPreviewFile({ name: file.name, url: file.url })}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline"
+                            >
+                              {file.name}
+                            </p>
                             {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
                           </div>
                         </div>
                         {file.url && (
                           <a
                             href={file.url}
-                            download={file.name}
-                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: file.name, url: file.url });
+                            }}
+                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                           >
-                            Download
+                            View
                           </a>
                         )}
                       </div>
@@ -618,24 +635,15 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           confirmText="Yes, Approve"
           onCancel={() => setShowReassignApprove(false)}
           onConfirm={async () => {
-            const timestamp = new Date().toLocaleString('en-US');
-            const updated = {
-              id: ticket.id,
-              reassignmentRequested: false,
-              reassignmentStatus: 'Approved',
-              timeline: [
-                {
-                  id: `reassign-approve-${Date.now()}`,
-                  type: 'reassign',
-                  text: 'Reassignment request approved by CS.',
-                  timestamp,
-                }
-              ]
-            };
-            await onStatusUpdate(updated);
             setShowReassignApprove(false);
             onEdit(); // Opens AssignModal immediately
           }}
+        />
+      )}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
         />
       )}
     </>
@@ -652,6 +660,9 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const [selectedEmployees, setSelectedEmployees] = useState(ticket?.assigned || []);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [showValidationError, setShowValidationError] = useState(false);
+
 
   // Lock background scroll
   useEffect(() => {
@@ -674,12 +685,20 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   }, [department, employees]);
 
   const toggleEmp = (id) => {
-    setSelectedEmployees((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedEmployees((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (next.length > 0) {
+        setShowValidationError(false);
+      }
+      return next;
+    });
   };
 
   const handleAcceptClick = () => {
+    if (selectedEmployees.length === 0) {
+      setShowValidationError(true);
+      return;
+    }
     setShowConfirm(true);
   };
 
@@ -752,6 +771,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 onChange={(e) => {
                   setDepartment(e.target.value);
                   setSelectedEmployees([]);
+                  setShowValidationError(false);
                 }}
                 className="w-full px-3 py-2.5 text-sm bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
               >
@@ -855,7 +875,17 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   ))
                 )}
               </div>
+
+              {showValidationError && selectedEmployees.length === 0 && (
+                <p className="mt-2 text-xs font-semibold text-red-500 flex items-center gap-1 bg-red-50 p-2 rounded-xl border border-red-100">
+                  <svg className="w-3.5 h-3.5 shrink-0 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  At least one employee must be selected.
+                </p>
+              )}
             </div>
+
 
             {/* Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (
@@ -871,16 +901,23 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-700 truncate">{file.name}</p>
+                          <p 
+                            onClick={() => setPreviewFile({ name: file.name, url: file.url })}
+                            className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
+                          >
+                            {file.name}
+                          </p>
                           {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
                         </div>
                       </div>
                       {file.url && (
                         <a
                           href={file.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setPreviewFile({ name: file.name, url: file.url });
+                          }}
+                          className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
                         >
                           View
                         </a>
@@ -890,6 +927,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 </div>
               </div>
             )}
+
           </div>
 
           {/* Sticky footer */}
@@ -906,11 +944,12 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
               type="button"
               onClick={handleAcceptClick}
               disabled={isSaving}
-              className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-300"
             >
               {isSaving ? 'Saving...' : (ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved') ? 'Save Changes' : 'Assign Ticket'}
             </button>
           </div>
+
         </div>
       </div>
 
@@ -920,6 +959,12 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
           onConfirm={handleConfirm}
           onCancel={() => setShowConfirm(false)}
           isSaving={isSaving}
+        />
+      )}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
         />
       )}
     </>

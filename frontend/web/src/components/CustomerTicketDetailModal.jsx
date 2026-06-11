@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import FilePreviewModal from './FilePreviewModal';
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -22,6 +23,7 @@ export default function CustomerTicketDetailModal({
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
   const [reopenReason, setReopenReason] = useState('');
   const [showReopenForm, setShowReopenForm] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
 
   const sortedTimelineEvents = useMemo(() => {
     if (!ticket) return [];
@@ -125,9 +127,11 @@ export default function CustomerTicketDetailModal({
                     <a
                       key={file.id || file.attachment_id}
                       href={file.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setPreviewFile({ name: file.name, url: file.url });
+                      }}
+                      className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                     >
                       <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -147,9 +151,11 @@ export default function CustomerTicketDetailModal({
                     <a
                       key={file.id}
                       href={file.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 hover:text-green-900 hover:underline"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setPreviewFile({ name: file.name, url: file.url });
+                      }}
+                      className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 hover:text-green-900 hover:underline cursor-pointer"
                     >
                       <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -321,6 +327,12 @@ export default function CustomerTicketDetailModal({
           )}
         </div>
       </div>
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
     </div>
   );
 }

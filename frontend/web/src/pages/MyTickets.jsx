@@ -129,6 +129,7 @@ export default function MyTickets({ mode = 'all' }) {
     return tickets.filter((ticket) => {
       const normalizedStatus = ticket.status === 'Discarded by Customer' ? 'Discarded' : ticket.status;
       if (isHistory && !HISTORY_STATUSES.includes(ticket.status)) return false;
+      if (!isHistory && ['Closed', 'Resolved'].includes(ticket.status)) return false;
       if (filters.status && normalizedStatus !== filters.status) return false;
       if (filters.category && ticket.category !== filters.category) return false;
       if (filters.dateFrom && new Date(ticket.date_created) < new Date(filters.dateFrom)) return false;

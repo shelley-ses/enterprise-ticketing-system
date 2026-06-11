@@ -3,9 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
   getNotifications,
   markNotificationsRead,
-  markNotificationRead
+  markNotificationRead,
+  getAssignableEmployees,
+  getDepartments,
+  getTicketDetails,
 } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { AssignModal } from '@/components/CSModals';
+
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -15,6 +20,17 @@ export default function Notifications() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [assignModalData, setAssignModalData] = useState(null);
+
+  useEffect(() => {
+    if (isCS) {
+      getAssignableEmployees().then(setEmployees).catch(console.error);
+      getDepartments().then(setDepartments).catch(console.error);
+    }
+  }, [isCS]);
+
 
   const loadData = useCallback(async ({ source = 'manual' } = {}) => {
     if (source !== 'websocket' && source !== 'poll') {
@@ -50,6 +66,50 @@ export default function Notifications() {
       }
     },
   });
+
+  const handleAction = async (requestId, ticketId, action, extraParams = {}) => {
+    setActioningId(requestId);
+    setError('');
+    setSuccess('');
+    try {
+      await respondReassignment({ ticketId, action, ...extraParams });
+      setSuccess(`Successfully ${action === 'approve' ? 'approved' : 'denied'} reassignment request.`);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError(`Failed to ${action} reassignment request.`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleAssignSave = async (updated) => {
+    setError('');
+    setSuccess('');
+    try {
+      const newEmpId = updated.assigned[0];
+      if (!newEmpId) {
+        window.alert('Please select at least one employee.');
+        return false;
+      }
+
+      await respondReassignment({
+        ticketId: updated.ticket_ID,
+        action: 'approve',
+        newEmployeeId: newEmpId,
+      });
+
+      setSuccess('Successfully approved reassignment and reassigned ticket.');
+      setAssignModalData(null);
+      await loadData();
+      return true;
+    } catch (err) {
+      console.error(err);
+      setError('Failed to approve and reassign ticket.');
+      return false;
+    }
+  };
+
 
   const handleMarkAllRead = async () => {
     try {
@@ -201,6 +261,89 @@ export default function Notifications() {
         </div>
       ) : (
         <div className="space-y-8">
+          {/* CS Reassignment Approval Panel */}
+          {isCS && requests.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">Pending Reassignment Requests</h2>
+              <div className="space-y-4">
+                {requests.map((req) => {
+                  const isProcessing = actioningId === req.request_id;
+                  return (
+                    <div
+                      key={req.request_id}
+                      className="bg-white rounded-3xl border border-gray-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col md:flex-row justify-between items-start md:items-center gap-6 hover:shadow-[0_8px_30px_rgb(0,0,0,0.05)] transition-shadow duration-300 animate-in fade-in zoom-in-95 duration-200"
+                    >
+                      <div className="space-y-3 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-[#252578] bg-blue-50 px-2.5 py-1 rounded-lg">
+                            {req.id}
+                          </span>
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-700 animate-pulse">
+                            Reassignment Pending
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-medium">
+                            Requested on {new Date(req.requested_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-gray-900 truncate leading-snug">
+                            {req.ticket_title}
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-0.5 font-medium">
+                            Requested by: <strong className="text-gray-700">{req.employee_name}</strong>
+                          </p>
+                        </div>
+                        <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-800 space-y-1">
+                          <p className="font-bold text-amber-900 uppercase tracking-wider text-[9px]">Reason for request:</p>
+                          <p className="italic leading-relaxed font-semibold">&quot;{req.reason}&quot;</p>
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-row md:flex-col lg:flex-row gap-2 shrink-0 w-full md:w-auto">
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={async () => {
+                            const reason = window.prompt("Enter the reason for denying reassignment:");
+                            if (reason === null) return; // cancelled
+                            if (!reason.trim()) {
+                              window.alert("A reason is required to deny reassignment.");
+                              return;
+                            }
+                            await handleAction(req.request_id, req.ticket_id, 'deny', { reason: reason.trim() });
+                          }}
+                          className="flex-1 md:flex-none py-2.5 px-4 rounded-xl border border-rose-200 text-rose-700 font-bold hover:bg-rose-50 text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Deny Request
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={async () => {
+                            setActioningId(req.request_id);
+                            try {
+                              const details = await getTicketDetails(req.ticket_id);
+                              setAssignModalData(details);
+                            } catch (err) {
+                              console.error(err);
+                              setError('Failed to load ticket details for assignment.');
+                            } finally {
+                              setActioningId(null);
+                            }
+                          }}
+                          className="flex-1 md:flex-none py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {actioningId === req.request_id ? 'Loading...' : 'Approve & Reassign'}
+                        </button>
+                      </div>
+
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Unified General Notification Feed */}
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">Recent Notifications</h2>
@@ -246,6 +389,16 @@ export default function Notifications() {
             )}
           </div>
         </div>
+      )}
+      {assignModalData && (
+        <AssignModal
+          ticket={assignModalData}
+          employees={employees}
+          departments={departments}
+          priorityOptions={['Low', 'Medium', 'High', 'Critical']}
+          onClose={() => setAssignModalData(null)}
+          onSave={handleAssignSave}
+        />
       )}
     </div>
   );

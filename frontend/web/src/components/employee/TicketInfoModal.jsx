@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
+import FilePreviewModal from '@/components/FilePreviewModal';
 
 export default function TicketInfoModal({ ticket, onClose }) {
   const navigate = useNavigate();
+  const [previewFile, setPreviewFile] = useState(null);
 
   if (!ticket) return null;
 
@@ -119,9 +121,11 @@ export default function TicketInfoModal({ ticket, onClose }) {
                   <a
                     key={file.id || file.attachment_id}
                     href={file.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 bg-white border border-gray-150 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setPreviewFile({ name: file.name, url: file.url });
+                    }}
+                    className="flex items-center gap-1.5 bg-white border border-gray-150 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
                   >
                     <svg className="h-3.5 w-3.5 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -141,9 +145,11 @@ export default function TicketInfoModal({ ticket, onClose }) {
                   <a
                     key={file.id}
                     href={file.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 bg-white border border-gray-150 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-green-700 hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setPreviewFile({ name: file.name, url: file.url });
+                    }}
+                    className="flex items-center gap-1.5 bg-white border border-gray-150 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-green-700 hover:underline cursor-pointer"
                   >
                     <svg className="h-3.5 w-3.5 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -167,7 +173,7 @@ export default function TicketInfoModal({ ticket, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-100 flex-shrink-0 flex justify-end gap-3">
+        <div className="p-6 border-t border-gray-150 flex-shrink-0 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
@@ -184,6 +190,12 @@ export default function TicketInfoModal({ ticket, onClose }) {
           </button>
         </div>
       </div>
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
     </div>
   );
 }

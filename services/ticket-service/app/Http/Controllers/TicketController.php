@@ -866,9 +866,23 @@ class TicketController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
+            $existing = DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->get()
+                ->keyBy('employee_ID');
 
-            foreach ($validated['employee_ids'] as $employeeId) {
+            $newEmpIds = $validated['employee_ids'];
+            $toRemove = $existing->keys()->diff($newEmpIds);
+            $toAdd = collect($newEmpIds)->diff($existing->keys());
+
+            if ($toRemove->isNotEmpty()) {
+                DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->whereIn('employee_ID', $toRemove)
+                    ->delete();
+            }
+
+            foreach ($toAdd as $employeeId) {
                 DB::table('ticket_assignments')->insert([
                     'ticket_ID' => $ticketId,
                     'employee_ID' => $employeeId,
@@ -880,6 +894,15 @@ class TicketController extends Controller
                     'updated_at' => now(),
                 ]);
             }
+
+            DB::table('reassignment_requests')
+                ->where('ticket_id', $ticketId)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'approved',
+                    'reviewed_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
             foreach ($changes as $chg) {
                 DB::table('ticket_audit_logs')->insert([
@@ -1090,7 +1113,7 @@ class TicketController extends Controller
         }
 
         $validated = $request->validate([
-            'employee_ids' => ['nullable', 'array'],
+            'employee_ids' => ['required', 'array', 'min:1'],
             'employee_ids.*' => ['integer', 'exists:employees,emp_id'],
             'assigned_by_email' => ['nullable', 'email'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
@@ -1137,8 +1160,23 @@ class TicketController extends Controller
             DB::table('tickets')->where('ticket_ID', $ticketId)->update($update);
 
             if ($employees->count() > 0) {
-                DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
-                foreach ($employees as $employeeId) {
+                $existing = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->get()
+                    ->keyBy('employee_ID');
+
+                $newEmpIds = $employees->all();
+                $toRemove = $existing->keys()->diff($newEmpIds);
+                $toAdd = collect($newEmpIds)->diff($existing->keys());
+
+                if ($toRemove->isNotEmpty()) {
+                    DB::table('ticket_assignments')
+                        ->where('ticket_ID', $ticketId)
+                        ->whereIn('employee_ID', $toRemove)
+                        ->delete();
+                }
+
+                foreach ($toAdd as $employeeId) {
                     DB::table('ticket_assignments')->insert([
                         'ticket_ID' => $ticketId,
                         'employee_ID' => $employeeId,
@@ -1150,6 +1188,15 @@ class TicketController extends Controller
                         'updated_at' => now(),
                     ]);
                 }
+
+                DB::table('reassignment_requests')
+                    ->where('ticket_id', $ticketId)
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'approved',
+                        'reviewed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
             }
 
             foreach ($changes as $chg) {
@@ -2829,15 +2876,25 @@ class TicketController extends Controller
             return response()->json(['message' => 'You do not have permission to discard this ticket.'], 403);
         }
 
-        $ticketInfo = [
-            'customer_id' => $ticket->created_by,
-            'assigned_to' => $ticket->assigned_to,
-            'ticket_status_ID' => $ticket->ticket_status_ID,
-        ];
+        $discardedStatusId = DB::table('ticket_statuses')
+            ->whereRaw('LOWER(status_name) = ?', ['discarded'])
+            ->value('ticket_status_ID');
 
-        DB::table('tickets')->where('ticket_ID', $ticketId)->delete();
+        if (!$discardedStatusId) {
+            $discardedStatusId = DB::table('ticket_statuses')->insertGetId([
+                'status_name' => 'Discarded',
+                'color_code' => '#ef4444',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        $this->broadcastTicketChange('deleted', $ticketId, $ticketInfo);
+        DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+            'ticket_status_ID' => $discardedStatusId,
+            'updated_at' => now(),
+        ]);
+
+        $this->broadcastTicketChange('updated', $ticketId);
 
         return response()->json(['message' => 'Ticket discarded successfully.']);
     }

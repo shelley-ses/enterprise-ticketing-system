@@ -687,10 +687,18 @@ export const requestReassignment = async ({ ticketId, reason }) => {
 };
 
 export const respondReassignment = async ({ ticketId, action, newEmployeeId, reason }) => {
+<<<<<<< HEAD
   const body = { action };
   if (newEmployeeId !== undefined) body.new_employee_id = newEmployeeId;
   if (reason !== undefined) body.reason = reason;
   const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, body);
+=======
+  const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, {
+    action,
+    new_employee_id: newEmployeeId,
+    reason,
+  });
+>>>>>>> origin/ref/customer-service/change-sanctum-to-passport
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();
   clearCSDashboardCache();
