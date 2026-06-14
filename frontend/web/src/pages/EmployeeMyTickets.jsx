@@ -71,6 +71,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
           {
             id: 'TKT-1001',
             ticket_ID: 1001,
+            isMock: true,
             title: 'Centrifuge lid latch faulty in Lab A',
             category: 'Hardware Issue',
             equipment: 'Centrifuge - CF-100-A2',
@@ -85,6 +86,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
           {
             id: 'TKT-1002',
             ticket_ID: 1002,
+            isMock: true,
             title: 'Vitals monitor software update required',
             category: 'Software / System Error',
             equipment: 'Patient Monitor - PM-200-S1',
@@ -99,6 +101,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
           {
             id: 'TKT-1003',
             ticket_ID: 1003,
+            isMock: true,
             title: 'Biochemistry Analyzer calibration check',
             category: 'Calibration Required',
             equipment: 'Biochem Analyzer - BA-500',
@@ -118,6 +121,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
           {
             id: 'TKT-1004',
             ticket_ID: 1004,
+            isMock: true,
             title: 'Defibrillator pad replacement check',
             category: 'Hardware Issue',
             equipment: 'Defibrillator - DF-400',
@@ -138,7 +142,21 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
         localStorage.setItem(storageKey, JSON.stringify(mockTickets));
         setTickets(mockTickets);
       } else {
-        setTickets(stored);
+        // Heal stored tickets missing isMock flag
+        let healed = false;
+        const mapped = stored.map(t => {
+          const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+          const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
+          if (isMock && !t.isMock) {
+            healed = true;
+            return { ...t, isMock: true };
+          }
+          return t;
+        });
+        if (healed) {
+          localStorage.setItem(storageKey, JSON.stringify(mapped));
+        }
+        setTickets(mapped);
       }
     } catch (err) {
       setError('Failed to load tickets.');
@@ -203,6 +221,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     const newTicket = {
       id: `TKT-${newIdVal}`,
       ticket_ID: newIdVal,
+      isMock: true,
       title: payload.title,
       category,
       equipment,
@@ -282,10 +301,12 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleViewTicket = async (t) => {
-    const isMock = !!t.isMock;
+    const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+    const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
     if (isMock) {
       setSelectedTicket({
         ...t,
+        isMock: true,
         description: t.description || '',
         resolved_at: t.resolved_at || null,
         proofAttachments: t.proofAttachments || [],
@@ -298,8 +319,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     setLoadingText('Loading ticket details...');
     setModalLoading(true);
     try {
-      const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-      const fullTicket = await getTicketDetails(ticketId);
+      const fullTicket = await getTicketDetails(numericId);
       setSelectedTicket({
         ...t,
         ...fullTicket,

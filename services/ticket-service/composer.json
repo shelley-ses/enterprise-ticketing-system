@@ -9,8 +9,8 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^10.10",
+        "laravel/passport": "^12.4",
         "laravel/reverb": "1.10",
-        "laravel/sanctum": "^3.3",
         "laravel/tinker": "^2.8",
         "symfony/css-selector": "7.4"
     },
@@ -52,7 +52,9 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": [
+                "laravel/sanctum"
+            ]
         }
     },
     "config": {
@@ -62,6 +64,9 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
+        },
+        "audit": {
+            "block-insecure": false
         }
     },
     "minimum-stability": "stable",

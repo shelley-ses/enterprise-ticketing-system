@@ -284,55 +284,58 @@ class TicketController extends Controller
 
     public function formOptions()
     {
-        $machines = DB::table('machines')
-            ->select('machine_ID', 'machine_name', 'serial_number')
-            ->orderBy('machine_name')
-            ->get();
+        $options = \Illuminate\Support\Facades\Cache::remember('ticket_form_options_cache', 3600, function () {
+            $machines = DB::table('machines')
+                ->select('machine_ID', 'machine_name', 'serial_number')
+                ->orderBy('machine_name')
+                ->get();
 
-        $problemCategories = DB::table('problem_categories')
-            ->select('problem_category_ID', 'category_name')
-            ->where('is_active', true)
-            ->orderBy('category_name')
-            ->get();
+            $problemCategories = DB::table('problem_categories')
+                ->select('problem_category_ID', 'category_name')
+                ->where('is_active', true)
+                ->orderBy('category_name')
+                ->get();
 
-        $ticketTypes = DB::table('ticket_types')
-            ->select('ticket_type_ID', 'type_name')
-            ->orderBy('type_name')
-            ->get();
+            $ticketTypes = DB::table('ticket_types')
+                ->select('ticket_type_ID', 'type_name')
+                ->orderBy('type_name')
+                ->get();
 
-        $priorities = DB::table('ticket_priorities')
-            ->select('priority_ID', 'priority_name')
-            ->orderBy('priority_ID')
-            ->get();
+            $priorities = DB::table('ticket_priorities')
+                ->select('priority_ID', 'priority_name')
+                ->orderBy('priority_ID')
+                ->get();
 
-        return response()->json([
-            
-            'machines' => $machines,
-            'machine_categories' => DB::table('machine_categories')->orderBy('category_name')->get(),
-            'problem_categories' => $problemCategories,
-            'ticket_types' => $ticketTypes,
-            'ticket_priorities' => $priorities,
-            'ticket_statuses' => DB::table('ticket_statuses')->orderBy('ticket_status_ID')->get(),
-            'slas' => DB::table('slas')->where('is_active', true)->orderBy('sla_ID')->get(),
+            return [
+                'machines' => $machines,
+                'machine_categories' => DB::table('machine_categories')->orderBy('category_name')->get(),
+                'problem_categories' => $problemCategories,
+                'ticket_types' => $ticketTypes,
+                'ticket_priorities' => $priorities,
+                'ticket_statuses' => DB::table('ticket_statuses')->orderBy('ticket_status_ID')->get(),
+                'slas' => DB::table('slas')->where('is_active', true)->orderBy('sla_ID')->get(),
 
-            // For dropdown options used by customer create-ticket modal.
-            'equipment_options' => $machines->map(fn ($row) => [
-                'value' => $row->machine_ID,
-                'label' => $row->machine_name . ' - ' . $row->serial_number,
-            ])->values(),
-            'category_options' => $problemCategories->map(fn ($row) => [
-                'value' => $row->problem_category_ID,
-                'label' => $row->category_name,
-            ])->values(),
-            'priority_options' => $priorities->map(fn ($row) => [
-                'value' => $row->priority_ID,
-                'label' => $row->priority_name,
-            ])->values(),
-            'ticket_type_options' => $ticketTypes->map(fn ($row) => [
-                'value' => $row->ticket_type_ID,
-                'label' => $row->type_name,
-            ])->values(),
-        ]);
+                // For dropdown options used by customer create-ticket modal.
+                'equipment_options' => $machines->map(fn ($row) => [
+                    'value' => $row->machine_ID,
+                    'label' => $row->machine_name . ' - ' . $row->serial_number,
+                ])->values()->all(),
+                'category_options' => $problemCategories->map(fn ($row) => [
+                    'value' => $row->problem_category_ID,
+                    'label' => $row->category_name,
+                ])->values()->all(),
+                'priority_options' => $priorities->map(fn ($row) => [
+                    'value' => $row->priority_ID,
+                    'label' => $row->priority_name,
+                ])->values()->all(),
+                'ticket_type_options' => $ticketTypes->map(fn ($row) => [
+                    'value' => $row->ticket_type_ID,
+                    'label' => $row->type_name,
+                ])->values()->all(),
+            ];
+        });
+
+        return response()->json($options);
     }
 
     public function csDashboard(Request $request)
@@ -422,7 +425,7 @@ class TicketController extends Controller
             'attachments.*.mimes' => 'Attachments must be PDF, JPG, PNG, or DOCX files.',
         ]);
 
-        $user = auth('sanctum')->user() ?? $request->user();
+        $user = auth('api')->user() ?? $request->user();
 
         $ticketTypeId = null;
         if ($user) {
@@ -655,7 +658,7 @@ class TicketController extends Controller
 
     public function csIncoming(Request $request)
     {
-        $limit = max(1, min((int) $request->query('limit', 50), 200));
+        $perPage = max(1, min((int) $request->query('limit', 50), 200));
         $typeFilter = $request->query('type');
 
         $query = DB::table('tickets as t')
@@ -687,10 +690,10 @@ class TicketController extends Controller
             $query->where('t.is_internal', false);
         }
 
-        $rows = $query->orderByDesc('t.created_at')
-            ->limit($limit)
-            ->get();
+        $paginated = $query->orderByDesc('t.created_at')
+            ->paginate($perPage);
 
+        $rows = collect($paginated->items());
         $ticketIds = $rows->pluck('ticket_ID')->toArray();
 
         $assignments = collect();
@@ -739,6 +742,12 @@ class TicketController extends Controller
 
         return response()->json([
             'incoming_tickets' => $incomingTickets,
+            'pagination' => [
+                'total' => $paginated->total(),
+                'per_page' => $paginated->perPage(),
+                'current_page' => $paginated->currentPage(),
+                'last_page' => $paginated->lastPage(),
+            ]
         ]);
     }
 

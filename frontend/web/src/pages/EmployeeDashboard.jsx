@@ -93,12 +93,12 @@ export default function EmployeeDashboard() {
       const stored = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
       const updated = await Promise.all(
         stored.slice(0, 5).map(async (t) => {
-          const isMock = !!t.isMock;
+          const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+          const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
           if (isMock) {
-            return t;
+            return { ...t, isMock: true };
           }
           try {
-            const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
             const detail = await getTicketDetails(numericId);
             return {
               ...t,
@@ -117,7 +117,7 @@ export default function EmployeeDashboard() {
       const fullList = JSON.parse(localStorage.getItem('employee_created_tickets') || '[]');
       const updatedFullList = fullList.map(item => {
         const found = updated.find(u => u.id === item.id);
-        return found ? found : item;
+        return found ? { ...item, ...found } : item;
       });
       localStorage.setItem('employee_created_tickets', JSON.stringify(updatedFullList));
     } catch (err) {
@@ -217,10 +217,12 @@ export default function EmployeeDashboard() {
   };
 
   const handleViewMyTicket = async (t) => {
-    const isMock = !!t.isMock;
+    const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+    const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
     if (isMock) {
       setSelectedMyTicket({
         ...t,
+        isMock: true,
         description: t.description || '',
         resolved_at: t.resolved_at || null,
         proofAttachments: t.proofAttachments || [],
@@ -233,8 +235,7 @@ export default function EmployeeDashboard() {
     setMyTicketsLoadingText('Loading ticket details...');
     setMyTicketsModalLoading(true);
     try {
-      const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-      const fullTicket = await getTicketDetails(ticketId);
+      const fullTicket = await getTicketDetails(numericId);
       setSelectedMyTicket({
         ...t,
         ...fullTicket,

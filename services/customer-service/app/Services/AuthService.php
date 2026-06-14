@@ -117,7 +117,7 @@
             Log::info('AuthService.login:after_credential_save', ['duration_ms' => (microtime(true)-$start)*1000]);
 
             // create access token (short-lived)
-            $accessToken = $client->createToken('access-token')->plainTextToken;
+            $accessToken = $client->createToken('client')->accessToken;
             Log::info('AuthService.login:after_access_token', ['duration_ms' => (microtime(true)-$start)*1000]);
 
             // create refresh token record (store hash)
@@ -211,7 +211,7 @@
 
             $this->syncEmployeePresence($employee);
 
-            $accessToken = $employee->createToken('access-token')->plainTextToken;
+            $accessToken = $employee->createToken('employee')->accessToken;
             $rawRefresh = Str::random(80);
             $hash = hash('sha256', $rawRefresh);
             $expiresAt = Carbon::now()->addDays(14);

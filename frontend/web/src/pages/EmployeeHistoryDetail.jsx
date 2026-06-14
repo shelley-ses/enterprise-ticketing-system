@@ -1,11 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
+import FilePreviewModal from '@/components/FilePreviewModal';
 
 export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const ticket = state?.ticket;
+  const [previewFile, setPreviewFile] = useState(null);
+  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
+
+  const getAbsoluteUrl = (rawUrl) => {
+    if (!rawUrl) return '';
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:')) {
+      return rawUrl;
+    }
+    const backendApiUrl = import.meta.env.VITE_TICKET_API_URL || 'http://localhost:8002/api';
+    const backendHost = backendApiUrl.replace(/\/api$/, '').replace(/\/api\/$/, '');
+    if (rawUrl.startsWith('/')) {
+      return `${backendHost}${rawUrl}`;
+    }
+    return `${backendHost}/${rawUrl}`;
+  };
 
   const timelineEvents = useMemo(() => {
     if (!ticket) return [];
@@ -40,8 +56,6 @@ export default function EmployeeHistoryDetail() {
     }
     return events;
   }, [ticket]);
-
-  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
 
   const sortedTimelineEvents = useMemo(() => {
     const sorted = [...timelineEvents];
@@ -167,6 +181,7 @@ export default function EmployeeHistoryDetail() {
             {ticket.attachments.map((file, idx) => {
               const fileName = typeof file === 'string' ? file : file.name;
               const fileUrl = typeof file === 'string' ? file : file.url;
+              const absUrl = getAbsoluteUrl(fileUrl);
 
               return (
                 <div
@@ -176,7 +191,7 @@ export default function EmployeeHistoryDetail() {
                 >
                   {isImage(fileName) ? (
                     <img
-                      src={fileUrl}
+                      src={absUrl}
                       alt={fileName}
                       className="w-full h-36 object-cover"
                     />
@@ -225,6 +240,7 @@ export default function EmployeeHistoryDetail() {
             {ticket.proofFiles.map((file, idx) => {
               const fileName = typeof file === 'string' ? file : file.name;
               const fileUrl = typeof file === 'string' ? file : file.url;
+              const absUrl = getAbsoluteUrl(fileUrl);
               return (
                 <div
                   key={idx}
@@ -232,7 +248,7 @@ export default function EmployeeHistoryDetail() {
                   className="border border-green-100 rounded-xl overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                 >
                   {isImage(fileName) ? (
-                    <img src={fileUrl} alt={fileName} className="w-full h-36 object-cover" />
+                    <img src={absUrl} alt={fileName} className="w-full h-36 object-cover" />
                   ) : (
                     <div className="flex items-center gap-3 p-4 bg-green-55 h-36">
                       <div className="w-10 h-10 rounded-xl bg-green-700/10 flex items-center justify-center shrink-0">
@@ -318,6 +334,13 @@ export default function EmployeeHistoryDetail() {
           </div>
         )}
       </div>
+
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
     </div>
   );
 }

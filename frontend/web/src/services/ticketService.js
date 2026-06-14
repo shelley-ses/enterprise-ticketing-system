@@ -253,28 +253,29 @@ const fetchCSDashboard = async ({ limit = 10 } = {}) => {
   return response.data;
 };
 
-const fetchIncomingTickets = async ({ limit = 50 } = {}) => {
+const fetchIncomingTickets = async ({ limit = 50, page = 1 } = {}) => {
   const response = await ticketClient.get('/cs-incoming', {
-    params: { limit },
+    params: { limit, page },
   });
   const data = response.data?.incoming_tickets ?? [];
-  incomingTicketsCache = data;
+  const pagination = response.data?.pagination ?? null;
+  incomingTicketsCache = { list: data, pagination };
   incomingTicketsCacheAt = Date.now();
-  return data;
+  return { list: data, pagination };
 };
 
-export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } = {}) => {
-  let list = [];
+export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = false, forceRefresh = false } = {}) => {
+  let result = { list: [], pagination: null };
   try {
     if (!forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
-      list = incomingTicketsCache;
+      result = incomingTicketsCache;
     } else if (!forceRefresh && incomingTicketsInFlight) {
-      list = await incomingTicketsInFlight;
+      result = await incomingTicketsInFlight;
     } else {
-      incomingTicketsInFlight = fetchIncomingTickets({ limit }).finally(() => {
+      incomingTicketsInFlight = fetchIncomingTickets({ limit, page }).finally(() => {
         incomingTicketsInFlight = null;
       });
-      list = await incomingTicketsInFlight;
+      result = await incomingTicketsInFlight;
     }
   } catch (e) {
     console.warn("Failed to fetch incoming tickets from service, using dummy data fallback:", e);
@@ -314,11 +315,17 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
         assigned: [],
       },
     ];
+    if (paginate) {
+      return { tickets: dummyTickets, pagination: { total: 2, per_page: limit, current_page: 1, last_page: 1 } };
+    }
     return dummyTickets;
   }
 
+  const rawList = Array.isArray(result) ? result : (result?.list ?? []);
+  const pagination = Array.isArray(result) ? null : (result?.pagination ?? null);
+
   const overrides = getEmployeeOverrides();
-  return list.map((t) => {
+  const list = rawList.map((t) => {
     const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
 
     return {
@@ -326,6 +333,11 @@ export const getCSIncomingTickets = async ({ limit = 50, forceRefresh = false } 
       ...overrideFields,
     };
   });
+
+  if (paginate) {
+    return { tickets: list, pagination };
+  }
+  return list;
 };
 
 export const clearIncomingTicketsCache = () => {

@@ -40,6 +40,10 @@ return [
             'driver' => 'session',
             'provider' => 'employees',
         ],
+        'api' => [
+            'driver' => 'passport',
+            'provider' => 'polymorphic_users',
+        ],
     ],
 
     /*
@@ -57,6 +61,7 @@ return [
     |
     | Supported: "database", "eloquent"
     |
+    |
     */
 
     'providers' => [
@@ -65,10 +70,11 @@ return [
             'model' => App\Models\Employee::class,
         ],
 
-        // 'employees' => [
-        //     'driver' => 'database',
-        //     'table' => 'employees',
-        // ],
+        'polymorphic_users' => [
+            'driver' => 'polymorphic',
+            'employee_model' => App\Models\Employee::class,
+            'client_model' => App\Models\Client::class,
+        ],
     ],
 
     /*

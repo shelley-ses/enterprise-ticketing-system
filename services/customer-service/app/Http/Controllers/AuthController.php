@@ -147,7 +147,7 @@ class AuthController extends Controller
         $user = $client ?: $employee;
 
         // issue new access token
-        $accessToken = $user->createToken('access-token')->plainTextToken;
+        $accessToken = $user->createToken($user instanceof Employee ? 'employee' : 'client')->accessToken;
 
         // rotate refresh token
         $rawNew = Str::random(80);
