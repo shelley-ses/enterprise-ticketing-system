@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
@@ -19,6 +20,7 @@ import SkeletonLoader from '@/components/SkeletonLoader';
 
 export default function CSAssigned() {
   const { user } = useAuth();
+  const location = useLocation();
   const [tickets, setTickets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -64,7 +66,7 @@ export default function CSAssigned() {
       // Assigned page: only show properly assigned tickets (not reassignment-requested ones)
       // Reassignment-requested tickets should be handled from the Incoming page
       const assignedTickets = incoming.filter(t =>
-        (t.status === 'Assigned' || t.status === 'In Progress' ||
+        (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
          t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
          t.status === 'Pending' || t.status === 'Closed') &&
         !t.reassignmentRequested
@@ -93,6 +95,17 @@ export default function CSAssigned() {
     loadStaticData();
     loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
+
+  useEffect(() => {
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        handleRowAction(match);
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
 
   useRealtimeRefresh({
     refresh: loadLiveData,
@@ -165,7 +178,7 @@ export default function CSAssigned() {
       return;
     }
 
-    const isSummary = t.status === 'Assigned' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed';
+    const isSummary = t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -193,7 +206,7 @@ export default function CSAssigned() {
 
     const isMock = !!updated.isMock;
     if (isMock) {
-      const refreshed = { ...updated, status: 'Assigned' };
+      const refreshed = { ...updated, status: 'Pending Assignment' };
       setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));
       setModal({ mode: 'summary', ticket: refreshed });
       window.alert('Ticket assigned successfully.');
@@ -208,11 +221,13 @@ export default function CSAssigned() {
         priorityId: priorityMap[updated.priority] ?? 1,
       });
 
+      window.dispatchEvent(new Event('notifications:updated'));
+
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         const assignedTickets = incoming.filter(t =>
-          (t.status === 'Assigned' || t.status === 'In Progress' ||
+          (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
            t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
            t.status === 'Pending' || t.status === 'Closed') &&
           !t.reassignmentRequested
@@ -221,11 +236,11 @@ export default function CSAssigned() {
         
         const refreshedTicket = assignedTickets.find(t => t.ticket_ID === updated.ticket_ID) || {
           ...updated,
-          status: 'Assigned',
+          status: 'Pending Assignment',
         };
         setModal({ mode: 'summary', ticket: refreshedTicket });
       } catch (e) {
-        const refreshed = { ...updated, status: 'Assigned' };
+        const refreshed = { ...updated, status: 'Pending Assignment' };
         setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));
         setModal({ mode: 'summary', ticket: refreshed });
       }
@@ -420,6 +435,7 @@ export default function CSAssigned() {
                         t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
                         t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
+                        t.status === 'Pending Assignment' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'Resolved' ? 'bg-green-100 text-green-700' :
                         t.status === 'Closed' ? 'bg-gray-100 text-gray-700' :
                         t.status === 'Escalated' ? 'bg-red-100 text-red-700' :
@@ -508,6 +524,7 @@ export default function CSAssigned() {
                   'Pending': 7,
                   'Reopened': 8,
                   'Reopen': 8,
+                  'Pending Assignment': 9,
                 };
                 
                 await updateTicket({
@@ -526,7 +543,7 @@ export default function CSAssigned() {
             try {
               const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
               const assignedTickets = incoming.filter(t =>
-                (t.status === 'Assigned' || t.status === 'In Progress' ||
+                (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
                  t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
                  t.status === 'Pending' || t.status === 'Closed') &&
                 !t.reassignmentRequested

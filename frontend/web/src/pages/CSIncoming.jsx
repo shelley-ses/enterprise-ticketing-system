@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -54,6 +54,7 @@ const getDisplayStatus = (ticket) => (
 export default function CSIncoming() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [tickets, setTickets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -137,6 +138,17 @@ export default function CSIncoming() {
     loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
 
+  useEffect(() => {
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        setModal({ mode: 'summary', ticket: match });
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
+
   useRealtimeRefresh({
     refresh: loadLiveData,
     channels: [
@@ -213,7 +225,7 @@ export default function CSIncoming() {
 
   const handleRowAction = async (t) => {
     // If already assigned / pending validation / resolved -> show summary first
-    const isSummary = t.status === 'Assigned' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -243,7 +255,7 @@ export default function CSIncoming() {
     if (isMock) {
       const refreshed = {
         ...updated,
-        status: 'Assigned',
+        status: 'Pending Assignment',
       };
       ticketBroadcast.emit('assigned', refreshed);
       setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID || t.id === updated.id ? refreshed : t)));
@@ -260,6 +272,8 @@ export default function CSIncoming() {
         priorityId: priorityMap[updated.priority] ?? 1,
       });
 
+      window.dispatchEvent(new Event('notifications:updated'));
+
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100 });
@@ -268,7 +282,7 @@ export default function CSIncoming() {
         // Find the newly updated ticket
         const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
           ...updated,
-          status: 'Assigned',
+          status: 'Pending Assignment',
         };
         
         // Broadcast the assignment to all listening pages
@@ -279,7 +293,7 @@ export default function CSIncoming() {
         // Fallback to local state if refetch fails
         const refreshed = {
           ...updated,
-          status: 'Assigned',
+          status: 'Pending Assignment',
         };
         ticketBroadcast.emit('assigned', refreshed);
         setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
@@ -503,15 +517,16 @@ export default function CSIncoming() {
                   </td>
                   <td className="py-4 px-4">
                     <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                      getDisplayStatus(t) === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
-                      t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                      getDisplayStatus(t) === 'In Progress' ? 'bg-blue-100 text-blue-700' :
-                      getDisplayStatus(t) === 'Resolved' ? 'bg-green-100 text-green-700' :
-                      getDisplayStatus(t) === 'Closed' ? 'bg-gray-100 text-gray-700' :
-                      getDisplayStatus(t) === 'Escalated' ? 'bg-red-100 text-red-700' :
-                      (getDisplayStatus(t) === 'Reopened' || getDisplayStatus(t) === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>{getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}</span>
+                       getDisplayStatus(t) === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
+                       t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                       getDisplayStatus(t) === 'In Progress' ? 'bg-blue-100 text-blue-700' :
+                       getDisplayStatus(t) === 'Pending Assignment' ? 'bg-amber-100 text-amber-700' :
+                       getDisplayStatus(t) === 'Resolved' ? 'bg-green-100 text-green-700' :
+                       getDisplayStatus(t) === 'Closed' ? 'bg-gray-100 text-gray-700' :
+                       getDisplayStatus(t) === 'Escalated' ? 'bg-red-100 text-red-700' :
+                       (getDisplayStatus(t) === 'Reopened' || getDisplayStatus(t) === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
+                       'bg-gray-100 text-gray-700'
+                     }`}>{getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}</span>
                   </td>
                   <td className="py-4 px-4">
                     <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
@@ -591,6 +606,7 @@ export default function CSIncoming() {
                   'Pending': 7,
                   'Reopened': 8,
                   'Reopen': 8,
+                  'Pending Assignment': 9,
                 };
                 
                 await updateTicket({
@@ -612,7 +628,7 @@ export default function CSIncoming() {
       {!modalLoading && modal?.mode === 'assign' && (
         <AssignModal
           ticket={modal.ticket}
-          employees={employees}
+          employees={employees.filter(e => e.id !== modal.ticket?.requested_by)}
           departments={departments}
           priorityOptions={priorityOptions}
           onClose={() => setModal(null)}

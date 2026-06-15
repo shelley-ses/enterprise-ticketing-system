@@ -48,7 +48,6 @@ export default function EmployeeProgress() {
     setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
-      // Show Closed, Resolved, or Reassigned tickets
       setTickets(
         list.filter(
           (t) => HISTORY_STATUSES.includes(t.status) || t.reassignmentRequested
@@ -330,3 +329,5 @@ export default function EmployeeProgress() {
     </div>
   );
 }
+
+

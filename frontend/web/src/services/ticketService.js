@@ -699,11 +699,10 @@ export const requestReassignment = async ({ ticketId, reason }) => {
 };
 
 export const respondReassignment = async ({ ticketId, action, newEmployeeId, reason }) => {
-  const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, {
-    action,
-    new_employee_id: newEmployeeId,
-    reason,
-  });
+  const body = { action };
+  if (newEmployeeId !== undefined) body.new_employee_id = newEmployeeId;
+  if (reason !== undefined) body.reason = reason;
+  const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, body);
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();
   clearCSDashboardCache();
@@ -737,18 +736,57 @@ export const updateEmployeeTicket = async (ticketId, formData) => {
   return response.data;
 };
 
+export const createInternalTicket = async (payload) => {
+  const hasFiles = payload instanceof FormData || Boolean(payload?.attachments?.length);
+
+  if (hasFiles) {
+    const formData = payload instanceof FormData ? payload : new FormData();
+    if (!(payload instanceof FormData)) {
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key === 'attachments' && Array.isArray(value)) {
+          value.forEach((file) => formData.append('attachments[]', file));
+          return;
+        }
+        if (value !== null && value !== undefined && value !== '') {
+          formData.append(key, value);
+        }
+      });
+    }
+    const response = await ticketClient.post('/tickets/internal', formData, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  const response = await ticketClient.post('/tickets/internal', payload);
+  return response.data;
+};
+
+export const getInternalTickets = async () => {
+  const response = await ticketClient.get('/employee/tickets/internal');
+  return response.data?.tickets ?? [];
+};
+
+export const getEmployeeProfile = async () => {
+  const response = await ticketClient.get('/employee/profile');
+  return response.data;
+};
+
 export const getNotifications = async () => {
   const response = await ticketClient.get('/notifications');
   return response.data;
 };
 
 export const markNotificationsRead = async () => {
-  const response = await ticketClient.post('/notifications/mark-read');
+  const response = await ticketClient.patch('/notifications/read-all');
   return response.data;
 };
 
 export const markNotificationRead = async (id) => {
-  const response = await ticketClient.post(`/notifications/${id}/read`);
+  const response = await ticketClient.patch(`/notifications/${id}/read`);
   return response.data;
 };
 

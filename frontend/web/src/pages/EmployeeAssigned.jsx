@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   statusColors,
   priorityColors,
@@ -21,6 +21,7 @@ const selectClass =
 export default function EmployeeAssigned() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,7 @@ export default function EmployeeAssigned() {
   const [pendingTicket, setPendingTicket] = useState(null);   // not-yet-accepted → TicketDetailModal
   const [infoTicket, setInfoTicket] = useState(null);         // accepted & active → TicketInfoModal
   const [reassignTicket, setReassignTicket] = useState(null); // reassign flow
+  const [deniedReassignTicket, setDeniedReassignTicket] = useState(null); // denied reassign → skip accept, show update
 
   const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
     const email = user?.email || 'frontend@example.com';
@@ -62,6 +64,25 @@ export default function EmployeeAssigned() {
   useEffect(() => {
     loadTickets({ forceRefresh: true });
   }, [loadTickets]);
+
+  // Handle notification-triggered ticket opens
+  useEffect(() => {
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        // Open the ticket based on its status
+        if (match.deniedReassignment) {
+          setDeniedReassignTicket(match);
+        } else if (!match.accepted) {
+          setPendingTicket(match);
+        } else {
+          setInfoTicket(match);
+        }
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
 
   const probeForUpdates = useCallback(async () => {
     // Only show banner on actual websocket events (from the event payload),
@@ -144,7 +165,8 @@ export default function EmployeeAssigned() {
       });
       setIsAccepting(false);
       setPendingTicket(null);
-      // Navigate to the progress tab immediately upon acceptance
+      setTickets((prev) => prev.filter((t) => t.id !== id));
+      window.dispatchEvent(new Event('notifications:updated'));
       navigate('/employee/machine');
     } catch (err) {
       console.error('Failed to accept assignment on backend:', err);
@@ -229,6 +251,11 @@ export default function EmployeeAssigned() {
         navigate('/employee/progress');
         return;
       }
+      // Denied reassignment → skip accept modal, show update modal directly
+      if (t.deniedReassignment) {
+        setDeniedReassignTicket(t);
+        return;
+      }
       // Not yet accepted → show full Accept/Reject modal
       if (!t.accepted) {
         setPendingTicket(t);
@@ -300,77 +327,6 @@ export default function EmployeeAssigned() {
           </div>
         ) : (
           <>
-            {/* Filters */}
-            <div className="flex flex-row flex-wrap items-center gap-3 mb-6">
-              <div className="relative w-52 sm:w-60 shrink-0">
-                <svg
-                  className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-                <input
-                  type="search"
-                  placeholder="Search ID, title, customer..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
-                />
-              </div>
-
-              <select
-                className={selectClass}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
-                  (s) => (
-                    <option key={s} value={s}>{s}</option>
-                  )
-                )}
-              </select>
-              <select
-                className={selectClass}
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                {[
-                  'All Category',
-                  'MRI',
-                  'CT Scan',
-                  'Ultrasound',
-                  'X-Ray',
-                  'Ventilator',
-                  'Defibrillator',
-                ].map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <select
-                className={selectClass}
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-              <select
-                className={selectClass}
-                value={sortPriority}
-                onChange={(e) => setSortPriority(e.target.value)}
-              >
-                <option value="Priority">Sort: Priority</option>
-              </select>
-            </div>
-
             {/* Table */}
             <div className="overflow-x-auto rounded-lg border border-gray-100">
               <table className="w-full table-fixed text-sm text-left border-collapse">
@@ -387,13 +343,76 @@ export default function EmployeeAssigned() {
                 </colgroup>
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                    <th className="py-3 px-2 font-medium">Ticket ID</th>
+                    <th className="py-3 px-2 font-medium">
+                      <div className="relative">
+                        <svg
+                          className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                          />
+                        </svg>
+                        <input
+                          type="search"
+                          placeholder="Search..."
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          className="w-full pl-8 pr-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
+                        />
+                      </div>
+                    </th>
                     <th className="py-3 px-2 font-medium">Customer</th>
                     <th className="py-3 px-2 font-medium">Type</th>
                     <th className="py-3 px-2 font-medium">Title</th>
-                    <th className="py-3 px-2 font-medium">Category</th>
-                    <th className="py-3 px-2 font-medium">Priority</th>
-                    <th className="py-3 px-2 font-medium">Status</th>
+                    <th className="py-3 px-2 font-medium">
+                      <select
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                      >
+                        {[
+                          'All Category',
+                          'MRI',
+                          'CT Scan',
+                          'Ultrasound',
+                          'X-Ray',
+                          'Ventilator',
+                          'Defibrillator',
+                        ].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </th>
+                    <th className="py-3 px-2 font-medium">
+                      <select
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                        value={priorityFilter}
+                        onChange={(e) => setPriorityFilter(e.target.value)}
+                      >
+                        {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </th>
+                    <th className="py-3 px-2 font-medium">
+                      <select
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                      >
+                        {['All Status', 'Pending Assignment', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                          (s) => (
+                            <option key={s} value={s}>{s}</option>
+                          )
+                        )}
+                      </select>
+                    </th>
                     <th className="py-3 px-2 font-medium">SLA</th>
                     <th className="py-3 px-2 font-medium">Last Update</th>
                   </tr>
@@ -442,7 +461,7 @@ export default function EmployeeAssigned() {
                                   </span>
                                 )}
                               </div>
-                              {!t.accepted && (
+                              {!t.accepted && t.status === 'Open' && (
                                 <span className="text-[10px] text-amber-700 font-medium">
                                   {t.reassignmentRequested ? 'Reassignment requested' : 'Pending acceptance'}
                                 </span>
@@ -492,7 +511,9 @@ export default function EmployeeAssigned() {
                                   ? 'bg-rose-50 text-rose-700 border-rose-200'
                                   : t.status === 'In Progress'
                                     ? 'bg-blue-50 text-blue-700 border-blue-100'
-                                    : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                    : t.status === 'Pending Assignment'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                             }`}
                           >
                             {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : t.status.toLowerCase())}
@@ -545,6 +566,14 @@ export default function EmployeeAssigned() {
         <TicketInfoModal
           ticket={infoTicket}
           onClose={() => setInfoTicket(null)}
+        />
+      )}
+
+      {/* Modal: Denied reassignment — skip accept, show update modal directly */}
+      {deniedReassignTicket && (
+        <TicketInfoModal
+          ticket={deniedReassignTicket}
+          onClose={() => setDeniedReassignTicket(null)}
         />
       )}
 

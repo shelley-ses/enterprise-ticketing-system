@@ -43,7 +43,8 @@ export default function TicketDetailModal({
   if (!ticket) return null;
 
   const isAccepted = ticket.accepted === true;
-  const isExternal = !!ticket.customer;
+  const isInternal = ticket?.title?.startsWith('[Internal]') || ticket?.is_internal || ticket?.ticket_type === 'Internal' || ticket?.type === 'Internal';
+  const isExternal = !isInternal;
   const isProofRejected = ticket.proofRejected === true && ticket.status === 'In Progress';
 
   // Chronological timeline view
@@ -318,8 +319,8 @@ export default function TicketDetailModal({
                   </div>
                 )}
 
-                {/* 2. Proof of Completion triggering button (external tickets only) */}
-                {isExternal && ticket.status !== 'Resolved' && ticket.status !== 'Pending Evaluation' && (
+                {/* 2. Proof of Completion triggering button (all tickets) */}
+                {ticket.status !== 'Resolved' && ticket.status !== 'Pending Evaluation' && (
                   <div className="border border-gray-150 rounded-2xl p-5 bg-green-50/30 border-green-100 flex items-center justify-between flex-wrap gap-4">
                     <div className="max-w-md text-left">
                       {isProofRejected && (

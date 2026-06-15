@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   statusColors,
   priorityColors,
@@ -38,6 +38,7 @@ const selectClass =
 export default function EmployeeMachine() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +122,17 @@ export default function EmployeeMachine() {
   useEffect(() => {
     loadTickets({ forceRefresh: true });
   }, [loadTickets]);
+
+  useEffect(() => {
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        setInfoTicket(match);
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
 
   useRealtimeRefresh({
     refresh: loadTickets,

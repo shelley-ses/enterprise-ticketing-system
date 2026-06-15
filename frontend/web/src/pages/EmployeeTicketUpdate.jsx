@@ -89,7 +89,8 @@ export default function EmployeeTicketUpdate() {
     },
   });
 
-  const isExternal = !!ticket?.customer;
+  const isInternal = ticket?.title?.startsWith('[Internal]') || ticket?.is_internal || ticket?.ticket_type === 'Internal' || ticket?.type === 'Internal';
+  const isExternal = !isInternal;
   const isProofRejected =
     ticket?.proofRejected === true && ticket?.status === 'In Progress';
 
@@ -370,8 +371,7 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Proof of Completion */}
-            {isExternal &&
-              (statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
+            {(statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
                 <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
                   <div className="max-w-lg">
                     {isProofRejected && (
@@ -509,9 +509,9 @@ export default function EmployeeTicketUpdate() {
                           </>
                         )}
 
-                        {statusDraft === 'Resolved' && isExternal ? (
+                        {statusDraft === 'Resolved' ? (
                           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-xs font-semibold text-center">
-                            For customer tickets, you must submit a Proof of Completion to resolve. Please click &quot;Upload Proof Documents&quot; in the card above.
+                            You must submit a Proof of Completion to resolve. Please click &quot;Upload Proof Documents&quot; in the card above.
                           </div>
                         ) : (
                           <button

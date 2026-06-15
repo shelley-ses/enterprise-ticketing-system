@@ -15,7 +15,7 @@ import {
   updateTicket,
 } from '@/services/ticketService';
 
-const STATUSES = ['Open', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
+const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
 
 const getStoredUser = () => {
@@ -34,6 +34,7 @@ const formatDate = (value) => {
 const statusClass = (status) => {
   if (status === 'Open') return 'bg-amber-100 text-amber-700';
   if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
+  if (status === 'Pending Assignment') return 'bg-amber-100 text-amber-700';
   if (status === 'Pending') return 'bg-purple-100 text-purple-700';
   if (status === 'Resolved') return 'bg-green-100 text-green-700';
   if (status === 'Closed') return 'bg-gray-100 text-gray-700';
@@ -97,7 +98,15 @@ export default function MyTickets({ mode = 'all' }) {
       setIsModalOpen(true);
       window.history.replaceState({}, document.title);
     }
-  }, [location.state]);
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        handleViewTicket(match);
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
 
   useRealtimeRefresh({
     refresh: loadTickets,

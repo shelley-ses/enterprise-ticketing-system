@@ -112,6 +112,7 @@ export const priorityColors = {
 export const statusColors = {
   'In Progress': 'bg-blue-100 text-blue-700',
   Open: 'bg-amber-100 text-amber-700',
+  'Pending Assignment': 'bg-amber-100 text-amber-700',
   Resolved: 'bg-green-100 text-green-700',
   Escalated: 'bg-red-100 text-red-700',
   Closed: 'bg-gray-100 text-gray-700',

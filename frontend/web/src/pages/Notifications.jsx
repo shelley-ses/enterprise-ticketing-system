@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getReassignmentRequests,
   respondReassignment,
@@ -15,6 +16,7 @@ import { AssignModal } from '@/components/CSModals';
 
 
 export default function Notifications() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isCS = user && user.role === 'customer service';
 
@@ -23,7 +25,7 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [actioningId, setActioningId] = useState(null); // request_id of the item being approved/denied
+  const [actioningId, setActioningId] = useState(null);
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -44,11 +46,9 @@ export default function Notifications() {
     setError('');
     try {
       if (isCS) {
-        // CS about pending requests to review
         const pending = await getReassignmentRequests({ status: 'pending' });
         setRequests(pending);
       }
-      // Load general database notifications
       const data = await getNotifications();
       setNotifications(data.notifications || []);
       setShowRefreshBanner(false);
@@ -78,6 +78,7 @@ export default function Notifications() {
     },
   });
 
+<<<<<<< HEAD
   const handleAction = async (requestId, ticketId, action, extraParams = {}) => {
     setActioningId(requestId);
     setError('');
@@ -121,7 +122,6 @@ export default function Notifications() {
     }
   };
 
-
   const handleMarkAllRead = async () => {
     try {
       await markNotificationsRead();
@@ -141,6 +141,55 @@ export default function Notifications() {
       await loadData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const getNotificationPath = (n) => {
+    if (n.data) {
+      try {
+        const parsed = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+        if (parsed.link) {
+          return parsed.link.startsWith('http') ? new URL(parsed.link).pathname : parsed.link;
+        }
+        // Handle specific notification types for employees
+        const userStr = localStorage.getItem('user');
+        let role = '';
+        try { role = JSON.parse(userStr)?.role || ''; } catch {}
+        if (role === 'employee' && parsed.type) {
+          if (parsed.type === 'proof_uploaded' || parsed.type === 'proof_rejected') {
+            return '/employee/machine';
+          }
+          if (parsed.type === 'ticket_assigned' || parsed.type === 'ticket_reassigned') {
+            return '/employee/assigned';
+          }
+          if (parsed.type === 'reassignment_approved' || parsed.type === 'reassignment_denied') {
+            return '/employee/assigned';
+          }
+          if (parsed.type === 'reassignment_request') {
+            return '/cs/incoming';
+          }
+        }
+      } catch { }
+    }
+    if (n.ticket_id) {
+      const userStr = localStorage.getItem('user');
+      let role = '';
+      try { role = JSON.parse(userStr)?.role || ''; } catch {}
+      if (role === 'customer') return '/my-tickets';
+      if (role === 'employee') return '/employee/machine';
+      if (role === 'cs') return '/cs/incoming';
+      return '/notifications';
+    }
+    return null;
+  };
+
+  const handleNotificationClick = (n) => {
+    if (!n.is_read) {
+      handleMarkOneRead(n.id);
+    }
+    const path = getNotificationPath(n);
+    if (path) {
+      navigate(path, { state: { focusTicketId: n.ticket_id, openNotificationType: true } });
     }
   };
 
@@ -324,7 +373,7 @@ export default function Notifications() {
                 {notifications.map((n) => (
                   <div
                     key={n.id}
-                    onClick={() => { if (!n.is_read) handleMarkOneRead(n.id); }}
+                    onClick={() => handleNotificationClick(n)}
                     className={`bg-white rounded-3xl border border-gray-100 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-gray-200 transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : ''}`}
                   >
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${!n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>

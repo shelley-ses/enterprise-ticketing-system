@@ -5,14 +5,15 @@ import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
-  createTicket,
+  createInternalTicket,
+  getInternalTickets,
   getCachedTicketFormOptions,
   getTicketFormOptions,
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
 
-const STATUSES = ['Open', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
+const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded'];
 
 const formatDate = (value) => {
@@ -23,6 +24,7 @@ const formatDate = (value) => {
 const statusClass = (status) => {
   if (status === 'Open') return 'bg-amber-100 text-amber-700';
   if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
+  if (status === 'Pending Assignment') return 'bg-amber-100 text-amber-700';
   if (status === 'Pending') return 'bg-purple-100 text-purple-700';
   if (status === 'Resolved') return 'bg-green-100 text-green-700';
   if (status === 'Closed') return 'bg-gray-100 text-gray-700';
@@ -60,6 +62,25 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     setLoading(true);
     setError('');
     setShowRefreshBanner(false);
+
+    try {
+      const apiTickets = await getInternalTickets();
+      if (apiTickets.length > 0) {
+        const mapped = apiTickets.map(t => ({
+          ...t,
+          date_created: t.date || t.created_at,
+          last_updated: t.lastUpdate || t.updated_at,
+          is_internal: true,
+          ticket_type: 'Internal',
+          can_discard: t.status === 'Open' && !t.assigned_to,
+        }));
+        setTickets(mapped);
+        localStorage.setItem(storageKey, JSON.stringify(mapped));
+        return;
+      }
+    } catch (_) {
+      // API failed, fall through to localStorage
+    }
 
     try {
       let stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
@@ -216,29 +237,30 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     const options = getCachedTicketFormOptions() || await getTicketFormOptions();
     const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
     const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
-    
-    const newIdVal = Math.floor(1004 + Math.random() * 9000);
+
+    const result = await createInternalTicket(payload);
+    const ticketData = result.ticket || result;
     const newTicket = {
-      id: `TKT-${newIdVal}`,
-      ticket_ID: newIdVal,
-      isMock: true,
-      title: payload.title,
+      id: result.id || `TKT-${ticketData.ticket_ID}`,
+      ticket_ID: ticketData.ticket_ID,
+      title: ticketData.title || payload.title,
       category,
       equipment,
       status: 'Open',
-      description: payload.description,
-      date_created: new Date().toISOString(),
-      last_updated: new Date().toISOString(),
+      description: ticketData.description,
+      date_created: ticketData.created_at || new Date().toISOString(),
+      last_updated: ticketData.updated_at || new Date().toISOString(),
       attachments: payload.attachments || [],
       is_internal: true,
       ticket_type: 'Internal',
       can_discard: true,
     };
 
-    const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    const updatedList = [newTicket, ...stored];
-    localStorage.setItem(storageKey, JSON.stringify(updatedList));
-    setTickets(updatedList);
+    setTickets((current) => {
+      const next = [newTicket, ...current];
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      return next;
+    });
     setConfirmCreated(newTicket);
     setIsModalOpen(false);
   };
