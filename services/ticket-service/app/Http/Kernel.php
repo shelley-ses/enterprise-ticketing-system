@@ -65,5 +65,7 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'no-cache' => \App\Http\Middleware\NoCache::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+        'auth.employee' => \App\Http\Middleware\VerifyEmployeeJwt::class,
+        'auth.subsystem' => \App\Http\Middleware\AuthenticateSubsystem::class,
     ];
 }

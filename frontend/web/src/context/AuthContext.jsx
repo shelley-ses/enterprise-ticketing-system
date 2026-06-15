@@ -58,6 +58,9 @@ const readStoredUser = () => {
 };
 
 const ensureCsrfCookie = async () => {
+  // Passport (customer portal) uses Bearer tokens 
+  if (import.meta.env.VITE_APP_MODE === 'customer') return;
+
   const hasXsrfCookie = document.cookie.split('; ').some((cookie) => cookie.startsWith('XSRF-TOKEN='));
   if (hasXsrfCookie) {
     return;
@@ -106,58 +109,59 @@ export function AuthProvider({ children }) {
       return false;
     }
 
-    if (window.location.pathname.startsWith('/login')) {
+    // Skip session revalidation on guest/login pages
+    const pathname = window.location.pathname;
+    const isLoginPage =
+      pathname === '/customer' ||
+      pathname.startsWith('/customer?') ||
+      pathname.includes('/login');
+    if (isLoginPage) {
       applyUnauthenticated(setUser, setIsAuthenticated);
       return false;
     }
 
-    if (tokenStore.getToken()) {
-      try {
-        const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
-        const userData = resp.data?.user;
-        const firstLogin = Boolean(resp.data?.is_first_login);
-        if (userData) {
-          const normalized = normalizeUser(userData);
-          setUser(normalized);
-          localStorage.setItem('user', JSON.stringify(normalized));
-        }
-        setIsAuthenticated(true);
-        setIsFirstLogin(firstLogin);
-        return true;
-      } catch (err) {
-        if (err.response?.status === 401) {
-          applyUnauthenticated(setUser, setIsAuthenticated);
-          return false;
-        }
-        const storedUser = readStoredUser();
-        if (storedUser) {
-          setUser(normalizeUser(storedUser));
-          setIsAuthenticated(true);
-          return true;
-        }
-        return false;
-      }
-    }
-
     try {
-      const resp = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN, {}, { withCredentials: true });
-      const newToken = resp.data?.token;
+      const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
       const userData = resp.data?.user;
-      if (newToken) {
-        tokenStore.setToken(newToken);
+      const firstLogin = Boolean(resp.data?.is_first_login);
+      if (userData) {
         const normalized = normalizeUser(userData);
         setUser(normalized);
+        localStorage.setItem('user', JSON.stringify(normalized));
+      }
+      setIsAuthenticated(true);
+      setIsFirstLogin(firstLogin);
+      return true;
+    } catch (err) {
+      if (err.response?.status === 401) {
+        try {
+          const resp = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN, {}, { withCredentials: true });
+          const newToken = resp.data?.token;
+          const userData = resp.data?.user;
+          if (newToken) {
+            tokenStore.setToken(newToken);
+            const normalized = normalizeUser(userData);
+            setUser(normalized);
+            setIsAuthenticated(true);
+            setIsFirstLogin(Boolean(resp.data?.is_first_login));
+            if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
+            return true;
+          }
+        } catch {
+          // refresh failed
+        }
+        applyUnauthenticated(setUser, setIsAuthenticated);
+        return false;
+      }
+
+      const storedUser = readStoredUser();
+      if (storedUser) {
+        setUser(normalizeUser(storedUser));
         setIsAuthenticated(true);
-        setIsFirstLogin(Boolean(resp.data?.is_first_login));
-        if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
         return true;
       }
-    } catch {
-      // no valid refresh
+      return false;
     }
-
-    applyUnauthenticated(setUser, setIsAuthenticated);
-    return false;
   }, []);
 
   // For refresh token
@@ -205,6 +209,12 @@ export function AuthProvider({ children }) {
 
   // Login with email and password
   const login = useCallback(async (email, password, mode = 'customer') => {
+    if (mode === 'employee') {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+      return { success: false, error: 'Redirecting to central SSO...' };
+    }
     try {
       setError(null);
 

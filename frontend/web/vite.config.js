@@ -8,11 +8,26 @@ const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || '/ticketing/',
   plugins: [react()],
   server: {
-    host: 'localhost',
-    port: 5173,
+    host: '0.0.0.0',
+    port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 5005,
     strictPort: true,
+    proxy: {
+      '/api/ticketing/customer': {
+        target: 'http://customer-service:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ticketing\/customer/, '/api')
+      },
+      '/api/ticketing/ticket': {
+        target: 'http://ticket-service:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ticketing\/ticket/, '/api')
+      }
+    }
   },
   resolve: {
     alias: {

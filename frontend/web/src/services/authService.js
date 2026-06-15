@@ -5,6 +5,9 @@ import { AUTH_ENDPOINTS, SANCTUM_URL } from '@/config/api.config';
 
 //CSRF
 export const getCsrfToken = async () => {
+  // Passport (customer portal) uses Bearer tokens 
+  if (import.meta.env.VITE_APP_MODE === 'customer') return;
+
   try {
     const hasXsrfCookie = typeof document !== 'undefined' && document.cookie.split('; ').some((cookie) => cookie.startsWith('XSRF-TOKEN='));
     if (hasXsrfCookie) {

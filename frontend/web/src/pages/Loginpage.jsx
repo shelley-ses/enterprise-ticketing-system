@@ -21,15 +21,28 @@ const LOCKOUT_STORAGE_KEY_PREFIX = 'login_lockout_until_';
 
 const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 
-const checkIsCS = (role = '') => {
-  const r = role.toLowerCase();
-  return r.includes('customer service') || r.includes('customer-service') || r === 'cs';
+const checkIsCS = (user) => {
+  if (!user) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  
+  if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') {
+    return true;
+  }
+  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
-const checkIsEmployee = (role = '') => {
-  const r = role.toLowerCase();
-  if (checkIsCS(r)) return false;
-  return r === 'employee' || r.includes('service') || r.includes('engineer');
+const checkIsEmployee = (user) => {
+  if (!user) return false;
+  if (checkIsCS(user)) return false;
+  
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  
+  if (dept === 'service' || dept.includes('engineer')) {
+    return true;
+  }
+  return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
 
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
@@ -453,13 +466,26 @@ function Loginpage({ mode = 'customer' }) {
       if (result.success) {
         setLoginError('');
         setAttempts(0);
-        const role = (result.user?.role || 'customer').toString().toLowerCase();
-        if (checkIsCS(role)) {
-          navigate('/cs/dashboard', { replace: true });
-        } else if (checkIsEmployee(role)) {
-          navigate('/employee/dashboard', { replace: true });
+        const isCS = checkIsCS(result.user);
+        const isEmployee = checkIsEmployee(result.user);
+        const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
+
+        if (isCustomerSite) {
+          if (isCS) {
+            window.location.href = '/ticketing/cs/dashboard';
+          } else if (isEmployee) {
+            window.location.href = '/ticketing/employee/dashboard';
+          } else {
+            navigate('/customer-dashboard', { replace: true });
+          }
         } else {
-          navigate('/customer-dashboard', { replace: true });
+          if (isCS) {
+            navigate('/cs/dashboard', { replace: true });
+          } else if (isEmployee) {
+            navigate('/employee/dashboard', { replace: true });
+          } else {
+            navigate('/customer-dashboard', { replace: true });
+          }
         }
       } else {
         // Rate Limit

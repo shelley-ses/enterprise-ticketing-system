@@ -1,5 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+
+// Vite's BASE_URL is '/', '/ticketing/', or '/customer-ticketing/' depending on context.
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
@@ -29,9 +32,20 @@ import Notifications from './pages/Notifications.jsx';
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router basename={routerBasename}>
         <AuthGate>
           <Routes>
+            {/* /customer — primary customer login (does NOT touch auth-module) */}
+            <Route
+              path="/customer"
+              element={
+                <GuestRoute>
+                  <Loginpage mode="customer" />
+                </GuestRoute>
+              }
+            />
+
+            {/* /login — redirects to auth-module (employee/CS only) */}
             <Route
               path="/login"
               element={
@@ -41,14 +55,8 @@ function App() {
               }
             />
 
-            <Route
-              path="/login/customer"
-              element={
-                <GuestRoute>
-                  <Loginpage mode="customer" />
-                </GuestRoute>
-              }
-            />
+            {/* Aliases — keep old URLs working */}
+            <Route path="/login/customer" element={<Navigate to="/customer" replace />} />
 
             <Route
               path="/login/employee"
@@ -124,9 +132,17 @@ function App() {
           </Route>
 
             <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />
-            <Route path="/customer-login" element={<Navigate to="/login/customer" replace />} />
+            <Route path="/customer-login" element={<Navigate to="/customer" replace />} />
 
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to={import.meta.env.VITE_APP_MODE === 'customer' ? '/customer' : '/login'}
+                  replace
+                />
+              }
+            />
           </Routes>
         </AuthGate>
       </Router>

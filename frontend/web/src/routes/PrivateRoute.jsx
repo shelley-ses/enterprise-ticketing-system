@@ -2,18 +2,49 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import tokenStore from '@/auth/tokenStore';
 
-// Private Route
-
-const checkIsCS = (role = '') => {
-  const r = role.toLowerCase();
-  return r.includes('customer service') || r.includes('customer-service') || r === 'cs';
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+export const checkIsCS = (user) => {
+  if (!user) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
+  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
-const checkIsEmployee = (role = '') => {
-  const r = role.toLowerCase();
-  if (checkIsCS(r)) return false;
-  return r === 'employee' || r.includes('service') || r.includes('engineer');
+export const checkIsEmployee = (user) => {
+  if (!user) return false;
+  if (checkIsCS(user)) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept === 'service' || dept.includes('engineer')) return true;
+  return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
+
+// ─── Wrong Portal page ────────────────────────────────────────────────────────
+function WrongPortal() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center max-w-md px-6">
+        <div className="text-6xl mb-4">🚫</div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">Wrong Portal</h1>
+        <p className="text-gray-500 mb-6">
+          This portal is for <strong>customers only</strong>.<br />
+          Employees and Customer Service agents must log in through the main company portal.
+        </p>
+        <a
+          href="http://localhost:5173"
+          className="inline-block px-6 py-3 bg-[#252578] text-white rounded-lg font-medium hover:bg-[#1a1a5e] transition-colors"
+        >
+          Go to Employee Portal
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ─── Private Route ────────────────────────────────────────────────────────────
+// isCustomerSite: true when running as the customer-only container (port 5006)
+const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
 export default function PrivateRoute({ children, role }) {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -30,31 +61,47 @@ export default function PrivateRoute({ children, role }) {
     );
   }
 
-  if (!isAuthenticated || !tokenStore.getToken()) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
+  // Not authenticated
+  if (!isAuthenticated) {
+    if (isCustomerSite) {
+      // Customer portal: always go to /customer login
+      return <Navigate to="/customer" replace state={{ from: location }} />;
+    } else {
+      // Employee/CS portal: redirect to auth-module root
+      if (typeof window !== 'undefined') window.location.href = '/';
+      return null;
+    }
   }
 
-  if (role) {
-    const userRole = (user?.role || 'customer').toString().toLowerCase();
-    const normalizedRole = role.toLowerCase();
+  // Authenticated — check roles
+  const isCS       = checkIsCS(user);
+  const isEmployee = checkIsEmployee(user);
+  const isCustomer = !isCS && !isEmployee;
 
-    if (normalizedRole === 'employee') {
-      const isEmployee = checkIsEmployee(userRole);
-      if (!isEmployee) {
-        const isCS = checkIsCS(userRole);
-        return <Navigate to={isCS ? '/cs/dashboard' : '/customer-dashboard'} replace />;
+  // ── Customer portal (port 5006) ──────────────────────────────────────────
+  if (isCustomerSite) {
+    // Only customers are allowed here
+    if (!isCustomer) return <WrongPortal />;
+    // Customers can access any customer route — fall through to render
+  } else {
+    // ── Employee/CS portal (port 5173/5005) ─────────────────────────────────
+    if (isCustomer) {
+      return <WrongPortal />;
+    }
+
+    // Role-specific route authorization
+    if (role) {
+      const normalizedRole = role.toLowerCase();
+      if (normalizedRole === 'employee' && !isEmployee) {
+        return <Navigate to="/cs/dashboard" replace />;
       }
-    } else if (normalizedRole === 'customer service' || normalizedRole === 'customer-service' || normalizedRole === 'cs') {
-      const isCS = checkIsCS(userRole);
-      if (!isCS) {
-        const isEmployee = checkIsEmployee(userRole);
-        return <Navigate to={isEmployee ? '/employee/dashboard' : '/customer-dashboard'} replace />;
-      }
-    } else if (normalizedRole === 'customer') {
-      const isCustomer = !checkIsCS(userRole) && !checkIsEmployee(userRole);
-      if (!isCustomer) {
-        const isEmployee = checkIsEmployee(userRole);
-        return <Navigate to={isEmployee ? '/employee/dashboard' : '/cs/dashboard'} replace />;
+      if (
+        (normalizedRole === 'cs' ||
+          normalizedRole === 'customer service' ||
+          normalizedRole === 'customer-service') &&
+        !isCS
+      ) {
+        return <Navigate to="/employee/dashboard" replace />;
       }
     }
   }

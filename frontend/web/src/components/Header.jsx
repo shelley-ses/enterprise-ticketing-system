@@ -52,9 +52,14 @@ export default function Header() {
   const handleLogout = async () => {
     setDropdownOpen(false);
     await logout();
-    navigate('/login', { replace: true });
-    // Drop forward history 
-    window.history.pushState(null, '', '/login');
+
+    if (import.meta.env.VITE_APP_MODE === 'customer') {
+      // Customer portal — always send back to customer login
+      navigate('/customer', { replace: true });
+    } else {
+      // Employee/CS portal — send back to auth-module
+      window.location.href = '/';
+    }
   };
 
   return (

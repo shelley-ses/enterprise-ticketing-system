@@ -32,6 +32,15 @@ class AuthController extends Controller
 
         Log::info('AuthController.login:after_validation');
 
+        if ($request->input('mode', 'customer') === 'employee') {
+            return response()->json([
+                'message' => 'Built-in employee login is disabled. Please use SSO.',
+                'user' => null,
+                'token' => null,
+                'is_first_login' => false,
+            ], 401);
+        }
+
         $result = $this->authService->login(
             $request->email,
             $request->password,

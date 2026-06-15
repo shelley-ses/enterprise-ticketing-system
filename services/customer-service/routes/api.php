@@ -23,7 +23,7 @@ Route::post('/forgot-password/verify', [AuthController::class, 'verifyForgotPass
 Route::post('/reset-password', [AuthController::class, 'resetForgotPassword'])->middleware('throttle:ip_auth');
 
 
-Route::middleware('auth:api')->group(function () {
+Route::middleware('auth.subsystem')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/heartbeat', [AuthController::class, 'heartbeat']);
     Route::post('/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:otp_request');
@@ -32,4 +32,8 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+});
+
+Route::get('/sanctum/csrf-cookie', function () {
+    return response()->noContent();
 });

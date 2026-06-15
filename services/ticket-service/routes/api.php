@@ -16,7 +16,7 @@ use App\Http\Controllers\WorkLogController;
 |
 */
 
-Route::middleware('auth:api')->get('/user', function (Request $request) {
+Route::middleware('auth.subsystem')->get('/user', function (Request $request) {
     return $request->user();
 });
 
@@ -26,7 +26,7 @@ Route::get('/cs-dashboard', [TicketController::class, 'csDashboard'])->middlewar
 Route::get('/cs-incoming', [TicketController::class, 'csIncoming'])->middleware('no-cache');
 Route::get('/departments', [TicketController::class, 'getDepartments']);
 Route::get('/assignable-employees', [TicketController::class, 'assignableEmployees']);
-Route::middleware('auth:api')->group(function () {
+Route::middleware('auth.subsystem')->group(function () {
     Route::post('/tickets/internal', [TicketController::class, 'storeInternalTicket']);
     Route::post('/tickets/{ticketId}/assign', [TicketController::class, 'assignTicket']);
     Route::patch('/tickets/{ticketId}/accept', [TicketController::class, 'acceptTicket']);
