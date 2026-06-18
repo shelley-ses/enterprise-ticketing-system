@@ -2,21 +2,19 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Search, Plus, MoreVertical } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
-import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/ticketService';
-
-const STORAGE_KEY = 'superadmin_equipment_categories';
+import { 
+  getSuperAdminConfig,
+  createSuperAdminEquipment,
+  updateSuperAdminEquipment,
+  deleteSuperAdminEquipment,
+  createSuperAdminPriority,
+  updateSuperAdminPriority,
+  deleteSuperAdminPriority
+} from '@/services/ticketService';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const TAB_EQUIPMENT = 'equipment';
 const TAB_PRIORITY = 'priority';
-
-const defaultCategories = [
-  { id: 1, name: 'X-Ray' },
-  { id: 2, name: 'MRI' },
-  { id: 3, name: 'CT Scan' },
-  { id: 4, name: 'Ultrasound' },
-  { id: 5, name: 'Ventilator' },
-  { id: 6, name: 'Defibrillator' },
-];
 
 const priorityColorOptions = [
   { value: 'bg-red-100 text-red-700', label: 'Red' },
@@ -30,28 +28,10 @@ const priorityColorOptions = [
   { value: 'bg-gray-100 text-gray-700', label: 'Gray' },
 ];
 
-const defaultPriorities = [
-  { id: 1, name: 'Low', color: 'bg-green-100 text-green-700' },
-  { id: 2, name: 'Medium', color: 'bg-yellow-100 text-yellow-700' },
-  { id: 3, name: 'High', color: 'bg-orange-100 text-orange-700' },
-  { id: 4, name: 'Critical', color: 'bg-red-100 text-red-700' },
-];
-
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
-
-function saveItems(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
 export default function SuperAdminTicketConfig() {
   const [tab, setTab] = useState(TAB_EQUIPMENT);
-  const [items, setItems] = useState(() => loadItems() || { equipment: defaultCategories, priorities: defaultPriorities });
+  const [items, setItems] = useState({ equipment: [], priorities: [] });
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
@@ -64,9 +44,30 @@ export default function SuperAdminTicketConfig() {
   const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
   const showConfirm = (title, message, onConfirm, opts = {}) => setNotification({ type: 'confirm', title, message, onConfirm, onCancel: closeNotif, ...opts });
 
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getSuperAdminConfig();
+      setItems({
+        equipment: data.equipment || [],
+        priorities: data.priorities || []
+      });
+    } catch (err) {
+      console.error('Failed to load superadmin config:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    saveItems(items);
-  }, [items]);
+    loadConfig();
+  }, [loadConfig]);
+
+  useRealtimeRefresh({
+    refresh: loadConfig,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 15000,
+  });
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -102,28 +103,29 @@ export default function SuperAdminTicketConfig() {
     setMenuPos(null);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editName.trim()) return;
-    const key = tab === TAB_EQUIPMENT ? 'equipment' : 'priorities';
-    setItems((prev) => {
-      const updated = { ...prev };
-      if (editingItem.id === null) {
-        const newId = Math.max(0, ...updated[key].map((i) => i.id)) + 1;
-        const base = { id: newId, name: editName.trim() };
-        if (key === 'priorities') base.color = editColor;
-        updated[key] = [...updated[key], base];
+    try {
+      if (tab === TAB_EQUIPMENT) {
+        if (editingItem.id === null) {
+          await createSuperAdminEquipment({ name: editName.trim() });
+        } else {
+          await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
+        }
       } else {
-        updated[key] = updated[key].map((i) => {
-          if (i.id !== editingItem.id) return i;
-          const updatedItem = { ...i, name: editName.trim() };
-          if (key === 'priorities') updatedItem.color = editColor;
-          return updatedItem;
-        });
+        if (editingItem.id === null) {
+          await createSuperAdminPriority({ name: editName.trim(), color: editColor });
+        } else {
+          await updateSuperAdminPriority(editingItem.id, { name: editName.trim(), color: editColor });
+        }
       }
-      return updated;
-    });
-    setEditingItem(null);
-    showSuccess('Saved', `${tab === TAB_EQUIPMENT ? 'Category' : 'Priority'} has been saved.`);
+      setEditingItem(null);
+      showSuccess('Saved', `${tab === TAB_EQUIPMENT ? 'Category' : 'Priority'} has been saved.`);
+      loadConfig();
+    } catch (err) {
+      console.error(err);
+      showSuccess('Error', 'Failed to save configuration settings.');
+    }
   };
 
   const handleDelete = (item) => {
@@ -133,11 +135,20 @@ export default function SuperAdminTicketConfig() {
     showConfirm(`Delete ${label}?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
 
-  const confirmDelete = (item) => {
+  const confirmDelete = async (item) => {
     closeNotif();
-    const key = tab === TAB_EQUIPMENT ? 'equipment' : 'priorities';
-    setItems((prev) => ({ ...prev, [key]: prev[key].filter((i) => i.id !== item.id) }));
-    showSuccess('Deleted', `${item.name} has been deleted.`);
+    try {
+      if (tab === TAB_EQUIPMENT) {
+        await deleteSuperAdminEquipment(item.id);
+      } else {
+        await deleteSuperAdminPriority(item.id);
+      }
+      showSuccess('Deleted', `${item.name} has been deleted.`);
+      loadConfig();
+    } catch (err) {
+      console.error(err);
+      showSuccess('Error', 'Failed to delete configuration item.');
+    }
   };
 
   return (

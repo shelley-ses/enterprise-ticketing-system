@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('ticket_audit_logs', function (Blueprint $table) {
             $table->bigIncrements('log_ID');
-            $table->foreignId('ticket_ID')->constrained('tickets', 'ticket_ID')->cascadeOnDelete();
+            $table->foreignId('ticket_ID')->nullable()->constrained('tickets', 'ticket_ID')->cascadeOnDelete();
             $table->string('action_type');
             $table->foreignId('action_by_ID')->constrained('employees', 'emp_id')->cascadeOnDelete();
             $table->string('actor_type');

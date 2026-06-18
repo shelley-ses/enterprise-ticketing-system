@@ -46,6 +46,13 @@ const checkIsEmployee = (user) => {
   return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
 
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
 function ForgotPasswordModal({ onClose }) {
   const [step, setStep] = useState(1);
@@ -490,7 +497,7 @@ function Loginpage({ mode = 'customer' }) {
 
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
-        const isSuperAdmin = result.user?.role === 'superadmin' || result.user?.department === 'Super Admin';
+        const isSuperAdmin = checkIsSuperAdmin(result.user);
         const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
         if (isSuperAdmin) {

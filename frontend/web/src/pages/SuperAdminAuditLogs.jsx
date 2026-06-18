@@ -1,45 +1,58 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Search, Filter } from 'lucide-react';
-
-const sampleLogs = [
-  { id: 1, timestamp: '2026-06-19 10:32', user: 'John Smith', role: 'Super Admin', action: 'Added', module: 'Equipment Categories', target: 'MRI Machine', details: 'Added new equipment category' },
-  { id: 2, timestamp: '2026-06-19 09:45', user: 'Super Admin', role: 'Super Admin', action: 'Updated', module: 'Priority Levels', target: 'High Priority', details: 'Changed color from orange to red' },
-  { id: 3, timestamp: '2026-06-19 08:20', user: 'John Smith', role: 'Super Admin', action: 'Deleted', module: 'Equipment Categories', target: 'Old Monitor', details: 'Removed obsolete equipment category' },
-  { id: 4, timestamp: '2026-06-18 16:45', user: 'Super Admin', role: 'Super Admin', action: 'Added', module: 'Priority Levels', target: 'Critical Priority', details: 'Created new priority level' },
-  { id: 5, timestamp: '2026-06-18 14:02', user: 'Maria Cruz', role: 'Admin', action: 'Updated Rule', module: 'Automation', target: 'Auto-Assign Rule #3', details: 'Changed assignment from Queue A to Queue B' },
-  { id: 6, timestamp: '2026-06-18 11:30', user: 'John Smith', role: 'Super Admin', action: 'Updated', module: 'Equipment Categories', target: 'X-Ray', details: 'Renamed category from "X-Ray Machine" to "X-Ray"' },
-  { id: 7, timestamp: '2026-06-17 15:10', user: 'Maria Cruz', role: 'Admin', action: 'Created User', module: 'User Management', target: 'CS Agent #15', details: 'Added new CS account' },
-  { id: 8, timestamp: '2026-06-17 13:45', user: 'Super Admin', role: 'Super Admin', action: 'Changed Permission', module: 'Roles', target: 'CS Agent Role', details: 'Granted export access' },
-  { id: 9, timestamp: '2026-06-17 10:00', user: 'John Smith', role: 'Super Admin', action: 'Deleted', module: 'Priority Levels', target: 'Urgent Priority', details: 'Removed unused priority level' },
-  { id: 10, timestamp: '2026-06-16 09:20', user: 'Super Admin', role: 'Super Admin', action: 'Added', module: 'Equipment Categories', target: 'Ventilator', details: 'Added new equipment category for ICU' },
-];
-
-const actionOptions = [...new Set(sampleLogs.map((l) => l.action))];
-const moduleOptions = [...new Set(sampleLogs.map((l) => l.module))];
+import { getSuperAdminAuditLogs } from '@/services/ticketService';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 export default function SuperAdminAuditLogs() {
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterModule, setFilterModule] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getSuperAdminAuditLogs();
+      setLogs(data || []);
+    } catch (err) {
+      console.error('Failed to load superadmin audit logs:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadLogs();
+  }, [loadLogs]);
+
+  useRealtimeRefresh({
+    refresh: loadLogs,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 15000,
+  });
+
+  const actionOptions = useMemo(() => [...new Set(logs.map((l) => l.action).filter(Boolean))].sort(), [logs]);
+  const moduleOptions = useMemo(() => [...new Set(logs.map((l) => l.module).filter(Boolean))].sort(), [logs]);
 
   const filtered = useMemo(() => {
-    let result = sampleLogs;
+    let result = logs;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter(
         (log) =>
-          log.user.toLowerCase().includes(q) ||
-          log.action.toLowerCase().includes(q) ||
-          log.module.toLowerCase().includes(q) ||
-          log.target.toLowerCase().includes(q) ||
-          log.details.toLowerCase().includes(q)
+          (log.user || '').toLowerCase().includes(q) ||
+          (log.action || '').toLowerCase().includes(q) ||
+          (log.module || '').toLowerCase().includes(q) ||
+          (log.target || '').toLowerCase().includes(q) ||
+          (log.details || '').toLowerCase().includes(q)
       );
     }
     if (filterAction) result = result.filter((l) => l.action === filterAction);
     if (filterModule) result = result.filter((l) => l.module === filterModule);
     return result;
-  }, [search, filterAction, filterModule]);
+  }, [logs, search, filterAction, filterModule]);
 
   return (
     <div className="flex flex-col gap-6">

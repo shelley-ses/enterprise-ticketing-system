@@ -821,3 +821,48 @@ export const markNotificationRead = async (id) => {
   const response = await ticketClient.patch(`/notifications/${id}/read`);
   return response.data;
 };
+
+export const getSuperAdminConfig = async () => {
+  const response = await ticketClient.get('/superadmin/config');
+  return response.data;
+};
+
+export const createSuperAdminEquipment = async (payload) => {
+  const response = await ticketClient.post('/superadmin/equipment', payload);
+  return response.data;
+};
+
+export const updateSuperAdminEquipment = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/equipment/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSuperAdminEquipment = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/equipment/${id}`);
+  return response.data;
+};
+
+export const createSuperAdminPriority = async (payload) => {
+  const response = await ticketClient.post('/superadmin/priority', payload);
+  return response.data;
+};
+
+export const updateSuperAdminPriority = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/priority/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSuperAdminPriority = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/priority/${id}`);
+  return response.data;
+};
+
+export const getSuperAdminAuditLogs = async () => {
+  const response = await ticketClient.get('/superadmin/audit-logs');
+  return response.data;
+};
+
+export const getSuperAdminHistory = async () => {
+  const response = await ticketClient.get('/superadmin/history');
+  return response.data;
+};

@@ -45,5 +45,16 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::get('/employee/worklogs/export', [WorkLogController::class, 'export']);
     Route::get('/employee/profile', [TicketController::class, 'employeeProfile']);
     Route::get('/employee/tickets/internal', [TicketController::class, 'internalTickets']);
+
+    // SuperAdmin routes
+    Route::get('/superadmin/config', [TicketController::class, 'getSuperAdminConfig']);
+    Route::post('/superadmin/equipment', [TicketController::class, 'createSuperAdminEquipment']);
+    Route::put('/superadmin/equipment/{id}', [TicketController::class, 'updateSuperAdminEquipment']);
+    Route::delete('/superadmin/equipment/{id}', [TicketController::class, 'deleteSuperAdminEquipment']);
+    Route::post('/superadmin/priority', [TicketController::class, 'createSuperAdminPriority']);
+    Route::put('/superadmin/priority/{id}', [TicketController::class, 'updateSuperAdminPriority']);
+    Route::delete('/superadmin/priority/{id}', [TicketController::class, 'deleteSuperAdminPriority']);
+    Route::get('/superadmin/audit-logs', [TicketController::class, 'getSuperAdminAuditLogs']);
+    Route::get('/superadmin/history', [TicketController::class, 'getSuperAdminHistory']);
 });
 Route::post('/tickets', [TicketController::class, 'store']);
