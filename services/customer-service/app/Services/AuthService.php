@@ -102,17 +102,7 @@
             $credential->last_login_at = Carbon::now();
             $credential->save();
 
-            if ($isFirstLogin) {
-                $sent = $this->sendFirstLoginOtp($email, $client->client_name);
-                if (!$sent) {
-                    return [
-                        'success' => false,
-                        'message' => 'Unable to send verification OTP email. Please check SMTP settings.',
-                        'user' => null,
-                        'token' => null,
-                    ];
-                }
-            }
+            // OTP on first login is disabled — users go straight to the change-password screen.
 
             Log::info('AuthService.login:after_credential_save', ['duration_ms' => (microtime(true)-$start)*1000]);
 
@@ -197,17 +187,7 @@
             $employee->is_active = $employee->role !== 'customer service';
             $employee->save();
 
-            if ($isFirstLogin) {
-                $sent = $this->sendFirstLoginOtp($email, trim($employee->first_name . ' ' . $employee->last_name));
-                if (!$sent) {
-                    return [
-                        'success' => false,
-                        'message' => 'Unable to send verification OTP email. Please check SMTP settings.',
-                        'user' => null,
-                        'token' => null,
-                    ];
-                }
-            }
+            // OTP on first login is disabled — users go straight to the change-password screen.
 
             $this->syncEmployeePresence($employee);
 
@@ -495,55 +475,7 @@
                 ? $user->password_change_at === null
                 : optional($user->credential)->password_change_at === null;
 
-            if ($isFirstLogin) {
-                if (empty($otp)) {
-                    return [
-                        'success' => false,
-                        'message' => 'OTP is required for first-time password change.',
-                    ];
-                }
-
-                $email = $user->email;
-                $record = PasswordResetOtp::where('email', $email)->first();
-
-                if (!$record || $record->used_at || $record->expires_at->isPast()) {
-                    return [
-                        'success' => false,
-                        'message' => 'Invalid or expired verification code.',
-                    ];
-                }
-
-                if ($record->attempts >= self::PASSWORD_RESET_MAX_ATTEMPTS) {
-                    return [
-                        'success' => false,
-                        'message' => 'Too many invalid attempts. Please request a new code.',
-                    ];
-                }
-
-                if (!Hash::check($otp, $record->otp_hash)) {
-                    $record->attempts += 1;
-                    $record->save();
-
-                    if ($record->attempts >= 5) {
-                        if ($user instanceof Employee) {
-                            $user->locked_until = Carbon::now()->addMinutes(5);
-                            $user->save();
-                        } else {
-                            $user->credential->locked_until = Carbon::now()->addMinutes(5);
-                            $user->credential->save();
-                        }
-                        return [
-                            'success' => false,
-                            'message' => 'Too many invalid attempts. Account has been temporarily locked for 5 minutes.',
-                        ];
-                    }
-
-                    return [
-                        'success' => false,
-                        'message' => 'Invalid or expired verification code.',
-                    ];
-                }
-            }
+            // OTP verification on first-login password change is disabled.
 
             $currentPasswordHash = $user instanceof Employee
                 ? $user->password_hash
@@ -578,12 +510,7 @@
                     $user->credential->save();
                 }
 
-                if ($isFirstLogin) {
-                    $email = $user->email;
-                    PasswordResetOtp::where('email', $email)->update([
-                        'used_at' => Carbon::now()
-                    ]);
-                }
+                // OTP cleanup skipped (OTP flow is disabled).
             });
 
             return [

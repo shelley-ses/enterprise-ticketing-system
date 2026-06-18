@@ -78,7 +78,6 @@ export default function Notifications() {
     },
   });
 
-<<<<<<< HEAD
   const handleAction = async (requestId, ticketId, action, extraParams = {}) => {
     setActioningId(requestId);
     setError('');

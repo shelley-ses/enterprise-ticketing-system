@@ -3,8 +3,11 @@ import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import SidebarCS from './SidebarCS';
 import { CS_TICKET_REFRESH_EVENT } from '@/services/ticketService';
+import { useAuth } from '@/context/AuthContext';
+import ForceChangePasswordModal from './ForceChangePasswordModal';
 
 export default function CSLayout() {
+  const { isFirstLogin } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -33,6 +36,9 @@ export default function CSLayout() {
           </div>
         </main>
       </div>
+
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }
+

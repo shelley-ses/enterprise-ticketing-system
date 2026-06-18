@@ -92,18 +92,18 @@ export default function CSDashboard() {
 
   const statItems = stats
     ? [
-        { label: 'Unassigned Tickets', value: stats.unassigned, icon: unassignedIcon },
-        { label: 'Pending Tickets', value: stats.pending, icon: pendingIcon },
-        { label: 'Assigned Tickets', value: stats.assigned, icon: assignedIcon },
-        { label: 'High Priority', value: stats.highPriority, icon: prioIcon },
-        { label: 'SLA Warnings', value: stats.slaWarnings, icon: warnIcon },
-      ]
+      { label: 'Unassigned Tickets', value: stats.unassigned, icon: unassignedIcon },
+      { label: 'Pending Tickets', value: stats.pending, icon: pendingIcon },
+      { label: 'Assigned Tickets', value: stats.assigned, icon: assignedIcon },
+      { label: 'High Priority', value: stats.highPriority, icon: prioIcon },
+      { label: 'SLA Warnings', value: stats.slaWarnings, icon: warnIcon },
+    ]
     : [];
 
   return (
     <div className="p-6">
       {showRefreshBanner && (
-        <div 
+        <div
           onClick={() => loadDashboard({ forceRefresh: true })}
           className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
         >

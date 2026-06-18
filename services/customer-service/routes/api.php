@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ProvisionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,6 +16,7 @@ use App\Http\Controllers\AuthController;
 |
 */
 
+Route::post('/customers/provision', [ProvisionController::class, 'provision']);
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:ip_auth');
 Route::post('/auth/refresh', [AuthController::class, 'refresh'])->middleware('throttle:ip_auth');

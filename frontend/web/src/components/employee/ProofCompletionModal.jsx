@@ -99,6 +99,7 @@ export default function ProofCompletionModal({
       return;
     }
 
+    // Re-validate all selected files before submitting (catches any that slipped through)
     const fileError = validateFiles(proofFiles);
     if (fileError) {
       setErrorMessage(fileError);
@@ -134,7 +135,8 @@ export default function ProofCompletionModal({
         navigate('/employee/machine');
       }, 1500);
     } catch (err) {
-      setErrorMessage('Failed to submit proof. Please try again.');
+      const msg = err?.response?.data?.message;
+      setErrorMessage(msg || 'Failed to submit proof. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -142,6 +144,14 @@ export default function ProofCompletionModal({
 
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files);
+    // Validate immediately on selection so the user knows right away
+    const fileError = validateFiles(selected);
+    if (fileError) {
+      setErrorMessage(fileError);
+      // Don't add the invalid files
+      return;
+    }
+    setErrorMessage('');
     setProofFiles((prev) => {
       // Avoid duplicate files based on name and size
       const merged = [...prev];

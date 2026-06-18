@@ -2,8 +2,12 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import SidebarEmployee from './SidebarEmployee';
+import { useAuth } from '@/context/AuthContext';
+import ForceChangePasswordModal from './ForceChangePasswordModal';
 
 export default function EmployeeLayout() {
+  const { isFirstLogin } = useAuth();
+
   return (
     <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
       <Header />
@@ -17,6 +21,9 @@ export default function EmployeeLayout() {
           </div>
         </main>
       </div>
+
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }
+

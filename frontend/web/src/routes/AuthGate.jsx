@@ -1,9 +1,8 @@
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
 
 export default function AuthGate({ children }) {
-  const { isAuthenticated, isFirstLogin, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -16,10 +15,6 @@ export default function AuthGate({ children }) {
     );
   }
 
-  if (isAuthenticated && isFirstLogin) {
-    // TODO: Enable force change password modal back when ready
-    // return <ForceChangePasswordModal />;
-  }
-
   return children;
 }
+

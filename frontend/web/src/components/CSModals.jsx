@@ -687,7 +687,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const toggleEmp = (id) => {
     setSelectedEmployees((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      if (next.length > 0) {
+      if (next.length > 0 && department) {
         setShowValidationError(false);
       }
       return next;
@@ -695,7 +695,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   };
 
   const handleAcceptClick = () => {
-    if (selectedEmployees.length === 0) {
+    if (!department || selectedEmployees.length === 0) {
       setShowValidationError(true);
       return;
     }
@@ -876,12 +876,12 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 )}
               </div>
 
-              {showValidationError && selectedEmployees.length === 0 && (
+              {showValidationError && (!department || selectedEmployees.length === 0) && (
                 <p className="mt-2 text-xs font-semibold text-red-500 flex items-center gap-1 bg-red-50 p-2 rounded-xl border border-red-100">
                   <svg className="w-3.5 h-3.5 shrink-0 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
-                  At least one employee must be selected.
+                  {!department ? 'Please select a department.' : 'At least one employee must be selected.'}
                 </p>
               )}
             </div>

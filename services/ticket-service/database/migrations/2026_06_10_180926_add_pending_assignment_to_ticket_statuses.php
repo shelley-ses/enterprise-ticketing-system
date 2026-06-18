@@ -7,10 +7,10 @@ return new class extends Migration
 {
     public function up()
     {
-        DB::table('ticket_statuses')->insert([
-            'ticket_status_ID' => 9,
-            'status_name' => 'Pending Assignment',
-        ]);
+        DB::table('ticket_statuses')->updateOrInsert(
+            ['status_name' => 'Pending Assignment'],
+            ['color_code' => '#f59e0b', 'created_at' => now(), 'updated_at' => now()]
+        );
     }
 
     public function down()

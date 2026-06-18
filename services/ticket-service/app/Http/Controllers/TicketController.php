@@ -7,9 +7,47 @@ use App\Mail\TicketNotificationMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Cache;
 
 class TicketController extends Controller
 {
+    private function clearTicketCaches()
+    {
+        try {
+            Cache::forget('cs_dashboard_counts');
+
+            $redis = \Illuminate\Support\Facades\Redis::connection();
+            $prefix = config('cache.prefix') ?? 'laravel_cache';
+            
+            $patterns = [
+                '*cs_incoming_tickets_*',
+                '*cs_dashboard_recent_*',
+                '*customer_dashboard_recent_*',
+                '*customer_dashboard_counts_*'
+            ];
+            
+            foreach ($patterns as $pattern) {
+                $keys = $redis->keys($pattern);
+                if (!empty($keys)) {
+                    foreach ($keys as $key) {
+                        $cleanKey = $key;
+                        if (strpos($key, ':') !== false) {
+                            $parts = explode(':', $key);
+                            $cleanKey = end($parts);
+                        } else {
+                            if (str_starts_with($key, $prefix)) {
+                                $cleanKey = substr($key, strlen($prefix));
+                            }
+                        }
+                        Cache::forget($cleanKey);
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('Redis cache clearing failed: ' . $e->getMessage());
+        }
+    }
+
     private function slaLabel($createdAt): string
     {
         if (!$createdAt) {
@@ -233,58 +271,64 @@ class TicketController extends Controller
             $limit = 20;
         }
 
-        $statusCounts = DB::table('tickets as t')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->select('ts.status_name', DB::raw('COUNT(*) as total'))
-            ->where('t.created_by', $createdBy)
-            ->groupBy('ts.status_name')
-            ->get();
+        $summary = Cache::remember("customer_dashboard_counts_{$createdBy}", 60, function () use ($createdBy) {
+            $statusCounts = DB::table('tickets as t')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->select('ts.status_name', DB::raw('COUNT(*) as total'))
+                ->where('t.created_by', $createdBy)
+                ->groupBy('ts.status_name')
+                ->get();
 
-        $summary = [
-            'open' => 0,
-            'in_progress' => 0,
-            'resolved' => 0,
-            'closed' => 0,
-        ];
+            $sum = [
+                'open' => 0,
+                'in_progress' => 0,
+                'resolved' => 0,
+                'closed' => 0,
+            ];
 
-        foreach ($statusCounts as $row) {
-            $key = str_replace(' ', '_', strtolower($row->status_name));
-            if (array_key_exists($key, $summary)) {
-                $summary[$key] = (int) $row->total;
+            foreach ($statusCounts as $row) {
+                $key = str_replace(' ', '_', strtolower($row->status_name));
+                if (array_key_exists($key, $sum)) {
+                    $sum[$key] = (int) $row->total;
+                }
             }
-        }
+            return $sum;
+        });
 
-        $recentTickets = DB::table('tickets as t')
-            ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
-            ->select(
-                't.ticket_ID',
-                't.title',
-                'm.machine_name',
-                'm.serial_number',
-                'ts.status_name',
-                't.created_at',
-                't.updated_at',
-                't.assigned_to',
-                'pc.category_name'
-            )
-            ->where('t.created_by', $createdBy)
-            ->orderByDesc('t.created_at')
-            ->limit($limit)
-            ->get()
-            ->map(fn ($row) => [
-                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
-                'ticket_ID' => $row->ticket_ID,
-                'title' => $row->title,
-                'category' => $row->category_name,
-                'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                'status' => $row->status_name,
-                'date_created' => $row->created_at,
-                'last_updated' => $row->updated_at ?? $row->created_at,
-                'assigned_to' => $row->assigned_to,
-            ])
-            ->values();
+        $recentTickets = Cache::remember("customer_dashboard_recent_{$createdBy}_{$limit}", 60, function () use ($createdBy, $limit) {
+            return DB::table('tickets as t')
+                ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+                ->select(
+                    't.ticket_ID',
+                    't.title',
+                    'm.machine_name',
+                    'm.serial_number',
+                    'ts.status_name',
+                    't.created_at',
+                    't.updated_at',
+                    't.assigned_to',
+                    'pc.category_name'
+                )
+                ->where('t.created_by', $createdBy)
+                ->orderByDesc('t.created_at')
+                ->limit($limit)
+                ->get()
+                ->map(fn ($row) => [
+                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
+                    'ticket_ID' => $row->ticket_ID,
+                    'title' => $row->title,
+                    'category' => $row->category_name,
+                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+                    'status' => $row->status_name,
+                    'date_created' => $row->created_at,
+                    'last_updated' => $row->updated_at ?? $row->created_at,
+                    'assigned_to' => $row->assigned_to,
+                ])
+                ->values()
+                ->toArray();
+        });
 
         return response()->json([
             'summary' => $summary,
@@ -358,56 +402,62 @@ class TicketController extends Controller
             $limit = 50;
         }
 
-        $statusCounts = DB::table('tickets as t')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->select('ts.status_name', DB::raw('COUNT(*) as total'))
-            ->groupBy('ts.status_name')
-            ->get();
+        $summary = Cache::remember('cs_dashboard_counts', 60, function () {
+            $statusCounts = DB::table('tickets as t')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->select('ts.status_name', DB::raw('COUNT(*) as total'))
+                ->groupBy('ts.status_name')
+                ->get();
 
-        $summary = [
-            'open' => 0,
-            'in_progress' => 0,
-            'resolved' => 0,
-            'closed' => 0,
-        ];
+            $sum = [
+                'open' => 0,
+                'in_progress' => 0,
+                'resolved' => 0,
+                'closed' => 0,
+            ];
 
-        foreach ($statusCounts as $row) {
-            $key = str_replace(' ', '_', strtolower($row->status_name));
-            if (array_key_exists($key, $summary)) {
-                $summary[$key] = (int) $row->total;
+            foreach ($statusCounts as $row) {
+                $key = str_replace(' ', '_', strtolower($row->status_name));
+                if (array_key_exists($key, $sum)) {
+                    $sum[$key] = (int) $row->total;
+                }
             }
-        }
+            return $sum;
+        });
 
-        $recentTickets = DB::table('tickets as t')
-            ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
-            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
-            ->select(
-                't.ticket_ID',
-                't.title',
-                'm.machine_name',
-                'm.serial_number',
-                'ts.status_name',
-                'tp.priority_name',
-                't.created_at',
-                't.updated_at',
-                'c.client_name'
-            )
-            ->orderByDesc('t.created_at')
-            ->limit($limit)
-            ->get()
-            ->map(fn ($row) => [
-                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
-                'title' => $row->title,
-                'customer' => $row->client_name ?: 'Unknown Customer',
-                'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                'status' => $row->status_name,
-                'priority' => $row->priority_name,
-                'created_at' => $row->created_at,
-                'updated_at' => $row->updated_at,
-            ])
-            ->values();
+        $recentTickets = Cache::remember("cs_dashboard_recent_{$limit}", 60, function () use ($limit) {
+            return DB::table('tickets as t')
+                ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+                ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+                ->select(
+                    't.ticket_ID',
+                    't.title',
+                    'm.machine_name',
+                    'm.serial_number',
+                    'ts.status_name',
+                    'tp.priority_name',
+                    't.created_at',
+                    't.updated_at',
+                    'c.client_name'
+                )
+                ->orderByDesc('t.created_at')
+                ->limit($limit)
+                ->get()
+                ->map(fn ($row) => [
+                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
+                    'title' => $row->title,
+                    'customer' => $row->client_name ?: 'Unknown Customer',
+                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+                    'status' => $row->status_name,
+                    'priority' => $row->priority_name,
+                    'created_at' => $row->created_at,
+                    'updated_at' => $row->updated_at,
+                ])
+                ->values()
+                ->toArray();
+        });
 
         return response()->json([
             'summary' => $summary,
@@ -483,8 +533,8 @@ class TicketController extends Controller
             'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
             'sla_ID' => $validated['sla_ID'] ?? null,
-            'title' => $validated['title'],
-            'description' => $validated['description'],
+            'title' => strip_tags($validated['title']),
+            'description' => strip_tags($validated['description']),
             'resolved_at' => null,
             'closed_at' => null,
             'created_at' => now(),
@@ -495,9 +545,12 @@ class TicketController extends Controller
         foreach ($request->file('attachments', []) as $attachment) {
             $storedPath = $attachment->store("ticket-attachments/{$ticketId}", 'public');
 
+            $origName = $attachment->getClientOriginalName();
+            $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
+
             $attachmentId = DB::table('ticket_attachments')->insertGetId([
                 'ticket_id' => $ticketId,
-                'file_name' => $attachment->getClientOriginalName(),
+                'file_name' => $safeName,
                 'file_path' => $storedPath,
                 'file_type' => $attachment->getClientMimeType(),
                 'uploaded_at' => now(),
@@ -506,7 +559,7 @@ class TicketController extends Controller
             $storedAttachments[] = [
                 'attachment_id' => $attachmentId,
                 'ticket_id' => $ticketId,
-                'file_name' => $attachment->getClientOriginalName(),
+                'file_name' => $safeName,
                 'file_path' => '/storage/' . $storedPath,
                 'file_type' => $attachment->getClientMimeType(),
                 'uploaded_at' => now()->toDateTimeString(),
@@ -514,6 +567,7 @@ class TicketController extends Controller
         }
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        $this->clearTicketCaches();
 
         $dashboardTicket = DB::table('tickets as t')
             ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
@@ -602,8 +656,8 @@ class TicketController extends Controller
             'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => 1,
             'sla_ID' => null,
-            'title' => $validated['title'],
-            'description' => $validated['description'],
+            'title' => strip_tags($validated['title']),
+            'description' => strip_tags($validated['description']),
             'resolved_at' => null,
             'closed_at' => null,
             'created_at' => now(),
@@ -618,7 +672,7 @@ class TicketController extends Controller
             'details' => json_encode([
                 'machine_ID' => $validated['machine_ID'],
                 'problem_category_ID' => $validated['problem_category_ID'],
-                'title' => $validated['title'],
+                'title' => strip_tags($validated['title']),
             ]),
             'created_at' => now(),
         ]);
@@ -627,9 +681,12 @@ class TicketController extends Controller
         foreach ($request->file('attachments', []) as $attachment) {
             $storedPath = $attachment->store("ticket-attachments/{$ticketId}", 'public');
 
+            $origName = $attachment->getClientOriginalName();
+            $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
+
             $attachmentId = DB::table('ticket_attachments')->insertGetId([
                 'ticket_id' => $ticketId,
-                'file_name' => $attachment->getClientOriginalName(),
+                'file_name' => $safeName,
                 'file_path' => $storedPath,
                 'file_type' => $attachment->getClientMimeType(),
                 'uploaded_at' => now(),
@@ -638,7 +695,7 @@ class TicketController extends Controller
             $storedAttachments[] = [
                 'attachment_id' => $attachmentId,
                 'ticket_id' => $ticketId,
-                'file_name' => $attachment->getClientOriginalName(),
+                'file_name' => $safeName,
                 'file_path' => '/storage/' . $storedPath,
                 'file_type' => $attachment->getClientMimeType(),
                 'uploaded_at' => now()->toDateTimeString(),
@@ -671,6 +728,7 @@ class TicketController extends Controller
         ]);
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        $this->clearTicketCaches();
 
         return response()->json([
             'message' => 'Internal ticket created successfully.',
@@ -683,98 +741,107 @@ class TicketController extends Controller
     public function csIncoming(Request $request)
     {
         $perPage = max(1, min((int) $request->query('limit', 50), 200));
-        $typeFilter = $request->query('type');
+        $typeFilter = $request->query('type') ?? 'all';
+        $page = $request->query('page', 1);
 
-        $query = DB::table('tickets as t')
-            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
-            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
-            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
-            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
-            ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
-            ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
-            ->select(
-                't.ticket_ID',
-                't.title',
-                't.is_internal',
-                't.requested_by',
-                'pc.category_name',
-                'ts.status_name',
-                'tp.priority_name',
-                'e.department',
-                't.created_at',
-                'c.client_name',
-                'm.machine_name',
-                'm.serial_number',
-                'tt.type_name as ticket_type'
-            );
+        $cacheKey = "cs_incoming_tickets_{$perPage}_{$typeFilter}_{$page}";
 
-        if ($typeFilter === 'internal') {
-            $query->where('t.is_internal', true);
-        } elseif ($typeFilter === 'external') {
-            $query->where('t.is_internal', false);
-        }
+        $result = Cache::remember($cacheKey, 60, function () use ($perPage, $typeFilter) {
+            $query = DB::table('tickets as t')
+                ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+                ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+                ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
+                ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
+                ->select(
+                    't.ticket_ID',
+                    't.title',
+                    't.is_internal',
+                    't.requested_by',
+                    'pc.category_name',
+                    'ts.status_name',
+                    'tp.priority_name',
+                    'e.department',
+                    't.created_at',
+                    'c.client_name',
+                    'm.machine_name',
+                    'm.serial_number',
+                    'tt.type_name as ticket_type'
+                );
 
-        $paginated = $query->orderByDesc('t.created_at')
-            ->paginate($perPage);
+            if ($typeFilter === 'internal') {
+                $query->where('t.is_internal', true);
+            } elseif ($typeFilter === 'external') {
+                $query->where('t.is_internal', false);
+            }
 
-        $rows = collect($paginated->items());
-        $ticketIds = $rows->pluck('ticket_ID')->toArray();
+            $paginated = $query->orderByDesc('t.created_at')
+                ->paginate($perPage);
 
-        $assignments = collect();
-        $pendingReassigns = collect();
+            $rows = collect($paginated->items());
+            $ticketIds = $rows->pluck('ticket_ID')->toArray();
 
-        if (!empty($ticketIds)) {
-            $assignments = DB::table('ticket_assignments')
-                ->whereIn('ticket_ID', $ticketIds)
-                ->get()
-                ->groupBy('ticket_ID');
+            $assignments = collect();
+            $pendingReassigns = collect();
 
-            $pendingReassigns = DB::table('reassignment_requests')
-                ->whereIn('ticket_id', $ticketIds)
-                ->where('status', 'pending')
-                ->get()
-                ->keyBy('ticket_id');
-        }
+            if (!empty($ticketIds)) {
+                $assignments = DB::table('ticket_assignments')
+                    ->whereIn('ticket_ID', $ticketIds)
+                    ->get()
+                    ->groupBy('ticket_ID');
 
-        $incomingTickets = $rows->map(function ($row) use ($assignments, $pendingReassigns) {
-            $assignedIds = isset($assignments[$row->ticket_ID])
-                ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
-                : [];
+                $pendingReassigns = DB::table('reassignment_requests')
+                    ->whereIn('ticket_id', $ticketIds)
+                    ->where('status', 'pending')
+                    ->get()
+                    ->keyBy('ticket_id');
+            }
 
-            $pendingReassign = $pendingReassigns->get($row->ticket_ID);
+            $incomingTickets = $rows->map(function ($row) use ($assignments, $pendingReassigns) {
+                $assignedIds = isset($assignments[$row->ticket_ID])
+                    ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
+                    : [];
+
+                $pendingReassign = $pendingReassigns->get($row->ticket_ID);
+
+                $createdAtObj = is_string($row->created_at) ? \Carbon\Carbon::parse($row->created_at) : $row->created_at;
+
+                return [
+                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                    'ticket_ID' => (int) $row->ticket_ID,
+                    'customer' => $row->client_name ?: 'Unknown Customer',
+                    'title' => $row->title,
+                    'category' => $row->category_name,
+                    'status' => $row->status_name,
+                    'priority' => $row->priority_name,
+                    'department' => $row->department,
+                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+                    'sla' => $this->slaLabel($createdAtObj),
+                    'date' => $createdAtObj ? $createdAtObj->format('m/d/Y') : now()->format('m/d/Y'),
+                    'assigned' => $assignedIds,
+                    'reassignmentRequested' => !empty($pendingReassign),
+                    'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
+                    'type' => $row->ticket_type ?? 'External',
+                    'ticket_type' => $row->ticket_type ?? 'External',
+                    'is_internal' => (bool)$row->is_internal,
+                    'requested_by' => $row->requested_by,
+                ];
+            })->values()->toArray();
 
             return [
-                'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
-                'ticket_ID' => (int) $row->ticket_ID,
-                'customer' => $row->client_name ?: 'Unknown Customer',
-                'title' => $row->title,
-                'category' => $row->category_name,
-                'status' => $row->status_name,
-                'priority' => $row->priority_name,
-                'department' => $row->department,
-                'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                'sla' => $this->slaLabel($row->created_at),
-                'date' => optional($row->created_at)->format('m/d/Y') ?? now()->format('m/d/Y'),
-                'assigned' => $assignedIds,
-                'reassignmentRequested' => !empty($pendingReassign),
-                'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
-                'type' => $row->ticket_type ?? 'External',
-                'ticket_type' => $row->ticket_type ?? 'External',
-                'is_internal' => (bool)$row->is_internal,
-                'requested_by' => $row->requested_by,
+                'incoming_tickets' => $incomingTickets,
+                'pagination' => [
+                    'total' => $paginated->total(),
+                    'per_page' => $paginated->perPage(),
+                    'current_page' => $paginated->currentPage(),
+                    'last_page' => $paginated->lastPage(),
+                ]
             ];
-        })->values();
+        });
 
-        return response()->json([
-            'incoming_tickets' => $incomingTickets,
-            'pagination' => [
-                'total' => $paginated->total(),
-                'per_page' => $paginated->perPage(),
-                'current_page' => $paginated->currentPage(),
-                'last_page' => $paginated->lastPage(),
-            ]
-        ]);
+        return response()->json($result);
     }
 
     public function assignableEmployees(Request $request)
@@ -870,7 +937,7 @@ class TicketController extends Controller
                 ->where('ticket_ID', $ticketId)
                 ->update([
                     'assigned_to' => $validated['employee_ids'][0],
-                    'ticket_status_ID' => $inProgressId,
+                    'ticket_status_ID' => $pendingAssignmentId,
                     'priority_ID' => $validated['priority_ID'] ?? DB::raw('priority_ID'),
                     'updated_at' => now(),
                 ]);
@@ -1014,6 +1081,8 @@ class TicketController extends Controller
             ->where('ticket_ID', $ticketId)
             ->first();
 
+        $this->clearTicketCaches();
+
         return response()->json([
             'message' => 'Ticket assigned successfully.',
             'ticket' => $updatedTicket,
@@ -1104,6 +1173,8 @@ class TicketController extends Controller
                 'assigned_to' => $empId,
                 'employee_ids' => [$empId],
             ]);
+
+            $this->clearTicketCaches();
 
             return response()->json(['message' => 'Ticket accepted and updated.']);
         }
@@ -1265,14 +1336,14 @@ class TicketController extends Controller
             $ticket->title,
             $catName,
             $prioName
-        );
-
-        $this->broadcastTicketChange('assigned', $ticketId, [
+        );        $this->broadcastTicketChange('assigned', $ticketId, [
             'assigned_to' => $employees->first(),
-            'employee_ids' => $employees->values()->all(),
+            'employee_ids' => $employees->all(),
         ]);
 
-        return response()->json(['message' => 'Ticket assigned and pending employee acceptance.']);
+        $this->clearTicketCaches();
+
+        return response()->json(['message' => 'Ticket assigned successfully.']);
     }
 
     public function updateTicket(Request $request, int $ticketId)
@@ -1288,6 +1359,28 @@ class TicketController extends Controller
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         if (!$ticket) {
             return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        $user = $request->user();
+        if (array_key_exists('ticket_status_ID', $validated)) {
+            $newStatus = $validated['ticket_status_ID'];
+            
+            // Resolve access rule:
+            if ($newStatus == 3 && $ticket->is_internal) {
+                $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
+                if (!$isCS) {
+                    return response()->json(['message' => 'Only the assigned employee or customer service can resolve an internal ticket.'], 403);
+                }
+            }
+            
+            // Close access rule:
+            if ($newStatus == 4 && $ticket->is_internal) {
+                $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
+                $isRequestor = ($user && !($user instanceof \App\Models\Client) && $user->emp_id == $ticket->requested_by);
+                if (!$isCS && !$isRequestor) {
+                    return response()->json(['message' => 'Only the requestor or a customer service agent can close an internal ticket.'], 403);
+                }
+            }
         }
 
         // Resolving check: Must have department and assignments
@@ -1624,6 +1717,8 @@ class TicketController extends Controller
             'priority_ID' => $validated['priority_ID'] ?? $ticket->priority_ID,
         ]);
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Ticket updated successfully.']);
     }
 
@@ -1911,6 +2006,8 @@ class TicketController extends Controller
             'reason' => $validated['reason'],
         ]);
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Reassignment request submitted successfully.']);
     }
 
@@ -2165,6 +2262,8 @@ class TicketController extends Controller
             'employee_id' => $targetEmpId,
         ]);
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Reassignment request responded to successfully.']);
     }
 
@@ -2286,6 +2385,29 @@ class TicketController extends Controller
             ->orderBy('tal.created_at', 'asc')
             ->get();
 
+        // Preload maps to avoid N+1 queries in loops
+        $prioritiesMap = DB::table('ticket_priorities')->pluck('priority_name', 'priority_ID')->toArray();
+        $statusesMap = DB::table('ticket_statuses')->pluck('status_name', 'ticket_status_ID')->toArray();
+
+        $employeeIds = [];
+        foreach ($auditLogs as $log) {
+            if ($log->action_type === 'update') {
+                $details = json_decode($log->details, true);
+                if (($details['field'] ?? '') === 'assigned_to' && !empty($details['new'])) {
+                    $employeeIds[] = (int)$details['new'];
+                }
+            }
+        }
+
+        $employeeNamesMap = [];
+        if (!empty($employeeIds)) {
+            $employeeNamesMap = DB::table('employees')
+                ->whereIn('emp_id', array_unique($employeeIds))
+                ->select('emp_id', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+                ->pluck('name', 'emp_id')
+                ->toArray();
+        }
+
         $internalNotes = [];
         $timeline = [];
 
@@ -2324,11 +2446,10 @@ class TicketController extends Controller
                 $field = $details['field'] ?? '';
                 $newVal = $details['new'] ?? '';
                 if ($field === 'priority_ID') {
-                    $priorityName = DB::table('ticket_priorities')->where('priority_ID', $newVal)->value('priority_name') ?? $newVal;
+                    $priorityName = $prioritiesMap[$newVal] ?? $newVal;
                     $timelineText = "Priority updated to \"{$priorityName}\".";
                 } elseif ($field === 'assigned_to') {
-                    $emp = DB::table('employees')->where('emp_id', $newVal)->first();
-                    $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : $newVal;
+                    $empName = $employeeNamesMap[$newVal] ?? $newVal;
                     $timelineText = "Ticket assigned to {$empName}.";
                 } else {
                     $timelineText = "Ticket updated: {$field} set to {$newVal}.";
@@ -2364,7 +2485,7 @@ class TicketController extends Controller
             } elseif ($log->action_type === 'update') {
                 $details = json_decode($log->details, true);
                 if (($details['field'] ?? '') === 'ticket_status_ID') {
-                    $statusName = DB::table('ticket_statuses')->where('ticket_status_ID', $details['new'] ?? 0)->value('status_name') ?? 'Unknown';
+                    $statusName = $statusesMap[$details['new'] ?? 0] ?? 'Unknown';
                     $statusHistory[] = [
                         'status' => $statusName,
                         'timestamp' => $log->created_at ? \Carbon\Carbon::parse($log->created_at)->format('Y-m-d H:i:s') : '',
@@ -2599,13 +2720,16 @@ class TicketController extends Controller
             if ($request->hasFile('attachments')) {
                 foreach ($request->file('attachments') as $file) {
                     $storedPath = $file->store("ticket-attachments/{$ticketId}", 'public');
-                    $attachmentNames[] = $file->getClientOriginalName();
+                    
+                    $origName = $file->getClientOriginalName();
+                    $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
+                    $attachmentNames[] = $safeName;
 
                     // If it is proof, insert to proof_of_completion table as well!
                     if ($isProof) {
                         DB::table('proof_of_completion')->insert([
                             'assignment_ID' => $assignment->assignment_ID,
-                            'file_name' => $file->getClientOriginalName(),
+                            'file_name' => $safeName,
                             'file_path' => $storedPath,
                             'file_type' => $file->getClientMimeType(),
                             'file_size' => $file->getSize(),
@@ -2616,7 +2740,7 @@ class TicketController extends Controller
                     // Always insert into ticket_attachments
                     DB::table('ticket_attachments')->insert([
                         'ticket_id' => $ticketId,
-                        'file_name' => $file->getClientOriginalName(),
+                        'file_name' => $safeName,
                         'file_path' => $storedPath,
                         'file_type' => $file->getClientMimeType(),
                         'uploaded_at' => now(),
@@ -2861,6 +2985,8 @@ class TicketController extends Controller
         // Broadcast the update
         $this->broadcastTicketChange('updated', $ticketId);
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Ticket updated successfully.']);
     }
 
@@ -2904,6 +3030,8 @@ class TicketController extends Controller
         ]);
 
         $this->broadcastTicketChange('updated', $ticketId);
+
+        $this->clearTicketCaches();
 
         return response()->json(['message' => 'Ticket discarded successfully.']);
     }

@@ -37,6 +37,7 @@ services:
     restart: always
     volumes:
       - ./services/customer-service:/var/www
+      - customer-service-vendor:/var/www/vendor
     environment:
       REVERB_APP_ID: local
       REVERB_APP_KEY: local
@@ -57,6 +58,7 @@ services:
     container_name: customer-service
     volumes:
       - ./services/customer-service:/var/www
+      - customer-service-vendor:/var/www/vendor
     ports:
       - "8001:8000"
     networks:
@@ -80,8 +82,16 @@ services:
       REVERB_APP_SECRET: local
       REVERB_HOST: reverb
       REVERB_PORT: 6001
+      MAIL_MAILER: smtp
+      MAIL_HOST: smtp.gmail.com
+      MAIL_PORT: 587
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_ENCRYPTION: tls
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS}
+      MAIL_FROM_NAME: "Enterprise Ticketing System"
     command: >
-      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -96,6 +106,7 @@ services:
     container_name: customer-service-queue
     volumes:
       - ./services/customer-service:/var/www
+      - customer-service-vendor:/var/www/vendor
     environment:
       DB_CONNECTION: mysql
       DB_HOST: db
@@ -130,6 +141,7 @@ services:
     container_name: ticket-service
     volumes:
       - ./services/ticket-service:/var/www
+      - ticket-service-vendor:/var/www/vendor
     ports:
       - "8002:8000"
     networks:
@@ -154,7 +166,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -169,6 +181,7 @@ services:
     container_name: ticket-service-queue
     volumes:
       - ./services/ticket-service:/var/www
+      - ticket-service-vendor:/var/www/vendor
     environment:
       DB_CONNECTION: mysql
       DB_HOST: db
@@ -290,6 +303,8 @@ services:
 volumes:
   db_data:
   redis_data:
+  customer-service-vendor:
+  ticket-service-vendor:
 
 networks:
   default:

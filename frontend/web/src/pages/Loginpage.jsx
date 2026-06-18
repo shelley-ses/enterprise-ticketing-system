@@ -12,6 +12,7 @@ import {
   verifyPasswordResetOtp,
   resetPassword,
 } from '@/services/authService';
+import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
 import './Loginpage.css';
 
 const MAX_ATTEMPTS = 5;
@@ -389,7 +390,7 @@ function ForgotPasswordModal({ onClose }) {
 // ─── Main Login Page ─────────────────────────────────────────────────────────
 function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
-  const { login, clearError } = useAuth();
+  const { login, clearError, isAuthenticated } = useAuth();
   const isEmployeeLogin = mode === 'employee';
 
   const [showPassword, setShowPassword] = useState(false);
@@ -405,6 +406,18 @@ function Loginpage({ mode = 'customer' }) {
 
   // Forgot password modal
   const [showForgot, setShowForgot] = useState(false);
+
+  // First-login: force the user to change their password before entering the app
+  const [showForceChangePassword, setShowForceChangePassword] = useState(false);
+
+  // When the ForceChangePasswordModal calls logout() on success, isAuthenticated
+  // flips to false — use that as the signal to hide the modal so the login
+  // form is visible again for the user to sign in with their new password.
+  useEffect(() => {
+    if (!isAuthenticated && showForceChangePassword) {
+      setShowForceChangePassword(false);
+    }
+  }, [isAuthenticated, showForceChangePassword]);
 
   // Lockout per-email handling
   const [lockedEmail, setLockedEmail] = useState('');
@@ -466,6 +479,15 @@ function Loginpage({ mode = 'customer' }) {
       if (result.success) {
         setLoginError('');
         setAttempts(0);
+
+        // First-time login: show the force-change-password modal right here,
+        // before navigating anywhere, so we never lose the isFirstLogin state
+        // through a React lazy-load / navigation-timing race.
+        if (result.isFirstLogin) {
+          setShowForceChangePassword(true);
+          return;
+        }
+
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
         const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
@@ -658,6 +680,10 @@ function Loginpage({ mode = 'customer' }) {
 
       {/* FORGOT PASSWORD MODAL */}
       {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
+
+      {/* FORCE CHANGE PASSWORD MODAL — shown immediately after first-time login,
+          before the user navigates to the dashboard, to avoid the lazy-load race */}
+      {showForceChangePassword && <ForceChangePasswordModal />}
     </>
   );
 }

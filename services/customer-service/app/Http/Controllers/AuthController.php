@@ -59,12 +59,24 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $isFirstLogin = false;
+        if ($result['user']) {
+            if ($result['user'] instanceof Employee) {
+                $isFirstLogin = $result['user']->password_change_at === null;
+            } else {
+                $isFirstLogin = \Illuminate\Support\Facades\DB::table('clients_credentials')
+                    ->where('client_id', $result['user']->id)
+                    ->whereNull('password_change_at')
+                    ->exists();
+            }
+        }
+
         // Return 200 with user and token on success
         $resp = response()->json([
             'message' => $result['message'],
             'user' => $result['user'],
             'token' => $result['token'],
-            'is_first_login' => $result['is_first_login'] ?? false,
+            'is_first_login' => $isFirstLogin,
         ], 200);
 
         // Set httpOnly refresh cookie
@@ -185,9 +197,14 @@ class AuthController extends Controller
         $isFirstLogin = false;
 
         if ($user) {
-            $isFirstLogin = $user instanceof Employee
-                ? $user->password_change_at === null
-                : optional($user->credential)->password_change_at === null;
+            if ($user instanceof Employee) {
+                $isFirstLogin = $user->password_change_at === null;
+            } else {
+                $isFirstLogin = \Illuminate\Support\Facades\DB::table('clients_credentials')
+                    ->where('client_id', $user->id)
+                    ->whereNull('password_change_at')
+                    ->exists();
+            }
         }
 
         return response()->json([
@@ -274,17 +291,13 @@ class AuthController extends Controller
             ],
         ];
 
-        if ($isFirstLogin) {
-            $rules['otp'] = 'required|digits:6';
-        }
-
         $request->validate($rules);
 
         $result = $this->authService->changePassword(
             $user,
             $request->current_password,
             $request->new_password,
-            $request->input('otp')
+            null // OTP flow disabled
         );
 
         return response()->json([

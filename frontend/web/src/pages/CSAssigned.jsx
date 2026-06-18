@@ -535,6 +535,9 @@ export default function CSAssigned() {
                   rejection_reason: updatedFields.rejectionReason ?? null,
                 });
               }
+
+              // Close the modal immediately after a successful update
+              setModal(null);
             } catch (err) {
               console.error('Failed to update ticket status on backend:', err);
             }

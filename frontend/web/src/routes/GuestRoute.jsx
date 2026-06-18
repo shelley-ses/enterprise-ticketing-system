@@ -46,7 +46,9 @@ function WrongPortal() {
 const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
 export default function GuestRoute({ children }) {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, isFirstLogin } = useAuth();
+
+  console.log('[GuestRoute] render state:', { isAuthenticated, isFirstLogin, user });
 
   if (isLoading) {
     return (
@@ -59,7 +61,7 @@ export default function GuestRoute({ children }) {
     );
   }
 
-  if (isAuthenticated) {
+  if (isAuthenticated && !isFirstLogin) {
     const isCS       = checkIsCS(user);
     const isEmployee = checkIsEmployee(user);
     const isCustomer = !isCS && !isEmployee;

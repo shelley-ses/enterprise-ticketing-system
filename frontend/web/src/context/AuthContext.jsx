@@ -41,6 +41,23 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
   };
 };
 
+const checkIsCS = (user) => {
+  if (!user) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
+  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+};
+
+const checkIsEmployee = (user) => {
+  if (!user) return false;
+  if (checkIsCS(user)) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept === 'service' || dept.includes('engineer')) return true;
+  return role === 'employee' || role.includes('service') || role.includes('engineer');
+};
+
 const normalizeUser = (userData) => {
   if (!userData) return null;
   return {
@@ -51,7 +68,22 @@ const normalizeUser = (userData) => {
 
 const readStoredUser = () => {
   try {
-    return normalizeUser(JSON.parse(localStorage.getItem('user')));
+    const stored = JSON.parse(localStorage.getItem('user'));
+    if (!stored) return null;
+
+    const isCS = checkIsCS(stored);
+    const isEmployee = checkIsEmployee(stored);
+    const isCustomer = !isCS && !isEmployee;
+
+    const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
+    if (isCustomerSite && !isCustomer) {
+      return null;
+    }
+    if (!isCustomerSite && isCustomer) {
+      return null;
+    }
+
+    return normalizeUser(stored);
   } catch {
     return null;
   }
@@ -86,7 +118,9 @@ export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isFirstLogin, setIsFirstLogin] = useState(false);
+  const [isFirstLogin, setIsFirstLogin] = useState(() =>
+    sessionStorage.getItem('first_login_pending') === 'true'
+  );
 
   useEffect(() => {
     return undefined;
@@ -122,6 +156,7 @@ export function AuthProvider({ children }) {
 
     try {
       const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
+      console.log('[AuthContext] /me response:', resp.data);
       const userData = resp.data?.user;
       const firstLogin = Boolean(resp.data?.is_first_login);
       if (userData) {
@@ -131,6 +166,11 @@ export function AuthProvider({ children }) {
       }
       setIsAuthenticated(true);
       setIsFirstLogin(firstLogin);
+      if (firstLogin) {
+        sessionStorage.setItem('first_login_pending', 'true');
+      } else {
+        sessionStorage.removeItem('first_login_pending');
+      }
       return true;
     } catch (err) {
       if (err.response?.status === 401) {
@@ -143,7 +183,13 @@ export function AuthProvider({ children }) {
             const normalized = normalizeUser(userData);
             setUser(normalized);
             setIsAuthenticated(true);
-            setIsFirstLogin(Boolean(resp.data?.is_first_login));
+            const firstLoginRefreshed = Boolean(resp.data?.is_first_login);
+            setIsFirstLogin(firstLoginRefreshed);
+            if (firstLoginRefreshed) {
+              sessionStorage.setItem('first_login_pending', 'true');
+            } else {
+              sessionStorage.removeItem('first_login_pending');
+            }
             if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
             return true;
           }
@@ -240,6 +286,7 @@ export function AuthProvider({ children }) {
       });
 
       const { user: userData, token, is_first_login: firstLogin } = response.data;
+      console.log('[AuthContext] /login response:', response.data);
 
       // Store auth data in memory and set user
       const normalized = normalizeUser(userData);
@@ -248,6 +295,12 @@ export function AuthProvider({ children }) {
       setUser(normalized);
       setIsAuthenticated(true);
       setIsFirstLogin(Boolean(firstLogin));
+      // Persist flag so CustomerLayout's fallback modal works on page refresh / lazy-load
+      if (Boolean(firstLogin)) {
+        sessionStorage.setItem('first_login_pending', 'true');
+      } else {
+        sessionStorage.removeItem('first_login_pending');
+      }
 
       return { success: true, user: normalized, isFirstLogin: Boolean(firstLogin) };
     } catch (err) {
@@ -327,6 +380,7 @@ export function AuthProvider({ children }) {
     if (MOCK_AUTH_ENABLED) {
       localStorage.removeItem('user');
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
+      sessionStorage.removeItem('first_login_pending');
       tokenStore.clearToken();
 
       setUser(null);
@@ -350,6 +404,7 @@ export function AuthProvider({ children }) {
     } finally {
       localStorage.removeItem('user');
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
+      sessionStorage.removeItem('first_login_pending');
       tokenStore.clearToken();
 
       setUser(null);

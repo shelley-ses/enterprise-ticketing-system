@@ -8,11 +8,27 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Indexes are already present in the database from foreign constraints and previous migrations.
+        Schema::table('tickets', function (Blueprint $table) {
+            $table->index(['created_by', 'created_at'], 'idx_tickets_created_by_created_at');
+            $table->index(['assigned_to', 'created_at'], 'idx_tickets_assigned_to_created_at');
+            $table->index('created_at', 'idx_tickets_created_at');
+        });
+
+        Schema::table('notifications', function (Blueprint $table) {
+            $table->index(['recipient_id', 'recipient_type', 'is_read'], 'idx_notifications_recipient_unread');
+        });
     }
 
     public function down(): void
     {
-        // No schema updates to roll back.
+        Schema::table('tickets', function (Blueprint $table) {
+            $table->dropIndex('idx_tickets_created_by_created_at');
+            $table->dropIndex('idx_tickets_assigned_to_created_at');
+            $table->dropIndex('idx_tickets_created_at');
+        });
+
+        Schema::table('notifications', function (Blueprint $table) {
+            $table->dropIndex('idx_notifications_recipient_unread');
+        });
     }
 };

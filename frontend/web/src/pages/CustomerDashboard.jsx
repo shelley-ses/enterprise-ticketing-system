@@ -138,7 +138,7 @@ export default function CustomerDashboard() {
     refresh: loadDashboardData,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 0,
-    deferRefresh: true,
+    deferRefresh: false,
   });
 
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
@@ -339,7 +339,10 @@ export default function CustomerDashboard() {
       
       setIsTicketModalOpen(false);
       window.alert('Ticket created successfully.');
-      loadDashboardData({ forceRefresh: true });
+      // Small delay to allow backend Redis cache to be cleared before refetching
+      setTimeout(() => {
+        loadDashboardData({ forceRefresh: true });
+      }, 300);
     } catch (err) {
       console.error(err);
       window.alert(err?.response?.data?.message || 'Failed to create ticket.');

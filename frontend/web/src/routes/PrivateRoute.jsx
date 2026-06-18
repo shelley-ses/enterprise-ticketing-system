@@ -92,6 +92,10 @@ export default function PrivateRoute({ children, role }) {
     // Role-specific route authorization
     if (role) {
       const normalizedRole = role.toLowerCase();
+      if (normalizedRole === 'customer') {
+        if (isCS)       return <Navigate to="/cs/dashboard" replace />;
+        if (isEmployee) return <Navigate to="/employee/dashboard" replace />;
+      }
       if (normalizedRole === 'employee' && !isEmployee) {
         return <Navigate to="/cs/dashboard" replace />;
       }

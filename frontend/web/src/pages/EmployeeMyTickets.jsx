@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import { AssignModal } from '@/components/CSModals';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
@@ -11,6 +12,9 @@ import {
   getTicketFormOptions,
   getTicketDetails,
   updateTicket,
+  getAssignableEmployees,
+  getDepartments,
+  acceptTicket,
 } from '@/services/ticketService';
 
 const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
@@ -38,7 +42,6 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   const { user } = useAuth();
   const location = useLocation();
 
-  const storageKey = roleContext === 'cs' ? 'cs_created_tickets' : 'employee_created_tickets';
 
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +61,33 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     search: '',
   });
 
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [assignModalTicket, setAssignModalTicket] = useState(null);
+
+  useEffect(() => {
+    if (roleContext === 'cs') {
+      const loadAssignOptions = async () => {
+        try {
+          const [emps, depts] = await Promise.all([
+            getAssignableEmployees(),
+            getDepartments(),
+          ]);
+          setEmployees(emps.map(row => ({
+            id: Number(row.id ?? row.emp_id),
+            name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+            status: row.is_active ? 'active' : 'inactive',
+            department: row.department?.trim() || 'Unassigned',
+          })));
+          setDepartments(depts);
+        } catch (err) {
+          console.error('Failed to load assign options for CS:', err);
+        }
+      };
+      loadAssignOptions();
+    }
+  }, [roleContext]);
+
   const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
     setLoading(true);
     setError('');
@@ -65,122 +95,17 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
     try {
       const apiTickets = await getInternalTickets();
-      if (apiTickets.length > 0) {
-        const mapped = apiTickets.map(t => ({
-          ...t,
-          date_created: t.date || t.created_at,
-          last_updated: t.lastUpdate || t.updated_at,
-          is_internal: true,
-          ticket_type: 'Internal',
-          can_discard: t.status === 'Open' && !t.assigned_to,
-        }));
-        setTickets(mapped);
-        localStorage.setItem(storageKey, JSON.stringify(mapped));
-        return;
-      }
-    } catch (_) {
-      // API failed, fall through to localStorage
-    }
-
-    try {
-      let stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      if (stored.length > 0 && !stored.some(t => t.id === 'TKT-1004')) {
-        stored = [];
-      }
-      if (stored.length === 0) {
-        const mockTickets = [
-          {
-            id: 'TKT-1001',
-            ticket_ID: 1001,
-            isMock: true,
-            title: 'Centrifuge lid latch faulty in Lab A',
-            category: 'Hardware Issue',
-            equipment: 'Centrifuge - CF-100-A2',
-            status: 'Open',
-            description: 'The latch of the centrifuge in Lab A is not locking properly. Needs replacement.',
-            date_created: new Date(Date.now() - 2 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 2 * 3600000).toISOString(),
-            is_internal: true,
-            ticket_type: 'Internal',
-            can_discard: true,
-          },
-          {
-            id: 'TKT-1002',
-            ticket_ID: 1002,
-            isMock: true,
-            title: 'Vitals monitor software update required',
-            category: 'Software / System Error',
-            equipment: 'Patient Monitor - PM-200-S1',
-            status: 'In Progress',
-            description: 'The software version on Patient Monitor PM-200-S1 is outdated. Requesting upgrade to version 4.2.',
-            date_created: new Date(Date.now() - 24 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 12 * 3600000).toISOString(),
-            is_internal: true,
-            ticket_type: 'Internal',
-            can_discard: false,
-          },
-          {
-            id: 'TKT-1003',
-            ticket_ID: 1003,
-            isMock: true,
-            title: 'Biochemistry Analyzer calibration check',
-            category: 'Calibration Required',
-            equipment: 'Biochem Analyzer - BA-500',
-            status: 'Resolved',
-            description: 'Weekly calibration check. Values are within normal deviation ranges.',
-            date_created: new Date(Date.now() - 48 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 36 * 3600000).toISOString(),
-            resolved_at: new Date(Date.now() - 36 * 3600000).toISOString(),
-            is_internal: true,
-            ticket_type: 'Internal',
-            can_discard: false,
-            timeline: [
-              { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: new Date(Date.now() - 48 * 3600000).toISOString() },
-              { id: 'status-resolved', type: 'status', text: 'Ticket resolved.', timestamp: new Date(Date.now() - 36 * 3600000).toISOString() }
-            ]
-          },
-          {
-            id: 'TKT-1004',
-            ticket_ID: 1004,
-            isMock: true,
-            title: 'Defibrillator pad replacement check',
-            category: 'Hardware Issue',
-            equipment: 'Defibrillator - DF-400',
-            status: 'Closed',
-            description: 'Inspect defibrillator pad expiration dates and replace them if outdated.',
-            date_created: new Date(Date.now() - 72 * 3600000).toISOString(),
-            last_updated: new Date(Date.now() - 6 * 3600000).toISOString(),
-            resolved_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-            is_internal: true,
-            ticket_type: 'Internal',
-            can_discard: false,
-            timeline: [
-              { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: new Date(Date.now() - 72 * 3600000).toISOString() },
-              { id: 'status-closed', type: 'status', text: 'Ticket closed by system.', timestamp: new Date(Date.now() - 6 * 3600000).toISOString() }
-            ]
-          }
-        ];
-        localStorage.setItem(storageKey, JSON.stringify(mockTickets));
-        setTickets(mockTickets);
-      } else {
-        // Heal stored tickets missing isMock flag
-        let healed = false;
-        const mapped = stored.map(t => {
-          const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-          const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
-          if (isMock && !t.isMock) {
-            healed = true;
-            return { ...t, isMock: true };
-          }
-          return t;
-        });
-        if (healed) {
-          localStorage.setItem(storageKey, JSON.stringify(mapped));
-        }
-        setTickets(mapped);
-      }
+      const mapped = apiTickets.map(t => ({
+        ...t,
+        date_created: t.date || t.created_at,
+        last_updated: t.lastUpdate || t.updated_at,
+        is_internal: true,
+        ticket_type: 'Internal',
+        can_discard: t.status === 'Open' && !t.assigned_to,
+      }));
+      setTickets(mapped);
     } catch (err) {
-      setError('Failed to load tickets.');
+      setError('Failed to load tickets. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -256,51 +181,18 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
       can_discard: true,
     };
 
-    setTickets((current) => {
-      const next = [newTicket, ...current];
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      return next;
-    });
-    setConfirmCreated(newTicket);
+    setTickets((current) => [newTicket, ...current]);
     setIsModalOpen(false);
+
+    if (roleContext === 'cs') {
+      setAssignModalTicket(newTicket);
+    } else {
+      setConfirmCreated(newTicket);
+    }
   };
 
   const handleConfirmDiscard = async () => {
     if (!confirmDiscard) return;
-
-    const isMock = !!confirmDiscard.isMock;
-    if (isMock) {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      const updatedList = stored.map(t => {
-        if (t.id === confirmDiscard.id || t.ticket_ID === confirmDiscard.ticket_ID) {
-          const timestamp = new Date().toISOString();
-          const timeline = t.timeline || [
-            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
-          ];
-          return {
-            ...t,
-            status: 'Discarded',
-            last_updated: timestamp,
-            timeline: [
-              ...timeline,
-              {
-                id: `status-discarded-${Date.now()}`,
-                type: 'status',
-                text: 'Ticket discarded by creator.',
-                timestamp,
-              }
-            ]
-          };
-        }
-        return t;
-      });
-      localStorage.setItem(storageKey, JSON.stringify(updatedList));
-      setTickets(updatedList);
-      setConfirmDiscard(null);
-      setSelectedTicket(null);
-      window.alert('Ticket discarded successfully.');
-      return;
-    }
 
     setLoadingText('Discarding ticket...');
     setModalLoading(true);
@@ -324,19 +216,6 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
   const handleViewTicket = async (t) => {
     const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-    const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
-    if (isMock) {
-      setSelectedTicket({
-        ...t,
-        isMock: true,
-        description: t.description || '',
-        resolved_at: t.resolved_at || null,
-        proofAttachments: t.proofAttachments || [],
-        proofFiles: t.proofFiles || [],
-        can_discard: t.status === 'Open' && !t.assigned_to,
-      });
-      return;
-    }
 
     setLoadingText('Loading ticket details...');
     setModalLoading(true);
@@ -414,40 +293,6 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleCloseTicket = async (ticketId) => {
-    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
-    if (isMock) {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      const updatedList = stored.map(t => {
-        if (t.id === ticketId || t.ticket_ID === ticketId) {
-          const timestamp = new Date().toISOString();
-          const timeline = t.timeline || [
-            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
-          ];
-          return {
-            ...t,
-            status: 'Closed',
-            resolved_at: timestamp,
-            last_updated: timestamp,
-            timeline: [
-              ...timeline,
-              {
-                id: `status-closed-${Date.now()}`,
-                type: 'status',
-                text: 'Ticket closed by creator.',
-                timestamp,
-              }
-            ]
-          };
-        }
-        return t;
-      });
-      localStorage.setItem(storageKey, JSON.stringify(updatedList));
-      setTickets(updatedList);
-      setSelectedTicket(null);
-      window.alert('Ticket closed successfully.');
-      return;
-    }
-
     setLoadingText('Closing ticket...');
     setModalLoading(true);
     try {
@@ -468,39 +313,6 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleReopenTicket = async (ticketId, reason) => {
-    const isMock = selectedTicket ? !!selectedTicket.isMock : false;
-    if (isMock) {
-      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-      const updatedList = stored.map(t => {
-        if (t.id === ticketId || t.ticket_ID === ticketId) {
-          const timestamp = new Date().toISOString();
-          const timeline = t.timeline || [
-            { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
-          ];
-          return {
-            ...t,
-            status: 'Reopened',
-            last_updated: timestamp,
-            timeline: [
-              ...timeline,
-              {
-                id: `status-reopened-${Date.now()}`,
-                type: 'status',
-                text: `Ticket reopened. Reason: "${reason}"`,
-                timestamp,
-              }
-            ]
-          };
-        }
-        return t;
-      });
-      localStorage.setItem(storageKey, JSON.stringify(updatedList));
-      setTickets(updatedList);
-      setSelectedTicket(null);
-      window.alert('Ticket reopened successfully.');
-      return;
-    }
-
     setLoadingText('Reopening ticket...');
     setModalLoading(true);
     try {
@@ -631,7 +443,43 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
       
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={null} />
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={handleCloseTicket} />
+
+      {roleContext === 'cs' && assignModalTicket && (
+        <AssignModal
+          ticket={assignModalTicket}
+          employees={employees}
+          departments={departments}
+          priorityOptions={['Low', 'Medium', 'High', 'Critical']}
+          onClose={() => setAssignModalTicket(null)}
+          onSave={async (updated) => {
+            const priorityMap = {
+              Low: 1,
+              Medium: 2,
+              High: 3,
+              Critical: 4,
+            };
+            setModalLoading(true);
+            setLoadingText('Saving assignment...');
+            try {
+              await acceptTicket({
+                ticketId: updated.ticket_ID,
+                employeeIds: updated.assigned,
+                assignedByEmail: user?.email,
+                priorityId: priorityMap[updated.priority] ?? 1,
+              });
+              setAssignModalTicket(null);
+              window.alert('Ticket assigned successfully.');
+              loadTickets({ forceRefresh: true });
+            } catch (err) {
+              console.error('Failed to assign ticket:', err);
+              window.alert('Failed to assign ticket. Please try again.');
+            } finally {
+              setModalLoading(false);
+            }
+          }}
+        />
+      )}
 
       {confirmDiscard && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
