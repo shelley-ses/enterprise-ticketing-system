@@ -6,6 +6,7 @@ use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Auth\EloquentUserProvider;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class PolymorphicUserProvider implements UserProvider
 {
@@ -27,11 +28,11 @@ class PolymorphicUserProvider implements UserProvider
                 $payload = json_decode(base64_decode($parts[1]), true);
                 $tokenId = $payload['jti'] ?? null;
                 if ($tokenId) {
-                    $token = DB::table('oauth_access_tokens')->where('id', $tokenId)->first();
-                    if ($token) {
-                        if ($token->name === 'client') {
-                            return $this->clientProvider;
-                        }
+                    $tokenName = Cache::remember("oauth_token_name_{$tokenId}", 300, function () use ($tokenId) {
+                        return DB::table('oauth_access_tokens')->where('id', $tokenId)->value('name') ?? 'employee';
+                    });
+                    if ($tokenName === 'client') {
+                        return $this->clientProvider;
                     }
                 }
             }
@@ -48,13 +49,13 @@ class PolymorphicUserProvider implements UserProvider
                 $payload = json_decode(base64_decode($parts[1]), true);
                 $tokenId = $payload['jti'] ?? null;
                 if ($tokenId) {
-                    $token = DB::table('oauth_access_tokens')->where('id', $tokenId)->first();
-                    if ($token) {
-                        if ($token->name === 'client') {
-                            return $this->clientProvider->retrieveById($identifier);
-                        } else {
-                            return $this->employeeProvider->retrieveById($identifier);
-                        }
+                    $tokenName = Cache::remember("oauth_token_name_{$tokenId}", 300, function () use ($tokenId) {
+                        return DB::table('oauth_access_tokens')->where('id', $tokenId)->value('name') ?? 'employee';
+                    });
+                    if ($tokenName === 'client') {
+                        return $this->clientProvider->retrieveById($identifier);
+                    } else {
+                        return $this->employeeProvider->retrieveById($identifier);
                     }
                 }
             }

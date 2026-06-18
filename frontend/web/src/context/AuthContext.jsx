@@ -146,8 +146,8 @@ export function AuthProvider({ children }) {
     // Skip session revalidation on guest/login pages
     const pathname = window.location.pathname;
     const isLoginPage =
-      pathname === '/customer' ||
-      pathname.startsWith('/customer?') ||
+      pathname.endsWith('/customer') ||
+      pathname.includes('/customer?') ||
       pathname.includes('/login');
     if (isLoginPage) {
       applyUnauthenticated(setUser, setIsAuthenticated);

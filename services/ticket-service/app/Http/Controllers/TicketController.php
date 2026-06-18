@@ -26,26 +26,58 @@ class TicketController extends Controller
                 '*customer_dashboard_counts_*'
             ];
             
+            $driver = config('database.redis.client', 'phpredis');
+            
             foreach ($patterns as $pattern) {
-                $keys = $redis->keys($pattern);
-                if (!empty($keys)) {
-                    foreach ($keys as $key) {
-                        $cleanKey = $key;
-                        if (strpos($key, ':') !== false) {
-                            $parts = explode(':', $key);
-                            $cleanKey = end($parts);
-                        } else {
-                            if (str_starts_with($key, $prefix)) {
-                                $cleanKey = substr($key, strlen($prefix));
+                if ($driver === 'phpredis') {
+                    $client = $redis->client();
+                    $iterator = null;
+                    $loopCount = 0;
+                    do {
+                        $keys = $client->scan($iterator, $pattern, 100);
+                        if ($keys === false) {
+                            break;
+                        }
+                        if (!empty($keys)) {
+                            foreach ($keys as $key) {
+                                $this->forgetCleanKey($key, $prefix);
                             }
                         }
-                        Cache::forget($cleanKey);
-                    }
+                        $loopCount++;
+                    } while ($iterator > 0 && $loopCount < 1000);
+                } else {
+                    $iterator = 0;
+                    $loopCount = 0;
+                    do {
+                        $response = $redis->scan($iterator, ['match' => $pattern, 'count' => 100]);
+                        $iterator = $response[0];
+                        $keys = $response[1];
+                        if (!empty($keys)) {
+                            foreach ($keys as $key) {
+                                $this->forgetCleanKey($key, $prefix);
+                            }
+                        }
+                        $loopCount++;
+                    } while ($iterator != 0 && $loopCount < 1000);
                 }
             }
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::warning('Redis cache clearing failed: ' . $e->getMessage());
         }
+    }
+
+    private function forgetCleanKey($key, $prefix)
+    {
+        $cleanKey = $key;
+        if (strpos($key, ':') !== false) {
+            $parts = explode(':', $key);
+            $cleanKey = end($parts);
+        } else {
+            if (str_starts_with($key, $prefix)) {
+                $cleanKey = substr($key, strlen($prefix));
+            }
+        }
+        Cache::forget($cleanKey);
     }
 
     private function slaLabel($createdAt): string

@@ -21,6 +21,8 @@ export const checkIsEmployee = (user) => {
 
 // ─── Wrong Portal page ────────────────────────────────────────────────────────
 function WrongPortal() {
+  const { logout } = useAuth();
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center max-w-md px-6">
@@ -30,12 +32,20 @@ function WrongPortal() {
           This portal is for <strong>customers only</strong>.<br />
           Employees and Customer Service agents must log in through the main company portal.
         </p>
-        <a
-          href="http://localhost:5173"
-          className="inline-block px-6 py-3 bg-[#252578] text-white rounded-lg font-medium hover:bg-[#1a1a5e] transition-colors"
-        >
-          Go to Employee Portal
-        </a>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+          <a
+            href="http://localhost:5173"
+            className="inline-block px-6 py-3 bg-[#252578] text-white rounded-lg font-medium hover:bg-[#1a1a5e] transition-colors"
+          >
+            Go to Employee Portal
+          </a>
+          <button
+            onClick={logout}
+            className="inline-block px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+          >
+            Log Out & Switch User
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -67,16 +77,16 @@ export default function GuestRoute({ children }) {
     const isCustomer = !isCS && !isEmployee;
 
     if (isCustomerSite) {
-      // On the customer portal: employees/CS should NOT be here
-      if (!isCustomer) return <WrongPortal />;
-      // Customer already logged in → send to their dashboard
-      return <Navigate to="/customer-dashboard" replace />;
+      // On the customer portal: if customer already logged in → send to their dashboard.
+      // If we are logged in as employee/CS, let the guest route render the login form so they can log in.
+      if (isCustomer) {
+        return <Navigate to="/customer-dashboard" replace />;
+      }
     } else {
-      // On the ticketing (employee/CS) portal
+      // On the ticketing (employee/CS) portal: if employee/CS logged in → send to their dashboard.
+      // If we are logged in as customer, let the guest route render the login form.
       if (isCS)       return <Navigate to="/cs/dashboard" replace />;
       if (isEmployee) return <Navigate to="/employee/dashboard" replace />;
-      // A customer somehow on the employee portal → wrong portal
-      return <WrongPortal />;
     }
   }
 

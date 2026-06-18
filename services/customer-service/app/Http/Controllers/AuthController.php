@@ -100,12 +100,20 @@ class AuthController extends Controller
         // Cleanup stale active DB statuses before mapping
         $activeDbEmployees = Employee::where('is_active', true)->where('role', '!=', 'customer service')->get();
         $staleEmpIds = [];
-        foreach ($activeDbEmployees as $emp) {
-            $hasPresence = Cache::store('redis')->has('employee:presence:' . $emp->emp_id);
-            if (!$hasPresence) {
-                $staleEmpIds[] = $emp->emp_id;
+        
+        if ($activeDbEmployees->isNotEmpty()) {
+            $activePresenceKeys = $activeDbEmployees->map(fn($emp) => 'employee:presence:' . $emp->emp_id)->all();
+            $activePresences = Cache::store('redis')->many($activePresenceKeys);
+            
+            foreach ($activeDbEmployees as $emp) {
+                $key = 'employee:presence:' . $emp->emp_id;
+                $hasPresence = isset($activePresences[$key]) && $activePresences[$key] !== null;
+                if (!$hasPresence) {
+                    $staleEmpIds[] = $emp->emp_id;
+                }
             }
         }
+
         if (!empty($staleEmpIds)) {
             Employee::whereIn('emp_id', $staleEmpIds)->update(['is_active' => false]);
             $updatedEmps = Employee::whereIn('emp_id', $staleEmpIds)->get();
@@ -123,8 +131,14 @@ class AuthController extends Controller
 
         $employees = $query->orderBy('first_name')->get();
 
-        $statuses = $employees->map(function (Employee $employee) {
-            $presence = Cache::store('redis')->get('employee:presence:' . $employee->emp_id, []);
+        $statusKeys = $employees->map(fn($emp) => 'employee:presence:' . $emp->emp_id)->all();
+        $statusPresences = $employees->isNotEmpty() 
+            ? Cache::store('redis')->many($statusKeys) 
+            : [];
+
+        $statuses = $employees->map(function (Employee $employee) use ($statusPresences) {
+            $presenceKey = 'employee:presence:' . $employee->emp_id;
+            $presence = $statusPresences[$presenceKey] ?? [];
 
             return [
                 'id' => $employee->emp_id,

@@ -23,6 +23,7 @@ class VerifyEmployeeJwt
     {
         $authHeader = $request->header('Authorization');
         if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
+            Log::info('VerifyEmployeeJwt: Missing or invalid token format header: ' . ($authHeader ?: 'none'));
             return response()->json(['message' => 'Unauthorized: Missing or invalid token format'], 401);
         }
 
@@ -45,6 +46,7 @@ class VerifyEmployeeJwt
 
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
+            Log::info('VerifyEmployeeJwt: Token does not have 3 parts: ' . count($parts));
             return response()->json(['message' => 'Unauthorized: Invalid token format'], 401);
         }
 
@@ -74,17 +76,19 @@ class VerifyEmployeeJwt
         $verified = openssl_verify($data, $signature, $publicKey, OPENSSL_ALGO_SHA256);
         
         if ($verified !== 1) {
-            Log::warning('VerifyEmployeeJwt: Signature verification failed');
+            Log::warning('VerifyEmployeeJwt: Signature verification failed. Verification status: ' . $verified);
             return response()->json(['message' => 'Unauthorized: Invalid signature'], 401);
         }
 
         // 2. Decode payload & verify expiry
         $payload = json_decode($base64UrlDecode($payloadB64), true);
         if (!$payload) {
+            Log::info('VerifyEmployeeJwt: Failed to decode token payload JSON');
             return response()->json(['message' => 'Unauthorized: Invalid token payload'], 401);
         }
 
         if (!isset($payload['exp']) || time() >= $payload['exp']) {
+            Log::info('VerifyEmployeeJwt: Token expired. Expiry time: ' . ($payload['exp'] ?? 'unset') . ', Current time: ' . time());
             return response()->json(['message' => 'Unauthorized: Token expired'], 401);
         }
 
@@ -103,12 +107,14 @@ class VerifyEmployeeJwt
                 return response()->json(['message' => 'Service Unavailable: Unable to verify revocation status'], 503);
             }
         } else {
+            Log::info('VerifyEmployeeJwt: Missing token ID (jti)');
             return response()->json(['message' => 'Unauthorized: Missing token ID (jti)'], 401);
         }
 
         // 4. Look up or auto-provision Employee
         $email = $payload['email'] ?? null;
         if (!$email) {
+            Log::info('VerifyEmployeeJwt: Missing email claim in token payload');
             return response()->json(['message' => 'Unauthorized: Missing email claim'], 401);
         }
 
@@ -140,6 +146,7 @@ class VerifyEmployeeJwt
             $employee->department = $payloadDept;
             $employee->is_active = true;
             $employee->password_hash = ''; // No local password hash needed for SSO users
+            $employee->password_change_at = now(); // Skip first-login change password for SSO users
             $employee->save();
         } else {
             // Sync profile claims if they changed centrally

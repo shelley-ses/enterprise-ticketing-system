@@ -1,0 +1,297 @@
+services:
+
+  db:
+    image: mysql:8
+    container_name: capstone-db-prod
+    restart: always
+    command: --skip-name-resolve
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "33061:3306"
+    volumes:
+      - db_data_prod:/var/lib/mysql
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: capstone-redis-prod
+    restart: always
+    volumes:
+      - redis_data_prod:/data
+    command: redis-server --appendonly yes
+    networks:
+      - default
+
+  reverb:
+    build:
+      context: ./services/customer-service
+    container_name: capstone-reverb-prod
+    restart: always
+    environment:
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REDIS_HOST: redis
+      REVERB_SERVER_HOST: 0.0.0.0
+      REVERB_SERVER_PORT: 6001
+    command: php artisan reverb:start --host=0.0.0.0 --port=6001
+    depends_on:
+      - redis
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - reverb
+
+  customer-service:
+    build:
+      context: ./services/customer-service
+    container_name: customer-service-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REVERB_HOST: reverb
+      REVERB_PORT: 6001
+      MAIL_MAILER: smtp
+      MAIL_HOST: smtp.gmail.com
+      MAIL_PORT: 587
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_ENCRYPTION: tls
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS}
+      MAIL_FROM_NAME: "Enterprise Ticketing System"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      reverb:
+        condition: service_started
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - customer-service
+
+  customer-service-queue:
+    build:
+      context: ./services/customer-service
+    container_name: customer-service-queue-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REVERB_HOST: reverb
+      REVERB_PORT: 6001
+    command: php artisan queue:work redis --sleep=1 --tries=3 --timeout=90 --max-jobs=1000 --max-time=3600
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      reverb:
+        condition: service_started
+    networks:
+      - default
+
+  ticket-service:
+    build:
+      context: ./services/ticket-service
+    container_name: ticket-service-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REVERB_HOST: reverb
+      REVERB_PORT: 6001
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      reverb:
+        condition: service_started
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - ticket-service
+
+  ticket-service-queue:
+    build:
+      context: ./services/ticket-service
+    container_name: ticket-service-queue-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REVERB_HOST: reverb
+      REVERB_PORT: 6001
+    command: php artisan queue:work redis --sleep=1 --tries=3 --timeout=90 --max-jobs=1000 --max-time=3600
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      reverb:
+        condition: service_started
+    networks:
+      - default
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+    container_name: notification-service-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+    container_name: analytics-service-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+
+  ai-service:
+    build:
+      context: ./services/AI-service
+    container_name: ai-service-prod
+    restart: always
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - default
+
+  # Employee frontend - auth module proxies to ticketing_web:5005
+  ticketing-web:
+    build:
+      context: ./frontend/web
+      args:
+        - VITE_BASE_PATH=/ticketing/
+        - VITE_APP_MODE=employee
+    container_name: ticketing-web-prod
+    restart: always
+    environment:
+      NGINX_PORT: 5005
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - ticketing_web
+
+  # Customer frontend - auth module proxies to customer_ticketing_web:5006
+  customer-ticketing-web:
+    build:
+      context: ./frontend/web
+      args:
+        - VITE_BASE_PATH=/customer-ticketing/
+        - VITE_APP_MODE=customer
+    container_name: customer-ticketing-web-prod
+    restart: always
+    environment:
+      NGINX_PORT: 5006
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - customer_ticketing_web
+
+volumes:
+  db_data_prod:
+  redis_data_prod:
+
+networks:
+  default:
+    driver: bridge
+  shared-capstone-network:
+    external: true

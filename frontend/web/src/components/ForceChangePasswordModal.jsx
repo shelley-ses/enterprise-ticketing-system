@@ -13,8 +13,9 @@ import './ForceChangePasswordModal.css';
 export default function ForceChangePasswordModal() {
   const { user, revalidateSession, logout } = useAuth();
 
-  const [step, setStep] = useState(1); // 1: Verify OTP, 2: Change Password
-  const [otp, setOtp] = useState('');
+  const isEmployeePortal = import.meta.env.VITE_APP_MODE !== 'customer';
+  const [step, setStep] = useState(isEmployeePortal ? 2 : 1); // 1: Verify OTP, 2: Change Password
+  const [otp, setOtp] = useState(isEmployeePortal ? '000000' : '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
