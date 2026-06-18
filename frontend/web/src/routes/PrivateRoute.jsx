@@ -11,6 +11,13 @@ export const checkIsCS = (user) => {
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
+export const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
 export const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
@@ -74,9 +81,10 @@ export default function PrivateRoute({ children, role }) {
   }
 
   // Authenticated — check roles
-  const isCS       = checkIsCS(user);
-  const isEmployee = checkIsEmployee(user);
-  const isCustomer = !isCS && !isEmployee;
+  const isCS          = checkIsCS(user);
+  const isEmployee    = checkIsEmployee(user);
+  const isSuperAdmin  = checkIsSuperAdmin(user);
+  const isCustomer    = !isCS && !isEmployee && !isSuperAdmin;
 
   // ── Customer portal (port 5006) ──────────────────────────────────────────
   if (isCustomerSite) {
@@ -92,6 +100,20 @@ export default function PrivateRoute({ children, role }) {
     // Role-specific route authorization
     if (role) {
       const normalizedRole = role.toLowerCase();
+      if (normalizedRole === 'customer') {
+        if (isSuperAdmin) {
+          return <Navigate to="/superadmin/ticket-config" replace />;
+        }
+        if (isCS) {
+          return <Navigate to="/cs/dashboard" replace />;
+        }
+        if (isEmployee) {
+          return <Navigate to="/employee/dashboard" replace />;
+        }
+      }
+      if (normalizedRole === 'superadmin' && !isSuperAdmin) {
+        return <Navigate to="/employee/dashboard" replace />;
+      }
       if (normalizedRole === 'employee' && !isEmployee) {
         return <Navigate to="/cs/dashboard" replace />;
       }

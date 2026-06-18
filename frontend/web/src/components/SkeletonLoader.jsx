@@ -3,8 +3,8 @@ import React from 'react';
 export default function SkeletonLoader({ className = '', variant = 'default' }) {
   if (variant === 'modal') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-fadeIn">
-        <div className="bg-white/90 backdrop-blur-lg rounded-3xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-[0_8px_32px_rgba(0,0,0,0.08)] p-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 animate-fadeIn">
+        <div className="bg-white rounded-xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-[0_8px_32px_rgba(0,0,0,0.08)] p-6">
           {/* Header skeleton */}
           <div className="flex justify-between items-start mb-4">
             <div className="flex-1">
@@ -36,7 +36,7 @@ export default function SkeletonLoader({ className = '', variant = 'default' }) 
 
   if (variant === 'ticket-card') {
     return (
-      <div className="bg-white rounded-2xl shadow-md p-6 animate-pulse">
+      <div className="bg-white rounded-xl shadow-md p-6 animate-pulse">
         {/* Status badges */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <div className="h-6 bg-gray-200 rounded-full w-20 animate-pulse" />

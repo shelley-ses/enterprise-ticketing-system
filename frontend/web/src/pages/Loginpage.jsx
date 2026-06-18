@@ -468,9 +468,12 @@ function Loginpage({ mode = 'customer' }) {
         setAttempts(0);
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
+        const isSuperAdmin = result.user?.role === 'superadmin' || result.user?.department === 'Super Admin';
         const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
-        if (isCustomerSite) {
+        if (isSuperAdmin) {
+          navigate('/superadmin/ticket-config', { replace: true });
+        } else if (isCustomerSite) {
           if (isCS) {
             window.location.href = '/ticketing/cs/dashboard';
           } else if (isEmployee) {

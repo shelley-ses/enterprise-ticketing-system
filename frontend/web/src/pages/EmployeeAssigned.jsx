@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Search, Filter } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
@@ -11,6 +12,7 @@ import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
@@ -33,6 +35,7 @@ export default function EmployeeAssigned() {
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Compute pending counts for display
   const pendingCount = useMemo(() => {
@@ -295,81 +298,83 @@ export default function EmployeeAssigned() {
 
       <div className="bg-white rounded-2xl shadow-md p-6">
         {loading ? (
-          <div className="text-center text-gray-500 py-8">
-            Loading assigned tickets...
+          <div className="space-y-4">
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
           </div>
         ) : (
           <>
-            {/* Filters */}
-            <div className="flex flex-row flex-wrap items-center gap-3 mb-6">
-              <div className="relative w-52 sm:w-60 shrink-0">
-                <svg
-                  className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+            {/* Search & Filter Toggle */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="search"
                   placeholder="Search ID, title, customer..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
                 />
               </div>
-
-              <select
-                className={selectClass}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
               >
-                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
-                  (s) => (
-                    <option key={s} value={s}>{s}</option>
-                  )
-                )}
-              </select>
-              <select
-                className={selectClass}
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                {[
-                  'All Category',
-                  'MRI',
-                  'CT Scan',
-                  'Ultrasound',
-                  'X-Ray',
-                  'Ventilator',
-                  'Defibrillator',
-                ].map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <select
-                className={selectClass}
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-              <select
-                className={selectClass}
-                value={sortPriority}
-                onChange={(e) => setSortPriority(e.target.value)}
-              >
-                <option value="Priority">Sort: Priority</option>
-              </select>
+                <Filter size={16} />
+                Filters
+              </button>
             </div>
+
+            {/* Collapsible Filters */}
+            {showFilters && (
+              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+                <select
+                  className={selectClass}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                    (s) => (
+                      <option key={s} value={s}>{s}</option>
+                    )
+                  )}
+                </select>
+                <select
+                  className={selectClass}
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  {[
+                    'All Category',
+                    'MRI',
+                    'CT Scan',
+                    'Ultrasound',
+                    'X-Ray',
+                    'Ventilator',
+                    'Defibrillator',
+                  ].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                >
+                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={sortPriority}
+                  onChange={(e) => setSortPriority(e.target.value)}
+                >
+                  <option value="Priority">Sort: Priority</option>
+                </select>
+              </div>
+            )}
 
             {/* Table */}
             <div className="overflow-x-auto rounded-lg border border-gray-100">

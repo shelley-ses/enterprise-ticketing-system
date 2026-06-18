@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { Menu, Home, LogOut, User, Bell } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { getReassignmentRequests, getNotifications } from '@/services/ticketService';
+import { getNotifications } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
-export default function Header() {
+export default function Header({ collapsed, onToggle }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
-  const isCS = user && user.role === 'customer service';
   const [notificationCount, setNotificationCount] = useState(0);
 
   const basePath = location.pathname.startsWith('/cs')
@@ -52,73 +52,77 @@ export default function Header() {
   const handleLogout = async () => {
     setDropdownOpen(false);
     await logout();
-
-    if (import.meta.env.VITE_APP_MODE === 'customer') {
-      // Customer portal — always send back to customer login
-      navigate('/customer', { replace: true });
-    } else {
-      // Employee/CS portal — send back to auth-module
-      window.location.href = '/';
-    }
+    window.location.href = '/';
   };
+
+  const userInitial = user?.name?.charAt(0)?.toUpperCase() || 'U';
 
   return (
     <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-50 px-6 py-4 flex items-center justify-between shadow-sm">
-      {/* Logo & Title */}
-      <div className="flex items-center gap-4 pl-24">
-         <div className="flex items-center gap-3">
-           <span className="px-3 py-1 bg-gray-100 rounded-lg text-sm border border-gray-300">[ LOGO ]</span>
-           <div className="hidden md:flex flex-col text-sm leading-tight">
-             <span className="text-[#252578] font-semibold">SCIENTIFIC BIOTECH</span>
-             <span className="text-xs text-gray-500 font-normal">SPECIALTIES, INC.</span>
-           </div>
-         </div>
+      <div className={`flex items-center transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-60'}`}>
+        <button
+          onClick={onToggle}
+          className="p-2 text-[#252578] hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <Menu size={20} />
+        </button>
       </div>
 
-      {/* Right Actions */}
       <div className="flex items-center gap-6">
-        <div className="relative hidden md:block">
-          <input 
-            type="text" 
-            placeholder="Search..." 
-            className="pl-10 pr-4 py-2 bg-gray-100 border border-gray-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]"
-          />
-          <svg className="w-5 h-5 text-gray-500 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
-
-        <button onClick={() => navigate(`${basePath}/notifications`)} className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-          {notificationCount > 0 && (
-            <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold shadow-sm">
-              {notificationCount}
-            </span>
-          )}
-        </button>
-
-        <div className="relative">
-          <button 
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors flex items-center gap-1"
+        <div className="relative flex items-center gap-3">
+          <button
+            onClick={() => navigate(`${basePath}/notifications`)}
+            className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <Bell size={20} />
+            {notificationCount > 0 && (
+              <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold shadow-sm">
+                {notificationCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#252578] text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+              {userInitial}
+            </div>
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-sm font-medium text-[#252578]">{user?.name || 'User'}</span>
+              <span className="text-xs text-gray-500 capitalize">{user?.role || ''}</span>
+            </div>
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          
+
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white/90 backdrop-blur-lg border border-gray-100 rounded-2xl shadow-xl py-2 z-50">
-              <button onClick={() => { setDropdownOpen(false); navigate(`${basePath}/profile`); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Profile</button>
-              <button onClick={() => { setDropdownOpen(false); navigate(`${basePath}/notifications`); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors">Notifications</button>
-              <div className="h-px bg-gray-100 my-1"></div>
-              <button onClick={handleLogout} className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 text-sm font-medium transition-colors">Logout</button>
-            </div>
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-xl shadow-xl py-2 z-50">
+                <button
+                  onClick={() => { setDropdownOpen(false); navigate(`${basePath}/profile`); }}
+                  className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+                >
+                  <User size={16} className="mr-2.5" /> My Profile
+                </button>
+                <button
+                  onClick={() => window.location.href = '/'}
+                  className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+                >
+                  <Home size={16} className="mr-2.5" /> Home
+                </button>
+                <div className="h-px bg-gray-100 my-1" />
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center w-full px-4 py-2.5 hover:bg-red-50 text-red-600 text-sm font-medium transition-colors"
+                >
+                  <LogOut size={16} className="mr-2.5" /> Logout
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>

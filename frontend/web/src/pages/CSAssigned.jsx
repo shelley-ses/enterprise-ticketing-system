@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Search, Filter } from 'lucide-react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
@@ -32,6 +33,7 @@ export default function CSAssigned() {
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -271,7 +273,7 @@ export default function CSAssigned() {
       {showRefreshBanner && (
         <div 
           onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
-          className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+          className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
         >
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
@@ -289,61 +291,84 @@ export default function CSAssigned() {
       )}
 
       {loading ? (
-        <div className="rounded-2xl bg-white p-8 text-center text-gray-500">Loading assigned tickets...</div>
+        <div className="rounded-xl bg-white p-8">
+          <table className="w-full">
+            <tbody>
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+            </tbody>
+          </table>
+        </div>
       ) : (
         <>
 
-      {/* Search & Filters */}
-      <div className="mb-6 flex flex-row flex-wrap items-center gap-3 w-full">
-        <div className="flex-grow max-w-md min-w-[200px] shrink-0">
+      {/* Search & Filter Toggle */}
+      <div className="flex items-center gap-3 mb-4 w-full">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tickets, customers..."
-            className="w-full px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm text-sm"
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
           />
         </div>
-
-        <select
-          value={machineFilter}
-          onChange={(e) => setMachineFilter(e.target.value)}
-          className="w-36 px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578]/20 outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
         >
-          {machines.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="w-36 px-4 py-3 bg-white rounded-xl focus:ring-2 focus:ring-[#252578]/20 outline-none transition-all shadow-sm font-semibold text-xs text-gray-700 cursor-pointer"
-        >
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-
-        <div className="flex items-center gap-2 flex-wrap ml-auto">
-          {slaOptions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setSlaFilter(s)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                slaFilter === s
-                  ? 'bg-[#252578] text-white shadow-lg'
-                  : 'bg-white text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+          <Filter size={16} />
+          Filters
+        </button>
       </div>
 
+      {/* Collapsible Filters */}
+      {showFilters && (
+        <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+          <select
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
+          >
+            {machines.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
+          >
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {slaOptions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSlaFilter(s)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  slaFilter === s
+                    ? 'bg-[#252578] text-white shadow-lg'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
-      <div className="bg-white/70 backdrop-blur-lg rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
+      <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
 
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-xl font-semibold text-[#252578]">Assigned Tickets</h2>

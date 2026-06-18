@@ -27,6 +27,14 @@ class EmployeeSeeder extends Seeder
                 'role' => 'service',
                 'department' => 'Service',
             ],
+            [
+                'email' => 'superadmin@gmail.com',
+                'password_hash' => Hash::make('12345678'),
+                'first_name' => 'Super',
+                'last_name' => 'Admin',
+                'role' => 'superadmin',
+                'department' => 'Super Admin',
+            ],
         ];
 
         foreach ($employees as $employee) {

@@ -16,42 +16,15 @@ export default function TicketInfoModal({ ticket, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm py-10"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 py-10"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 relative flex flex-col max-h-[85vh]"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 relative flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="p-6 border-b border-gray-100 flex-shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-400"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-
-          <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
-            <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">
-              {ticket.id}
-            </span>
-            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
-              {ticket.status}
-            </span>
-            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
-              {ticket.priority}
-            </span>
-            {ticket.escalated && (
-              <span className="text-xs font-bold px-3 py-1 bg-orange-100 text-orange-800 rounded-full border border-orange-200">
-                Escalated
-              </span>
-            )}
-          </div>
-
           <h2 className="text-xl font-bold text-gray-900 leading-snug">{ticket.title}</h2>
           <p className="text-sm text-gray-500 mt-1">
             {ticket.equipment && `${ticket.equipment} · `}{ticket.category}
@@ -112,6 +85,23 @@ export default function TicketInfoModal({ ticket, onClose }) {
               <p className="text-sm text-gray-700 leading-relaxed">{ticket.description}</p>
             </div>
           )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">
+              {ticket.id}
+            </span>
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
+              {ticket.status}
+            </span>
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+              {ticket.priority}
+            </span>
+            {ticket.escalated && (
+              <span className="text-xs font-bold px-3 py-1 bg-orange-100 text-orange-800 rounded-full border border-orange-200">
+                Escalated
+              </span>
+            )}
+          </div>
 
           {ticket.attachments && ticket.attachments.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3">
@@ -174,13 +164,6 @@ export default function TicketInfoModal({ ticket, onClose }) {
 
         {/* Footer */}
         <div className="p-6 border-t border-gray-150 flex-shrink-0 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            Close
-          </button>
           <button
             type="button"
             onClick={handleUpdate}

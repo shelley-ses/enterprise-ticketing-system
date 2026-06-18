@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import echo from '@/services/echo';
-import tokenStore from '@/auth/tokenStore';
 
 export default function useRealtimeRefresh({
   refresh,
@@ -32,7 +31,7 @@ export default function useRealtimeRefresh({
   }); // Keep dynamic callbacks fresh on every render
 
   useEffect(() => {
-    if (!enabled || !tokenStore.getToken()) return undefined;
+    if (!enabled) return undefined;
 
     // Disable polling when using deferred refresh (only listen to websocket events)
     const effectiveIntervalMs = deferRefreshRef.current ? 0 : intervalMs;

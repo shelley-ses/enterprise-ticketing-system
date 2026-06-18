@@ -28,6 +28,11 @@ import CSDashboard from './pages/CSDashboard.jsx';
 import CSIncoming from './pages/CSIncoming.jsx';
 import CSAssigned from './pages/CSAssigned.jsx';
 import Notifications from './pages/Notifications.jsx';
+import SuperAdminLayout from './components/SuperAdminLayout.jsx';
+import SuperAdminTicketConfig from './pages/SuperAdminTicketConfig.jsx';
+import SuperAdminAuditLogs from './pages/SuperAdminAuditLogs.jsx';
+import SuperAdminHistory from './pages/SuperAdminHistory.jsx';
+import SuperAdminDevLogin from './pages/SuperAdminDevLogin.jsx';
 
 function App() {
   return (
@@ -67,6 +72,16 @@ function App() {
               }
             />
 
+            {/* /superadmin/dev-login — dev-only mock login (no backend required) */}
+            <Route
+              path="/superadmin/dev-login"
+              element={
+                <GuestRoute>
+                  <SuperAdminDevLogin />
+                </GuestRoute>
+              }
+            />
+
           {/* Protected Customer Routes */}
           <Route
             path="/"
@@ -97,6 +112,7 @@ function App() {
           >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<EmployeeDashboard />} />
+            <Route path="incoming" element={<EmployeeAssigned />} />
             <Route path="assigned" element={<EmployeeAssigned />} />
             <Route path="machine" element={<EmployeeMachine />} />
             <Route path="progress" element={<EmployeeProgress />} />
@@ -129,6 +145,21 @@ function App() {
             <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
             <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
             <Route path="notifications" element={<Notifications />} />
+          </Route>
+
+          {/* SuperAdmin Routes */}
+          <Route
+            path="/superadmin"
+            element={
+              <PrivateRoute role="superadmin">
+                <SuperAdminLayout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<Navigate to="ticket-config" replace />} />
+            <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
+            <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
+            <Route path="history" element={<SuperAdminHistory />} />
           </Route>
 
             <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />

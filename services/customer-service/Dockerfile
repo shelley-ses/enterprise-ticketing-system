@@ -10,6 +10,12 @@ RUN pecl install redis && docker-php-ext-enable redis
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+COPY composer.json composer.lock ./
+
+RUN composer install --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
 COPY . .
 
-CMD sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && composer install --no-interaction --prefer-dist --optimize-autoloader && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
+RUN mkdir -p bootstrap/cache storage && composer install --no-scripts --optimize-autoloader
+
+CMD sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"

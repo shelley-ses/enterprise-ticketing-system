@@ -11,6 +11,7 @@ import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
@@ -62,55 +63,7 @@ export default function EmployeeMachine() {
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
       // Only show accepted & active (not closed/resolved) tickets
-      const activeTickets = list.filter(
-        (t) => t.accepted && !CLOSED_STATUSES.includes(t.status)
-      );
-
-      const mockResolvedInternal = {
-        id: 'TKT-9091',
-        ticket_ID: 9091,
-        title: 'Centrifuge calibration drift check',
-        category: 'Calibration Required',
-        priority: 'High',
-        status: 'Resolved',
-        customer: 'Internal Staff',
-        facility: 'Main Lab A',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        accepted: true,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        resolved_at: new Date(Date.now() - 1 * 3600000).toISOString(),
-        last_updated: new Date(Date.now() - 1 * 3600000).toISOString(),
-        sla: '24h',
-        slaStatus: 'Normal',
-        can_discard: false,
-      };
-
-      const mockClosedInternal = {
-        id: 'TKT-9092',
-        ticket_ID: 9092,
-        title: 'Lab Freezer cooling system failure',
-        category: 'Hardware Issue',
-        priority: 'Critical',
-        status: 'Closed',
-        customer: 'Internal Staff',
-        facility: 'Storage B',
-        is_internal: true,
-        ticket_type: 'Internal',
-        type: 'Internal',
-        accepted: true,
-        rejected: false,
-        date: new Date().toLocaleDateString(),
-        resolved_at: new Date(Date.now() - 2 * 3600000).toISOString(),
-        last_updated: new Date(Date.now() - 2 * 3600000).toISOString(),
-        sla: '12h',
-        slaStatus: 'Normal',
-        can_discard: false,
-      };
-
-      setTickets(activeTickets);
+      setTickets(list);
     } catch (err) {
       setLoadError('Unable to load active progress tickets.');
     } finally {
@@ -250,7 +203,7 @@ export default function EmployeeMachine() {
       )}
 
       {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
           <div>
             <div className="font-semibold">New ticket updates available</div>
             <div className="text-xs text-blue-700">Load the latest active progress tickets.</div>
@@ -265,9 +218,13 @@ export default function EmployeeMachine() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-md p-6">
+      <div className="bg-white rounded-xl shadow-md p-6">
         {loading ? (
-          <div className="text-center text-gray-500 py-8">Loading active tickets...</div>
+          <div className="space-y-4">
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
+          </div>
         ) : (
           <>
             {/* Filters */}

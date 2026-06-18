@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
+import { MoreVertical } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import NotificationModal from '@/components/NotificationModal';
+import SkeletonLoader from '@/components/SkeletonLoader';
+import { statusColors } from '@/constants/employeeTickets';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
@@ -31,16 +36,7 @@ const formatDate = (value) => {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(value));
 };
 
-const statusClass = (status) => {
-  if (status === 'Open') return 'bg-amber-100 text-amber-700';
-  if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
-  if (status === 'Pending') return 'bg-purple-100 text-purple-700';
-  if (status === 'Resolved') return 'bg-green-100 text-green-700';
-  if (status === 'Closed') return 'bg-gray-100 text-gray-700';
-  if (status === 'Reopened') return 'bg-red-100 text-red-700';
-  if (status.includes('Discarded')) return 'bg-red-100 text-red-700';
-  return 'bg-gray-100 text-gray-700';
-};
+const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
 
 export default function MyTickets({ mode = 'all' }) {
   const isHistory = mode === 'history';
@@ -54,11 +50,15 @@ export default function MyTickets({ mode = 'all' }) {
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(location.state?.openCreateModal || false);
   const [selectedTicket, setSelectedTicket] = useState(null);
-  const [confirmDiscard, setConfirmDiscard] = useState(null);
-  const [confirmCreated, setConfirmCreated] = useState(null);
+  const [notification, setNotification] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [editingTicket, setEditingTicket] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
   const [filters, setFilters] = useState({
     status: '',
     category: '',
@@ -91,6 +91,18 @@ export default function MyTickets({ mode = 'all' }) {
   useEffect(() => {
     loadTickets({ forceRefresh: false });
   }, [loadTickets]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handler = (e) => {
+      if (!e.target.closest('[data-menu-id]') && !e.target.closest('.menu-trigger')) {
+        setOpenMenuId(null);
+        setMenuPos(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openMenuId]);
 
   useEffect(() => {
     if (location.state?.openCreateModal) {
@@ -132,6 +144,11 @@ export default function MyTickets({ mode = 'all' }) {
     });
   }, [filters, isHistory, tickets]);
 
+  const closeNotif = () => setNotification(null);
+  const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
+  const showError = (title, message) => setNotification({ type: 'error', title, message });
+  const showConfirm = (title, message, onConfirm, opts = {}) => setNotification({ type: 'confirm', title, message, onConfirm, onCancel: closeNotif, ...opts });
+
   const updateFilter = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
   };
@@ -145,51 +162,50 @@ export default function MyTickets({ mode = 'all' }) {
         created_by: customerId,
       });
       
-      const created = response.ticket 
-        ? { id: 'TKT-' + String(response.ticket.ticket_ID).padStart(3, '0') }
-        : { id: 'TKT-' + String(response.ticket_ID || 'new').padStart(3, '0') };
+      const createdId = response.ticket 
+        ? 'TKT-' + String(response.ticket.ticket_ID).padStart(3, '0')
+        : 'TKT-' + String(response.ticket_ID || 'new').padStart(3, '0');
         
-      setConfirmCreated(created);
       setIsModalOpen(false);
       loadTickets({ forceRefresh: true });
+      showSuccess('Ticket submitted', `${createdId} has been created successfully.`);
     } catch (err) {
       console.error(err);
-      window.alert(err?.response?.data?.message || 'Failed to create ticket.');
+      showError('Error', err?.response?.data?.message || 'Failed to create ticket.');
     } finally {
       setModalLoading(false);
     }
   };
 
-  const handleConfirmDiscard = async () => {
-    if (!confirmDiscard) return;
+  const handleConfirmDiscard = async (ticket) => {
+    closeNotif();
+    if (!ticket) return;
 
-    const isMock = !!confirmDiscard.isMock;
+    const isMock = !!ticket.isMock;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {
-        if (t.id === confirmDiscard.id) {
+        if (t.id === ticket.id) {
           return { ...t, status: 'Discarded' };
         }
         return t;
       });
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
-      setConfirmDiscard(null);
       setSelectedTicket(null);
-      window.alert('Ticket discarded successfully.');
+      showSuccess('Ticket discarded', 'Ticket discarded successfully.');
       return;
     }
 
     try {
-      const ticketId = confirmDiscard.ticket_ID || parseInt(String(confirmDiscard.id || '').replace(/\D/g, ''), 10);
+      const ticketId = ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10);
       await discardCustomerTicket(ticketId);
-      setConfirmDiscard(null);
       setSelectedTicket(null);
-      window.alert('Ticket discarded successfully.');
+      showSuccess('Ticket discarded', 'Ticket discarded successfully.');
       loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to discard ticket:', err);
-      window.alert(err?.response?.data?.message || 'Failed to discard ticket.');
+      showError('Error', err?.response?.data?.message || 'Failed to discard ticket.');
     }
   };
 
@@ -260,7 +276,7 @@ export default function MyTickets({ mode = 'all' }) {
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
-      window.alert('Ticket resolved successfully.');
+      showSuccess('Ticket resolved', 'Ticket resolved successfully.');
       return;
     }
 
@@ -273,11 +289,11 @@ export default function MyTickets({ mode = 'all' }) {
         statusId: 3, // Resolved
       });
       setSelectedTicket(null);
-      window.alert('Ticket resolved successfully.');
+      showSuccess('Ticket resolved', 'Ticket resolved successfully.');
       loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to resolve ticket:', err);
-      window.alert(err?.response?.data?.message || 'Failed to resolve ticket.');
+      showError('Error', err?.response?.data?.message || 'Failed to resolve ticket.');
     } finally {
       setModalLoading(false);
     }
@@ -314,7 +330,7 @@ export default function MyTickets({ mode = 'all' }) {
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
-      window.alert('Ticket closed successfully.');
+      showSuccess('Ticket closed', 'Ticket closed successfully.');
       return;
     }
 
@@ -327,14 +343,66 @@ export default function MyTickets({ mode = 'all' }) {
         statusId: 4, // Closed
       });
       setSelectedTicket(null);
-      window.alert('Ticket closed successfully.');
+      showSuccess('Ticket closed', 'Ticket closed successfully.');
       loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to close ticket:', err);
-      window.alert(err?.response?.data?.message || 'Failed to close ticket.');
+      showError('Error', err?.response?.data?.message || 'Failed to close ticket.');
     } finally {
       setModalLoading(false);
     }
+  };
+
+  const handleEditTicket = (ticket) => {
+    setEditTitle(ticket.title || '');
+    setEditDescription(ticket.description || '');
+    setEditingTicket(ticket);
+    setOpenMenuId(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTicket) return;
+    const ticket = editingTicket;
+    const isMock = !!ticket.isMock;
+
+    if (isMock) {
+      const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const updatedList = stored.map(t => {
+        if (t.id === ticket.id) {
+          return { ...t, title: editTitle, description: editDescription };
+        }
+        return t;
+      });
+      localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
+      setTickets(updatedList);
+      setEditingTicket(null);
+      showSuccess('Ticket updated', 'Ticket updated successfully.');
+      return;
+    }
+
+    setLoadingText('Updating ticket...');
+    setModalLoading(true);
+    try {
+      const numericId = ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10);
+      await updateTicket({
+        ticketId: numericId,
+        title: editTitle,
+        description: editDescription,
+      });
+      setEditingTicket(null);
+      showSuccess('Ticket updated', 'Ticket updated successfully.');
+      loadTickets({ forceRefresh: true });
+    } catch (err) {
+      console.error('Failed to update ticket:', err);
+      showError('Error', err?.response?.data?.message || 'Failed to update ticket.');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleDeleteTicket = (ticket) => {
+    setOpenMenuId(null);
+    showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
 
   const handleReopenTicket = async (ticketId, reason) => {
@@ -367,7 +435,7 @@ export default function MyTickets({ mode = 'all' }) {
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
       setSelectedTicket(null);
-      window.alert('Ticket reopened successfully.');
+      showSuccess('Ticket reopened', 'Ticket reopened successfully.');
       return;
     }
 
@@ -380,11 +448,11 @@ export default function MyTickets({ mode = 'all' }) {
         statusId: 8, // Reopened
       });
       setSelectedTicket(null);
-      window.alert('Ticket reopened successfully.');
+      showSuccess('Ticket reopened', 'Ticket reopened successfully.');
       loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
-      window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
+      showError('Error', err?.response?.data?.message || 'Failed to reopen ticket.');
     } finally {
       setModalLoading(false);
     }
@@ -451,9 +519,8 @@ export default function MyTickets({ mode = 'all' }) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left" style={{ minWidth: '900px' }}>
+      <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <table className="w-full text-left">
             <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="px-5 py-4">ID</th>
@@ -462,19 +529,36 @@ export default function MyTickets({ mode = 'all' }) {
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Date Created</th>
                 <th className="px-5 py-4">Last Updated</th>
-                <th className="px-5 py-4 text-center">View</th>
+                <th className="px-5 py-4 text-center"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {visibleTickets.length === 0 && (
+              {visibleTickets.length === 0 && loading && (
+                <tr>
+                  <td colSpan="7">
+                    <div className="rounded-xl bg-white p-8">
+                      <table className="w-full">
+                        <tbody>
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {visibleTickets.length === 0 && !loading && (
                 <tr>
                   <td colSpan="7" className="px-5 py-8 text-center text-sm text-gray-500">
-                    {loading ? 'Loading tickets...' : 'No tickets match the current filters.'}
+                    No tickets match the current filters.
                   </td>
                 </tr>
               )}
               {visibleTickets.map((ticket) => (
-                <tr key={ticket.id} className="hover:bg-gray-50">
+                <tr key={ticket.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleViewTicket(ticket)}>
                   <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{ticket.id}</td>
                   <td className="px-5 py-4 text-sm font-medium text-gray-800">{ticket.title}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{ticket.category}</td>
@@ -486,51 +570,130 @@ export default function MyTickets({ mode = 'all' }) {
                   </td>
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.date_created)}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.last_updated)}</td>
-                  <td className="px-5 py-4 text-center">
-                    <button onClick={() => handleViewTicket(ticket)} className="rounded-full p-2 text-blue-600 hover:bg-blue-50" aria-label={`View ${ticket.id}`}>
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
+                  <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => {
+                        if (openMenuId === ticket.id) {
+                          setOpenMenuId(null);
+                          setMenuPos(null);
+                          return;
+                        }
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
+                        setOpenMenuId(ticket.id);
+                      }}
+                      className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                      aria-label="Actions"
+                    >
+                      <MoreVertical size={18} />
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
       </div>
 
+      {openMenuId && menuPos && createPortal(
+        (() => {
+          const t = visibleTickets.find(x => x.id === openMenuId);
+          return t ? (
+            <div data-menu-id={t.id}
+              style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, zIndex: 9999 }}
+              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg">
+              <button onClick={() => { handleEditTicket(t); setMenuPos(null); }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl">
+                Edit
+              </button>
+              <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
+                Delete
+              </button>
+            </div>
+          ) : null;
+        })(),
+        document.body
+      )}
+
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} />
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} />
 
-      {confirmDiscard && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
-            <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded by Customer in your current browser.</p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setConfirmDiscard(null)} className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
-              <button onClick={handleConfirmDiscard} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Discard</button>
+      {editingTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
+              <div>
+                <p className="text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
+                <h2 className="mt-1 text-xl font-bold text-gray-900">Edit Ticket</h2>
+              </div>
+              <button type="button" onClick={() => setEditingTicket(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
+                  <p className="mt-1 text-sm text-gray-800">{editingTicket.category}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-800">{editingTicket.status}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
+                  <p className="mt-1 text-sm text-gray-800">{editingTicket.equipment}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Date Created</p>
+                  <p className="mt-1 text-sm text-gray-800">{formatDate(editingTicket.date_created)}</p>
+                </div>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  rows="4"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                />
+              </div>
+            </div>
+            <div className="border-t border-gray-100 px-6 py-4 shrink-0 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className="rounded-xl bg-[#252578] px-8 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg"
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {confirmCreated && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700">
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="mt-4 text-lg font-bold text-gray-900">Ticket submitted</h2>
-            <p className="mt-2 text-sm text-gray-600">{confirmCreated.id} has been created successfully.</p>
-            <button onClick={() => setConfirmCreated(null)} className="mt-6 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1f1f66]">Done</button>
-          </div>
-        </div>
-      )}
+      <NotificationModal
+        isOpen={!!notification}
+        type={notification?.type}
+        title={notification?.title}
+        message={notification?.message}
+        onClose={closeNotif}
+        onConfirm={notification?.onConfirm}
+        onCancel={notification?.onCancel}
+        confirmText={notification?.confirmText}
+        confirmClassName={notification?.confirmClassName}
+      />
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">

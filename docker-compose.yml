@@ -34,9 +34,9 @@ services:
     build:
       context: ./services/customer-service
     container_name: capstone-reverb
-    restart: always
     volumes:
       - ./services/customer-service:/var/www
+    restart: always
     environment:
       REVERB_APP_ID: local
       REVERB_APP_KEY: local
@@ -47,7 +47,7 @@ services:
     ports:
       - "6001:6001"
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan reverb:start --host=0.0.0.0 --port=6001"
+      sh -lc "php artisan reverb:start --host=0.0.0.0 --port=6001"
     depends_on:
       - redis
 
@@ -81,7 +81,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
+      sh -lc "if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -114,7 +114,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
+      sh -lc "php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
     depends_on:
       db:
         condition: service_healthy
@@ -132,6 +132,7 @@ services:
       - ./services/ticket-service:/var/www
     ports:
       - "8002:8000"
+    command: sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=15M -d post_max_size=15M artisan serve --host=0.0.0.0 --port=8000"
     networks:
       - default
       - shared-capstone-network
@@ -153,8 +154,6 @@ services:
       REVERB_APP_SECRET: local
       REVERB_HOST: reverb
       REVERB_PORT: 6001
-    command: >
-      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -187,7 +186,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
+      sh -lc "php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
     depends_on:
       db:
         condition: service_healthy

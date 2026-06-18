@@ -4,13 +4,13 @@ import { statusColors, priorityColors } from '@/constants/employeeTickets';
 /**
  * First step when opening an assignment: summary + Accept / Reject (not shown in the table).
  */
-export default function AssignmentSummaryModal({ ticket, onClose, onAccept, onReject }) {
+export default function AssignmentSummaryModal({ ticket, onClose }) {
   if (!ticket) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-8 relative"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-8 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -26,7 +26,7 @@ export default function AssignmentSummaryModal({ ticket, onClose, onAccept, onRe
 
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">New assignment</p>
         <h2 className="text-xl font-bold text-gray-900 mb-1 pr-8">Ticket summary</h2>
-        <p className="text-sm text-gray-500 mb-6">Review the ticket before accepting or rejecting this assignment.</p>
+        <p className="text-sm text-gray-500 mb-6">Review the ticket details.</p>
 
         <div className="flex flex-wrap gap-2 mb-4">
           <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
@@ -60,33 +60,13 @@ export default function AssignmentSummaryModal({ ticket, onClose, onAccept, onRe
           </div>
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onReject(ticket.id);
-              onClose();
-            }}
-            className="px-5 py-2.5 rounded-xl border border-red-200 text-sm font-semibold text-red-700 hover:bg-red-50"
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onAccept(ticket.id);
-              onClose();
-            }}
             className="px-5 py-2.5 rounded-xl bg-[#252578] text-white text-sm font-semibold hover:bg-[#1a1a5c]"
           >
-            Accept
+            Close
           </button>
         </div>
       </div>

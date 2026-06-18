@@ -43,7 +43,7 @@ export default function FilePreviewModal({ file, onClose }) {
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -92,13 +92,6 @@ export default function FilePreviewModal({ file, onClose }) {
 
         {/* Footer */}
         <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3 border-t border-gray-100">
-          <button 
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-white transition-colors"
-          >
-            Close Preview
-          </button>
           <a 
             href={absoluteUrl} 
             download={name}

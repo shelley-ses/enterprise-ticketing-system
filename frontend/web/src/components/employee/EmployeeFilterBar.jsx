@@ -10,16 +10,19 @@ export default function EmployeeFilterBar({ filters, setFilters }) {
   return (
     <div className="flex flex-wrap items-center gap-3 mb-4 pb-4 border-b border-gray-100">
       <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Filter</span>
+      <span className="text-xs font-medium text-gray-500 mr-1">Status</span>
       <select className={selectClass} value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
         {statuses.map((s) => (
           <option key={s} value={s}>{s}</option>
         ))}
       </select>
+      <span className="text-xs font-medium text-gray-500 mr-1">Category</span>
       <select className={selectClass} value={filters.category} onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value }))}>
         {categories.map((c) => (
           <option key={c} value={c}>{c}</option>
         ))}
       </select>
+      <span className="text-xs font-medium text-gray-500 mr-1">Priority</span>
       <select className={selectClass} value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}>
         {priorities.map((p) => (
           <option key={p} value={p}>{p}</option>
