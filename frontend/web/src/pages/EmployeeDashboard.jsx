@@ -12,10 +12,10 @@ import {
 } from '@/constants/employeeTickets';
 import EmployeeFilterBar from '@/components/employee/EmployeeFilterBar';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
-import AssignmentSummaryModal from '@/components/employee/AssignmentSummaryModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails, getInternalTickets, getEmployeeProfile } from '@/services/ticketService';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 function ChevronRight() {
@@ -34,20 +34,19 @@ function ArrowRight() {
   );
 }
 
-const statusClass = (status) => {
-  if (status === 'Open') return 'bg-amber-100 text-amber-700';
-  if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
-  if (status === 'Pending Assignment') return 'bg-amber-100 text-amber-700';
-  if (status === 'Pending') return 'bg-purple-100 text-purple-700';
-  if (status === 'Resolved') return 'bg-green-100 text-green-700';
-  if (status === 'Closed') return 'bg-gray-100 text-gray-700';
-  if (status === 'Reopened') return 'bg-red-100 text-red-700';
-  if (status && status.includes('Discarded')) return 'bg-red-100 text-red-700';
-  return 'bg-gray-100 text-gray-700';
+const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    return null;
+  }
 };
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
+  const effectiveUser = user || getStoredUser();
   const navigate = useNavigate();
   const dateStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -58,7 +57,6 @@ export default function EmployeeDashboard() {
 
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
-  const [summaryTicket, setSummaryTicket] = useState(null);
   const [workTicket, setWorkTicket] = useState(null);
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [filters, setFilters] = useState({
@@ -353,42 +351,9 @@ export default function EmployeeDashboard() {
     }
   }, [tickets, user]);
 
-  const handleAcceptAssignment = useCallback(async (id) => {
-    const ticketObj = tickets.find((t) => t.id === id);
-    if (!ticketObj) return;
-
-    const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
-    try {
-      await acceptTicket({
-        ticketId: numericId,
-        employeeIds: [Number(user?.emp_id ?? user?.id)],
-        assignedByEmail: user?.email,
-      });
-      // Optimistic update first so UI feels instant
-      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true, status: 'In Progress' } : t)));
-      // Then force a fresh fetch from the server to confirm the accepted state
-      loadTickets({ forceRefresh: true });
-    } catch (err) {
-      console.error('Failed to accept assignment on backend:', err);
-      // fallback to optimistic update only
-      setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, accepted: true, status: 'In Progress' } : t)));
-    }
-    setSummaryTicket(null);
-  }, [tickets, user, loadTickets]);
-
-  const handleRejectAssignment = useCallback((id) => {
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, rejected: true } : t)));
-    setSummaryTicket(null);
-  }, []);
-
   const openTicketFlow = useCallback((t) => {
-    // If the ticket is In Progress (or beyond), it was already accepted — open the work modal.
-    // This guards against stale cache returning accepted: false for an already-accepted ticket.
-    if (t.accepted || t.status === 'In Progress' || t.status === 'Pending Evaluation' || t.status === 'Pending') {
-      setWorkTicket(t);
-    } else {
-      setSummaryTicket(t);
-    }
+    if (!t.accepted) return;
+    setWorkTicket(t);
   }, []);
 
   const stats = useMemo(() => {
@@ -397,14 +362,14 @@ export default function EmployeeDashboard() {
     ).length;
     const inProg = visible.filter((t) => t.status === 'In Progress').length;
     const done = visible.filter((t) => t.status === 'Resolved').length;
-    const sla = visible.filter((t) => t.priority === 'Critical' || t.status === 'Escalated').length;
-    const esc = visible.filter((t) => t.status === 'Escalated').length;
+    // const sla = visible.filter((t) => t.priority === 'Critical' || t.status === 'Escalated').length;
+    // const esc = visible.filter((t) => t.status === 'Escalated').length;
     return [
       { label: 'Assigned Tickets', value: active, sub: 'Active tickets', icon: assignedStatIcon },
       { label: 'In Progress', value: inProg, sub: 'Being worked on', icon: pendingIcon },
       { label: 'Completed Tickets', value: done, sub: 'Resolved & closed', icon: unassignedIcon },
-      { label: 'SLA Breaches', value: sla, sub: 'Immediate action needed', icon: warnIcon },
-      { label: 'Escalated Tickets', value: esc, sub: 'Flagged tickets', icon: prioIcon },
+      // { label: 'SLA Breaches', value: sla, sub: 'Immediate action needed', icon: warnIcon },
+      // { label: 'Escalated Tickets', value: esc, sub: 'Flagged tickets', icon: prioIcon },
     ];
   }, [visible]);
 
@@ -429,7 +394,7 @@ export default function EmployeeDashboard() {
 
   return (
     <div className="p-6">
-      <div className="relative rounded-2xl overflow-hidden mb-8 bg-linear-to-br from-[#252578] via-[#3535a0] to-[#1a1a5c] px-8 py-7 flex flex-col md:flex-row md:items-center gap-4 shadow-md">
+      <div className="relative rounded-xl overflow-hidden mb-8 bg-linear-to-br from-[#252578] via-[#3535a0] to-[#1a1a5c] px-8 py-7 flex flex-col md:flex-row md:items-center gap-4 shadow-md">
         <div
           className="absolute inset-0 opacity-10"
           style={{ backgroundImage: 'radial-gradient(circle at 80% 50%, #ffffff 0%, transparent 60%)' }}
@@ -437,7 +402,7 @@ export default function EmployeeDashboard() {
         <div className="relative z-10 flex-1">
           <p className="text-white/70 text-sm font-medium mb-1">{dateStr}</p>
           <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
-  Welcome back, {employeeName || user?.name || 'Employee'}!
+  {(() => { const displayName = effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : (effectiveUser?.name || 'General Employee'); return `Welcome back, ${displayName}!`; })()}
   <span className="ml-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-400/20 border border-green-400/40 text-green-300 text-xs font-semibold align-middle">
     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
     Active
@@ -463,9 +428,9 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {stats.map((s) => (
-          <div key={s.label} className="bg-white rounded-2xl shadow-md p-4 flex items-center gap-4">
+          <div key={s.label} className="bg-white rounded-xl shadow-md p-4 flex items-center gap-4">
             <div className="w-14 h-14 bg-[#f1f5f9] rounded-lg flex items-center justify-center">
               <img src={s.icon} alt="" className="w-8 h-8 object-contain" />
             </div>
@@ -479,13 +444,15 @@ export default function EmployeeDashboard() {
       </div>
 
       {loadingTickets && (
-        <div className="mb-6 rounded-xl bg-white p-4 text-sm text-gray-500">Loading assigned tickets...</div>
+        <div className="mb-6 rounded-xl bg-white p-4">
+          <SkeletonLoader variant="ticket-card" />
+        </div>
       )}
 
       {showRefreshBanner && (
         <div 
           onClick={() => handleRefreshAll({ forceRefresh: true })}
-          className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+          className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
         >
           <div>
             <div className="font-semibold">New assigned tickets available</div>
@@ -500,8 +467,9 @@ export default function EmployeeDashboard() {
         </div>
       )}
 
+      {/*
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-red-50 rounded-2xl shadow-md border border-red-100 p-6">
+        <div className="bg-red-50 rounded-xl shadow-md border border-red-100 p-6">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-3 h-3 rounded-full bg-red-400 animate-pulse" />
             <span className="text-sm font-bold text-red-700">Ventilator Pressure Alarm Fault</span>
@@ -521,7 +489,7 @@ export default function EmployeeDashboard() {
             </button>
           )}
         </div>
-        <div className="bg-amber-50 rounded-2xl shadow-md border border-amber-100 p-6">
+        <div className="bg-amber-50 rounded-xl shadow-md border border-amber-100 p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-amber-400" />
@@ -552,10 +520,10 @@ export default function EmployeeDashboard() {
           )}
         </div>
       </div>
+      */}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          <div className="bg-white rounded-2xl shadow-md p-6">
+      <div className="flex flex-col gap-6">
+          <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">Active Assigned Tickets</h2>
@@ -640,7 +608,7 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-md p-6">
+          <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-lg font-bold text-gray-800">My Recent Tickets</h2>
@@ -704,44 +672,9 @@ export default function EmployeeDashboard() {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-md p-6 flex flex-col justify-between h-full">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Recent Progress Updates</h2>
-            <div className="space-y-4">
-              {recentProgress.map((log) => (
-                <div key={log.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50/80">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-[#252578] bg-blue-50 px-2 py-0.5 rounded-full">{log.id}</span>
-                    <span className="text-xs text-gray-400">{log.time}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-800 mb-1">{log.title}</p>
-                  <p className="text-xs text-gray-500 leading-relaxed line-clamp-3">{log.desc}</p>
-                  <p className="text-xs text-gray-400 mt-2">{log.attachments} attachments</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={goProgress}
-            className="w-full mt-4 py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-[#252578] hover:text-[#252578] transition-colors font-medium"
-          >
-            View All Progress Logs
-          </button>
         </div>
       </div>
 
-      {summaryTicket && (
-        <AssignmentSummaryModal
-          ticket={summaryTicket}
-          onClose={() => setSummaryTicket(null)}
-          onAccept={handleAcceptAssignment}
-          onReject={handleRejectAssignment}
-        />
-      )}
       {workTicket && (
         <TicketDetailModal
           ticket={workTicket}
@@ -762,7 +695,7 @@ export default function EmployeeDashboard() {
 
       {myTicketsModalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">
               {myTicketsLoadingText}

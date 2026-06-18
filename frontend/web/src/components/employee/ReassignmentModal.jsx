@@ -48,7 +48,7 @@ export default function ReassignmentModal({
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-md overflow-y-auto py-10" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 p-8 relative animate-in fade-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-8 relative animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -93,14 +93,6 @@ export default function ReassignmentModal({
 
               <div className="flex gap-3 pt-2">
                 <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={isSubmitting}
-                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
                   type="submit"
                   disabled={isSubmitting || !reason.trim()}
                   className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-red-600/20 disabled:shadow-none disabled:cursor-not-allowed"
@@ -122,18 +114,11 @@ export default function ReassignmentModal({
               Your request has been filed. The ticket is now awaiting coordinator approval.
             </p>
 
-            <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 text-left mb-6 text-xs text-amber-800 space-y-1">
+            <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4 text-left mb-6 text-xs text-amber-800 space-y-1">
               <p className="font-bold text-amber-900">Reason Provided:</p>
               <p className="italic leading-relaxed font-medium">&quot;{reason}&quot;</p>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl transition-colors shadow-md shadow-[#252578]/25"
-            >
-              Close
-            </button>
           </div>
         )}
       </div>

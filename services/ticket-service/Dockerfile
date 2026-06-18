@@ -19,9 +19,13 @@ RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+COPY composer.json ./
+
+RUN composer install --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
 COPY . .
 
 # Run composer install at build time
-RUN composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
+RUN mkdir -p bootstrap/cache storage && composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 
 CMD sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000"

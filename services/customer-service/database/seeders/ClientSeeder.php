@@ -16,7 +16,7 @@ class ClientSeeder extends Seeder
                 'client_name' => 'Customer One',
                 'address' => 'QC',
                 'contact_number' => '09123456781',
-                'email' => 'customer@gmail.com',
+                'email' => 'customer@example.com',
             ],
             [
                 'client_name' => 'Slosinada User',
@@ -40,11 +40,11 @@ class ClientSeeder extends Seeder
             DB::table('clients_credentials')->updateOrInsert(
                 ['client_id' => $client->id],
                 [
-                    'password_hash' => Hash::make('12345678'),
+                    'password_hash' => Hash::make('password'),
                     'failed_login_count' => 0,
                     'locked_until' => null,
                     'last_login_at' => null,
-                    'password_change_at' => null,
+                    'password_change_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]

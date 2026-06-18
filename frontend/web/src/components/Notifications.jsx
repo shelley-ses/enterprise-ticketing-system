@@ -42,7 +42,7 @@ export default function Notifications({ notifications = [] }) {
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-gray-100">
+    <div className="bg-white rounded-xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-gray-100">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100">

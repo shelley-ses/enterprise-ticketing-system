@@ -97,7 +97,7 @@ export default function EmployeeHistoryDetail() {
       </button>
 
       {/* Header Card */}
-      <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-md p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">
             {ticket.id}
@@ -173,7 +173,7 @@ export default function EmployeeHistoryDetail() {
 
       {/* Attached Files / Photos */}
       {ticket.attachments && ticket.attachments.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
+        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
           <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
             Attached Files &amp; Photos
           </h3>
@@ -230,7 +230,7 @@ export default function EmployeeHistoryDetail() {
 
       {/* Proof of Completion (if uploaded) */}
       {ticket.proofFiles && ticket.proofFiles.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-6 border border-green-100">
+        <div className="bg-white rounded-xl shadow-md p-6 mb-6 border border-green-100">
           <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-1 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
             Proof of Completion
@@ -273,7 +273,7 @@ export default function EmployeeHistoryDetail() {
       )}
 
       {/* Chronological Timeline */}
-      <div className="bg-white rounded-2xl shadow-md p-6">
+      <div className="bg-white rounded-xl shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
             Ticket Timeline &amp; History

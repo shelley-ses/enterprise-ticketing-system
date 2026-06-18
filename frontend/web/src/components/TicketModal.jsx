@@ -32,12 +32,21 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
   const [formData, setFormData] = useState(initialFormData);
   const [attachments, setAttachments] = useState([]);
   const [fileError, setFileError] = useState('');
+  const [touched, setTouched] = useState({});
+
+  const touch = (field) => setTouched((prev) => ({ ...prev, [field]: true }));
+
+  const titleError = !formData.title?.trim() ? 'Title is required.' : '';
+  const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
+  const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
+  const descriptionError = !formData.description?.trim() ? 'Description is required.' : '';
 
   const resetFormState = () => {
     setFormData(initialFormData);
     setAttachments([]);
     setFileError('');
     setSubmitError('');
+    setTouched({});
   };
 
   useEffect(() => {
@@ -163,7 +172,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6">
           <div>
             <h2 className="text-2xl font-bold text-[#252578]">Create New Ticket</h2>
@@ -194,9 +203,11 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
               placeholder="Brief description of the issue"
               value={formData.title}
               onChange={handleChange}
+              onBlur={() => touch('title')}
               disabled={isSubmitting}
-              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+              className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
             />
+            {touched.title && titleError && <p className="mt-1.5 text-xs text-red-500">{titleError}</p>}
           </div>
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -207,8 +218,9 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                 required
                 value={formData.problem_category_ID}
                 onChange={handleChange}
+                onBlur={() => touch('category')}
                 disabled={loadingOptions || isSubmitting}
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.category && categoryError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
               >
                 <option value="">Select Category</option>
                 {categoryOptions.map((category) => (
@@ -217,6 +229,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                   </option>
                 ))}
               </select>
+              {touched.category && categoryError && <p className="mt-1.5 text-xs text-red-500">{categoryError}</p>}
             </div>
 
             <div>
@@ -226,8 +239,9 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                 required
                 value={formData.machine_ID}
                 onChange={handleChange}
+                onBlur={() => touch('equipment')}
                 disabled={loadingOptions || isSubmitting}
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.equipment && equipmentError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
               >
                 <option value="">Select Equipment</option>
                 {equipmentOptions.map((machine) => (
@@ -236,6 +250,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                   </option>
                 ))}
               </select>
+              {touched.equipment && equipmentError && <p className="mt-1.5 text-xs text-red-500">{equipmentError}</p>}
             </div>
           </div>
 
@@ -248,14 +263,16 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
               placeholder="Please provide as much detail as possible..."
               value={formData.description}
               onChange={handleChange}
+              onBlur={() => touch('description')}
               disabled={isSubmitting}
-              className="w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+              className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
             />
+            {touched.description && descriptionError && <p className="mt-1.5 text-xs text-red-500">{descriptionError}</p>}
           </div>
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Attachments (Optional)</label>
-            <div className="rounded-2xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
+            <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
               <input
                 type="file"
                 id="file-upload"
@@ -300,14 +317,6 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
           </div>
 
           <div className="mt-4 flex justify-end gap-4 border-t border-gray-100 pt-6">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isSubmitting}
-              className="rounded-xl px-6 py-3 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancel
-            </button>
             <button
               type="submit"
               disabled={loadingOptions || isSubmitting || !isFormValid}

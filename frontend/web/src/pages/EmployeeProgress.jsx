@@ -7,6 +7,7 @@ import {
 } from '@/constants/employeeTickets';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
 const HISTORY_STATUSES = ['Closed', 'Resolved', 'Pending Evaluation'];
@@ -120,7 +121,7 @@ export default function EmployeeProgress() {
       )}
 
       {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
           <div>
             <div className="font-semibold">New ticket updates available</div>
             <div className="text-xs text-blue-700">Load the latest history when you are ready.</div>
@@ -135,9 +136,19 @@ export default function EmployeeProgress() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-md p-6">
+      <div className="bg-white rounded-xl shadow-md p-6">
         {loading ? (
-          <div className="text-center text-gray-500 py-8">Loading ticket history...</div>
+          <div className="rounded-xl bg-white p-8">
+            <table className="w-full">
+              <tbody>
+                <SkeletonLoader variant="table-row" />
+                <SkeletonLoader variant="table-row" />
+                <SkeletonLoader variant="table-row" />
+                <SkeletonLoader variant="table-row" />
+                <SkeletonLoader variant="table-row" />
+              </tbody>
+            </table>
+          </div>
         ) : (
           <>
             {/* Filters */}

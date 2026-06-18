@@ -7,7 +7,9 @@ import tokenStore from '@/auth/tokenStore';
 
 const AuthContext = createContext({
   user: null,
+  setUser: () => {},
   isAuthenticated: false,
+  setIsAuthenticated: () => {},
   isLoading: true,
   error: null,
   isFirstLogin: false,
@@ -27,6 +29,8 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
     return {
       id: 2,
       emp_id: 2,
+      first_name: 'Frontend',
+      last_name: 'Employee',
       name: 'Frontend Employee',
       email,
       role: 'employee',
@@ -35,6 +39,8 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
 
   return {
     id: 1,
+    first_name: 'Frontend',
+    last_name: 'Customer',
     name: 'Frontend Customer',
     email,
     role: 'customer',
@@ -477,7 +483,9 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    setUser,
     isAuthenticated,
+    setIsAuthenticated,
     isLoading,
     error,
     isFirstLogin,

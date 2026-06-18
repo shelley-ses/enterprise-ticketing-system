@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+.env
+.env.example
+vendor
+storage
+bootstrap/cache
+public/storage
+.DS_Store
+.editorconfig
+README.md

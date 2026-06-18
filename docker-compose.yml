@@ -34,10 +34,10 @@ services:
     build:
       context: ./services/customer-service
     container_name: capstone-reverb
-    restart: always
     volumes:
       - ./services/customer-service:/var/www
       - customer-service-vendor:/var/www/vendor
+    restart: always
     environment:
       REVERB_APP_ID: local
       REVERB_APP_KEY: local
@@ -48,7 +48,7 @@ services:
     ports:
       - "6001:6001"
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan reverb:start --host=0.0.0.0 --port=6001"
+      sh -lc "php artisan reverb:start --host=0.0.0.0 --port=6001"
     depends_on:
       - redis
 
@@ -125,7 +125,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
+      sh -lc "php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
     depends_on:
       db:
         condition: service_healthy
@@ -200,7 +200,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 6001
     command: >
-      sh -lc "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
+      sh -lc "php artisan queue:work redis --sleep=1 --tries=3 --timeout=90"
     depends_on:
       db:
         condition: service_healthy
@@ -271,6 +271,7 @@ services:
     build:
       context: ./frontend/web
       dockerfile: Dockerfile
+      target: build
     container_name: ticketing_web
     volumes:
       - ./frontend/web:/app
@@ -279,6 +280,7 @@ services:
       - shared-capstone-network
     environment:
       VITE_BASE_PATH: "/ticketing/"
+      VITE_APP_MODE: "employee"
       VITE_PORT: 5005
     command: npm run dev -- --host 0.0.0.0 --port 5005
     restart: always
@@ -287,6 +289,7 @@ services:
     build:
       context: ./frontend/web
       dockerfile: Dockerfile
+      target: build
     container_name: customer_ticketing_web
     volumes:
       - ./frontend/web:/app
@@ -294,7 +297,7 @@ services:
     ports:
       - "5006:5006"
     environment:
-      VITE_BASE_PATH: "/"
+      VITE_BASE_PATH: "/customer-ticketing/"
       VITE_APP_MODE: "customer"
       VITE_PORT: 5006
     command: npm run dev -- --host 0.0.0.0 --port 5006

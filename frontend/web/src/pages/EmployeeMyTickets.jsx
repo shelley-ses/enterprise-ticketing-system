@@ -15,44 +15,43 @@ import {
   getAssignableEmployees,
   getDepartments,
   acceptTicket,
+  assignTicketToEmployees,
 } from '@/services/ticketService';
+import SkeletonLoader from '@/components/SkeletonLoader';
+import { statusColors } from '@/constants/employeeTickets';
 
 const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
-const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded'];
+const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
 
 const formatDate = (value) => {
   if (!value) return '-';
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(value));
 };
 
-const statusClass = (status) => {
-  if (status === 'Open') return 'bg-amber-100 text-amber-700';
-  if (status === 'In Progress') return 'bg-blue-100 text-blue-700';
-  if (status === 'Pending Assignment') return 'bg-amber-100 text-amber-700';
-  if (status === 'Pending') return 'bg-purple-100 text-purple-700';
-  if (status === 'Resolved') return 'bg-green-100 text-green-700';
-  if (status === 'Closed') return 'bg-gray-100 text-gray-700';
-  if (status === 'Reopened') return 'bg-red-100 text-red-700';
-  if (status.includes('Discarded')) return 'bg-red-100 text-red-700';
-  return 'bg-gray-100 text-gray-700';
-};
+const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
 
-export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employee' }) {
-  const isHistory = mode === 'history';
+export default function EmployeeMyTickets({ roleContext }) {
   const { user } = useAuth();
   const location = useLocation();
 
-
   const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(location.state?.openCreateModal || false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmCreated, setConfirmCreated] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [error, setError] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const isHistory = false;
+  // CS delegation state
+  const [csAssignTicket, setCsAssignTicket] = useState(null);
+  const [csEmployees, setCsEmployees] = useState([]);
+  const [csDepartments, setCsDepartments] = useState([]);
+  const [csPriorityOptions] = useState(['Low', 'Medium', 'High', 'Critical']);
+  const storageKey = roleContext === 'cs' ? 'cs_created_tickets' : 'employee_created_tickets';
+
   const [filters, setFilters] = useState({
     status: '',
     category: '',
@@ -94,26 +93,69 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
     setShowRefreshBanner(false);
 
     try {
-      const apiTickets = await getInternalTickets();
-      const mapped = apiTickets.map(t => ({
-        ...t,
-        date_created: t.date || t.created_at,
-        last_updated: t.lastUpdate || t.updated_at,
-        is_internal: true,
-        ticket_type: 'Internal',
-        can_discard: t.status === 'Open' && !t.assigned_to,
-      }));
+      let mapped = [];
+      try {
+        const apiTickets = await getInternalTickets();
+        if (apiTickets && apiTickets.length > 0) {
+          mapped = apiTickets.map(t => ({
+            ...t,
+            date_created: t.date || t.created_at,
+            last_updated: t.lastUpdate || t.updated_at,
+            is_internal: true,
+            ticket_type: 'Internal',
+            can_discard: t.status === 'Open' && !t.assigned_to,
+          }));
+        }
+      } catch (apiErr) {
+        console.warn('API getInternalTickets failed, falling back to local storage:', apiErr);
+      }
+
+      if (mapped.length === 0) {
+        let stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        let healed = false;
+        mapped = stored.map(t => {
+          const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+          const isMock = !!t.isMock || [1001, 1002, 1003, 1004, 7545, 9091, 9092].includes(numericId) || String(t.id).startsWith('TKT-100');
+          if (isMock && !t.isMock) {
+            healed = true;
+            return { ...t, isMock: true };
+          }
+          return t;
+        });
+        if (healed) {
+          localStorage.setItem(storageKey, JSON.stringify(mapped));
+        }
+      }
       setTickets(mapped);
     } catch (err) {
       setError('Failed to load tickets. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     loadTickets({ forceRefresh: false });
   }, [loadTickets]);
+
+  // Prefetch employees & departments for CS delegation
+  useEffect(() => {
+    if (roleContext !== 'cs') return;
+    Promise.all([
+      getAssignableEmployees({ forceRefresh: false }).catch(() => []),
+      getDepartments({ forceRefresh: false }).catch(() => []),
+    ]).then(([emps, deps]) => {
+      setCsEmployees(
+        (emps || []).map((row) => ({
+          id: Number(row.id ?? row.emp_id),
+          name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+          status: row.is_active ? 'active' : 'inactive',
+          department: row.department?.trim() || 'Unassigned',
+        }))
+      );
+      setCsDepartments((deps || []).map((d) => d.name));
+    });
+  }, [roleContext]);
 
   useEffect(() => {
     if (location.state?.openCreateModal) {
@@ -159,35 +201,89 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
   };
 
   const handleCreateTicket = async (payload) => {
-    const options = getCachedTicketFormOptions() || await getTicketFormOptions();
-    const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
-    const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
+    setLoadingText('Submitting internal ticket...');
+    setModalLoading(true);
 
-    const result = await createInternalTicket(payload);
-    const ticketData = result.ticket || result;
-    const newTicket = {
-      id: result.id || `TKT-${ticketData.ticket_ID}`,
-      ticket_ID: ticketData.ticket_ID,
-      title: ticketData.title || payload.title,
-      category,
-      equipment,
-      status: 'Open',
-      description: ticketData.description,
-      date_created: ticketData.created_at || new Date().toISOString(),
-      last_updated: ticketData.updated_at || new Date().toISOString(),
-      attachments: payload.attachments || [],
-      is_internal: true,
-      ticket_type: 'Internal',
-      can_discard: true,
-    };
+    try {
+      const options = getCachedTicketFormOptions() || await getTicketFormOptions();
+      const category = options.category_options?.find((item) => String(item.value) === String(payload.problem_category_ID))?.label || 'General';
+      const equipment = options.equipment_options?.find((item) => String(item.value) === String(payload.machine_ID))?.label || 'Unspecified equipment';
+      const response = await createInternalTicket(payload);
+      const createdTicket = response.ticket || {};
+      const numericTicketId = createdTicket.ticket_ID || Number(String(response.id || '').replace(/\D/g, ''));
+      const now = new Date().toISOString();
+      const createdAt = createdTicket.created_at || now;
+      const updatedAt = createdTicket.updated_at || createdAt;
+      const ticketRef = response.id || `TKT-${String(numericTicketId).padStart(4, '0')}`;
 
-    setTickets((current) => [newTicket, ...current]);
-    setIsModalOpen(false);
+      const newTicket = {
+        id: ticketRef,
+        ticket_ID: numericTicketId,
+        isMock: false,
+        title: createdTicket.title || payload.title,
+        category,
+        equipment,
+        status: 'Open',
+        description: createdTicket.description || payload.description,
+        date_created: createdAt,
+        last_updated: updatedAt,
+        date: createdAt,
+        lastUpdate: updatedAt,
+        attachments: response.attachments || [],
+        is_internal: true,
+        ticket_type: 'Internal',
+        type: 'Internal',
+        can_discard: true,
+        requested_by: user?.id ?? user?.emp_id,
+      };
 
-    if (roleContext === 'cs') {
-      setAssignModalTicket(newTicket);
-    } else {
-      setConfirmCreated(newTicket);
+      const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      const updatedList = [
+        newTicket,
+        ...stored.filter((ticket) => ticket.id !== newTicket.id && ticket.ticket_ID !== numericTicketId),
+      ];
+
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
+      setTickets(updatedList);
+      setIsModalOpen(false);
+
+      // CS: immediately open delegation modal instead of success dialog
+      if (roleContext === 'cs') {
+        // Refresh employees list before showing modal
+        const emps = await getAssignableEmployees({ forceRefresh: true }).catch(() => csEmployees);
+        const mappedEmps = (emps || []).map((row) => ({
+          id: Number(row.id ?? row.emp_id),
+          name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+          status: row.is_active ? 'active' : 'inactive',
+          department: row.department?.trim() || 'Unassigned',
+        }));
+        setCsEmployees(mappedEmps);
+        setCsAssignTicket(newTicket);
+      } else {
+        setConfirmCreated(newTicket);
+      }
+    } catch (err) {
+      console.error('Failed to create internal ticket:', err);
+      throw err;
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleCsAssignSave = async (updated) => {
+    const priorityMap = { Low: 1, Medium: 2, High: 3, Critical: 4 };
+    try {
+      await assignTicketToEmployees({
+        ticketId: updated.ticket_ID,
+        employeeIds: updated.assigned,
+        assignedByEmail: user?.email,
+        priorityId: priorityMap[updated.priority] ?? 1,
+      });
+      setCsAssignTicket(null);
+      setConfirmCreated(updated);
+    } catch (err) {
+      console.error('Failed to assign ticket:', err);
+      window.alert(err?.response?.data?.message || 'Failed to assign ticket.');
     }
   };
 
@@ -343,7 +439,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -352,7 +448,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
         </button>
       </div>
 
-      <div className="grid gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm md:grid-cols-5">
+      <div className="grid gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm md:grid-cols-5">
         <input
           type="text"
           placeholder="Search ID or title"
@@ -374,7 +470,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {showRefreshBanner && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="font-semibold">New ticket updates available</div>
@@ -391,7 +487,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left" style={{ minWidth: '900px' }}>
             <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -406,10 +502,27 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {visibleTickets.length === 0 && (
+              {visibleTickets.length === 0 && loading && (
+                <tr>
+                  <td colSpan="7">
+                    <div className="rounded-xl bg-white p-8">
+                      <table className="w-full">
+                        <tbody>
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                          <SkeletonLoader variant="table-row" />
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {visibleTickets.length === 0 && !loading && (
                 <tr>
                   <td colSpan="7" className="px-5 py-8 text-center text-sm text-gray-500">
-                    {loading ? 'Loading tickets...' : 'No tickets match the current filters.'}
+                    No tickets match the current filters.
                   </td>
                 </tr>
               )}
@@ -483,7 +596,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
       {confirmDiscard && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
             <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
             <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded in your current browser.</p>
             <div className="mt-6 flex justify-end gap-3">
@@ -494,9 +607,20 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
         </div>
       )}
 
+      {csAssignTicket && (
+        <AssignModal
+          ticket={csAssignTicket}
+          employees={csEmployees}
+          departments={csDepartments}
+          priorityOptions={csPriorityOptions}
+          onClose={() => setCsAssignTicket(null)}
+          onSave={handleCsAssignSave}
+        />
+      )}
+
       {confirmCreated && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 text-center shadow-2xl">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700">
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
@@ -511,7 +635,7 @@ export default function EmployeeMyTickets({ mode = 'all', roleContext = 'employe
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">
               {loadingText}

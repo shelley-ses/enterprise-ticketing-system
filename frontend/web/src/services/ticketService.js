@@ -438,14 +438,19 @@ export const acceptTicket = async ({ ticketId, employeeIds, assignedByEmail, pri
   return response.data;
 };
 
-export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByEmail, proof_rejected, rejection_reason } = {}) => {
-  const response = await ticketClient.patch(`/tickets/${ticketId}`, {
-    ticket_status_ID: statusId,
-    priority_ID: priorityId,
-    assigned_by_email: assignedByEmail,
-    proof_rejected,
-    rejection_reason,
-  });
+export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByEmail, proof_rejected, rejection_reason, title, description, machine_ID, problem_category_ID } = {}) => {
+  const payload = {};
+  if (statusId !== undefined) payload.ticket_status_ID = statusId;
+  if (priorityId !== undefined) payload.priority_ID = priorityId;
+  if (assignedByEmail !== undefined) payload.assigned_by_email = assignedByEmail;
+  if (proof_rejected !== undefined) payload.proof_rejected = proof_rejected;
+  if (rejection_reason !== undefined) payload.rejection_reason = rejection_reason;
+  if (title !== undefined) payload.title = title;
+  if (description !== undefined) payload.description = description;
+  if (machine_ID !== undefined) payload.machine_ID = machine_ID;
+  if (problem_category_ID !== undefined) payload.problem_category_ID = problem_category_ID;
+
+  const response = await ticketClient.patch(`/tickets/${ticketId}`, payload);
   // Clear both incoming and dashboard caches since status change affects both
   clearIncomingTicketsCache();
   clearCSDashboardCache();
@@ -643,6 +648,60 @@ export const createTicket = async (payload) => {
   return response.data;
 };
 
+export const createInternalTicket = async (payload) => {
+  const hasFiles = payload instanceof FormData || Boolean(payload?.attachments?.length) || Boolean(payload?.file);
+
+  if (hasFiles) {
+    const formData = payload instanceof FormData ? payload : new FormData();
+
+    if (!(payload instanceof FormData)) {
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key === 'attachments' && Array.isArray(value)) {
+          value.forEach((file) => formData.append('attachments[]', file));
+          return;
+        }
+
+        if (key === 'file' && value) {
+          formData.append('attachments[]', value);
+          return;
+        }
+
+        if (value !== null && value !== undefined && value !== '') {
+          formData.append(key, value);
+        }
+      });
+    }
+
+    const response = await ticketClient.post('/tickets/internal', formData, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    clearIncomingTicketsCache();
+    clearCSDashboardCache();
+    clearEmployeeTicketsCache();
+    notifyCsTicketRefresh();
+    return response.data;
+  }
+
+  const response = await ticketClient.post('/tickets/internal', payload);
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  clearEmployeeTicketsCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+/**
+ * Fetch all internal tickets created by the logged-in employee from the backend.
+ * Route: GET /employee/tickets/internal  (auth.subsystem required)
+ */
+export const getEmployeeInternalTickets = async () => {
+  const response = await ticketClient.get('/employee/tickets/internal');
+  return response.data; // { tickets: [...] }
+};
+
 // Local Storage Helper functions for Employee Actions
 const EMPLOYEE_OVERRIDE_KEY = 'employee_ticket_overrides_v1';
 
@@ -660,13 +719,13 @@ export const updateEmployeeTicketOverride = (ticketId, override) => {
   try {
     const all = getEmployeeOverrides();
     const existing = all[ticketId] || {};
-    
+
     // Merge internal notes
     let mergedNotes = existing.internalNotes || [];
     if (override.internalNotes) {
       mergedNotes = [...mergedNotes, ...override.internalNotes];
     }
-    
+
     // Merge timeline
     let mergedTimeline = existing.timeline || [];
     if (override.timeline) {
@@ -679,7 +738,7 @@ export const updateEmployeeTicketOverride = (ticketId, override) => {
       internalNotes: mergedNotes,
       timeline: mergedTimeline,
     };
-    
+
     window.localStorage.setItem(EMPLOYEE_OVERRIDE_KEY, JSON.stringify(all));
     notifyCsTicketRefresh();
   } catch (err) {
@@ -736,34 +795,7 @@ export const updateEmployeeTicket = async (ticketId, formData) => {
   return response.data;
 };
 
-export const createInternalTicket = async (payload) => {
-  const hasFiles = payload instanceof FormData || Boolean(payload?.attachments?.length);
 
-  if (hasFiles) {
-    const formData = payload instanceof FormData ? payload : new FormData();
-    if (!(payload instanceof FormData)) {
-      Object.entries(payload).forEach(([key, value]) => {
-        if (key === 'attachments' && Array.isArray(value)) {
-          value.forEach((file) => formData.append('attachments[]', file));
-          return;
-        }
-        if (value !== null && value !== undefined && value !== '') {
-          formData.append(key, value);
-        }
-      });
-    }
-    const response = await ticketClient.post('/tickets/internal', formData, {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  }
-
-  const response = await ticketClient.post('/tickets/internal', payload);
-  return response.data;
-};
 
 export const getInternalTickets = async () => {
   const response = await ticketClient.get('/employee/tickets/internal');
@@ -789,5 +821,3 @@ export const markNotificationRead = async (id) => {
   const response = await ticketClient.patch(`/notifications/${id}/read`);
   return response.data;
 };
-
-

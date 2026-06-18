@@ -167,7 +167,7 @@ export default function ProofCompletionModal({
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-md overflow-y-auto py-10" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-xl mx-4 my-auto relative flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-xl mx-4 my-auto relative flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -213,7 +213,7 @@ export default function ProofCompletionModal({
             </div>
           )}
 
-          <div className="bg-gray-50/50 rounded-2xl p-5 border border-gray-100">
+          <div className="bg-gray-50/50 rounded-xl p-5 border border-gray-100">
             <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5 font-sans">File Upload Requirements</h3>
             <ul className="text-[11px] text-gray-500 list-disc list-inside space-y-1 leading-relaxed font-sans">
               <li>Supported Formats: <span className="font-semibold text-gray-600">PDF, PNG, DOCX</span></li>
@@ -222,7 +222,7 @@ export default function ProofCompletionModal({
             </ul>
 
             <form onSubmit={handleProofSubmit} className="mt-5 space-y-4">
-              <div className="border-2 border-dashed border-gray-200 hover:border-[#252578] rounded-2xl p-6 transition-all bg-white text-center cursor-pointer group relative">
+              <div className="border-2 border-dashed border-gray-200 hover:border-[#252578] rounded-xl p-6 transition-all bg-white text-center cursor-pointer group relative">
                 <input
                   type="file"
                   multiple
@@ -270,14 +270,6 @@ export default function ProofCompletionModal({
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={isSubmitting}
-                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 font-sans"
-                >
-                  Cancel
-                </button>
                 <button
                   type="submit"
                   disabled={isSubmitting || proofFiles.length === 0 || !remarks.trim()}

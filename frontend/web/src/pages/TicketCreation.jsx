@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import NotificationModal from '@/components/NotificationModal';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState('');
+  const [successModal, setSuccessModal] = useState(false);
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -27,11 +29,16 @@ export default function TicketCreation() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    alert('Ticket submitted successfully!');
+    setSuccessModal(true);
+  };
+
+  const handleSuccessClose = () => {
+    setSuccessModal(false);
     navigate('/customer-dashboard');
   };
 
   return (
+    <>
     <div className="max-w-4xl mx-auto">
       <div className="mb-8">
         <button onClick={() => navigate(-1)} className="text-gray-500 hover:text-[#252578] flex items-center gap-2 text-sm font-medium mb-4 transition-colors">
@@ -42,7 +49,7 @@ export default function TicketCreation() {
         <p className="text-gray-500 mt-2">Submit a new support request for your equipment.</p>
       </div>
 
-      <div className="bg-white/70 backdrop-blur-lg border border-white rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-8">
+      <div className="bg-white/70 backdrop-blur-lg border border-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-8">
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -90,7 +97,7 @@ export default function TicketCreation() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Attachments (Optional)</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:bg-gray-50 transition-colors">
+            <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
               <input type="file" id="file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" />
               <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
                 <svg className="w-10 h-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
@@ -109,5 +116,14 @@ export default function TicketCreation() {
         </form>
       </div>
     </div>
+
+      <NotificationModal
+        isOpen={successModal}
+        type="success"
+        title="Ticket Submitted Successfully!"
+        message="Your support ticket has been created and will be reviewed shortly."
+        onClose={handleSuccessClose}
+      />
+    </>
   );
 }

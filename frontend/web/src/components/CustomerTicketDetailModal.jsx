@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import FilePreviewModal from './FilePreviewModal';
+import { statusColors } from '@/constants/employeeTickets';
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -60,7 +61,7 @@ export default function CustomerTicketDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
           <div>
             <p className="text-sm font-semibold text-[#252578]">{ticket.id}</p>
@@ -85,7 +86,7 @@ export default function CustomerTicketDetailModal({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
-              <p className="mt-1 text-sm font-semibold text-gray-800">{statusLabel}</p>
+              <span className={`inline-flex mt-1 rounded-full px-3 py-1 text-xs font-semibold ${statusColors[statusLabel] ?? 'bg-gray-100 text-gray-700'}`}>{statusLabel}</span>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
@@ -273,15 +274,6 @@ export default function CustomerTicketDetailModal({
             </div>
           ) : (
             <div className="flex w-full justify-end gap-3">
-              {allowReopen && ticket.status === 'Closed' && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100"
-                >
-                  Close
-                </button>
-              )}
               {canShowReopenAction && (
                 <button
                   type="button"
@@ -298,15 +290,6 @@ export default function CustomerTicketDetailModal({
                   className="rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700"
                 >
                   Close Ticket
-                </button>
-              )}
-              {(!allowReopen || ticket.status !== 'Closed') && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100"
-                >
-                  Close
                 </button>
               )}
               {!allowReopen && ticket.status === 'Closed' && (

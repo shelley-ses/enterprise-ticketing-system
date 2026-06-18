@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
@@ -7,24 +7,19 @@ import ForceChangePasswordModal from './ForceChangePasswordModal';
 
 export default function CustomerLayout() {
   const { isFirstLogin } = useAuth();
+  const [collapsed, setCollapsed] = useState(true);
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
-      <Header />
+      <Header collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
       
-      <div className="flex flex-1 gap-6 pt-24 pb-8 px-6 lg:px-12">
-        {/* Sidebar */}
-        <div className="w-[88px] hover:w-64 flex-shrink-0 z-20 transition-all duration-300 ease-in-out">
-          <Sidebar />
+      <Sidebar collapsed={collapsed} />
+
+      <main className={`pt-24 pb-8 px-6 lg:px-12 flex-1 transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-60'}`}>
+        <div className="max-w-7xl mx-auto">
+          <Outlet />
         </div>
-        
-        {/* Main Content Area */}
-        <main className="flex-1 min-w-0">
-          <div className="max-w-7xl mx-auto">
-            <Outlet />
-          </div>
-        </main>
-      </div>
+      </main>
 
       {isFirstLogin && <ForceChangePasswordModal />}
     </div>

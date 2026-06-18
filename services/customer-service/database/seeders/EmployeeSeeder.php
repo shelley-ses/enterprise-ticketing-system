@@ -18,6 +18,7 @@ class EmployeeSeeder extends Seeder
                 'last_name' => 'Santos',
                 'role' => 'customer service',
                 'department' => 'Customer Service',
+                'password_change_at' => now(),
             ],
             [
                 'email' => 'employee@gmail.com',
@@ -26,6 +27,16 @@ class EmployeeSeeder extends Seeder
                 'last_name' => 'Reyes',
                 'role' => 'service',
                 'department' => 'Service',
+                'password_change_at' => now(),
+            ],
+            [
+                'email' => 'superadmin@gmail.com',
+                'password_hash' => Hash::make('12345678'),
+                'first_name' => 'Super',
+                'last_name' => 'Admin',
+                'role' => 'superadmin',
+                'department' => 'Super Admin',
+                'password_change_at' => now(),
             ],
         ];
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Notifications from '@/components/Notifications';
-import QuickActions from '@/components/QuickActions';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -17,6 +16,8 @@ import {
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
+import { statusColors } from '@/constants/employeeTickets';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 
 const getStoredUser = () => {
@@ -60,17 +61,11 @@ export default function CustomerDashboard() {
   const [loadingText, setLoadingText] = useState('Loading...');
   const { user } = useAuth();
   const effectiveUser = user || getStoredUser();
-  const customerName = effectiveUser?.name || 'Customer';
+  const customerName = effectiveUser?.first_name
+    ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}`
+    : (effectiveUser?.name || 'Customer');
   const customerId = effectiveUser?.id || 1;
 
-  const statusColorByName = {
-    Open: 'bg-amber-100 text-amber-700',
-    'In Progress': 'bg-blue-100 text-blue-700',
-    'Pending Assignment': 'bg-amber-100 text-amber-700',
-    Resolved: 'bg-green-100 text-green-700',
-    Closed: 'bg-gray-100 text-gray-700',
-    Reopened: 'bg-red-100 text-red-700',
-  };
 
   const buildDashboardSignature = useCallback((payload) => {
     const summary = payload?.summary || {};
@@ -103,7 +98,7 @@ export default function CustomerDashboard() {
 
       const ticketsList = (data?.recent_tickets || []).map(t => ({
         ...t,
-        statusColor: statusColorByName[t.status] || 'bg-gray-100 text-gray-700'
+        statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
       }));
       setRecentTickets(ticketsList);
 
@@ -352,31 +347,35 @@ export default function CustomerDashboard() {
   };
 
   return (
-    <div className="flex flex-col xl:flex-row gap-8">
-      
-      {/* Left Column */}
-      <div className="flex-1 flex flex-col gap-8">
-        {/* Welcome Section */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <p className="text-gray-500 text-sm font-medium">{dateStr}</p>
-            <h1 className="text-3xl font-bold text-[#252578] mt-1">Welcome back, {customerName}!</h1>
-            <p className="text-gray-500 mt-2 text-sm">Here's a summary of your equipment support tickets.</p>
+    <div className="flex flex-col gap-8">
+      {/* Hero Section */}
+        <div className="relative rounded-xl overflow-hidden bg-linear-to-br from-[#252578] via-[#3535a0] to-[#1a1a5c] px-8 py-7 flex flex-col md:flex-row md:items-center gap-4 shadow-md">
+          <div
+            className="absolute inset-0 opacity-10"
+            style={{ backgroundImage: 'radial-gradient(circle at 80% 50%, #ffffff 0%, transparent 60%)' }}
+          />
+          <div className="relative z-10 flex-1">
+            <p className="text-white/70 text-sm font-medium mb-1">{dateStr}</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+              Welcome back, {customerName}!
+            </h1>
+            <p className="text-white/70 text-sm">Here's a summary of your equipment support tickets.</p>
           </div>
-
-          {/* AI Support Glassmorphism Card */}
-          <button className="flex items-center gap-3 px-6 py-3 bg-white/40 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.05)] rounded-2xl hover:bg-white/60 transition-all duration-300 group">
-            <svg className="w-6 h-6 text-[#252578] group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
-            <div className="text-left">
-              <div className="text-sm font-bold text-[#252578]">AI Support</div>
-              <div className="text-xs text-gray-500">Quick FAQ lookup</div>
-            </div>
-            <svg className="w-5 h-5 text-[#252578] ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-          </button>
+          <div className="relative z-10 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsTicketModalOpen(true)}
+              className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all"
+            >
+              Submit New Ticket
+            </button>
+            <Link
+              to="/my-tickets"
+              className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-medium transition-all text-center"
+            >
+              View All Tickets
+            </Link>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -384,7 +383,7 @@ export default function CustomerDashboard() {
         {showRefreshBanner && (
           <div 
             onClick={() => loadDashboardData({ forceRefresh: true })}
-            className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
+            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
           >
             <div>
               <div className="font-semibold">New dashboard data available</div>
@@ -400,7 +399,7 @@ export default function CustomerDashboard() {
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {summaryData.map((card, idx) => (
-            <div key={idx} className={`p-6 rounded-3xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>
+            <div key={idx} className={`p-6 rounded-xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>
                <div className={`absolute top-4 right-4 w-8 h-8 rounded-full ${card.bg} flex items-center justify-center`}>
                   <div className={`w-3 h-3 rounded-sm border-2 ${card.color}`}></div>
                </div>
@@ -410,8 +409,9 @@ export default function CustomerDashboard() {
           ))}
         </div>
 
+      <div className="flex flex-col xl:flex-row gap-8">
         {/* Recent Tickets Table */}
-        <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/50 shadow-[0_8px_30px_rgba(0,0,0,0.04)] p-6">
+        <div className="flex-1 bg-white/60 backdrop-blur-md rounded-xl border border-white/50 shadow-[0_8px_30px_rgba(0,0,0,0.04)] p-6">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="text-lg font-bold text-gray-800">Recent Tickets</h2>
@@ -434,14 +434,18 @@ export default function CustomerDashboard() {
               </thead>
               <tbody>
                 {recentTickets.length === 0 && (
-                  <tr>
-                    <td colSpan="4" className="px-4 py-6 text-center text-sm text-gray-500">
-                      {dashboardLoading ? 'Loading recent tickets...' : 'No tickets yet.'}
-                    </td>
-                  </tr>
+                  dashboardLoading ? (
+                    <tr><td colSpan="4"><SkeletonLoader variant="table-row" /></td></tr>
+                  ) : (
+                    <tr>
+                      <td colSpan="4" className="px-4 py-6 text-center text-sm text-gray-500">
+                        No tickets yet.
+                      </td>
+                    </tr>
+                  )
                 )}
                 {recentTickets.map((t, idx) => (
-                  <tr key={idx} className="bg-white shadow-sm hover:shadow-md transition-shadow rounded-2xl group">
+                  <tr key={idx} className="bg-white shadow-sm hover:shadow-md transition-shadow rounded-xl group">
                     <td className="px-4 py-4 rounded-l-2xl text-sm font-medium text-gray-800 border-y border-l border-gray-100">{t.id}</td>
                     <td className="px-4 py-4 border-y border-gray-100">
                       <div className="text-sm font-semibold text-gray-800">{t.title}</div>
@@ -469,12 +473,10 @@ export default function CustomerDashboard() {
           </div>
         </div>
 
-      </div>
-
-      {/* Right Column - Notifications & Quick Actions */}
-      <div className="w-full xl:w-96 flex flex-col gap-6">
-        <Notifications notifications={dbNotifications.slice(0, 3)} />
-        <QuickActions onOpenTicketModal={() => setIsTicketModalOpen(true)} />
+        {/* Notifications */}
+        <div className="w-full xl:w-96 flex flex-col gap-6">
+          <Notifications notifications={dbNotifications.slice(0, 3)} />
+        </div>
       </div>
 
       {/* Ticket Modal */}
@@ -498,7 +500,7 @@ export default function CustomerDashboard() {
       {/* Confirm Discard Modal */}
       {confirmDiscard && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
             <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
             <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded by Customer in your current browser.</p>
             <div className="mt-6 flex justify-end gap-3">
@@ -511,7 +513,7 @@ export default function CustomerDashboard() {
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">
               {loadingText}

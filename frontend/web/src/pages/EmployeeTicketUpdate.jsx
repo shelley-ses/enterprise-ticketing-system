@@ -6,6 +6,7 @@ import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
+import SkeletonLoader from '@/components/SkeletonLoader';
 import FilePreviewModal from '@/components/FilePreviewModal';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved'];
@@ -243,7 +244,7 @@ export default function EmployeeTicketUpdate() {
 
       {/* WebSocket Refresh Banner */}
       {showRefreshBanner && (
-        <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
           <div>
             <div className="font-semibold">Ticket updated by coordinator</div>
             <div className="text-xs text-blue-700">Load the latest ticket details and status when ready.</div>
@@ -259,14 +260,14 @@ export default function EmployeeTicketUpdate() {
       )}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500 bg-white rounded-2xl shadow-md">
-          <div className="w-10 h-10 border-4 border-[#252578] border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-sm font-semibold">Loading ticket details...</p>
+        <div className="p-8">
+          <div className="h-8 bg-gray-200 rounded-lg w-64 mb-6 animate-pulse" />
+          <SkeletonLoader variant="ticket-card" />
         </div>
       ) : (
         <>
           {/* Ticket Header Card */}
-          <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
+          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">
                 {ticket.id}
@@ -361,7 +362,7 @@ export default function EmployeeTicketUpdate() {
           <div className="space-y-6">
             {/* Reassignment pending banner */}
             {ticket.reassignmentRequested && (
-              <div className="bg-white rounded-2xl shadow-md p-5 flex items-center gap-3 border border-amber-100">
+              <div className="bg-white rounded-xl shadow-md p-5 flex items-center gap-3 border border-amber-100">
                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
                 <div className="text-sm text-amber-800">
                   <span className="font-bold">Reassignment Request Pending:</span>
@@ -371,7 +372,8 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Proof of Completion */}
-            {(statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
+            {isExternal &&
+              (statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
                 <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
                   <div className="max-w-lg">
                     {isProofRejected && (
@@ -430,7 +432,7 @@ export default function EmployeeTicketUpdate() {
 
             {/* Status Update */}
             {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
+              <div className="bg-white rounded-xl shadow-md p-6">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
                   Update Ticket Status
                 </h3>
@@ -566,7 +568,7 @@ export default function EmployeeTicketUpdate() {
 
             {/* Request Reassignment */}
             {!ticket.reassignmentRequested && (
-              <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4">
+              <div className="bg-white rounded-xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4">
                 <div>
                   <h3 className="text-sm font-bold text-gray-800">Request Reassignment</h3>
                   <p className="text-xs text-gray-500 mt-1">
@@ -586,7 +588,7 @@ export default function EmployeeTicketUpdate() {
 
             {/* Ticket Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
+              <div className="bg-white rounded-xl shadow-md p-6">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">
                   Original Ticket Attachments
                 </h3>
@@ -612,7 +614,7 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Staff-Only Internal Notes */}
-            <div className="bg-white rounded-2xl shadow-md p-6 space-y-4">
+            <div className="bg-white rounded-xl shadow-md p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide flex items-center gap-2">
                   Internal Notes
@@ -659,7 +661,7 @@ export default function EmployeeTicketUpdate() {
             </div>
 
             {/* Ticket Timeline */}
-            <div className="bg-white rounded-2xl shadow-md p-6">
+            <div className="bg-white rounded-xl shadow-md p-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
                   Ticket Timeline &amp; History

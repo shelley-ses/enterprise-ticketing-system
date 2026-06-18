@@ -472,6 +472,7 @@ class TicketController extends Controller
                     'tp.priority_name',
                     't.created_at',
                     't.updated_at',
+                    't.requested_by',
                     'c.client_name'
                 )
                 ->orderByDesc('t.created_at')
@@ -486,6 +487,7 @@ class TicketController extends Controller
                     'priority' => $row->priority_name,
                     'created_at' => $row->created_at,
                     'updated_at' => $row->updated_at,
+                    'requested_by' => $row->requested_by,
                 ])
                 ->values()
                 ->toArray();
@@ -2386,6 +2388,7 @@ class TicketController extends Controller
                 't.resolved_at',
                 't.closed_at',
                 't.is_internal',
+                't.requested_by',
                 'tt.type_name as ticket_type'
             )
             ->where('t.ticket_ID', $ticketId)
@@ -2663,6 +2666,7 @@ class TicketController extends Controller
             'status_history' => $statusHistory,
             'ticket_type' => $ticket->ticket_type ?? 'External',
             'is_internal' => (bool)$ticket->is_internal,
+            'requested_by' => $ticket->requested_by,
         ]);
     }
 

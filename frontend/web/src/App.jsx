@@ -32,6 +32,13 @@ const CSIncoming = React.lazy(() => import('./pages/CSIncoming.jsx'));
 const CSAssigned = React.lazy(() => import('./pages/CSAssigned.jsx'));
 const Notifications = React.lazy(() => import('./pages/Notifications.jsx'));
 
+// Lazy loaded SuperAdmin page and layout components
+const SuperAdminLayout = React.lazy(() => import('./components/SuperAdminLayout.jsx'));
+const SuperAdminTicketConfig = React.lazy(() => import('./pages/SuperAdminTicketConfig.jsx'));
+const SuperAdminAuditLogs = React.lazy(() => import('./pages/SuperAdminAuditLogs.jsx'));
+const SuperAdminHistory = React.lazy(() => import('./pages/SuperAdminHistory.jsx'));
+const SuperAdminDevLogin = React.lazy(() => import('./pages/SuperAdminDevLogin.jsx'));
+
 function App() {
   return (
     <AuthProvider>
@@ -95,45 +102,56 @@ function App() {
                 }
               />
 
-            {/* Protected Customer Routes */}
-            <Route
-              path="/"
-              element={
-                <PrivateRoute role="customer">
-                  <CustomerLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<Navigate to="customer-dashboard" replace />} />
-              <Route path="customer-dashboard" element={<CustomerDashboard />} />
-              <Route path="create-ticket" element={<TicketCreation />} />
-              <Route path="my-tickets" element={<MyTickets />} />
-              <Route path="history" element={<CustomerHistory />} />
-              <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
-              <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
-              <Route path="notifications" element={<Notifications />} />
-            </Route>
+              {/* /superadmin/dev-login — dev-only mock login (no backend required) */}
+              <Route
+                path="/superadmin/dev-login"
+                element={
+                  <GuestRoute>
+                    <SuperAdminDevLogin />
+                  </GuestRoute>
+                }
+              />
 
-            {/* Employee Routes (kept separate) */}
-            <Route
-              path="/employee"
-              element={
-                <PrivateRoute role="employee">
-                  <EmployeeLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<EmployeeDashboard />} />
-              <Route path="assigned" element={<EmployeeAssigned />} />
-              <Route path="machine" element={<EmployeeMachine />} />
-              <Route path="progress" element={<EmployeeProgress />} />
-              <Route path="my-tickets" element={<EmployeeMyTickets />} />
-              <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
-              <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
-              <Route path="registration" element={<EmployeeRegistration />} />
-              <Route path="notifications" element={<Notifications />} />
-            </Route>
+              {/* Protected Customer Routes */}
+              <Route
+                path="/"
+                element={
+                  <PrivateRoute role="customer">
+                    <CustomerLayout />
+                  </PrivateRoute>
+                }
+              >
+                <Route index element={<Navigate to="customer-dashboard" replace />} />
+                <Route path="customer-dashboard" element={<CustomerDashboard />} />
+                <Route path="create-ticket" element={<TicketCreation />} />
+                <Route path="my-tickets" element={<MyTickets />} />
+                <Route path="history" element={<CustomerHistory />} />
+                <Route path="messages" element={<div className="p-8 text-center text-gray-500">Messages module coming soon...</div>} />
+                <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
+                <Route path="notifications" element={<Notifications />} />
+              </Route>
+
+              {/* Employee Routes (kept separate) */}
+              <Route
+                path="/employee"
+                element={
+                  <PrivateRoute role="employee">
+                    <EmployeeLayout />
+                  </PrivateRoute>
+                }
+              >
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<EmployeeDashboard />} />
+                <Route path="incoming" element={<EmployeeAssigned />} />
+                <Route path="assigned" element={<EmployeeAssigned />} />
+                <Route path="machine" element={<EmployeeMachine />} />
+                <Route path="progress" element={<EmployeeProgress />} />
+                <Route path="my-tickets" element={<EmployeeMyTickets />} />
+                <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
+                <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
+                <Route path="registration" element={<EmployeeRegistration />} />
+                <Route path="notifications" element={<Notifications />} />
+              </Route>
 
               <Route path="/employee-dashboard" element={<Navigate to="/employee/dashboard" replace />} />
               <Route path="/employee-assigned" element={<Navigate to="/employee/assigned" replace />} />
@@ -141,23 +159,38 @@ function App() {
               <Route path="/employee-progress" element={<Navigate to="/employee/progress" replace />} />
               <Route path="/employee-registration" element={<Navigate to="/employee/registration" replace />} />
 
-            {/* Customer Service (CS) Routes */}
-            <Route
-              path="/cs"
-              element={
-                <PrivateRoute role="cs">
-                  <CSLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<CSDashboard />} />
-              <Route path="incoming" element={<CSIncoming />} />
-              <Route path="assigned" element={<CSAssigned />} />
-              <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
-              <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
-              <Route path="notifications" element={<Notifications />} />
-            </Route>
+              {/* Customer Service (CS) Routes */}
+              <Route
+                path="/cs"
+                element={
+                  <PrivateRoute role="cs">
+                    <CSLayout />
+                  </PrivateRoute>
+                }
+              >
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<CSDashboard />} />
+                <Route path="incoming" element={<CSIncoming />} />
+                <Route path="assigned" element={<CSAssigned />} />
+                <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
+                <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
+                <Route path="notifications" element={<Notifications />} />
+              </Route>
+
+              {/* SuperAdmin Routes */}
+              <Route
+                path="/superadmin"
+                element={
+                  <PrivateRoute role="superadmin">
+                    <SuperAdminLayout />
+                  </PrivateRoute>
+                }
+              >
+                <Route index element={<Navigate to="ticket-config" replace />} />
+                <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
+                <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
+                <Route path="history" element={<SuperAdminHistory />} />
+              </Route>
 
               <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />
               <Route path="/customer-login" element={<Navigate to="/customer" replace />} />

@@ -8,6 +8,7 @@ import ForceChangePasswordModal from './ForceChangePasswordModal';
 
 export default function CSLayout() {
   const { isFirstLogin } = useAuth();
+  const [collapsed, setCollapsed] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -24,18 +25,14 @@ export default function CSLayout() {
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
-      <Header />
-      <div className="flex flex-1 gap-6 pt-24 pb-8 px-6 lg:px-12">
-        <div className="w-[88px] hover:w-64 flex-shrink-0 z-20 transition-all duration-300 ease-in-out">
-          <SidebarCS />
-        </div>
+      <Header collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      <SidebarCS collapsed={collapsed} />
 
-        <main className="flex-1 min-w-0">
-          <div className="max-w-7xl mx-auto">
-            <Outlet context={{ refreshKey }} />
-          </div>
-        </main>
-      </div>
+      <main className={`pt-24 pb-8 px-6 lg:px-12 flex-1 transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-60'}`}>
+        <div className="max-w-7xl mx-auto">
+          <Outlet context={{ refreshKey }} />
+        </div>
+      </main>
 
       {isFirstLogin && <ForceChangePasswordModal />}
     </div>

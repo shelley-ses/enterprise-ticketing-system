@@ -1,6 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
 @import "tailwindcss";
 
+/* Glassmorphism highlight for active sidebar items */
+.glass-highlight {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+}
+
 body, input, select, textarea, button {
   font-family: 'Poppins', sans-serif;
   margin: 0;
