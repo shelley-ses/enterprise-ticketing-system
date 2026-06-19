@@ -278,47 +278,8 @@ export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = fa
       result = await incomingTicketsInFlight;
     }
   } catch (e) {
-    console.warn("Failed to fetch incoming tickets from service, using dummy data fallback:", e);
-    const dummyTickets = [
-      {
-        isMock: true,
-        id: 'TKT-2001',
-        title: 'Ventilator Pressure Alarm Fault',
-        customer: "St. Luke's Medical Center",
-        equipment: 'PB980 Ventilator - SN-883921',
-        category: 'Ventilator',
-        sla: 'On Track',
-        date: '2026-05-26',
-        status: 'New',
-        priority: 'Critical',
-        department: 'Biomedical',
-        reassignmentRequested: false,
-        reassignmentRequestedBy: null,
-        reassignmentReason: null,
-        assigned: [],
-      },
-      {
-        isMock: true,
-        id: 'TKT-2002',
-        title: 'MRI Scanner Image Artifacts',
-        customer: 'Philippine General Hospital',
-        equipment: 'Signa 1.5T MRI - SN-992100',
-        category: 'MRI',
-        sla: 'Near Breach',
-        date: '2026-05-25',
-        status: 'Pending',
-        priority: 'High',
-        department: 'Radiology',
-        reassignmentRequested: true,
-        reassignmentRequestedBy: 42,
-        reassignmentReason: 'Need specialist with MRI certification',
-        assigned: [],
-      },
-    ];
-    if (paginate) {
-      return { tickets: dummyTickets, pagination: { total: 2, per_page: limit, current_page: 1, last_page: 1 } };
-    }
-    return dummyTickets;
+    console.warn("Failed to fetch incoming tickets from service:", e);
+    throw e;
   }
 
   const rawList = Array.isArray(result) ? result : (result?.list ?? []);
@@ -460,57 +421,6 @@ export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByE
 };
 
 const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
-  const dummyTickets = [
-    {
-      isMock: true,
-      id: 'TKT-9001',
-      title: 'Patient Monitor Connection Drop',
-      customer: "St. Luke's Medical Center",
-      facility: 'Global City - ICU Room 402',
-      equipment: 'PB980 Ventilator - SN-883921',
-      status: 'In Progress',
-      priority: 'Critical',
-      category: 'Ventilator',
-      date: '2026-05-26',
-      slaStatus: 'Near Breach',
-      lastUpdate: 'May 26, 2026',
-      accepted: true,
-      escalated: true,
-    },
-    {
-      isMock: true,
-      id: 'TKT-9002',
-      title: 'MRI Scanner Image Artifacts',
-      customer: 'Philippine General Hospital',
-      facility: 'Taft Ave - Radiology Room B',
-      equipment: 'Signa 1.5T MRI - SN-992100',
-      status: 'Open',
-      priority: 'High',
-      category: 'MRI',
-      date: '2026-05-25',
-      slaStatus: 'On Track',
-      lastUpdate: 'May 25, 2026',
-      accepted: false,
-      escalated: false,
-    },
-    {
-      isMock: true,
-      id: 'TKT-9003',
-      title: 'Ventilator Pressure Alarm Fault',
-      customer: 'Makati Medical Center',
-      facility: 'Makati - ER Room 1',
-      equipment: 'PB980 Ventilator - SN-774211',
-      status: 'Escalated',
-      priority: 'Critical',
-      category: 'Ventilator',
-      date: '2026-05-26',
-      slaStatus: 'Breached',
-      lastUpdate: 'May 26, 2026',
-      accepted: true,
-      escalated: true,
-    }
-  ];
-
   try {
     const response = await ticketClient.get('/employee-tickets', {
       params: {
@@ -529,16 +439,8 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
       };
     });
   } catch (error) {
-    console.warn('Failed to fetch from ticket-service, using dummy data fallback:', error);
-    const overrides = getEmployeeOverrides();
-    return dummyTickets.map((t) => {
-      const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
-
-      return {
-        ...t,
-        ...overrideFields,
-      };
-    });
+    console.warn('Failed to fetch assigned tickets from ticket-service:', error);
+    throw error;
   }
 };
 

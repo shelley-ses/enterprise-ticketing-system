@@ -18,7 +18,7 @@ export default function Notifications() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
 
   const loadData = useCallback(async ({ source = 'manual' } = {}) => {
     if (source !== 'websocket' && source !== 'poll') {
@@ -29,7 +29,6 @@ export default function Notifications() {
 
       const data = await getNotifications();
       setNotifications(data.notifications || []);
-      setShowRefreshBanner(false);
     } catch (err) {
       console.error(err);
       setError('Failed to fetch notifications.');
@@ -48,12 +47,6 @@ export default function Notifications() {
     refresh: loadData,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source }) => {
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
   });
 
 
@@ -162,21 +155,7 @@ export default function Notifications() {
         )}
       </div>
 
-      {showRefreshBanner && (
-        <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
-          <div>
-            <div className="font-semibold">Updates available</div>
-            <div className="text-xs text-blue-700">New notifications or status updates are available.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadData({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       {success && (
         <div className="mb-6 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">

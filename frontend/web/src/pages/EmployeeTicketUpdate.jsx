@@ -9,7 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import FilePreviewModal from '@/components/FilePreviewModal';
 
-const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved'];
+const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
 
 export default function EmployeeTicketUpdate() {
   const navigate = useNavigate();
@@ -31,7 +31,6 @@ export default function EmployeeTicketUpdate() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
 
   const numericId = useMemo(() => {
     if (!ticket) return null;
@@ -48,7 +47,6 @@ export default function EmployeeTicketUpdate() {
       if (!statusDraft) {
         setStatusDraft(details.status);
       }
-      setShowRefreshBanner(false);
     } catch (err) {
       setErrorMessage('Failed to load ticket details.');
     } finally {
@@ -74,19 +72,11 @@ export default function EmployeeTicketUpdate() {
     refresh: loadTicketData,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source, payload }) => {
-      if (source === 'websocket') {
-        const myEmpId = Number(user?.emp_id ?? user?.id);
-        const isRelevant =
-          payload && (
-            Number(payload.ticketId) === numericId ||
-            Number(payload.ticket_ID) === numericId
-          );
-        if (isRelevant) {
-          setShowRefreshBanner(true);
-        }
-      }
+    shouldRefresh: ({ payload }) => {
+      return payload && (
+        Number(payload.ticketId) === numericId ||
+        Number(payload.ticket_ID) === numericId
+      );
     },
   });
 
@@ -225,7 +215,7 @@ export default function EmployeeTicketUpdate() {
       {/* Back button */}
       <button
         onClick={() => {
-          const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation'];
+          const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'];
           if (ticket && activeStatuses.includes(ticket.status)) {
             navigate('/employee/machine');
           } else {
@@ -237,27 +227,12 @@ export default function EmployeeTicketUpdate() {
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
-        {ticket && ['In Progress', 'Pending', 'Pending Evaluation'].includes(ticket.status)
+        {ticket && ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'].includes(ticket.status)
           ? 'Back to Progress Queue'
           : 'Back to Assigned Tickets'}
       </button>
 
-      {/* WebSocket Refresh Banner */}
-      {showRefreshBanner && (
-        <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
-          <div>
-            <div className="font-semibold">Ticket updated by coordinator</div>
-            <div className="text-xs text-blue-700">Load the latest ticket details and status when ready.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadTicketData()}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       {loading ? (
         <div className="p-8">

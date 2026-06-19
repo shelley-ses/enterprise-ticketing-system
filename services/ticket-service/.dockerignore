@@ -2,9 +2,9 @@
 .gitignore
 node_modules
 .env
-.env.example
 vendor
-storage
+storage/framework/
+storage/logs/
 bootstrap/cache
 public/storage
 .DS_Store

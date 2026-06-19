@@ -111,6 +111,9 @@ export default function PrivateRoute({ children, role }) {
     // Role-specific route authorization
     if (role) {
       const normalizedRole = role.toLowerCase();
+      if (isSuperAdmin && normalizedRole !== 'superadmin') {
+        return <Navigate to="/superadmin/ticket-config" replace />;
+      }
       if (normalizedRole === 'customer') {
         if (isSuperAdmin) {
           return <Navigate to="/superadmin/ticket-config" replace />;

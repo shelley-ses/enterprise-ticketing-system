@@ -15,8 +15,9 @@ class TicketController extends Controller
     {
         try {
             Cache::forget('cs_dashboard_counts');
+            Cache::forget('ticket_form_options_cache');
 
-            $redis = \Illuminate\Support\Facades\Redis::connection();
+            $redis = \Illuminate\Support\Facades\Redis::connection('cache');
             $prefix = config('cache.prefix') ?? 'laravel_cache';
             
             $patterns = [
@@ -96,9 +97,81 @@ class TicketController extends Controller
         return 'On Track';
     }
 
+    private function getFullTicketDetails(int $ticketId): ?array
+    {
+        $row = DB::table('tickets as t')
+            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+            ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+            ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
+            ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
+            ->select(
+                't.ticket_ID',
+                't.title',
+                't.is_internal',
+                't.requested_by',
+                'pc.category_name',
+                'ts.status_name',
+                'tp.priority_name',
+                'e.department',
+                't.created_at',
+                'c.client_name',
+                'm.machine_name',
+                'm.serial_number',
+                'tt.type_name as ticket_type'
+            )
+            ->where('t.ticket_ID', $ticketId)
+            ->first();
+
+        if (!$row) {
+            return null;
+        }
+
+        $assignments = DB::table('ticket_assignments')
+            ->where('ticket_ID', $ticketId)
+            ->get();
+
+        $assignedIds = $assignments->pluck('employee_ID')->map(fn($id) => (int)$id)->all();
+
+        $pendingReassign = DB::table('reassignment_requests')
+            ->where('ticket_id', $ticketId)
+            ->where('status', 'pending')
+            ->first();
+
+        $createdAtObj = is_string($row->created_at) ? \Carbon\Carbon::parse($row->created_at) : $row->created_at;
+
+        return [
+            'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+            'ticket_ID' => (int) $row->ticket_ID,
+            'customer' => $row->client_name ?: 'Unknown Customer',
+            'title' => $row->title,
+            'category' => $row->category_name,
+            'status' => $row->status_name,
+            'priority' => $row->priority_name,
+            'department' => $row->department,
+            'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+            'sla' => $this->slaLabel($createdAtObj),
+            'date' => $createdAtObj ? $createdAtObj->format('m/d/Y') : now()->format('m/d/Y'),
+            'assigned' => $assignedIds,
+            'reassignmentRequested' => !empty($pendingReassign),
+            'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
+            'type' => $row->ticket_type ?? 'External',
+            'ticket_type' => $row->ticket_type ?? 'External',
+            'is_internal' => (bool)$row->is_internal,
+            'requested_by' => $row->requested_by,
+        ];
+    }
+
     private function broadcastTicketChange(string $action, int $ticketId, array $payload = []): void
     {
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+
+        $fullTicket = null;
+        if ($ticketId > 0) {
+            $fullTicket = $this->getFullTicketDetails($ticketId);
+        }
 
         event(new TicketChanged(array_merge([
             'action' => $action,
@@ -108,6 +181,7 @@ class TicketController extends Controller
             'customer_id' => $ticket?->created_by,
             'assigned_to' => $ticket?->assigned_to,
             'ticket_status_ID' => $ticket?->ticket_status_ID,
+            'ticket' => $fullTicket,
         ], $payload)));
     }
 
@@ -437,6 +511,7 @@ class TicketController extends Controller
         $summary = Cache::remember('cs_dashboard_counts', 60, function () {
             $statusCounts = DB::table('tickets as t')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->where('t.ticket_status_ID', '!=', 9)
                 ->select('ts.status_name', DB::raw('COUNT(*) as total'))
                 ->groupBy('ts.status_name')
                 ->get();
@@ -463,6 +538,7 @@ class TicketController extends Controller
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+                ->where('t.ticket_status_ID', '!=', 9)
                 ->select(
                     't.ticket_ID',
                     't.title',
@@ -789,6 +865,7 @@ class TicketController extends Controller
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
                 ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
+                ->where('t.ticket_status_ID', '!=', 9)
                 ->select(
                     't.ticket_ID',
                     't.title',
@@ -886,7 +963,9 @@ class TicketController extends Controller
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer']);
+            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer'])
+            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
+            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
 
         if ($department) {
             $query->where('department', $department);
@@ -923,6 +1002,15 @@ class TicketController extends Controller
 
     public function assignTicket(Request $request, int $ticketId)
     {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        if ($ticket->ticket_status_ID == 3) {
+            return response()->json(['message' => 'Resolved tickets cannot be reassigned.'], 422);
+        }
+
         $validated = $request->validate([
             'employee_ids' => ['required', 'array', 'min:1'],
             'employee_ids.*' => ['integer', 'exists:employees,emp_id'],
@@ -1125,6 +1213,15 @@ class TicketController extends Controller
 
     public function acceptTicket(Request $request, int $ticketId)
     {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        if ($ticket->ticket_status_ID == 3) {
+            return response()->json(['message' => 'Resolved tickets cannot be reassigned.'], 422);
+        }
+
         $user = $request->user();
 
         // 1. Employee accept logic
@@ -1818,6 +1915,9 @@ class TicketController extends Controller
             $pendingReassign = $pendingReassigns->get($row->ticket_ID);
             $deniedReassign = $deniedReassigns->get($row->ticket_ID);
 
+            $createdAtObj = is_string($row->created_at) ? \Carbon\Carbon::parse($row->created_at) : $row->created_at;
+            $updatedAtObj = is_string($row->updated_at) ? \Carbon\Carbon::parse($row->updated_at) : $row->updated_at;
+
             return [
                 'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
                 'ticket_ID' => $row->ticket_ID,
@@ -1828,9 +1928,9 @@ class TicketController extends Controller
                 'status' => $row->status_name ?? 'Open',
                 'priority' => $row->priority_name ?? 'Low',
                 'category' => $row->category_name ?? 'General',
-                'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
+                'date' => $createdAtObj ? $createdAtObj->format('Y-m-d') : now()->format('Y-m-d'),
                 'slaStatus' => $this->slaLabel($row->created_at),
-                'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
+                'lastUpdate' => $updatedAtObj ? $updatedAtObj->format('M d, Y') : ($createdAtObj ? $createdAtObj->format('M d, Y') : now()->format('M d, Y')),
                 'accepted' => $row->assignment_status === 'accepted',
                 'escalated' => strtolower((string) ($row->priority_name ?? '')) === 'critical',
                 'reassignmentRequested' => !empty($pendingReassign),
@@ -2061,6 +2161,10 @@ class TicketController extends Controller
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         if (!$ticket) {
             return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        if ($ticket->ticket_status_ID == 3) {
+            return response()->json(['message' => 'Resolved tickets cannot be reassigned.'], 422);
         }
 
         $pendingRequest = DB::table('reassignment_requests')
@@ -2696,7 +2800,7 @@ class TicketController extends Controller
 
         // Validate
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:In Progress,Pending,Resolved,Pending Assignment'],
+            'status' => ['nullable', 'string', 'in:In Progress,Pending,Resolved,Pending Assignment,On Hold'],
             'remarks' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
             'attachments' => ['nullable', 'array'],
@@ -3078,6 +3182,9 @@ class TicketController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
 
         $equipment = DB::table('machine_categories')
             ->select('category_ID as id', 'category_name as name')
@@ -3101,6 +3208,9 @@ class TicketController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -3111,6 +3221,17 @@ class TicketController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        // Keep problem_categories in sync!
+        $exists = DB::table('problem_categories')->where('category_name', $validated['name'])->exists();
+        if (!$exists) {
+            DB::table('problem_categories')->insert([
+                'category_name' => $validated['name'],
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // Audit Log entry
         DB::table('ticket_audit_logs')->insert([
@@ -3129,6 +3250,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json([
             'message' => 'Equipment category created successfully.',
             'id' => $id,
@@ -3140,6 +3263,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $validated = $request->validate([
@@ -3153,6 +3279,14 @@ class TicketController extends Controller
 
         DB::table('machine_categories')
             ->where('category_ID', $id)
+            ->update([
+                'category_name' => $validated['name'],
+                'updated_at' => now(),
+            ]);
+
+        // Keep problem_categories in sync!
+        DB::table('problem_categories')
+            ->where('category_name', $category->category_name)
             ->update([
                 'category_name' => $validated['name'],
                 'updated_at' => now(),
@@ -3175,6 +3309,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Equipment category updated successfully.']);
     }
 
@@ -3184,6 +3320,9 @@ class TicketController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
 
         $category = DB::table('machine_categories')->where('category_ID', $id)->first();
         if (!$category) {
@@ -3191,6 +3330,9 @@ class TicketController extends Controller
         }
 
         DB::table('machine_categories')->where('category_ID', $id)->delete();
+
+        // Keep problem_categories in sync!
+        DB::table('problem_categories')->where('category_name', $category->category_name)->delete();
 
         // Audit Log entry
         DB::table('ticket_audit_logs')->insert([
@@ -3209,6 +3351,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Equipment category deleted successfully.']);
     }
 
@@ -3217,6 +3361,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $validated = $request->validate([
@@ -3248,6 +3395,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json([
             'message' => 'Priority level created successfully.',
             'id' => $id,
@@ -3259,6 +3408,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $validated = $request->validate([
@@ -3296,6 +3448,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Priority level updated successfully.']);
     }
 
@@ -3304,6 +3458,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $priority = DB::table('ticket_priorities')->where('priority_ID', $id)->first();
@@ -3330,6 +3487,8 @@ class TicketController extends Controller
         // Dispatch Reverb WebSocket broadcast
         event(new \App\Events\TicketChanged(['type' => 'config']));
 
+        $this->clearTicketCaches();
+
         return response()->json(['message' => 'Priority level deleted successfully.']);
     }
 
@@ -3338,6 +3497,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $logs = DB::table('ticket_audit_logs as tal')
@@ -3432,6 +3594,9 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (strtolower(str_replace(' ', '', $user->role ?? '')) !== 'superadmin') {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $logs = DB::table('ticket_audit_logs as tal')

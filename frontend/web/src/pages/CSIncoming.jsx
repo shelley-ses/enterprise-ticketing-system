@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Search, Filter } from 'lucide-react';
 import actionIcon from '@/assets/action.png';
@@ -67,7 +67,8 @@ export default function CSIncoming() {
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [assignmentFilter, setAssignmentFilter] = useState('All');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [newTicketId, setNewTicketId] = useState(null);
+  const newTicketTimerRef = useRef(null);
   const [typeFilter, setTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -95,7 +96,6 @@ export default function CSIncoming() {
       setLoading(true);
     }
     setError('');
-    setShowRefreshBanner(false);
 
     const [incomingResult, assigneesResult] = await Promise.allSettled([
       getCSIncomingTickets({ limit: 100, forceRefresh }),
@@ -127,13 +127,73 @@ export default function CSIncoming() {
     }
   }, []);
 
-  const probeForUpdates = useCallback(async ({ source, payload }) => {
-    // Only show banner on actual websocket events, not empty polls.
-    // Avoid the stale-state bug by not comparing against current tickets/employees.
-    if (source === 'websocket') {
-      setShowRefreshBanner(true);
+  const handleRealtimeUpdate = useCallback((context) => {
+    if (context && context.source === 'websocket') {
+      const payload = context.payload;
+      if (!payload) return;
+
+      // Check if it's an employee status update
+      if (payload.email && payload.role) {
+        const updatedEmp = payload;
+        setEmployees((prev) =>
+          prev.map((e) =>
+            e.id === Number(updatedEmp.id)
+              ? {
+                  ...e,
+                  status: updatedEmp.is_active ? 'active' : 'inactive',
+                  department: updatedEmp.department?.trim() || 'Unassigned',
+                }
+              : e
+          )
+        );
+        return;
+      }
+
+      // Check if it's a ticket event
+      if (payload.action) {
+        const { action, ticket } = payload;
+        if (!ticket) return;
+
+        if (action === 'created') {
+          // Prepend the new ticket if it's not Pending Evaluation
+          if (ticket.status !== 'Pending Evaluation') {
+            setTickets((prev) => {
+              const exists = prev.some((t) => t.id === ticket.id || t.ticket_ID === ticket.ticket_ID);
+              if (exists) return prev;
+              return [ticket, ...prev];
+            });
+
+            // Set highlight timer
+            if (newTicketTimerRef.current) {
+              clearTimeout(newTicketTimerRef.current);
+            }
+            setNewTicketId(ticket.id);
+            newTicketTimerRef.current = setTimeout(() => {
+              setNewTicketId(null);
+            }, 5000);
+          }
+        } else if (
+          action === 'assigned' ||
+          action === 'accepted' ||
+          action === 'updated' ||
+          action === 'reassign_requested' ||
+          action === 'reassigned_response'
+        ) {
+          // Update in-place
+          setTickets((prev) => {
+            return prev.map((t) => {
+              if (t.id === ticket.id || t.ticket_ID === ticket.ticket_ID) {
+                return { ...t, ...ticket };
+              }
+              return t;
+            });
+          });
+        }
+      }
+    } else {
+      loadLiveData({ forceRefresh: true });
     }
-  }, []);
+  }, [loadLiveData]);
 
   useEffect(() => {
     loadStaticData();
@@ -152,14 +212,13 @@ export default function CSIncoming() {
   }, [location.state, tickets]);
 
   useRealtimeRefresh({
-    refresh: loadLiveData,
+    refresh: handleRealtimeUpdate,
     channels: [
       { name: 'ticket-updates', event: 'ticket.changed' },
       { name: 'employee-status', event: 'employee.status.changed' },
     ],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: probeForUpdates,
+    deferRefresh: false,
   });
 
   const categories = useMemo(
@@ -369,23 +428,7 @@ export default function CSIncoming() {
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
       )}
 
-      {showRefreshBanner && (
-        <div 
-          onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
-          className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
-        >
-          <div>
-            <div className="font-semibold">New tickets available</div>
-            <div className="text-xs text-blue-700">Load the latest incoming tickets and employee statuses when ready.</div>
-          </div>
-          <button
-            type="button"
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       {loading ? (
         <div className="rounded-xl bg-white p-8">
@@ -498,23 +541,32 @@ export default function CSIncoming() {
             </thead>
 
             <tbody className="text-gray-700">
-              {paginated.map((t, idx) => (
-                <tr
-                  key={t.id}
-                  className={`${
-                    idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50'
-                  } transition-all`}
-                >
-                  <td className="py-4 px-4 font-medium">
-                    <div className="flex flex-col gap-0.5">
-                      <span>{t.id}</span>
-                      {t.reassignmentRequested && (
-                        <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
-                          Pending Reassign
-                        </span>
-                      )}
-                    </div>
-                  </td>
+              {paginated.map((t, idx) => {
+                const isNew = t.id === newTicketId || t.ticket_ID === newTicketId;
+                return (
+                  <tr
+                    key={t.id}
+                    className={`${
+                      isNew ? 'animate-new-pulse' : (idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50')
+                    } transition-all`}
+                  >
+                    <td className="py-4 px-4 font-medium">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span>{t.id}</span>
+                          {isNew && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-green-100 text-green-800 text-xs font-semibold animate-bounce shrink-0">
+                              New
+                            </span>
+                          )}
+                        </div>
+                        {t.reassignmentRequested && (
+                          <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
+                            Pending Reassign
+                          </span>
+                        )}
+                      </div>
+                    </td>
                   <td className="py-4 px-4 text-gray-600">{t.customer}</td>
                   <td className="py-4 px-4">
                     <span
@@ -570,7 +622,8 @@ export default function CSIncoming() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -632,6 +685,7 @@ export default function CSIncoming() {
                   'Reopened': 8,
                   'Reopen': 8,
                   'Pending Assignment': 9,
+                  'On Hold': 11,
                 };
                 
                 await updateTicket({

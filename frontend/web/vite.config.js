@@ -26,6 +26,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/ticket/, '/api')
+      },
+      '/storage': {
+        target: 'http://ticket-service:8000',
+        changeOrigin: true,
+        secure: false,
       }
     }
   },

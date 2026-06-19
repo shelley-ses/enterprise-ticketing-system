@@ -49,7 +49,7 @@ export default function EmployeeMachine() {
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
   const [typeFilter, setTypeFilter] = useState('all');
 
   // Modal states
@@ -60,7 +60,6 @@ export default function EmployeeMachine() {
     const email = user?.email || 'frontend@example.com';
     setLoading(true);
     setLoadError('');
-    setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
       // Only show accepted & active (not closed/resolved) tickets
@@ -91,8 +90,7 @@ export default function EmployeeMachine() {
     refresh: loadTickets,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source, payload }) => {
+    shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
         const isRelevant =
@@ -100,10 +98,9 @@ export default function EmployeeMachine() {
             Number(payload.assigned_to) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        if (isRelevant) {
-          setShowRefreshBanner(true);
-        }
+        return !!isRelevant;
       }
+      return true;
     },
   });
 
@@ -214,21 +211,7 @@ export default function EmployeeMachine() {
         </div>
       )}
 
-      {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-          <div>
-            <div className="font-semibold">New ticket updates available</div>
-            <div className="text-xs text-blue-700">Load the latest active progress tickets.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadTickets({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       <div className="bg-white rounded-xl shadow-md p-6">
         {loading ? (

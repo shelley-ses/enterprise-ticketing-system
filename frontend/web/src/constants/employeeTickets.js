@@ -29,6 +29,7 @@ export const statusColors = {
   Ongoing: 'bg-indigo-100 text-indigo-700',
   Discarded: 'bg-red-100 text-red-700',
   'Discarded by Customer': 'bg-red-100 text-red-700',
+  'On Hold': 'bg-gray-100 text-gray-600',
 };
 
 export const slaStatusColors = {

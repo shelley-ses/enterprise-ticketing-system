@@ -296,6 +296,9 @@ services:
       - /app/node_modules
     ports:
       - "5006:5006"
+    networks:
+      - default
+      - shared-capstone-network
     environment:
       VITE_BASE_PATH: "/customer-ticketing/"
       VITE_APP_MODE: "customer"

@@ -14,3 +14,21 @@ body, input, select, textarea, button {
   font-family: 'Poppins', sans-serif;
   margin: 0;
 }
+
+@keyframes newPulse {
+  0% {
+    background-color: rgba(220, 252, 231, 0.7); /* translucent green-100 */
+  }
+  50% {
+    background-color: rgba(240, 253, 244, 0.4); /* translucent green-50 */
+  }
+  100% {
+    background-color: rgba(220, 252, 231, 0.7); /* translucent green-100 */
+  }
+}
+
+.animate-new-pulse {
+  animation: newPulse 2s infinite ease-in-out;
+  border-left: 4px solid #22c55e !important; /* green-500 edge */
+  transition: background-color 0.5s ease;
+}

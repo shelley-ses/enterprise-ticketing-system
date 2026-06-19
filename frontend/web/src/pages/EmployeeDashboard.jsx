@@ -58,7 +58,7 @@ export default function EmployeeDashboard() {
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [workTicket, setWorkTicket] = useState(null);
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
   const [filters, setFilters] = useState({
     status: 'All',
     category: 'All',
@@ -78,7 +78,6 @@ export default function EmployeeDashboard() {
   const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
     const email = user?.email || 'frontend@example.com';
     setLoadingTickets(true);
-    setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
       setTickets(list.map((t) => ({ ...t, rejected: false })));
@@ -278,8 +277,7 @@ export default function EmployeeDashboard() {
     refresh: handleRefreshAll,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source, payload }) => {
+    shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
         const isRelevant =
@@ -287,10 +285,9 @@ export default function EmployeeDashboard() {
             Number(payload.assigned_to) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        if (isRelevant) {
-          setShowRefreshBanner(true);
-        }
+        return !!isRelevant;
       }
+      return true;
     },
   });
 
@@ -322,6 +319,7 @@ export default function EmployeeDashboard() {
       'Pending Evaluation': 6,
       'Pending': 7,
       'Reopened': 8,
+      'On Hold': 11,
     };
     const ticketObj = tickets.find((t) => t.id === id);
     if (!ticketObj) return;
@@ -358,7 +356,7 @@ export default function EmployeeDashboard() {
 
   const stats = useMemo(() => {
     const active = visible.filter(
-      (t) => t.status === 'Open' || t.status === 'Pending Assignment' || t.status === 'In Progress' || t.status === 'Escalated'
+      (t) => t.status === 'Open' || t.status === 'Pending Assignment' || t.status === 'In Progress' || t.status === 'Escalated' || t.status === 'On Hold'
     ).length;
     const inProg = visible.filter((t) => t.status === 'In Progress').length;
     const done = visible.filter((t) => t.status === 'Resolved').length;
@@ -385,7 +383,7 @@ export default function EmployeeDashboard() {
     [visible, filters]
   );
 
-  const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Pending Assignment' || t.status === 'Open');
+  const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Pending Assignment' || t.status === 'Open' || t.status === 'On Hold');
   const urgentTicket = visible.find((t) => t.status === 'Escalated');
   const escalatedTicket = visible.find((t) => t.priority === 'Critical' && t.status !== 'Resolved');
 
@@ -449,23 +447,7 @@ export default function EmployeeDashboard() {
         </div>
       )}
 
-      {showRefreshBanner && (
-        <div 
-          onClick={() => handleRefreshAll({ forceRefresh: true })}
-          className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
-        >
-          <div>
-            <div className="font-semibold">New assigned tickets available</div>
-            <div className="text-xs text-blue-700">Load the latest dashboard data when you are ready.</div>
-          </div>
-          <button
-            type="button"
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       {/*
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

@@ -22,6 +22,6 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY . .
 
 # Run composer install at build time
-RUN composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
+RUN mkdir -p bootstrap/cache storage && composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 
 CMD sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"

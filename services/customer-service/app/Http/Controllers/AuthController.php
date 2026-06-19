@@ -123,7 +123,8 @@ class AuthController extends Controller
         }
 
         $query = Employee::query()
-            ->where('role', '!=', 'customer service');
+            ->where('role', '!=', 'customer service')
+            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?)', ['superadmin', 'super admin']);
 
         if ($request->has('department') && !empty($request->query('department'))) {
             $query->where('department', $request->query('department'));

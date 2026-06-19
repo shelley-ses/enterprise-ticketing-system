@@ -37,7 +37,7 @@ export default function EmployeeProgress() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
@@ -46,7 +46,6 @@ export default function EmployeeProgress() {
     const email = user?.email || 'frontend@example.com';
     setLoading(true);
     setLoadError('');
-    setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
       setTickets(
@@ -61,13 +60,6 @@ export default function EmployeeProgress() {
     }
   }, [user?.email]);
 
-  const probeForUpdates = useCallback(async ({ source }) => {
-    
-    if (source === 'websocket') {
-      setShowRefreshBanner(true);
-    }
-  }, []);
-
   useEffect(() => {
     loadHistory({ forceRefresh: true });
   }, [loadHistory]);
@@ -76,12 +68,6 @@ export default function EmployeeProgress() {
     refresh: loadHistory,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source }) => {
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
   });
 
   const filtered = useMemo(() => {
@@ -120,21 +106,7 @@ export default function EmployeeProgress() {
         </div>
       )}
 
-      {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-          <div>
-            <div className="font-semibold">New ticket updates available</div>
-            <div className="text-xs text-blue-700">Load the latest history when you are ready.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadHistory({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       <div className="bg-white rounded-xl shadow-md p-6">
         {loading ? (

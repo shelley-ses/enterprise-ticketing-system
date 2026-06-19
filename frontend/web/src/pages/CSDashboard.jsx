@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { Inbox, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { getCSDashboard } from '@/services/ticketService';
@@ -29,7 +29,8 @@ export default function CSDashboard() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [newTicketId, setNewTicketId] = useState(null);
+  const newTicketTimerRef = useRef(null);
 
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
 
@@ -40,7 +41,6 @@ export default function CSDashboard() {
   const loadDashboard = useCallback(async ({ forceRefresh = false } = {}) => {
     setLoading(true);
     setError(null);
-    setShowRefreshBanner(false);
 
     try {
       const payload = await getCSDashboard({ limit: 10, forceRefresh: forceRefresh || refreshKey > 0 });
@@ -64,26 +64,134 @@ export default function CSDashboard() {
     }
   }, [refreshKey]);
 
-  const probeForUpdates = useCallback(async ({ source }) => {
-    if (source === 'websocket') {
-      setShowRefreshBanner(true);
+  const handleRealtimeUpdate = useCallback((context) => {
+    if (context && context.source === 'websocket') {
+      const payload = context.payload;
+      if (!payload) return;
+
+      const { action, ticket } = payload;
+      if (!ticket) return;
+
+      // Handle ticket created
+      if (action === 'created') {
+        // Prepend the new ticket to the tickets list (cap at 10 items)
+        setTickets((prev) => {
+          const exists = prev.some((t) => t.id === ticket.id || t.ticket_ID === ticket.ticket_ID);
+          if (exists) return prev;
+          
+          const formatted = {
+            ...ticket,
+            updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : 'Just now',
+            priority: ticket.priority || 'Unassigned',
+          };
+          return [formatted, ...prev].slice(0, 10);
+        });
+
+        // Set highlight timer
+        if (newTicketTimerRef.current) {
+          clearTimeout(newTicketTimerRef.current);
+        }
+        setNewTicketId(ticket.id);
+        newTicketTimerRef.current = setTimeout(() => {
+          setNewTicketId(null);
+        }, 5000);
+
+        // Update stats: Increment unassigned (Open) and potentially highPriority
+        setStats((prev) => {
+          if (!prev) return prev;
+          const isHighPriority = ticket.priority === 'High' || ticket.priority === 'Critical';
+          return {
+            ...prev,
+            unassigned: prev.unassigned + 1,
+            highPriority: isHighPriority ? prev.highPriority + 1 : prev.highPriority,
+          };
+        });
+      } 
+      // Handle ticket assigned
+      else if (action === 'assigned' || action === 'accepted') {
+        // Find ticket in recent activities
+        setTickets((prev) => {
+          return prev.map((t) => {
+            if (t.id === ticket.id || t.ticket_ID === ticket.ticket_ID) {
+              return {
+                ...t,
+                ...ticket,
+                updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : t.updated,
+                priority: ticket.priority || 'Unassigned',
+              };
+            }
+            return t;
+          });
+        });
+
+        // Update stats: Decrement unassigned (Open), increment pending (In Progress)
+        setStats((prev) => {
+          if (!prev) return prev;
+          
+          const newUnassigned = Math.max(0, prev.unassigned - 1);
+          const newPending = prev.pending + 1;
+          
+          return {
+            ...prev,
+            unassigned: newUnassigned,
+            pending: newPending,
+          };
+        });
+      }
+      // Handle status updates (Resolved / Closed)
+      else if (action === 'updated') {
+        // Find ticket in recent activities and update in-place
+        setTickets((prev) => {
+          return prev.map((t) => {
+            if (t.id === ticket.id || t.ticket_ID === ticket.ticket_ID) {
+              return {
+                ...t,
+                ...ticket,
+                updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : t.updated,
+                priority: ticket.priority || 'Unassigned',
+              };
+            }
+            return t;
+          });
+        });
+
+        // Update stats based on ticket status change
+        setStats((prev) => {
+          if (!prev) return prev;
+
+          if (ticket.status === 'Resolved') {
+            const isHighPriority = ticket.priority === 'High' || ticket.priority === 'Critical';
+            return {
+              ...prev,
+              pending: Math.max(0, prev.pending - 1),
+              assigned: prev.assigned + 1,
+              highPriority: isHighPriority ? Math.max(0, prev.highPriority - 1) : prev.highPriority,
+            };
+          } else if (ticket.status === 'Closed') {
+            const isHighPriority = ticket.priority === 'High' || ticket.priority === 'Critical';
+            return {
+              ...prev,
+              pending: Math.max(0, prev.pending - 1),
+              highPriority: isHighPriority ? Math.max(0, prev.highPriority - 1) : prev.highPriority,
+            };
+          }
+          return prev;
+        });
+      }
+    } else {
+      loadDashboard({ forceRefresh: true });
     }
-  }, []);
+  }, [loadDashboard]);
 
   useEffect(() => {
     loadDashboard({ forceRefresh: false });
   }, [loadDashboard]);
 
   useRealtimeRefresh({
-    refresh: loadDashboard,
+    refresh: handleRealtimeUpdate,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source }) => {
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
+    deferRefresh: false,
   });
 
   const statItems = stats
@@ -132,23 +240,7 @@ export default function CSDashboard() {
         </div>
       </div>
 
-      {showRefreshBanner && (
-        <div
-          onClick={() => loadDashboard({ forceRefresh: true })}
-          className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
-        >
-          <div>
-            <div className="font-semibold">New CS dashboard data available</div>
-            <div className="text-xs text-blue-700">Load the latest queue and ticket summary when ready.</div>
-          </div>
-          <button
-            type="button"
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
       {loading ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -204,16 +296,41 @@ export default function CSDashboard() {
                   </tr>
                 </thead>
                 <tbody className="text-gray-700">
-                  {tickets.map((r, idx) => (
-                    <tr key={r.id + idx} className={`${idx === 0 ? 'bg-blue-50' : ''} border-b`}>
-                      <td className="py-3 px-4 font-medium text-sm">{r.id}</td>
-                      <td className="py-3 px-4 text-gray-600">{r.customer}</td>
-                      <td className="py-3 px-4 text-gray-700">{r.title}</td>
-                      <td className="py-3 px-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[r.status] ?? 'bg-gray-100 text-gray-700'}`}>{r.status}</span></td>
-                      <td className="py-3 px-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${priorityColors[r.priority] ?? 'bg-gray-100 text-gray-700'}`}>{r.priority}</span></td>
-                      <td className="py-3 px-4 text-gray-500">{r.updated}</td>
-                    </tr>
-                  ))}
+                  {tickets.map((r, idx) => {
+                    const isNew = r.id === newTicketId || r.ticket_ID === newTicketId;
+                    return (
+                      <tr
+                        key={r.id + '-' + idx}
+                        className={`${
+                          isNew ? 'animate-new-pulse' : (idx === 0 ? 'bg-blue-50' : '')
+                        } border-b transition-all`}
+                      >
+                        <td className="py-3 px-4 font-medium text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span>{r.id}</span>
+                            {isNew && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-100 text-green-800 text-[10px] font-semibold animate-bounce shrink-0">
+                                New
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">{r.customer}</td>
+                        <td className="py-3 px-4 text-gray-700">{r.title}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[r.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${priorityColors[r.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                            {r.priority}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-gray-500">{r.updated}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

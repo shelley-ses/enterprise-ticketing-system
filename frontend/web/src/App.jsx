@@ -30,6 +30,7 @@ const CSLayout = React.lazy(() => import('./components/CSLayout.jsx'));
 const CSDashboard = React.lazy(() => import('./pages/CSDashboard.jsx'));
 const CSIncoming = React.lazy(() => import('./pages/CSIncoming.jsx'));
 const CSAssigned = React.lazy(() => import('./pages/CSAssigned.jsx'));
+const CSHistory = React.lazy(() => import('./pages/CSHistory.jsx'));
 const Notifications = React.lazy(() => import('./pages/Notifications.jsx'));
 
 // Lazy loaded SuperAdmin page and layout components
@@ -173,6 +174,7 @@ function App() {
                 <Route path="incoming" element={<CSIncoming />} />
                 <Route path="assigned" element={<CSAssigned />} />
                 <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
+                <Route path="history" element={<CSHistory />} />
                 <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>

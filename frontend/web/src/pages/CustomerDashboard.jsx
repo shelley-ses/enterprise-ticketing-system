@@ -45,7 +45,7 @@ export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [createdTicket, setCreatedTicket] = useState(null);
@@ -84,7 +84,6 @@ export default function CustomerDashboard() {
       setDashboardLoading(true);
     }
     setDashboardError('');
-    setShowRefreshBanner(false);
 
     try {
       const data = await getCustomerDashboard({ createdBy: customerId, forceRefresh });
@@ -115,9 +114,7 @@ export default function CustomerDashboard() {
     }
   }, [customerId]);
 
-  const probeForUpdates = useCallback(async (context = {}) => {
-    // Only show banner on real websocket events, not empty polls
-  }, []);
+
 
   useEffect(() => {
     prefetchTicketFormOptions().catch(() => {
@@ -380,23 +377,7 @@ export default function CustomerDashboard() {
 
         {/* Summary Cards */}
         {dashboardError && <p className="text-sm text-red-500">{dashboardError}</p>}
-        {showRefreshBanner && (
-          <div 
-            onClick={() => loadDashboardData({ forceRefresh: true })}
-            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
-          >
-            <div>
-              <div className="font-semibold">New dashboard data available</div>
-              <div className="text-xs text-blue-700">Load the latest ticket summary when you are ready.</div>
-            </div>
-            <button
-              type="button"
-              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 pointer-events-none"
-            >
-              Load latest
-            </button>
-          </div>
-        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {summaryData.map((card, idx) => (
             <div key={idx} className={`p-6 rounded-xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>

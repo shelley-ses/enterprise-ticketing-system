@@ -33,7 +33,7 @@ export default function CSAssigned() {
   const [category, setCategory] = useState('All Categories');
   const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const [notificationBanner, setNotificationBanner] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -58,7 +58,6 @@ export default function CSAssigned() {
       setLoading(true);
     }
     setError('');
-    setShowRefreshBanner(false);
     try {
       const [incoming, assignees] = await Promise.all([
         getCSIncomingTickets({ limit: 100, forceRefresh }),
@@ -110,18 +109,21 @@ export default function CSAssigned() {
   }, [location.state, tickets]);
 
   useRealtimeRefresh({
-    refresh: loadLiveData,
+    refresh: (context) => {
+      loadLiveData(context);
+      if (context && context.source === 'websocket') {
+        setNotificationBanner('Ticket list automatically updated via real-time sync');
+        setTimeout(() => {
+          setNotificationBanner(null);
+        }, 4000);
+      }
+    },
     channels: [
       { name: 'ticket-updates', event: 'ticket.changed' },
       { name: 'employee-status', event: 'employee.status.changed' },
     ],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source }) => {
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
+    deferRefresh: false,
   });
 
   const categories = useMemo(
@@ -285,23 +287,13 @@ export default function CSAssigned() {
         <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
       )}
 
-      {showRefreshBanner && (
-        <div 
-          onClick={() => loadLiveData({ forceRefresh: true, source: 'manual' })}
-          className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm cursor-pointer hover:bg-blue-100/50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
-            <span>New updates are available. Click here to reload.</span>
-          </div>
-          <button
-            className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition-colors pointer-events-none"
-          >
-            Refresh Now
-          </button>
+      {notificationBanner && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#252578] text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-white/20 animate-bounce">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          <span className="text-sm font-semibold tracking-wide">{notificationBanner}</span>
         </div>
       )}
 
@@ -550,6 +542,7 @@ export default function CSAssigned() {
                   'Reopened': 8,
                   'Reopen': 8,
                   'Pending Assignment': 9,
+                  'On Hold': 11,
                 };
                 
                 await updateTicket({

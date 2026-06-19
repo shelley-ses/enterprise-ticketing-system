@@ -20,7 +20,7 @@ import {
   updateTicket,
 } from '@/services/ticketService';
 
-const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded'];
+const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded', 'On Hold'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
 
 const getStoredUser = () => {
@@ -53,7 +53,6 @@ export default function MyTickets({ mode = 'all' }) {
   const [notification, setNotification] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -70,7 +69,6 @@ export default function MyTickets({ mode = 'all' }) {
   const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
     setLoading(true);
     setError('');
-    setShowRefreshBanner(false);
 
     try {
       const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh });
@@ -81,12 +79,6 @@ export default function MyTickets({ mode = 'all' }) {
       setLoading(false);
     }
   }, [customerId]);
-
-  const probeForUpdates = useCallback(async ({ source }) => {
-    if (source === 'websocket') {
-      setShowRefreshBanner(true);
-    }
-  }, []);
 
   useEffect(() => {
     loadTickets({ forceRefresh: false });
@@ -123,12 +115,6 @@ export default function MyTickets({ mode = 'all' }) {
     refresh: loadTickets,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source }) => {
-      if (source === 'websocket') {
-        setShowRefreshBanner(true);
-      }
-    },
   });
 
   const categories = useMemo(() => {
@@ -509,23 +495,6 @@ export default function MyTickets({ mode = 'all' }) {
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {showRefreshBanner && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold">New ticket updates available</div>
-              <div className="text-xs text-blue-700">Load the latest ticket list when you are ready.</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => loadTickets({ forceRefresh: true })}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-            >
-              Load latest
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
           <table className="w-full text-left">

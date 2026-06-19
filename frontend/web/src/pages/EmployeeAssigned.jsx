@@ -33,7 +33,7 @@ export default function EmployeeAssigned() {
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
   const [sortPriority, setSortPriority] = useState('Priority');
-  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+
   const [isAccepting, setIsAccepting] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -53,7 +53,6 @@ export default function EmployeeAssigned() {
     const email = user?.email || 'frontend@example.com';
     setLoading(true);
     setLoadError('');
-    setShowRefreshBanner(false);
     try {
       const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
       setTickets(list.map((t) => ({ ...t, rejected: false })));
@@ -87,19 +86,13 @@ export default function EmployeeAssigned() {
     }
   }, [location.state, tickets]);
 
-  const probeForUpdates = useCallback(async () => {
-    // Only show banner on actual websocket events (from the event payload),
-    // not on empty polls. This avoids false-positive "new data" notifications.
-    // The banner will be triggered only when a real ticket-update event fires.
-  }, []);
+
 
   useRealtimeRefresh({
     refresh: loadTickets,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
-    deferRefresh: true,
-    onRefreshAvailable: ({ source, payload }) => {
-      // Only show banner when a real websocket event fires (not on empty polls)
+    shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
         const isRelevant =
@@ -107,10 +100,9 @@ export default function EmployeeAssigned() {
             Number(payload.assigned_to) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        if (isRelevant) {
-          setShowRefreshBanner(true);
-        }
+        return !!isRelevant;
       }
+      return true;
     },
   });
 
@@ -213,6 +205,7 @@ export default function EmployeeAssigned() {
       'Pending Evaluation': 6,
       'Pending': 7,
       'Reopened': 8,
+      'On Hold': 11,
     };
     const ticketObj = tickets.find((t) => t.id === id);
     if (!ticketObj) return;
@@ -307,21 +300,7 @@ export default function EmployeeAssigned() {
         </div>
       )}
 
-      {showRefreshBanner && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
-          <div>
-            <div className="font-semibold">New assigned tickets available</div>
-            <div className="text-xs text-blue-700">Load the latest assigned tickets when you are ready.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadTickets({ forceRefresh: true })}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-          >
-            Load latest
-          </button>
-        </div>
-      )}
+
 
       <div className="bg-white rounded-2xl shadow-md p-6">
         {loading ? (
@@ -361,7 +340,7 @@ export default function EmployeeAssigned() {
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
-                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map(
                     (s) => (
                       <option key={s} value={s}>{s}</option>
                     )
@@ -481,7 +460,7 @@ export default function EmployeeAssigned() {
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
                       >
-                        {['All Status', 'Pending Assignment', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign'].map(
+                        {['All Status', 'Pending Assignment', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map(
                           (s) => (
                             <option key={s} value={s}>{s}</option>
                           )

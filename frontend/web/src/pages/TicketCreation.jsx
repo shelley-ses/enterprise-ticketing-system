@@ -1,12 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NotificationModal from '@/components/NotificationModal';
+import { getTicketFormOptions, createTicket } from '@/services/ticketService';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
+  const [formData, setFormData] = useState({
+    title: '',
+    machine_ID: '',
+    problem_category_ID: '',
+    description: '',
+    priority_ID: 1, // default to Low (1)
+  });
+  const [options, setOptions] = useState({
+    equipment_options: [],
+    category_options: [],
+    machines: [],
+    problem_categories: [],
+    ticket_priorities: [],
+  });
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [error, setError] = useState('');
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState('');
   const [successModal, setSuccessModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const loadOptions = async () => {
+      setLoadingOptions(true);
+      setError('');
+      try {
+        const data = await getTicketFormOptions({ forceRefresh: true });
+        setOptions(data);
+        if (data.ticket_priorities?.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            priority_ID: data.ticket_priorities[0].priority_ID,
+          }));
+        }
+      } catch (err) {
+        setError('Failed to load ticket configuration options. Please refresh the page.');
+        console.error(err);
+      } finally {
+        setLoadingOptions(false);
+      }
+    };
+    loadOptions();
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -27,15 +73,58 @@ export default function TicketCreation() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSuccessModal(true);
+    if (submitting) return;
+    setError('');
+    setSubmitting(true);
+
+    try {
+      const payload = new FormData();
+      payload.append('title', formData.title);
+      payload.append('machine_ID', formData.machine_ID);
+      payload.append('problem_category_ID', formData.problem_category_ID);
+      payload.append('description', formData.description);
+      payload.append('priority_ID', formData.priority_ID);
+      if (file) {
+        payload.append('attachments[]', file);
+      }
+      
+      await createTicket(payload);
+      setSuccessModal(true);
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to submit ticket. Please try again.');
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSuccessClose = () => {
     setSuccessModal(false);
     navigate('/customer-dashboard');
   };
+
+  const equipmentOptions = options.equipment_options?.length
+    ? options.equipment_options
+    : (options.machines || []).map((machine) => ({
+      value: machine.machine_ID,
+      label: `${machine.machine_name} - ${machine.serial_number}`,
+    }));
+
+  const categoryOptions = options.category_options?.length
+    ? options.category_options
+    : (options.problem_categories || []).map((category) => ({
+      value: category.problem_category_ID,
+      label: category.category_name,
+    }));
+
+  const priorityOptions = options.priority_options?.length
+    ? options.priority_options
+    : (options.ticket_priorities || []).map((p) => ({
+      value: p.priority_ID,
+      label: p.priority_name,
+    }));
 
   return (
     <>
@@ -49,21 +138,40 @@ export default function TicketCreation() {
         <p className="text-gray-500 mt-2">Submit a new support request for your equipment.</p>
       </div>
 
+      {error && (
+        <div className="mb-6 rounded-xl bg-red-50 text-red-700 px-4 py-3 text-sm font-medium border border-red-100">{error}</div>
+      )}
+
       <div className="bg-white/70 backdrop-blur-lg border border-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-8">
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Ticket Title</label>
-              <input type="text" required placeholder="Brief description of the issue" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all" />
+              <input 
+                name="title"
+                type="text" 
+                required 
+                value={formData.title}
+                onChange={handleChange}
+                placeholder="Brief description of the issue" 
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all" 
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Equipment Name / ID</label>
-              <select required className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all">
+              <select 
+                name="machine_ID"
+                required 
+                value={formData.machine_ID}
+                onChange={handleChange}
+                disabled={loadingOptions}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
+              >
                 <option value="">Select Equipment</option>
-                <option value="MRI-3T-B02">MRI - MRI-3T-B02</option>
-                <option value="CT-SCAN-A1">CT Scan - CT-SCAN-A1</option>
-                <option value="XRAY-M2">X-Ray Machine - XRAY-M2</option>
+                {equipmentOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -71,28 +179,48 @@ export default function TicketCreation() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-              <select required className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all">
+              <select 
+                name="problem_category_ID"
+                required 
+                value={formData.problem_category_ID}
+                onChange={handleChange}
+                disabled={loadingOptions}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
+              >
                 <option value="">Select Category</option>
-                <option value="hardware">Hardware Issue</option>
-                <option value="software">Software / System Error</option>
-                <option value="maintenance">Routine Maintenance</option>
-                <option value="calibration">Calibration Required</option>
+                {categoryOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
-              <select required className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all">
-                <option value="low">Low - Non-critical</option>
-                <option value="medium">Medium - Partially degraded</option>
-                <option value="high">High - System down</option>
-                <option value="critical">Critical - Patient care impacted</option>
+              <select 
+                name="priority_ID"
+                required 
+                value={formData.priority_ID}
+                onChange={handleChange}
+                disabled={loadingOptions}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
+              >
+                {priorityOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Detailed Description</label>
-            <textarea required rows="5" placeholder="Please provide as much detail as possible..." className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all resize-y"></textarea>
+            <textarea 
+              name="description"
+              required 
+              rows="5" 
+              value={formData.description}
+              onChange={handleChange}
+              placeholder="Please provide as much detail as possible..." 
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all resize-y"
+            ></textarea>
           </div>
 
           <div>
@@ -111,7 +239,13 @@ export default function TicketCreation() {
 
           <div className="flex justify-end gap-4 mt-4 border-t border-gray-100 pt-6">
             <button type="button" onClick={() => navigate(-1)} className="px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
-            <button type="submit" className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30">Submit Ticket</button>
+            <button 
+              type="submit" 
+              disabled={loadingOptions || submitting}
+              className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Submitting...' : 'Submit Ticket'}
+            </button>
           </div>
         </form>
       </div>

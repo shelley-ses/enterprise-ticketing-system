@@ -37,6 +37,8 @@ services:
     container_name: capstone-reverb-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       REVERB_APP_ID: local
       REVERB_APP_KEY: local
       REVERB_APP_SECRET: local
@@ -58,6 +60,8 @@ services:
     container_name: customer-service-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -102,6 +106,8 @@ services:
     container_name: customer-service-queue-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -135,6 +141,8 @@ services:
     container_name: ticket-service-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -171,6 +179,8 @@ services:
     container_name: ticket-service-queue-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -204,6 +214,8 @@ services:
     container_name: notification-service-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -222,6 +234,8 @@ services:
     container_name: analytics-service-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -240,6 +254,8 @@ services:
     container_name: ai-service-prod
     restart: always
     environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -259,6 +275,8 @@ services:
       args:
         - VITE_BASE_PATH=/ticketing/
         - VITE_APP_MODE=employee
+        - VITE_REVERB_HOST=
+        - VITE_REVERB_PORT=
     container_name: ticketing-web-prod
     restart: always
     environment:
@@ -276,6 +294,8 @@ services:
       args:
         - VITE_BASE_PATH=/customer-ticketing/
         - VITE_APP_MODE=customer
+        - VITE_REVERB_HOST=
+        - VITE_REVERB_PORT=
     container_name: customer-ticketing-web-prod
     restart: always
     environment:

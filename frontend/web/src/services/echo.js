@@ -15,15 +15,16 @@ const wsHost =
 
 const wsPort =
   Number(import.meta.env.VITE_REVERB_PORT || import.meta.env.VITE_PUSHER_PORT) ||
-  (window.location.protocol === 'https:' ? 443 : 80)
+  (window.location.port ? Number(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80))
+
+const isHttps = window.location.protocol === 'https:'
 
 const echo = new Echo({
   broadcaster: 'pusher',
   key: appKey,
   wsHost,
   wsPort,
-  forceTLS: false,
-  encrypted: false,
+  forceTLS: isHttps,
   disableStats: true,
   enabledTransports: ['ws', 'wss'],
   cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || 'mt1'
