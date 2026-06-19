@@ -314,10 +314,21 @@ const fetchAssignableEmployees = async ({ department } = {}) => {
   const response = await axiosInstance.get('/employee-statuses', {
     params: department ? { department } : {},
   });
-  const data = response.data?.employees ?? [];
-  employeesCache[key] = data;
+  const rawData = response.data?.employees ?? [];
+  // Filter to allowed departments and exclude superadmin in IT
+  const allowedDepts = ['Customer Service', 'IT', 'Service'];
+  const filtered = rawData.filter(emp => {
+    const dept = emp.department?.trim();
+    if (!allowedDepts.includes(dept)) return false;
+    // Exclude superadmin in IT based on name or email containing 'superadmin' (case-insensitive)
+    if (dept === 'IT' && (emp.name?.toLowerCase().includes('superadmin') || emp.email?.toLowerCase().includes('superadmin'))){
+      return false;
+    }
+    return true;
+  });
+  employeesCache[key] = filtered;
   employeesCacheAt[key] = Date.now();
-  return data;
+  return filtered;
 };
 
 export const getAssignableEmployees = async ({ department, forceRefresh = false } = {}) => {

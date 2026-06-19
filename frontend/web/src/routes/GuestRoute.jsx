@@ -57,8 +57,8 @@ const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
 export default function GuestRoute({ children }) {
   const { isAuthenticated, isLoading, user, isFirstLogin } = useAuth();
+  const location = useLocation();
 
-  console.log('[GuestRoute] render state:', { isAuthenticated, isFirstLogin, user });
 
   if (isLoading) {
     return (

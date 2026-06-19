@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, Filter } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import NotificationModal from '@/components/NotificationModal';
@@ -56,8 +56,12 @@ export default function MyTickets({ mode = 'all' }) {
   const [editingTicket, setEditingTicket] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editEquipment, setEditEquipment] = useState('');
+  const [editOptions, setEditOptions] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
     status: '',
     category: '',
@@ -347,11 +351,21 @@ export default function MyTickets({ mode = 'all' }) {
     }
   };
 
-  const handleEditTicket = (ticket) => {
+  const handleEditTicket = async (ticket) => {
     setEditTitle(ticket.title || '');
     setEditDescription(ticket.description || '');
+    setEditCategory(ticket.problem_category_ID || '');
+    setEditEquipment(ticket.machine_ID || '');
     setEditingTicket(ticket);
     setOpenMenuId(null);
+
+    if (!ticket.assigned_to) {
+      let opts = getCachedTicketFormOptions();
+      if (!opts) {
+        try { opts = await getTicketFormOptions(); } catch { /* ignore */ }
+      }
+      setEditOptions(opts);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -378,11 +392,16 @@ export default function MyTickets({ mode = 'all' }) {
     setModalLoading(true);
     try {
       const numericId = ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10);
-      await updateTicket({
+      const payload = {
         ticketId: numericId,
         title: editTitle,
         description: editDescription,
-      });
+      };
+      if (!ticket.assigned_to) {
+        if (editCategory) payload.problem_category_ID = editCategory;
+        if (editEquipment) payload.machine_ID = editEquipment;
+      }
+      await updateTicket(payload);
       setEditingTicket(null);
       showSuccess('Ticket updated', 'Ticket updated successfully.');
       loadTickets({ forceRefresh: true });
@@ -474,25 +493,39 @@ export default function MyTickets({ mode = 'all' }) {
         )}
       </div>
 
-      <div className="grid gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm md:grid-cols-5">
+      <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <input
           type="text"
           placeholder="Search ID or title"
           value={filters.search}
           onChange={(event) => updateFilter('search', event.target.value)}
-          className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
         />
-        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-          <option value="">All statuses</option>
-          {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-        </select>
-        <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-          <option value="">All categories</option>
-          {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-        <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
-        <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        <button
+          onClick={() => setShowFilters((prev) => !prev)}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+            showFilters ? 'bg-[#252578] text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Filter size={16} />
+          Filters
+        </button>
       </div>
+
+      {showFilters && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm justify-end">
+          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+            <option value="">All statuses</option>
+            {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+            <option value="">All categories</option>
+            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+          <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+          <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -506,13 +539,13 @@ export default function MyTickets({ mode = 'all' }) {
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Date Created</th>
                 <th className="px-5 py-4">Last Updated</th>
-                <th className="px-5 py-4 text-center"></th>
+                {!isHistory && <th className="px-5 py-4 text-center"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {visibleTickets.length === 0 && loading && (
                 <tr>
-                  <td colSpan="7">
+                  <td colSpan={isHistory ? 6 : 7}>
                     <div className="rounded-xl bg-white p-8">
                       <table className="w-full">
                         <tbody>
@@ -529,7 +562,7 @@ export default function MyTickets({ mode = 'all' }) {
               )}
               {visibleTickets.length === 0 && !loading && (
                 <tr>
-                  <td colSpan="7" className="px-5 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={isHistory ? 6 : 7} className="px-5 py-8 text-center text-sm text-gray-500">
                     No tickets match the current filters.
                   </td>
                 </tr>
@@ -547,24 +580,26 @@ export default function MyTickets({ mode = 'all' }) {
                   </td>
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.date_created)}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.last_updated)}</td>
-                  <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => {
-                        if (openMenuId === ticket.id) {
-                          setOpenMenuId(null);
-                          setMenuPos(null);
-                          return;
-                        }
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
-                        setOpenMenuId(ticket.id);
-                      }}
-                      className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
-                      aria-label="Actions"
-                    >
-                      <MoreVertical size={18} />
-                    </button>
-                  </td>
+                  {!isHistory && (
+                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => {
+                          if (openMenuId === ticket.id) {
+                            setOpenMenuId(null);
+                            setMenuPos(null);
+                            return;
+                          }
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
+                          setOpenMenuId(ticket.id);
+                        }}
+                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                        aria-label="Actions"
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -593,15 +628,24 @@ export default function MyTickets({ mode = 'all' }) {
       )}
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} />
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'} allowReopen={true} />
 
       {editingTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
           <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
               <div>
-                <p className="text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
-                <h2 className="mt-1 text-xl font-bold text-gray-900">Edit Ticket</h2>
+                {!editingTicket.assigned_to ? (
+                  <>
+                    <h2 className="text-xl font-bold text-gray-900">Edit Ticket</h2>
+                    <p className="mt-0.5 text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
+                    <h2 className="mt-1 text-xl font-bold text-gray-900">Edit Ticket</h2>
+                  </>
+                )}
               </div>
               <button type="button" onClick={() => setEditingTicket(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -613,15 +657,47 @@ export default function MyTickets({ mode = 'all' }) {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
-                  <p className="mt-1 text-sm text-gray-800">{editingTicket.category}</p>
+                  {!editingTicket.assigned_to && editOptions ? (
+                    <select
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                    >
+                      <option value="">Select category</option>
+                      {(editOptions.problem_categories || []).map((cat) => (
+                        <option key={cat.problem_category_ID} value={cat.problem_category_ID}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="mt-1 text-sm text-gray-800">{editingTicket.category}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
-                  <p className="mt-1 text-sm font-semibold text-gray-800">{editingTicket.status}</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-800">
+                    {!editingTicket.assigned_to && editingTicket.status === 'In Progress' ? 'Open' : editingTicket.status}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
-                  <p className="mt-1 text-sm text-gray-800">{editingTicket.equipment}</p>
+                  {!editingTicket.assigned_to && editOptions ? (
+                    <select
+                      value={editEquipment}
+                      onChange={(e) => setEditEquipment(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                    >
+                      <option value="">Select equipment</option>
+                      {(editOptions.equipment_options || editOptions.machines || []).map((m) => (
+                        <option key={m.machine_ID || m.value} value={m.machine_ID || m.value}>
+                          {m.machine_name ? `${m.machine_name} - ${m.serial_number}` : m.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="mt-1 text-sm text-gray-800">{editingTicket.equipment}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-gray-400">Date Created</p>
@@ -673,7 +749,7 @@ export default function MyTickets({ mode = 'all' }) {
       />
 
       {modalLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">

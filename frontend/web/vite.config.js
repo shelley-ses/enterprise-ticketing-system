@@ -14,6 +14,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 5005,
     strictPort: true,
+    watch: {
+      usePolling: true,
+      interval: 100,
+    },
     proxy: {
       '/api/ticketing/customer': {
         target: 'http://customer-service:8000',

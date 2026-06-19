@@ -192,18 +192,19 @@ export default function TicketDetailModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm overflow-y-auto py-10" onClick={onClose}>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] overflow-y-auto py-10" onClick={onClose}>
         <div
           className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 my-auto relative flex flex-col max-h-[85vh]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-6 border-b border-gray-100 flex-shrink-0">
+          <div className="p-6 border-b border-gray-100 flex-shrink-0 relative">
             <button type="button" onClick={onClose} className="absolute top-5 right-5 p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-400">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             
-            <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
+            <h2 className="text-2xl font-bold text-gray-900 leading-snug pr-8">{ticket.title}</h2>
+            <div className="flex flex-wrap items-center gap-2 mt-2 pr-8">
               <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
               <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status]}`}>
                 {ticket.status}
@@ -217,7 +218,6 @@ export default function TicketDetailModal({
                 </span>
               )}
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 leading-snug">{ticket.title}</h2>
             <p className="text-sm text-gray-500 mt-1">{ticket.equipment} · {ticket.category}</p>
           </div>
 
@@ -260,7 +260,14 @@ export default function TicketDetailModal({
                 UNACCEPTED STATE PANEL (Accept / Request Reassignment)
                ──────────────────────────────────────────────────────── */}
             {!isAccepted ? (
-              ticket.reassignmentRequested ? (
+              ticket.status === 'Pending Evaluation' ? (
+                <div className="border border-purple-100 rounded-2xl p-6 bg-purple-50/30 text-center space-y-3">
+                  <h4 className="text-sm font-bold text-purple-800">Pending for Evaluation</h4>
+                  <p className="text-xs text-purple-700 leading-relaxed max-w-md mx-auto">
+                    This ticket is currently awaiting evaluation. No action is required at this time.
+                  </p>
+                </div>
+              ) : ticket.reassignmentRequested ? (
                 <div className="border border-amber-100 rounded-2xl p-6 bg-amber-50/30 text-center space-y-3">
                   <h4 className="text-sm font-bold text-amber-900">Reassignment Request Pending</h4>
                   <p className="text-xs text-amber-800 leading-relaxed max-w-md mx-auto">
@@ -319,7 +326,17 @@ export default function TicketDetailModal({
                   </div>
                 )}
 
-                {/* 2. Proof of Completion triggering button (all tickets) */}
+                {/* 2. Pending Evaluation banner */}
+                {ticket.status === 'Pending Evaluation' && (
+                  <div className="border border-purple-100 rounded-2xl p-5 bg-purple-50/30 text-center space-y-2">
+                    <h4 className="text-sm font-bold text-purple-800">Pending for Evaluation</h4>
+                    <p className="text-xs text-purple-700 leading-relaxed max-w-md mx-auto">
+                      Your proof of completion has been submitted. Waiting for CS coordinator evaluation.
+                    </p>
+                  </div>
+                )}
+
+                {/* 3. Proof of Completion triggering button (all tickets) */}
                 {ticket.status !== 'Resolved' && ticket.status !== 'Pending Evaluation' && (
                   <div className="border border-gray-150 rounded-2xl p-5 bg-green-50/30 border-green-100 flex items-center justify-between flex-wrap gap-4">
                     <div className="max-w-md text-left">
@@ -347,7 +364,7 @@ export default function TicketDetailModal({
                   </div>
                 )}
 
-                {/* 3. Ticket Status updates (In Progress, Pending, Resolved) */}
+                {/* 4. Ticket Status updates (In Progress, Pending, Resolved) */}
                 {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
                   <div className="border border-gray-100 rounded-2xl p-5 bg-gray-50/70 text-left">
                     <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Update Ticket Status</h4>
@@ -536,12 +553,6 @@ export default function TicketDetailModal({
 
           </div>
 
-          {/* Footer */}
-          <div className="p-6 border-t border-gray-100 flex-shrink-0 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-              Close Modal
-            </button>
-          </div>
         </div>
       </div>
 

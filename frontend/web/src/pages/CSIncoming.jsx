@@ -64,7 +64,7 @@ export default function CSIncoming() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All Categories');
-  const [slaFilter, setSlaFilter] = useState('All SLA');
+  // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [assignmentFilter, setAssignmentFilter] = useState('All');
   const [newTicketId, setNewTicketId] = useState(null);
@@ -231,13 +231,13 @@ export default function CSIncoming() {
     [tickets]
   );
 
-  const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached'];
+  // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached'];
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
       if (category !== 'All Categories' && t.category !== category) return false;
-      if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
+      // if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
       if (typeFilter === 'internal') {
         const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
@@ -269,7 +269,7 @@ export default function CSIncoming() {
         (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, slaFilter, machineFilter, assignmentFilter, typeFilter]);
+  }, [tickets, search, category, machineFilter, assignmentFilter, typeFilter]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -467,7 +467,7 @@ export default function CSIncoming() {
 
       {/* Collapsible Filters */}
       {showFilters && (
-        <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+        <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
           <select
             value={assignmentFilter}
             onChange={(e) => setAssignmentFilter(e.target.value)}
@@ -498,21 +498,6 @@ export default function CSIncoming() {
             ))}
           </select>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            {slaOptions.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSlaFilter(s)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  slaFilter === s
-                    ? 'bg-[#252578] text-white shadow-lg'
-                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
@@ -534,7 +519,7 @@ export default function CSIncoming() {
                 <th className="py-4 px-4 font-semibold">Title</th>
                 <th className="py-4 px-4 font-semibold">Category</th>
                 <th className="py-4 px-4 font-semibold">Status</th>
-                <th className="py-4 px-4 font-semibold">SLA Status</th>
+                {/* <th className="py-4 px-4 font-semibold">SLA Status</th> */}
                 <th className="py-4 px-4 font-semibold">Date Submitted</th>
                 <th className="py-4 px-4 font-semibold text-center">Action</th>
               </tr>
@@ -605,13 +590,13 @@ export default function CSIncoming() {
                        'bg-gray-100 text-gray-700'
                      }`}>{getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}</span>
                   </td>
-                  <td className="py-4 px-4">
+                  {/* <td className="py-4 px-4">
                     <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
                       t.sla === 'Breached' ? 'bg-red-100 text-red-700' :
                       t.sla === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
                       'bg-green-100 text-green-700'
                     }`}>{t.sla}</span>
-                  </td>
+                  </td> */}
                   <td className="py-4 px-4 text-gray-500">{t.date}</td>
                   <td className="py-4 px-4 text-center">
                     <button

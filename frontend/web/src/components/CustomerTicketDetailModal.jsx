@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import FilePreviewModal from './FilePreviewModal';
-import { statusColors } from '@/constants/employeeTickets';
+import { statusColors, priorityColors } from '@/constants/employeeTickets';
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -20,6 +20,7 @@ export default function CustomerTicketDetailModal({
   onReopen,
   onResolve,
   allowReopen = true,
+  customerName,
 }) {
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
   const [reopenReason, setReopenReason] = useState('');
@@ -57,15 +58,18 @@ export default function CustomerTicketDetailModal({
     && !Number.isNaN(resolvedAt.getTime())
     && (new Date() - resolvedAt) < (48 * 60 * 60 * 1000);
   const canShowReopenAction = allowReopen && isReopenable && typeof onReopen === 'function';
-  const statusLabel = !allowReopen && ticket.status === 'Closed' ? 'Pending Evaluation' : ticket.status;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
           <div>
-            <p className="text-sm font-semibold text-[#252578]">{ticket.id}</p>
-            <h2 className="mt-1 text-xl font-bold text-gray-900">{ticket.title}</h2>
+            <h2 className="text-xl font-bold text-gray-900">{ticket.title}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-[#252578]">{ticket.id}</span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.status}</span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.priority}</span>
+            </div>
           </div>
           <button
             type="button"
@@ -80,44 +84,27 @@ export default function CustomerTicketDetailModal({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
-              <p className="mt-1 text-sm text-gray-800">{ticket.category}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
-              <span className={`inline-flex mt-1 rounded-full px-3 py-1 text-xs font-semibold ${statusColors[statusLabel] ?? 'bg-gray-100 text-gray-700'}`}>{statusLabel}</span>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
-              <p className="mt-1 text-sm text-gray-800">{ticket.equipment}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Date Created</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.date_created)}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.last_updated)}</p>
-            </div>
-            {(ticket.status === 'Resolved' || ticket.status === 'Closed') && ticket.resolved_at ? (
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-400">Resolved At</p>
-                <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.resolved_at)}</p>
-              </div>
-            ) : (
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-400">Discard Availability</p>
-                <p className="mt-1 text-sm text-gray-800">
-                  {ticket.can_discard ? 'Available before acceptance or delegation' : 'Unavailable after acceptance or delegation'}
-                </p>
-              </div>
-            )}
             <div className="md:col-span-2">
               <p className="text-xs font-semibold uppercase text-gray-400">Description</p>
               <p className="mt-1 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700">
                 {ticket.description || 'No description available.'}
               </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Requestor</p>
+              <p className="mt-1 text-sm text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Date Filed</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.date_created || ticket.date)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
+              <p className="mt-1 text-sm text-gray-800">{ticket.category}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
             </div>
 
             {ticket.attachments && ticket.attachments.length > 0 && (
@@ -254,7 +241,7 @@ export default function CustomerTicketDetailModal({
                     setShowReopenForm(false);
                     setReopenReason('');
                   }}
-                  className="rounded-xl px-4 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-250"
+                  className="rounded-xl px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   Close
                 </button>
@@ -266,7 +253,7 @@ export default function CustomerTicketDetailModal({
                     setShowReopenForm(false);
                     setReopenReason('');
                   }}
-                  className="rounded-xl bg-[#252578] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl bg-[#252578] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirm Reopen
                 </button>
@@ -278,18 +265,9 @@ export default function CustomerTicketDetailModal({
                 <button
                   type="button"
                   onClick={() => setShowReopenForm(true)}
-                  className="rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66]"
+                  className="rounded-xl bg-[#252578] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#1f1f66]"
                 >
                   Re-open Ticket
-                </button>
-              )}
-              {onResolve && ticket.status !== 'Closed' && ticket.status !== 'Discarded' && (
-                <button
-                  type="button"
-                  onClick={() => onResolve(ticket.ticket_ID || ticket.id)}
-                  className="rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700"
-                >
-                  Close Ticket
                 </button>
               )}
               {!allowReopen && ticket.status === 'Closed' && (
@@ -301,7 +279,7 @@ export default function CustomerTicketDetailModal({
                 <button
                   type="button"
                   onClick={() => onDiscard?.(ticket)}
-                  className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700"
                 >
                   Discard Ticket
                 </button>

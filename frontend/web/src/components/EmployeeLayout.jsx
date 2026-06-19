@@ -7,20 +7,20 @@ import ForceChangePasswordModal from './ForceChangePasswordModal';
 
 export default function EmployeeLayout() {
   const { isFirstLogin } = useAuth();
-  const [collapsed, setCollapsed] = useState(true);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
-      <Header collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <SidebarEmployee collapsed={collapsed} />
+      <Header sidebarHovered={sidebarHovered} />
+      <SidebarEmployee collapsed={true} onHoverChange={setSidebarHovered} />
 
-      <main className={`pt-24 pb-8 px-6 lg:px-12 flex-1 transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-60'}`}>
+      <main className={`pt-24 pb-8 px-6 lg:px-12 flex-1 transition-all duration-300 ${sidebarHovered ? 'ml-60' : 'ml-20'}`}>
         <div className="max-w-7xl mx-auto">
           <Outlet />
         </div>
       </main>
 
-      {isFirstLogin && <ForceChangePasswordModal />}
+      {/* SKIPPED: {isFirstLogin && <ForceChangePasswordModal />} */}
     </div>
   );
 }

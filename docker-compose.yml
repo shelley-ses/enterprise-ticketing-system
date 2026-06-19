@@ -175,6 +175,8 @@ services:
       reverb:
         condition: service_started
 
+
+
   ticket-service-queue:
     build:
       context: ./services/ticket-service
@@ -300,7 +302,7 @@ services:
       - default
       - shared-capstone-network
     environment:
-      VITE_BASE_PATH: "/customer-ticketing/"
+      VITE_BASE_PATH: "/customer-service/"
       VITE_APP_MODE: "customer"
       VITE_PORT: 5006
     command: npm run dev -- --host 0.0.0.0 --port 5006
@@ -311,6 +313,7 @@ volumes:
   redis_data:
   customer-service-vendor:
   ticket-service-vendor:
+  auth-service-vendor:
 
 networks:
   default:

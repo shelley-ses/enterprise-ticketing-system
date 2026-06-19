@@ -7,6 +7,7 @@ export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const ticket = state?.ticket;
+  const backPath = state?.backPath ?? '/employee/progress';
   const [previewFile, setPreviewFile] = useState(null);
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
 
@@ -72,7 +73,7 @@ export default function EmployeeHistoryDetail() {
       <div className="p-6 text-center">
         <p className="text-gray-500 mb-4">Ticket not found.</p>
         <button
-          onClick={() => navigate('/employee/progress')}
+          onClick={() => navigate(backPath)}
           className="text-[#252578] font-semibold hover:underline"
         >
           ← Back to History
@@ -87,7 +88,7 @@ export default function EmployeeHistoryDetail() {
     <div className="p-6 max-w-4xl mx-auto">
       {/* Back button */}
       <button
-        onClick={() => navigate('/employee/progress')}
+        onClick={() => navigate(backPath)}
         className="flex items-center gap-2 text-sm text-[#252578] font-semibold mb-6 hover:opacity-75 transition-opacity"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

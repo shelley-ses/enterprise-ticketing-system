@@ -55,7 +55,7 @@ export default function FilePreviewModal({ file, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 transition-all duration-300"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-[1.5px] p-4 transition-all duration-300"
       onClick={onClose}
     >
       <div

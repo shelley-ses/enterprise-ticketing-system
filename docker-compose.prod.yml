@@ -292,7 +292,7 @@ services:
     build:
       context: ./frontend/web
       args:
-        - VITE_BASE_PATH=/customer-ticketing/
+        - VITE_BASE_PATH=/customer-service/
         - VITE_APP_MODE=customer
         - VITE_REVERB_HOST=
         - VITE_REVERB_PORT=

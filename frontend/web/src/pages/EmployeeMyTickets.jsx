@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Filter } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
-import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { AssignModal } from '@/components/CSModals';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -33,6 +33,7 @@ const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-re
 export default function EmployeeMyTickets({ roleContext }) {
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [tickets, setTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
@@ -42,6 +43,7 @@ export default function EmployeeMyTickets({ roleContext }) {
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [error, setError] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const isHistory = false;
   // CS delegation state
@@ -77,7 +79,9 @@ export default function EmployeeMyTickets({ roleContext }) {
             status: row.is_active ? 'active' : 'inactive',
             department: row.department?.trim() || 'Unassigned',
           })));
-          setDepartments(depts);
+          const allowedDepts = ['Customer Service', 'IT', 'Service'];
+          const filteredDepts = (depts || []).filter(d => allowedDepts.includes(d.name));
+          setDepartments(filteredDepts);
         } catch (err) {
           console.error('Failed to load assign options for CS:', err);
         }
@@ -154,7 +158,8 @@ export default function EmployeeMyTickets({ roleContext }) {
           department: row.department?.trim() || 'Unassigned',
         }))
       );
-      setCsDepartments((deps || []).map((d) => d.name));
+      const allowedDepts = ['Customer Service', 'IT', 'Service'];
+      setCsDepartments((deps || []).filter(d => allowedDepts.includes(d.name)).map(d => d.name));
     });
   }, [roleContext]);
 
@@ -305,28 +310,9 @@ export default function EmployeeMyTickets({ roleContext }) {
     }
   };
 
-  const handleViewTicket = async (t) => {
-    const numericId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-
-    setLoadingText('Loading ticket details...');
-    setModalLoading(true);
-    try {
-      const fullTicket = await getTicketDetails(numericId);
-      setSelectedTicket({
-        ...t,
-        ...fullTicket,
-        description: fullTicket.description || t.description || '',
-        resolved_at: fullTicket.resolved_at || null,
-        proofAttachments: fullTicket.proofAttachments || [],
-        proofFiles: fullTicket.proofFiles || [],
-        can_discard: (fullTicket.status || t.status) === 'Open' && !fullTicket.assigned_to,
-      });
-    } catch (err) {
-      console.error('Failed to load ticket details:', err);
-      setSelectedTicket(t);
-    } finally {
-      setModalLoading(false);
-    }
+  const handleViewTicket = (t) => {
+    const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+    navigate(`/employee/history/${ticketId}`, { state: { ticket: t, backPath: '/employee/my-tickets' } });
   };
 
   const handleResolveTicket = async (ticketId) => {
@@ -443,25 +429,39 @@ export default function EmployeeMyTickets({ roleContext }) {
         </button>
       </div>
 
-      <div className="grid gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm md:grid-cols-5">
+      <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
         <input
           type="text"
           placeholder="Search ID or title"
           value={filters.search}
           onChange={(event) => updateFilter('search', event.target.value)}
-          className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
         />
-        <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-          <option value="">All statuses</option>
-          {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-        </select>
-        <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-          <option value="">All categories</option>
-          {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-        <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
-        <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        <button
+          onClick={() => setShowFilters((prev) => !prev)}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+            showFilters ? 'bg-[#252578] text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Filter size={16} />
+          Filters
+        </button>
       </div>
+
+      {showFilters && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm justify-end">
+          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+            <option value="">All statuses</option>
+            {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+            <option value="">All categories</option>
+            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+          <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+          <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -535,8 +535,6 @@ export default function EmployeeMyTickets({ roleContext }) {
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
       
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => setConfirmDiscard(ticket)} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={handleCloseTicket} />
-
       {roleContext === 'cs' && assignModalTicket && (
         <AssignModal
           ticket={assignModalTicket}
@@ -613,7 +611,7 @@ export default function EmployeeMyTickets({ roleContext }) {
       )}
 
       {modalLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">

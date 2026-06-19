@@ -46,7 +46,7 @@ export default function ReassignmentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-md overflow-y-auto py-10" onClick={onClose}>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-[1.5px] overflow-y-auto py-10" onClick={onClose}>
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-8 relative animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}

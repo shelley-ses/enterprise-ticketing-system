@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Menu, Home, LogOut, User, Bell } from 'lucide-react';
+import { Home, LogOut, User, Bell } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { getNotifications } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
-export default function Header({ collapsed, onToggle }) {
+export default function Header({ sidebarHovered }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -52,21 +52,18 @@ export default function Header({ collapsed, onToggle }) {
   const handleLogout = async () => {
     setDropdownOpen(false);
     await logout();
-    window.location.href = '/';
+    if (import.meta.env.VITE_APP_MODE === 'customer') {
+      window.location.href = '/customer-service/';
+    } else {
+      window.location.href = '/';
+    }
   };
 
   const userInitial = user?.name?.charAt(0)?.toUpperCase() || 'U';
 
   return (
     <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-50 px-6 py-4 flex items-center justify-between shadow-sm">
-      <div className={`flex items-center transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-60'}`}>
-        <button
-          onClick={onToggle}
-          className="p-2 text-[#252578] hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <Menu size={20} />
-        </button>
-      </div>
+      <div className={`transition-all duration-300 ${sidebarHovered ? 'ml-60' : 'ml-20'}`} />
 
       <div className="flex items-center gap-6">
         <div className="relative flex items-center gap-3">
@@ -108,12 +105,14 @@ export default function Header({ collapsed, onToggle }) {
                 >
                   <User size={16} className="mr-2.5" /> My Profile
                 </button>
-                <button
-                  onClick={() => window.location.href = '/'}
-                  className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
-                >
-                  <Home size={16} className="mr-2.5" /> Home
-                </button>
+                {import.meta.env.VITE_APP_MODE !== 'customer' && (
+                  <button
+                    onClick={() => window.location.href = '/'}
+                    className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+                  >
+                    <Home size={16} className="mr-2.5" /> Home
+                  </button>
+                )}
                 <div className="h-px bg-gray-100 my-1" />
                 <button
                   onClick={handleLogout}

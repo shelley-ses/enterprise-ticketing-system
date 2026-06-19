@@ -1,23 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter } from 'lucide-react';
-import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
-import { TicketSummary } from '@/components/CSModals';
-import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import {
   getCSIncomingTickets,
-  getTicketDetails,
-  updateEmployeeTicketOverride,
-  respondReassignment,
-  updateTicket,
-  getAssignableEmployees,
   getDepartments,
 } from '@/services/ticketService';
-import { statusColors, priorityColors } from '@/constants/employeeTickets';
-
 const HISTORY_STATUSES = ['Closed', 'Resolved', 'Pending Evaluation'];
 
 const getDisplayStatus = (ticket) => (
@@ -27,11 +17,9 @@ const getDisplayStatus = (ticket) => (
 );
 
 export default function CSHistory() {
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [tickets, setTickets] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,10 +28,6 @@ export default function CSHistory() {
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [typeFilter, setTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
-
-  // modal state
-  const [modal, setModal] = useState(null);
-  const [modalLoading, setModalLoading] = useState(false);
 
   const loadStaticData = useCallback(async () => {
     try {
@@ -63,29 +47,11 @@ export default function CSHistory() {
     setError('');
 
     try {
-      const [incomingResult, assigneesResult] = await Promise.allSettled([
-        getCSIncomingTickets({ limit: 100, forceRefresh }),
-        getAssignableEmployees({ forceRefresh }),
-      ]);
-
-      if (incomingResult.status === 'fulfilled') {
-        // CSHistory only shows resolved, closed, or pending validation
-        const list = incomingResult.value.filter((ticket) => 
-          HISTORY_STATUSES.includes(ticket.status)
-        );
-        setTickets(list);
-      }
-
-      if (assigneesResult.status === 'fulfilled') {
-        setEmployees(
-          assigneesResult.value.map((row) => ({
-            id: Number(row.id ?? row.emp_id),
-            name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
-            status: row.is_active ? 'active' : 'inactive',
-            department: row.department?.trim() || 'Unassigned',
-          }))
-        );
-      }
+      const incomingResult = await getCSIncomingTickets({ limit: 100, forceRefresh });
+      const list = incomingResult.filter((ticket) =>
+        HISTORY_STATUSES.includes(ticket.status)
+      );
+      setTickets(list);
     } catch (err) {
       setError('Unable to load history tickets from ticket-service.');
     } finally {
@@ -99,23 +65,6 @@ export default function CSHistory() {
     if (context && context.source === 'websocket') {
       const payload = context.payload;
       if (!payload) return;
-
-      // Handle employee update
-      if (payload.email && payload.role) {
-        const updatedEmp = payload;
-        setEmployees((prev) =>
-          prev.map((e) =>
-            e.id === Number(updatedEmp.id)
-              ? {
-                  ...e,
-                  status: updatedEmp.is_active ? 'active' : 'inactive',
-                  department: updatedEmp.department?.trim() || 'Unassigned',
-                }
-              : e
-          )
-        );
-        return;
-      }
 
       // Handle ticket updates
       if (payload.action) {
@@ -164,7 +113,6 @@ export default function CSHistory() {
     refresh: handleRealtimeUpdate,
     channels: [
       { name: 'ticket-updates', event: 'ticket.changed' },
-      { name: 'employee-status', event: 'employee.status.changed' },
     ],
     intervalMs: 30000,
     deferRefresh: false,
@@ -214,18 +162,9 @@ export default function CSHistory() {
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, page]);
 
-  const handleRowAction = async (t) => {
-    setModalLoading(true);
-    try {
-      const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
-      const details = await getTicketDetails(ticketId);
-      setModal(details);
-    } catch (err) {
-      console.warn('Failed to load full ticket details, fallback to list item:', err);
-      setModal(t);
-    } finally {
-      setModalLoading(false);
-    }
+  const handleRowAction = (t) => {
+    const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+    navigate(`/cs/history/${ticketId}`, { state: { ticket: t, backPath: '/cs/history' } });
   };
 
   return (
@@ -294,7 +233,7 @@ export default function CSHistory() {
 
           {/* Collapsible Filters */}
           {showFilters && (
-            <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -335,13 +274,12 @@ export default function CSHistory() {
                     <th className="py-4 px-4 font-semibold">Category</th>
                     <th className="py-4 px-4 font-semibold">Status</th>
                     <th className="py-4 px-4 font-semibold">Date Submitted</th>
-                    <th className="py-4 px-4 font-semibold text-center">Action</th>
                   </tr>
                 </thead>
 
                 <tbody className="text-gray-700">
                   {paginated.map((t) => (
-                    <tr key={t.id} className="hover:bg-gray-50 transition-all">
+                    <tr key={t.id} className="hover:bg-gray-50 transition-all cursor-pointer" onClick={() => handleRowAction(t)}>
                       <td className="py-4 px-4 font-medium">{t.id}</td>
                       <td className="py-4 px-4 text-gray-600">{t.customer}</td>
                       <td className="py-4 px-4">
@@ -361,14 +299,6 @@ export default function CSHistory() {
                         }`}>{getDisplayStatus(t)}</span>
                       </td>
                       <td className="py-4 px-4 text-gray-500">{t.date}</td>
-                      <td className="py-4 px-4 text-center">
-                        <button
-                          onClick={() => handleRowAction(t)}
-                          className="p-2 rounded-xl hover:bg-gray-105 transition-all"
-                        >
-                          <img src={actionIcon} alt="action" className="w-5 h-5 opacity-70" />
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -391,62 +321,6 @@ export default function CSHistory() {
         </>
       )}
 
-      {/* Detail Modal */}
-      {modalLoading && <SkeletonLoader variant="modal" />}
-      {!modalLoading && modal && (
-        <TicketSummary
-          ticket={modal}
-          employees={employees}
-          onClose={() => setModal(null)}
-          onEdit={null}
-          onStatusUpdate={async (updatedFields) => {
-            updateEmployeeTicketOverride(updatedFields.id || modal.id, updatedFields);
-            setTickets((prev) => prev.map((t) => (t.id === (updatedFields.id || modal.id) ? { ...t, ...updatedFields } : t)));
-            try {
-              const numericId = Number(String(updatedFields.id || modal.id).replace(/\D/g, ''));
-              if (updatedFields.reassignmentStatus) {
-                await respondReassignment({
-                  ticketId: numericId,
-                  action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
-                });
-              } else {
-                const statusMap = {
-                  'Open': 1,
-                  'In Progress': 2,
-                  'Resolved': 3,
-                  'Closed': 4,
-                  'Escalated': 5,
-                  'Pending Evaluation': 6,
-                  'Pending': 7,
-                  'Reopened': 8,
-                  'Reopen': 8,
-                  'Pending Assignment': 9,
-                  'On Hold': 11,
-                };
-                await updateTicket({
-                  ticketId: numericId,
-                  statusId: statusMap[updatedFields.status] ?? 3,
-                  assignedByEmail: user?.email,
-                  proof_rejected: updatedFields.proofRejected ?? false,
-                  rejection_reason: updatedFields.rejectionReason ?? null,
-                });
-              }
-            } catch (err) {
-              console.error('Failed to update ticket status on backend:', err);
-            }
-          }}
-          onRespondReassignment={async (ticketId, action) => {
-            try {
-              await respondReassignment({ ticketId, action });
-              const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-              setTickets(incoming.filter((ticket) => HISTORY_STATUSES.includes(ticket.status)));
-              setModal(null);
-            } catch (err) {
-              console.error('Failed to respond to reassignment request:', err);
-            }
-          }}
-        />
-      )}
     </div>
   );
 }

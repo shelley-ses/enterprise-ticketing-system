@@ -68,6 +68,7 @@ export default function PrivateRoute({ children, role }) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -82,6 +83,9 @@ export default function PrivateRoute({ children, role }) {
   // Not authenticated
   if (!isAuthenticated) {
     if (isCustomerSite) {
+      if (location.pathname === '/') {
+        return children;
+      }
       // Customer portal: always go to /customer login
       return <Navigate to="/customer" replace state={{ from: location }} />;
     } else {

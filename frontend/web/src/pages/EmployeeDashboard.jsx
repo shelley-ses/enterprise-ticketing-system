@@ -5,12 +5,12 @@ import pendingIcon from '@/assets/cs-pending.png';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
+import { Search, Filter } from 'lucide-react';
 import {
   recentProgress,
   statusColors,
   priorityColors,
 } from '@/constants/employeeTickets';
-import EmployeeFilterBar from '@/components/employee/EmployeeFilterBar';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
@@ -59,12 +59,11 @@ export default function EmployeeDashboard() {
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [workTicket, setWorkTicket] = useState(null);
 
-  const [filters, setFilters] = useState({
-    status: 'All',
-    category: 'All',
-    priority: 'All',
-    date: '',
-  });
+  const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('All Status');
+  const [categoryFilter, setCategoryFilter] = useState('All Category');
+  const [priorityFilter, setPriorityFilter] = useState('All Priority');
 
   const [employeeName, setEmployeeName] = useState('');
   const [myRecentTickets, setMyRecentTickets] = useState([]);
@@ -350,8 +349,11 @@ export default function EmployeeDashboard() {
   }, [tickets, user]);
 
   const openTicketFlow = useCallback((t) => {
-    if (!t.accepted) return;
-    setWorkTicket(t);
+    if (t.accepted) {
+      setWorkTicket(t);
+    } else {
+      setSelectedMyTicket(t);
+    }
   }, []);
 
   const stats = useMemo(() => {
@@ -371,17 +373,16 @@ export default function EmployeeDashboard() {
     ];
   }, [visible]);
 
-  const filtered = useMemo(
-    () =>
-      visible.filter((t) => {
-        if (filters.status !== 'All' && t.status !== filters.status) return false;
-        if (filters.category !== 'All' && t.category !== filters.category) return false;
-        if (filters.priority !== 'All' && t.priority !== filters.priority) return false;
-        if (filters.date && t.date !== filters.date) return false;
-        return true;
-      }),
-    [visible, filters]
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return visible.filter((t) => {
+      if (q && !t.id?.toLowerCase().includes(q) && !t.title?.toLowerCase().includes(q) && !t.customer?.toLowerCase().includes(q)) return false;
+      if (statusFilter !== 'All Status' && t.status !== statusFilter) return false;
+      if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
+      if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
+      return true;
+    });
+  }, [visible, search, statusFilter, categoryFilter, priorityFilter]);
 
   const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Pending Assignment' || t.status === 'Open' || t.status === 'On Hold');
   const urgentTicket = visible.find((t) => t.status === 'Escalated');
@@ -519,7 +520,56 @@ export default function EmployeeDashboard() {
                 View All <ArrowRight />
               </button>
             </div>
-            <EmployeeFilterBar filters={filters} setFilters={setFilters} />
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="search"
+                  placeholder="Search ID, title, customer..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
+                />
+              </div>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              >
+                <Filter size={16} />
+                Filters
+              </button>
+            </div>
+            {showFilters && (
+              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
+                <select
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <select
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  {['All Category', 'MRI', 'CT Scan', 'Ultrasound', 'X-Ray', 'Ventilator', 'Defibrillator'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                >
+                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full table-fixed text-sm text-left">
                 <colgroup>
@@ -671,12 +721,12 @@ export default function EmployeeDashboard() {
           onClose={() => setSelectedMyTicket(null)}
           onDiscard={null}
           onReopen={(ticketId, reason) => handleReopenMyTicket(ticketId, reason)}
-          onResolve={(ticketId) => handleResolveMyTicket(ticketId)}
+          onResolve={null}
         />
       )}
 
       {myTicketsModalLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Search, Filter } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
-  slaStatusColors,
 } from '@/constants/employeeTickets';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
@@ -39,8 +39,10 @@ export default function EmployeeProgress() {
   const [loadError, setLoadError] = useState('');
 
   const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
+  const [priorityFilter, setPriorityFilter] = useState('All Priority');
 
   const loadHistory = useCallback(async ({ forceRefresh = false } = {}) => {
     const email = user?.email || 'frontend@example.com';
@@ -77,6 +79,7 @@ export default function EmployeeProgress() {
 
       if (statusFilter !== 'All Status' && displayStatus !== statusFilter) return false;
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
+      if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
         const blob =
           `${t.id} ${t.title} ${t.customer} ${t.facility ?? ''}`.toLowerCase();
@@ -84,10 +87,10 @@ export default function EmployeeProgress() {
       }
       return true;
     });
-  }, [tickets, search, statusFilter, categoryFilter]);
+  }, [tickets, search, statusFilter, categoryFilter, priorityFilter]);
 
   const openDetail = (t) => {
-    navigate(`/employee/history/${t.id}`, { state: { ticket: t } });
+    navigate(`/employee/history/${t.id}`, { state: { ticket: t, backPath: '/employee/progress' } });
   };
 
   return (
@@ -123,31 +126,30 @@ export default function EmployeeProgress() {
           </div>
         ) : (
           <>
-            {/* Filters */}
-            <div className="flex flex-col xl:flex-row xl:items-center gap-4 mb-6">
-              <div className="relative flex-1 min-w-0">
-                <svg
-                  className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+            {/* Search & Filter Toggle */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="search"
                   placeholder="Search ID, title, customer..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
                 />
               </div>
-              <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              >
+                <Filter size={16} />
+                Filters
+              </button>
+            </div>
+
+            {/* Collapsible Filters */}
+            {showFilters && (
+              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
                 <select
                   className={selectClass}
                   value={statusFilter}
@@ -174,8 +176,17 @@ export default function EmployeeProgress() {
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
+                <select
+                  className={selectClass}
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                >
+                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
               </div>
-            </div>
+            )}
 
             {/* Table or empty state */}
             {filtered.length === 0 ? (
@@ -207,9 +218,8 @@ export default function EmployeeProgress() {
                     <col className="w-[22%]" />
                     <col className="w-[10%]" />
                     <col className="w-[10%]" />
-                    <col className="w-[12%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[8%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[16%]" />
                   </colgroup>
                   <thead>
                     <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
@@ -219,7 +229,6 @@ export default function EmployeeProgress() {
                       <th className="py-3 px-2 font-medium">Category</th>
                       <th className="py-3 px-2 font-medium">Priority</th>
                       <th className="py-3 px-2 font-medium">Status</th>
-                      <th className="py-3 px-2 font-medium">SLA</th>
                       <th className="py-3 px-2 font-medium">Last Update</th>
                     </tr>
                   </thead>
@@ -282,15 +291,6 @@ export default function EmployeeProgress() {
                             }`}
                           >
                             {getDisplayStatus(t)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-2 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {t.slaStatus}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">

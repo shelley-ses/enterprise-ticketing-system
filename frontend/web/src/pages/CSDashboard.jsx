@@ -30,6 +30,7 @@ export default function CSDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newTicketId, setNewTicketId] = useState(null);
+  const [summaryTicket, setSummaryTicket] = useState(null);
   const newTicketTimerRef = useRef(null);
 
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
@@ -199,7 +200,7 @@ export default function CSDashboard() {
         { label: 'Unassigned Tickets', value: stats.unassigned, icon: <Inbox size={28} /> },
         { label: 'Pending Tickets', value: stats.pending, icon: <Clock size={28} /> },
         { label: 'Assigned Tickets', value: stats.assigned, icon: <CheckCircle size={28} /> },
-        { label: 'High Priority', value: stats.highPriority, icon: <AlertTriangle size={28} /> },
+        // { label: 'High Priority', value: stats.highPriority, icon: <AlertTriangle size={28} /> },
       ]
     : [];
 
@@ -263,14 +264,14 @@ export default function CSDashboard() {
             <div className="mb-4 p-3 text-sm bg-yellow-50 text-yellow-800 rounded">{error}</div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {statItems.map((s) => (
-              <div key={s.label} className="bg-white rounded-xl shadow-md p-4 flex items-center gap-4">
-                <div className="w-14 h-14 bg-[#f1f5f9] rounded-lg flex items-center justify-center text-[#252578]">
+              <div key={s.label} className="bg-white rounded-xl shadow-md p-6 flex items-center gap-5">
+                <div className="w-16 h-16 bg-[#f1f5f9] rounded-lg flex items-center justify-center text-[#252578]">
                   {s.icon}
                 </div>
                 <div>
-                  <div className="text-2xl font-semibold text-gray-800">{s.value}</div>
+                  <div className="text-3xl font-semibold text-gray-800">{s.value}</div>
                   <div className="text-sm text-gray-500">{s.label}</div>
                 </div>
               </div>
@@ -301,9 +302,10 @@ export default function CSDashboard() {
                     return (
                       <tr
                         key={r.id + '-' + idx}
+                        onClick={() => setSummaryTicket(r)}
                         className={`${
                           isNew ? 'animate-new-pulse' : (idx === 0 ? 'bg-blue-50' : '')
-                        } border-b transition-all`}
+                        } border-b transition-all cursor-pointer hover:bg-gray-50`}
                       >
                         <td className="py-3 px-4 font-medium text-sm">
                           <div className="flex items-center gap-1.5">
@@ -336,6 +338,52 @@ export default function CSDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {summaryTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]" onClick={() => setSummaryTicket(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Ticket Summary</h2>
+                <p className="text-sm font-semibold text-[#252578]">{summaryTicket.id}</p>
+              </div>
+              <button type="button" onClick={() => setSummaryTicket(null)} className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-400">Title</p>
+                <p className="mt-1 text-sm font-medium text-gray-800">{summaryTicket.title}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Customer</p>
+                  <p className="mt-1 text-sm text-gray-800">{summaryTicket.customer}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Priority</p>
+                  <span className={`mt-1 inline-block px-3 py-1 rounded-full text-xs font-semibold ${priorityColors[summaryTicket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                    {summaryTicket.priority}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
+                  <span className={`mt-1 inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusColors[summaryTicket.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                    {summaryTicket.status}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
+                  <p className="mt-1 text-sm text-gray-800">{summaryTicket.updated}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

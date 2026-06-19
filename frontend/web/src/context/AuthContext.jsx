@@ -162,7 +162,6 @@ export function AuthProvider({ children }) {
 
     try {
       const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
-      console.log('[AuthContext] /me response:', resp.data);
       const userData = resp.data?.user;
       const firstLogin = Boolean(resp.data?.is_first_login);
       if (userData) {
@@ -292,7 +291,6 @@ export function AuthProvider({ children }) {
       });
 
       const { user: userData, token, is_first_login: firstLogin } = response.data;
-      console.log('[AuthContext] /login response:', response.data);
 
       // Store auth data in memory and set user
       const normalized = normalizeUser(userData);

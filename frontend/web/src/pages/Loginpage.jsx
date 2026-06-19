@@ -12,7 +12,7 @@ import {
   verifyPasswordResetOtp,
   resetPassword,
 } from '@/services/authService';
-import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
+// import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
 import './Loginpage.css';
 
 const MAX_ATTEMPTS = 5;
@@ -54,7 +54,7 @@ const checkIsSuperAdmin = (user) => {
 };
 
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
-function ForgotPasswordModal({ onClose }) {
+/* function ForgotPasswordModal({ onClose }) {
   const [step, setStep] = useState(1);
   const [fpEmail, setFpEmail] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -394,6 +394,7 @@ function ForgotPasswordModal({ onClose }) {
   );
 }
 
+*/
 // ─── Main Login Page ─────────────────────────────────────────────────────────
 function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
@@ -487,13 +488,11 @@ function Loginpage({ mode = 'customer' }) {
         setLoginError('');
         setAttempts(0);
 
-        // First-time login: show the force-change-password modal right here,
-        // before navigating anywhere, so we never lose the isFirstLogin state
-        // through a React lazy-load / navigation-timing race.
-        if (result.isFirstLogin) {
-          setShowForceChangePassword(true);
-          return;
-        }
+        // SKIPPED: force-change-password modal disabled for now
+        // if (result.isFirstLogin) {
+        //   setShowForceChangePassword(true);
+        //   return;
+        // }
 
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
@@ -689,11 +688,11 @@ function Loginpage({ mode = 'customer' }) {
       </div>
 
       {/* FORGOT PASSWORD MODAL */}
-      {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
+      {/* {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />} */}
 
       {/* FORCE CHANGE PASSWORD MODAL — shown immediately after first-time login,
           before the user navigates to the dashboard, to avoid the lazy-load race */}
-      {showForceChangePassword && <ForceChangePasswordModal />}
+      {/* {showForceChangePassword && <ForceChangePasswordModal />} */}
     </>
   );
 }

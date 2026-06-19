@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { Inbox, Clock, CheckCircle, Archive } from 'lucide-react';
 import Notifications from '@/components/Notifications';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
@@ -58,6 +59,7 @@ export default function CustomerDashboard() {
   });
   const [recentTickets, setRecentTickets] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const { user } = useAuth();
   const effectiveUser = user || getStoredUser();
@@ -136,10 +138,10 @@ export default function CustomerDashboard() {
   const dateStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
 
   const summaryData = [
-    { title: 'Open Tickets', count: summary.open, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' },
-    { title: 'In Progress', count: summary.in_progress, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-200' },
-    { title: 'Resolved', count: summary.resolved, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-200' },
-    { title: 'Closed', count: summary.closed, color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
+    { title: 'Open Tickets', count: summary.open, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', icon: Inbox },
+    { title: 'In Progress', count: summary.in_progress, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', icon: Clock },
+    { title: 'Resolved', count: summary.resolved, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-200', icon: CheckCircle },
+    { title: 'Closed', count: summary.closed, color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200', icon: Archive },
   ];
 
   // Removed shadowed notifications array mapping to avoid ReferenceError, and we pass slice directly to Notifications component.
@@ -330,8 +332,7 @@ export default function CustomerDashboard() {
       });
       
       setIsTicketModalOpen(false);
-      window.alert('Ticket created successfully.');
-      // Small delay to allow backend Redis cache to be cleared before refetching
+      setShowSuccess(true);
       setTimeout(() => {
         loadDashboardData({ forceRefresh: true });
       }, 300);
@@ -381,8 +382,8 @@ export default function CustomerDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {summaryData.map((card, idx) => (
             <div key={idx} className={`p-6 rounded-xl bg-white border ${card.border} shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-transform duration-300 relative overflow-hidden group`}>
-               <div className={`absolute top-4 right-4 w-8 h-8 rounded-full ${card.bg} flex items-center justify-center`}>
-                  <div className={`w-3 h-3 rounded-sm border-2 ${card.color}`}></div>
+               <div className={`absolute top-4 right-4 w-8 h-8 rounded-full ${card.bg} flex items-center justify-center ${card.color}`}>
+                   <card.icon size={22} />
                </div>
                <div className={`text-4xl font-bold ${card.color}`}>{dashboardLoading ? '-' : card.count}</div>
                <div className={`text-sm font-medium mt-2 ${card.color} opacity-80`}>{card.title}</div>
@@ -398,9 +399,9 @@ export default function CustomerDashboard() {
               <h2 className="text-lg font-bold text-gray-800">Recent Tickets</h2>
               <p className="text-sm text-gray-500">Latest submitted support tickets</p>
             </div>
-            <button className="text-sm font-semibold text-[#252578] flex items-center gap-1 hover:underline">
+            <Link to="/my-tickets" className="text-sm font-semibold text-[#252578] flex items-center gap-1 hover:underline">
               View All <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-            </button>
+            </Link>
           </div>
 
           <div className="overflow-x-auto">
@@ -475,6 +476,7 @@ export default function CustomerDashboard() {
           onDiscard={(ticket) => setConfirmDiscard(ticket)}
           onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)}
           onResolve={(ticketId) => handleResolveTicket(ticketId)}
+          customerName={customerName}
         />
       )}
 
@@ -493,12 +495,30 @@ export default function CustomerDashboard() {
       )}
 
       {modalLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578] text-center font-sans">
               {loadingText}
             </p>
+          </div>
+        </div>
+      )}
+
+      {showSuccess && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]" onClick={() => setShowSuccess(false)}>
+          <div className="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4 border border-gray-100" onClick={(e) => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+              <CheckCircle size={32} className="text-green-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900">Ticket Created</h3>
+            <p className="text-sm text-gray-500 text-center">Your ticket has been submitted successfully.</p>
+            <button
+              onClick={() => setShowSuccess(false)}
+              className="mt-2 px-6 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1a1a5c] transition-colors"
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}

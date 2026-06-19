@@ -47,7 +47,7 @@ export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "
 /* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
-export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate }) {
+export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, readOnly = false }) {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -82,303 +82,222 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               ✕
             </button>
 
-            {/* Header badge */}
-            <div className="flex items-center gap-2 mb-5">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
-                {ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'}
-              </span>
-            </div>
-
-            <h3 className="text-xl font-bold text-[#252578] mb-5">
-              Ticket Summary
-            </h3>
-
-            {/* Summary rows */}
-            <div className="space-y-3">
-              {/* Status */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                <span className="text-xs font-medium text-gray-500">Status</span>
-                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                  {ticket.status || 'Pending'}
-                </span>
-              </div>
-
-              {/* Department */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                <span className="text-xs font-medium text-gray-500">Department</span>
-                <span className="text-xs font-semibold text-gray-800">
-                  {ticket.department || '—'}
-                </span>
-              </div>
-
-              {/* Priority */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                <span className="text-xs font-medium text-gray-500">Priority</span>
-                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
-                  {ticket.priority || '—'}
-                </span>
-              </div>
-
-              {/* Assigned Employees */}
-              <div className="bg-gray-50 rounded-xl px-4 py-3">
-                <div className="text-xs font-medium text-gray-500 mb-2">
-                  Assigned Employee(s)
-                </div>
-                {assignedEmployees.length === 0 ? (
-                  <div className="text-xs text-gray-400 italic">None assigned</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {assignedEmployees.map((emp) => (
-                      <div
-                        key={emp.id}
-                        className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5"
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                        <span className="text-xs font-medium text-gray-700">{emp.name}</span>
-                        <span className="text-[10px] text-gray-400">{emp.department}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Reassignment Request Approval/Denial Panel */}
-            {ticket.reassignmentRequested && typeof onStatusUpdate === 'function' && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-xs text-amber-800 space-y-3">
-                <div className="border-b border-amber-200/50 pb-3 mb-3">
-                  <h4 className="font-bold uppercase tracking-wider text-[11px] text-amber-900 mb-2 flex items-center gap-1.5">
-                    <span className="text-amber-600">⚠️</span> Immediate Action Required: Reassignment Request
-                  </h4>
-                  <div className="bg-white rounded-lg p-3 border border-amber-100 shadow-sm">
-                    <div className="mb-2">
-                      <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Requesting Employee</span>
-                      <p className="text-gray-800 font-semibold">{getRequestingEmployeeName()}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Reason Provided</span>
-                      <p className="text-gray-700 font-medium leading-relaxed italic mt-0.5">&quot;{ticket.reassignmentReason || 'No reason provided'}&quot;</p>
-                    </div>
-                  </div>
-                </div>
-                
-                {showReassignDeny ? (
-                    <div className="space-y-2 bg-white p-3 rounded-lg border border-red-200">
-                      <label className="block text-[10px] font-bold text-red-600 uppercase tracking-wide">Reason for Disapproval *</label>
-                      <textarea
-                        placeholder="Explain why this reassignment request is disapproved..."
-                        value={reassignDenyReason}
-                        onChange={(e) => setReassignDenyReason(e.target.value)}
-                        className="w-full text-xs border border-red-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-red-500/25 min-h-[3rem]"
-                        required
-                      />
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => setShowReassignDeny(false)}
-                          className="px-2.5 py-1.5 text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg font-bold transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (!reassignDenyReason.trim()) return;
-                            const timestamp = new Date().toLocaleString('en-US');
-                            const updated = {
-                              id: ticket.id,
-                              reassignmentRequested: false,
-                              reassignmentStatus: 'Denied',
-                              reassignmentDenyReason: reassignDenyReason.trim(),
-                              status: 'Open',
-                              accepted: false,
-                              timeline: [
-                                {
-                                  id: `reassign-deny-${Date.now()}`,
-                                  type: 'reassign',
-                                  text: `Reassignment request denied by CS. Reason: "${reassignDenyReason.trim()}". Ticket status reverted to Open.`,
-                                  timestamp,
-                                }
-                              ]
-                            };
-                            await onStatusUpdate(updated);
-                            onClose();
-                          }}
-                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors"
-                        >
-                          Confirm Disapproval
-                        </button>
-                      </div>
-                    </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowReassignDeny(true)}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
-                    >
-                      Disapprove
-                    </button>
-                    <button
-                      onClick={() => setShowReassignApprove(true)}
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
-                    >
-                      Approve Request
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Proof of Completion Validation Panel */}
-            {ticket.status === 'Pending Evaluation' && typeof onStatusUpdate === 'function' && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-xs text-blue-800 space-y-3">
-                <div>
-                  <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
-                  {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
-                    <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-2">
-                      {ticket.proofAttachments.map((f, i) => (
-                        <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
-                          <a
-                            href={f.url}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPreviewFile({ name: f.name, url: f.url });
-                            }}
-                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0 cursor-pointer"
-                          >
-                            <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                            </svg>
-                            <span className="truncate">{f.name}</span>
-                          </a>
-                          <span className="text-[10px] text-gray-400 font-medium shrink-0">
-                            {f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-400 italic">No files uploaded.</p>
-                  )}
-                </div>
-                
-                {showRejectInput ? (
-                  <div className="space-y-2">
-                    <label htmlFor="summary-rejection-reason" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">Reason for rejection *</label>
-                    <textarea
-                      id="summary-rejection-reason"
-                      placeholder="Provide a reason for proof rejection (e.g. signature missing, document blurry)..."
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                      className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]"
-                      required
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setShowRejectInput(false)}
-                        className="px-2.5 py-1 text-xs border border-gray-200 text-gray-600 rounded-lg font-bold"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        disabled={isProcessing}
-                        onClick={async () => {
-                          if (!rejectionReason.trim()) return;
-                          setIsProcessing(true);
-                          try {
-                            const timestamp = new Date().toLocaleString('en-US');
-                            const updated = {
-                              id: ticket.id,
-                              status: 'In Progress',
-                              proofRejected: true,
-                              rejectionReason: rejectionReason.trim(),
-                              timeline: [
-                                {
-                                  id: `proof-reject-${Date.now()}`,
-                                  type: 'proof',
-                                  text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`,
-                                  timestamp,
-                                }
-                              ]
-                            };
-                            await onStatusUpdate(updated);
-                            onClose();
-                          } catch (err) {
-                            console.error(err);
-                            setIsProcessing(false);
-                          }
-                        }}
-                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isProcessing ? 'Processing...' : 'Confirm Rejection'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button
-                      disabled={isProcessing}
-                      onClick={() => setShowRejectInput(true)}
-                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-                    >
-                      Reject Proof
-                    </button>
-                    <button
-                      disabled={isProcessing}
-                      onClick={async () => {
-                        if (!ticket.department) {
-                          window.alert('Cannot resolve ticket: Department is not set.');
-                          return;
-                        }
-                        if (!ticket.assigned || ticket.assigned.length === 0) {
-                          window.alert('Cannot resolve ticket: No employees are assigned.');
-                          return;
-                        }
-                        setIsProcessing(true);
-                        try {
-                          const timestamp = new Date().toLocaleString('en-US');
-                          const updated = {
-                            id: ticket.id,
-                            status: 'Closed',
-                            proofRejected: false,
-                            rejectionReason: null,
-                            timeline: [
-                              {
-                                id: `proof-approve-${Date.now()}`,
-                                type: 'proof',
-                                text: 'Proof of Completion approved by CS. Ticket Closed successfully.',
-                                timestamp,
-                              }
-                            ]
-                          };
-                          await onStatusUpdate(updated);
-                          onClose();
-                        } catch (err) {
-                          console.error(err);
-                          setIsProcessing(false);
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isProcessing ? 'Processing...' : 'Approve & Resolve'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Ticket card */}
-            <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+            {readOnly ? (
+              <>
+                {/* Ticket card at top for read-only */}
+                <div className="bg-[#252578] text-white rounded-xl p-5 mb-5">
                   <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
-                  <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
-                  <div className="text-xs opacity-60 mt-1">{ticket.category}</div>
+                  <div className="text-base font-bold leading-snug mb-2">{ticket.title}</div>
+                  <p className="text-sm opacity-80 leading-relaxed">{ticket.description || 'No description available.'}</p>
                 </div>
-                <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">
-                  {ticket.sla}
-                </span>
-              </div>
-            </div>
+
+                {/* Summary rows */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Status</span>
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {ticket.status || 'Pending'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Department</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.department || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Priority</span>
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {ticket.priority || '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Category</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.category || '—'}</span>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl px-4 py-3">
+                    <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
+                    {assignedEmployees.length === 0 ? (
+                      <div className="text-xs text-gray-400 italic">None assigned</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {assignedEmployees.map((emp) => (
+                          <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                            <span className="text-xs font-medium text-gray-700">{emp.name}</span>
+                            <span className="text-[10px] text-gray-400">{emp.department}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Date Submitted</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.date || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Last Updated</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at || '—'}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Header badge */}
+                <div className="flex items-center gap-2 mb-5">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
+                    {ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'}
+                  </span>
+                </div>
+
+                <h3 className="text-xl font-bold text-[#252578] mb-5">
+                  Ticket Summary
+                </h3>
+
+                {/* Summary rows */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Status</span>
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {ticket.status || 'Pending'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Department</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.department || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Priority</span>
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {ticket.priority || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl px-4 py-3">
+                    <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
+                    {assignedEmployees.length === 0 ? (
+                      <div className="text-xs text-gray-400 italic">None assigned</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {assignedEmployees.map((emp) => (
+                          <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                            <span className="text-xs font-medium text-gray-700">{emp.name}</span>
+                            <span className="text-[10px] text-gray-400">{emp.department}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reassignment Request Panel */}
+                {ticket.reassignmentRequested && typeof onStatusUpdate === 'function' && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-xs text-amber-800 space-y-3">
+                    <div className="border-b border-amber-200/50 pb-3 mb-3">
+                      <h4 className="font-bold uppercase tracking-wider text-[11px] text-amber-900 mb-2 flex items-center gap-1.5">
+                        <span className="text-amber-600">⚠️</span> Immediate Action Required: Reassignment Request
+                      </h4>
+                      <div className="bg-white rounded-lg p-3 border border-amber-100 shadow-sm">
+                        <div className="mb-2">
+                          <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Requesting Employee</span>
+                          <p className="text-gray-800 font-semibold">{getRequestingEmployeeName()}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Reason Provided</span>
+                          <p className="text-gray-700 font-medium leading-relaxed italic mt-0.5">&quot;{ticket.reassignmentReason || 'No reason provided'}&quot;</p>
+                        </div>
+                      </div>
+                    </div>
+                    {showReassignDeny ? (
+                      <div className="space-y-2 bg-white p-3 rounded-lg border border-red-200">
+                        <label className="block text-[10px] font-bold text-red-600 uppercase tracking-wide">Reason for Disapproval *</label>
+                        <textarea
+                          placeholder="Explain why this reassignment request is disapproved..."
+                          value={reassignDenyReason}
+                          onChange={(e) => setReassignDenyReason(e.target.value)}
+                          className="w-full text-xs border border-red-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-red-500/25 min-h-[3rem]"
+                          required
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => setShowReassignDeny(false)} className="px-2.5 py-1.5 text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg font-bold transition-colors">Cancel</button>
+                          <button
+                            onClick={async () => {
+                              if (!reassignDenyReason.trim()) return;
+                              const timestamp = new Date().toLocaleString('en-US');
+                              const updated = { id: ticket.id, reassignmentRequested: false, reassignmentStatus: 'Denied', reassignmentDenyReason: reassignDenyReason.trim(), status: 'Open', accepted: false, timeline: [{ id: `reassign-deny-${Date.now()}`, type: 'reassign', text: `Reassignment request denied by CS. Reason: "${reassignDenyReason.trim()}". Ticket status reverted to Open.`, timestamp }] };
+                              await onStatusUpdate(updated);
+                              onClose();
+                            }}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors"
+                          >
+                            Confirm Disapproval
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowReassignDeny(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm">Disapprove</button>
+                        <button onClick={() => setShowReassignApprove(true)} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm">Approve Request</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Proof of Completion Panel */}
+                {ticket.status === 'Pending Evaluation' && typeof onStatusUpdate === 'function' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-xs text-blue-800 space-y-3">
+                    <div>
+                      <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
+                      {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
+                        <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-2">
+                          {ticket.proofAttachments.map((f, i) => (
+                            <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
+                              <a href={f.url} onClick={(e) => { e.preventDefault(); setPreviewFile({ name: f.name, url: f.url }); }} className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0 cursor-pointer">
+                                <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                                <span className="truncate">{f.name}</span>
+                              </a>
+                              <span className="text-[10px] text-gray-400 font-medium shrink-0">{f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-gray-400 italic">No files uploaded.</p>
+                      )}
+                    </div>
+                    {showRejectInput ? (
+                      <div className="space-y-2">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">Reason for rejection *</label>
+                        <textarea placeholder="Provide a reason for proof rejection..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]" required />
+                        <div className="flex gap-2">
+                          <button onClick={() => setShowRejectInput(false)} className="px-2.5 py-1 text-xs border border-gray-200 text-gray-600 rounded-lg font-bold">Cancel</button>
+                          <button disabled={isProcessing} onClick={async () => { if (!rejectionReason.trim()) return; setIsProcessing(true); try { const timestamp = new Date().toLocaleString('en-US'); const updated = { id: ticket.id, status: 'In Progress', proofRejected: true, rejectionReason: rejectionReason.trim(), timeline: [{ id: `proof-reject-${Date.now()}`, type: 'proof', text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`, timestamp }] }; await onStatusUpdate(updated); onClose(); } catch (err) { console.error(err); setIsProcessing(false); } }} className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isProcessing ? 'Processing...' : 'Confirm Rejection'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button disabled={isProcessing} onClick={() => setShowRejectInput(true)} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50">Reject Proof</button>
+                        <button disabled={isProcessing} onClick={async () => { if (!ticket.department) { window.alert('Cannot resolve ticket: Department is not set.'); return; } if (!ticket.assigned || ticket.assigned.length === 0) { window.alert('Cannot resolve ticket: No employees are assigned.'); return; } setIsProcessing(true); try { const timestamp = new Date().toLocaleString('en-US'); const updated = { id: ticket.id, status: 'Closed', proofRejected: false, rejectionReason: null, timeline: [{ id: `proof-approve-${Date.now()}`, type: 'proof', text: 'Proof of Completion approved by CS. Ticket Closed successfully.', timestamp }] }; await onStatusUpdate(updated); onClose(); } catch (err) { console.error(err); setIsProcessing(false); } }} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                          {isProcessing ? 'Processing...' : 'Approve & Resolve'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Ticket card */}
+                <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
+                      <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
+                      <div className="text-xs opacity-60 mt-1">{ticket.category}</div>
+                    </div>
+                    <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">{ticket.sla}</span>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Remarks History Log */}
             {ticket.remarks && ticket.remarks.length > 0 && (

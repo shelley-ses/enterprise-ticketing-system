@@ -4,7 +4,6 @@ import { Search, Filter } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
-  slaStatusColors,
   sortTicketsByPriority,
 } from '@/constants/employeeTickets';
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
@@ -110,10 +109,7 @@ export default function EmployeeAssigned() {
     const q = search.trim().toLowerCase();
     let list = tickets.filter((t) => {
       if (t.rejected) return false;
-      // Hide closed/resolved from Assigned — they live in History
       if (CLOSED_STATUSES.includes(t.status)) return false;
-
-      // Only show unaccepted tickets in this queue
       if (t.accepted) return false;
 
       if (statusFilter !== 'All Status') {
@@ -334,7 +330,7 @@ export default function EmployeeAssigned() {
 
             {/* Collapsible Filters */}
             {showFilters && (
-              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
                 <select
                   className={selectClass}
                   value={statusFilter}
@@ -372,13 +368,6 @@ export default function EmployeeAssigned() {
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                <select
-                  className={selectClass}
-                  value={sortPriority}
-                  onChange={(e) => setSortPriority(e.target.value)}
-                >
-                  <option value="Priority">Sort: Priority</option>
-                </select>
               </div>
             )}
             {/* Table */}
@@ -386,88 +375,23 @@ export default function EmployeeAssigned() {
               <table className="w-full table-fixed text-sm text-left border-collapse">
                 <colgroup>
                   <col className="w-[12%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[20%]" />
                   <col className="w-[12%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[18%]" />
+                  <col className="w-[12%]" />
                   <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[8%]" />
                 </colgroup>
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                    <th className="py-3 px-2 font-medium">
-                      <div className="relative">
-                        <svg
-                          className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                          />
-                        </svg>
-                        <input
-                          type="search"
-                          placeholder="Search..."
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          className="w-full pl-8 pr-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
-                        />
-                      </div>
-                    </th>
+                    <th className="py-3 px-2 font-medium">Ticket ID</th>
                     <th className="py-3 px-2 font-medium">Customer</th>
                     <th className="py-3 px-2 font-medium">Type</th>
                     <th className="py-3 px-2 font-medium">Title</th>
-                    <th className="py-3 px-2 font-medium">
-                      <select
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                        value={categoryFilter}
-                        onChange={(e) => setCategoryFilter(e.target.value)}
-                      >
-                        {[
-                          'All Category',
-                          'MRI',
-                          'CT Scan',
-                          'Ultrasound',
-                          'X-Ray',
-                          'Ventilator',
-                          'Defibrillator',
-                        ].map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </th>
-                    <th className="py-3 px-2 font-medium">
-                      <select
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                        value={priorityFilter}
-                        onChange={(e) => setPriorityFilter(e.target.value)}
-                      >
-                        {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </th>
-                    <th className="py-3 px-2 font-medium">
-                      <select
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                      >
-                        {['All Status', 'Pending Assignment', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map(
-                          (s) => (
-                            <option key={s} value={s}>{s}</option>
-                          )
-                        )}
-                      </select>
-                    </th>
-                    <th className="py-3 px-2 font-medium">SLA</th>
+                    <th className="py-3 px-2 font-medium">Category</th>
+                    <th className="py-3 px-2 font-medium">Priority</th>
+                    <th className="py-3 px-2 font-medium">Status</th>
                     <th className="py-3 px-2 font-medium">Last Update</th>
                   </tr>
                 </thead>
@@ -475,7 +399,7 @@ export default function EmployeeAssigned() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={8}
                         className="py-12 text-center text-gray-400 text-sm"
                       >
                         No active tickets found in this tab.
@@ -573,7 +497,7 @@ export default function EmployeeAssigned() {
                             {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : t.status.toLowerCase())}
                           </span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
+                        {/* <td className="py-2.5 px-2 align-middle">
                           <span
                             className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
@@ -581,7 +505,7 @@ export default function EmployeeAssigned() {
                           >
                             {t.slaStatus}
                           </span>
-                        </td>
+                        </td> */}
                         <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">
                           {t.lastUpdate}
                         </td>

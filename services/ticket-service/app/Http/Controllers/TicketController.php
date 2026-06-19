@@ -173,6 +173,15 @@ class TicketController extends Controller
             $fullTicket = $this->getFullTicketDetails($ticketId);
         }
 
+        $assignedEmpIds = [];
+        if ($ticketId > 0) {
+            $assignedEmpIds = DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->pluck('employee_ID')
+                ->map(fn($id) => (int)$id)
+                ->all();
+        }
+
         event(new TicketChanged(array_merge([
             'action' => $action,
             'ticket_ID' => $ticketId,
@@ -180,6 +189,7 @@ class TicketController extends Controller
             'updated_at' => now()->toISOString(),
             'customer_id' => $ticket?->created_by,
             'assigned_to' => $ticket?->assigned_to,
+            'employee_ids' => $assignedEmpIds,
             'ticket_status_ID' => $ticket?->ticket_status_ID,
             'ticket' => $fullTicket,
         ], $payload)));
@@ -2559,7 +2569,8 @@ class TicketController extends Controller
             if ($log->action_type === 'create') {
                 $timelineText = "Ticket created by customer.";
             } elseif ($log->action_type === 'reopen') {
-                $timelineText = "Ticket reopened by customer.";
+                $empName = $log->employee_name ?: (($log->actor_type === 'customer') ? 'customer' : 'CS Representative');
+                $timelineText = "Ticket reopened by {$empName}.";
             } elseif ($log->action_type === 'accept') {
                 $empName = $log->employee_name ?: 'Employee';
                 $timelineText = "Assignment accepted by {$empName}.";
@@ -2577,7 +2588,8 @@ class TicketController extends Controller
                 $newStatus = $details['status'] ?? '';
                 $remarks = $details['remarks'] ?? '';
                 $filesText = !empty($details['files']) ? ' (Attached: ' . implode(', ', $details['files']) . ')' : '';
-                $timelineText = "Status updated to \"{$newStatus}\". Remarks: \"{$remarks}\"{$filesText}";
+                $empName = $log->employee_name ?: (($log->actor_type === 'customer') ? 'customer' : 'employee');
+                $timelineText = "Status updated to \"{$newStatus}\" by {$empName}. Remarks: \"{$remarks}\"{$filesText}";
             } elseif ($log->action_type === 'proof_uploaded') {
                 $timelineText = "Proof of completion uploaded.";
             } elseif ($log->action_type === 'update') {
@@ -2590,6 +2602,10 @@ class TicketController extends Controller
                 } elseif ($field === 'assigned_to') {
                     $empName = $employeeNamesMap[$newVal] ?? $newVal;
                     $timelineText = "Ticket assigned to {$empName}.";
+                } elseif ($field === 'ticket_status_ID') {
+                    $statusName = $statusesMap[$newVal] ?? $newVal;
+                    $empName = $log->employee_name ?: (($log->actor_type === 'customer') ? 'customer' : 'CS Representative');
+                    $timelineText = "Status updated to \"{$statusName}\" by {$empName}.";
                 } else {
                     $timelineText = "Ticket updated: {$field} set to {$newVal}.";
                 }

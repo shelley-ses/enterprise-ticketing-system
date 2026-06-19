@@ -165,7 +165,7 @@ export default function ProofCompletionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-md overflow-y-auto py-10" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-[1.5px] overflow-y-auto py-10" onClick={onClose}>
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-xl mx-4 my-auto relative flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}

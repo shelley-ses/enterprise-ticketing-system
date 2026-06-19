@@ -16,6 +16,9 @@ const allowedFileTypes = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ];
 
+const MAX_TITLE_CHARS = 250;
+const MAX_DESCRIPTION_CHARS = 500;
+
 export default function TicketModal({ isOpen, onClose, onSubmit }) {
   if (!isOpen) return null;
 
@@ -36,10 +39,12 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const touch = (field) => setTouched((prev) => ({ ...prev, [field]: true }));
 
-  const titleError = !formData.title?.trim() ? 'Title is required.' : '';
+  const titleChars = formData.title?.length || 0;
+  const descriptionChars = formData.description?.length || 0;
+  const titleError = !formData.title?.trim() ? 'Title is required.' : titleChars > MAX_TITLE_CHARS ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).` : '';
   const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
   const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
-  const descriptionError = !formData.description?.trim() ? 'Description is required.' : '';
+  const descriptionError = !formData.description?.trim() ? 'Description is required.' : descriptionChars > MAX_DESCRIPTION_CHARS ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).` : '';
 
   const resetFormState = () => {
     setFormData(initialFormData);
@@ -165,13 +170,15 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const isFormValid = Boolean(
     formData.title?.trim() &&
+    titleChars <= MAX_TITLE_CHARS &&
     formData.problem_category_ID &&
     formData.machine_ID &&
-    formData.description?.trim()
+    formData.description?.trim() &&
+    descriptionChars <= MAX_DESCRIPTION_CHARS
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6">
           <div>
@@ -196,17 +203,22 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Ticket Title</label>
-            <input
-              name="title"
-              type="text"
-              required
-              placeholder="Brief description of the issue"
-              value={formData.title}
-              onChange={handleChange}
-              onBlur={() => touch('title')}
-              disabled={isSubmitting}
-              className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-            />
+            <div className="relative">
+              <input
+                name="title"
+                type="text"
+                required
+                placeholder="Brief description of the issue"
+                value={formData.title}
+                onChange={handleChange}
+                onBlur={() => touch('title')}
+                disabled={isSubmitting}
+                className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+              />
+              <span className={`absolute bottom-3 right-3 text-[10px] ${titleChars > MAX_TITLE_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                {titleChars}/{MAX_TITLE_CHARS}
+              </span>
+            </div>
             {touched.title && titleError && <p className="mt-1.5 text-xs text-red-500">{titleError}</p>}
           </div>
 
@@ -256,60 +268,67 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Detailed Description</label>
-            <textarea
-              name="description"
-              required
-              rows="4"
-              placeholder="Please provide as much detail as possible..."
-              value={formData.description}
-              onChange={handleChange}
-              onBlur={() => touch('description')}
-              disabled={isSubmitting}
-              className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-            />
+            <div className="relative">
+              <textarea
+                name="description"
+                required
+                rows="4"
+                placeholder="Please provide as much detail as possible..."
+                value={formData.description}
+                onChange={handleChange}
+                onBlur={() => touch('description')}
+                disabled={isSubmitting}
+                className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+              />
+              <span className={`absolute bottom-2 right-3 text-[10px] ${descriptionChars > MAX_DESCRIPTION_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                {descriptionChars}/{MAX_DESCRIPTION_CHARS}
+              </span>
+            </div>
             {touched.description && descriptionError && <p className="mt-1.5 text-xs text-red-500">{descriptionError}</p>}
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Attachments (Optional)</label>
-            <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
-              <input
-                type="file"
-                id="file-upload"
-                className="hidden"
-                onChange={handleFileChange}
-                accept=".pdf,.jpg,.png,.docx"
-                multiple
-                disabled={isSubmitting}
-              />
-              <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
-                <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  />
-                </svg>
-                <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                <span className="mt-1 text-xs text-gray-500">PDF, JPG, PNG or DOCX (max. 5MB each)</span>
-              </label>
-            </div>
-
-            {attachments.length > 0 && (
-              <div className="mt-2 space-y-1 text-sm text-green-600">
-                {attachments.map((attachment) => (
-                  <p key={`${attachment.name}-${attachment.size}`} className="flex items-center gap-1">
-                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    Selected: {attachment.name}
-                  </p>
-                ))}
+            <label className="mb-2 block text-sm font-medium text-gray-700">Attachment (Optional)</label>
+            {attachments.length === 0 ? (
+              <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
+                <input
+                  type="file"
+                  id="file-upload"
+                  className="hidden"
+                  onChange={handleFileChange}
+                  accept=".pdf,.jpg,.png,.docx"
+                  disabled={isSubmitting}
+                />
+                <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
+                  <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium text-[#252578]">Click to upload</span>
+                  <span className="mt-1 text-xs text-gray-500">PDF, JPG, PNG or DOCX (max. 5MB)</span>
+                </label>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <svg className="h-5 w-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="font-semibold">{attachments[0].name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setAttachments([]); document.getElementById('file-upload').value = ''; }}
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             )}
 

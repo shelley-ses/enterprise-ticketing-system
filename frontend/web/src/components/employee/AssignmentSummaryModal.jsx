@@ -8,7 +8,7 @@ export default function AssignmentSummaryModal({ ticket, onClose }) {
   if (!ticket) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]" onClick={onClose}>
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-8 relative"
         onClick={(e) => e.stopPropagation()}

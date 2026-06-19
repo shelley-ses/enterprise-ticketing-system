@@ -1,7 +1,7 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
-// Vite's BASE_URL is '/', '/ticketing/', or '/customer-ticketing/' depending on context.
+// Vite's BASE_URL is '/', '/ticketing/', or '/customer-service/' depending on context.
 const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import PrivateRoute from '@/routes/PrivateRoute';
@@ -11,7 +11,6 @@ import SkeletonLoader from '@/components/SkeletonLoader.jsx';
 
 // Lazy loaded page and layout components
 const Loginpage = React.lazy(() => import('./pages/Loginpage.jsx'));
-const LoginChoicePage = React.lazy(() => import('./pages/LoginChoicePage.jsx'));
 const CustomerLayout = React.lazy(() => import('./components/CustomerLayout.jsx'));
 const CustomerDashboard = React.lazy(() => import('./pages/CustomerDashboard.jsx'));
 const TicketCreation = React.lazy(() => import('./pages/TicketCreation.jsx'));
@@ -39,6 +38,68 @@ const SuperAdminTicketConfig = React.lazy(() => import('./pages/SuperAdminTicket
 const SuperAdminAuditLogs = React.lazy(() => import('./pages/SuperAdminAuditLogs.jsx'));
 const SuperAdminHistory = React.lazy(() => import('./pages/SuperAdminHistory.jsx'));
 const SuperAdminDevLogin = React.lazy(() => import('./pages/SuperAdminDevLogin.jsx'));
+const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
+
+// ─── Role helpers (mirrors GuestRoute / PrivateRoute) ─────────────────────────
+const checkIsCS = (user) => {
+  if (!user) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
+  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+};
+const checkIsEmployee = (user) => {
+  if (!user) return false;
+  if (checkIsCS(user)) return false;
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (dept === 'service' || dept.includes('engineer')) return true;
+  return role === 'employee' || role.includes('service') || role.includes('engineer');
+};
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
+// ─── Employee Portal Gate ─────────────────────────────────────────────────────
+// Smart entry-point for the employee/CS ticketing portal (/ticketing/).
+// • Loading    → full-screen spinner (no premature redirect)
+// • Authed     → send to the correct role dashboard via React Router Navigate
+// • Not authed → hard-navigate to the Auth Module at '/' to log in
+function EmployeePortalGate() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600" />
+          <p className="mt-4 text-slate-600 font-medium">Verifying session…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    // Send back to the Auth Module login page (hard navigate, not React Router)
+    window.location.replace('/');
+    return null;
+  }
+
+  const isSuperAdmin = checkIsSuperAdmin(user);
+  const isCS         = checkIsCS(user);
+  const isEmployee   = checkIsEmployee(user);
+
+  if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+  if (isCS)         return <Navigate to="/cs/dashboard" replace />;
+  if (isEmployee)   return <Navigate to="/employee/dashboard" replace />;
+
+  // Unknown role on the employee portal → back to auth module
+  window.location.replace('/');
+  return null;
+}
 
 function App() {
   return (
@@ -71,7 +132,21 @@ function App() {
             </div>
           }>
             <Routes>
-              {/* /customer — primary customer login (does NOT touch auth-module) */}
+              {/* / — customer landing page (customer mode) OR employee portal gate (employee mode) */}
+              <Route
+                index
+                element={
+                  import.meta.env.VITE_APP_MODE === 'customer'
+                    ? (
+                      <GuestRoute>
+                        <LandingPage />
+                      </GuestRoute>
+                    )
+                    : <EmployeePortalGate />
+                }
+              />
+
+              {/* /customer — customer login; does NOT use the auth-module */}
               <Route
                 path="/customer"
                 element={
@@ -81,19 +156,18 @@ function App() {
                 }
               />
 
-              {/* /login — redirects to auth-module (employee/CS only) */}
+              {/* /login — redirect appropriately per mode */}
               <Route
                 path="/login"
                 element={
-                  <GuestRoute>
-                    <LoginChoicePage />
-                  </GuestRoute>
+                  import.meta.env.VITE_APP_MODE === 'customer'
+                    ? <Navigate to="/customer" replace />
+                    : <EmployeePortalGate />
                 }
               />
 
-              {/* Aliases — keep old URLs working */}
+              {/* Aliases */}
               <Route path="/login/customer" element={<Navigate to="/customer" replace />} />
-
               <Route
                 path="/login/employee"
                 element={
@@ -103,7 +177,7 @@ function App() {
                 }
               />
 
-              {/* /superadmin/dev-login — dev-only mock login (no backend required) */}
+              {/* /superadmin/dev-login — dev-only mock login */}
               <Route
                 path="/superadmin/dev-login"
                 element={
@@ -114,15 +188,7 @@ function App() {
               />
 
               {/* Protected Customer Routes */}
-              <Route
-                path="/"
-                element={
-                  <PrivateRoute role="customer">
-                    <CustomerLayout />
-                  </PrivateRoute>
-                }
-              >
-                <Route index element={<Navigate to="customer-dashboard" replace />} />
+              <Route element={<CustomerLayout />}>
                 <Route path="customer-dashboard" element={<CustomerDashboard />} />
                 <Route path="create-ticket" element={<TicketCreation />} />
                 <Route path="my-tickets" element={<MyTickets />} />
@@ -132,7 +198,7 @@ function App() {
                 <Route path="notifications" element={<Notifications />} />
               </Route>
 
-              {/* Employee Routes (kept separate) */}
+              {/* Employee Routes */}
               <Route
                 path="/employee"
                 element={
@@ -175,6 +241,7 @@ function App() {
                 <Route path="assigned" element={<CSAssigned />} />
                 <Route path="my-tickets" element={<EmployeeMyTickets roleContext="cs" />} />
                 <Route path="history" element={<CSHistory />} />
+                <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
                 <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>
@@ -200,10 +267,7 @@ function App() {
               <Route
                 path="*"
                 element={
-                  <Navigate
-                    to={import.meta.env.VITE_APP_MODE === 'customer' ? '/customer' : '/login'}
-                    replace
-                  />
+                  <div className="p-8 text-center text-red-500 font-bold">404 Page Not Found</div>
                 }
               />
             </Routes>
@@ -215,4 +279,3 @@ function App() {
 }
 
 export default App;
-

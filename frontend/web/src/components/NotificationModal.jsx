@@ -30,8 +30,8 @@ export default function NotificationModal({ isOpen, type, title, message, onConf
   const isConfirm = type === 'confirm';
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => { if (!isConfirm) onClose?.(); }}>
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]" onClick={() => { if (!isConfirm) onClose?.(); }}>
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
         {icons[type] || null}
         <h2 className="mt-4 text-lg font-bold text-gray-900">{title}</h2>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
