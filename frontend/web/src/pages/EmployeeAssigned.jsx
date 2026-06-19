@@ -24,6 +24,8 @@ export default function EmployeeAssigned() {
   const navigate = useNavigate();
   const location = useLocation();
 
+
+
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -267,7 +269,7 @@ export default function EmployeeAssigned() {
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-[#252578]">My Assigned Tickets</h1>
+          <h1 className="text-2xl font-bold text-[#252578]">Incoming Ticket</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
             {['all', 'external', 'internal'].map((type) => (
               <button
@@ -286,7 +288,7 @@ export default function EmployeeAssigned() {
           </div>
         </div>
         <p className="text-sm text-gray-500 mt-1">
-          All tickets assigned to you — work, update, and resolve.
+          Pending tickets awaiting your acceptance.
         </p>
       </div>
 
@@ -385,14 +387,14 @@ export default function EmployeeAssigned() {
                 </colgroup>
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                    <th className="py-3 px-2 font-medium">Ticket ID</th>
-                    <th className="py-3 px-2 font-medium">Customer</th>
-                    <th className="py-3 px-2 font-medium">Type</th>
-                    <th className="py-3 px-2 font-medium">Title</th>
-                    <th className="py-3 px-2 font-medium">Category</th>
-                    <th className="py-3 px-2 font-medium">Priority</th>
-                    <th className="py-3 px-2 font-medium">Status</th>
-                    <th className="py-3 px-2 font-medium">Last Update</th>
+                    <th className="py-4 px-4 font-semibold">Ticket ID</th>
+                    <th className="py-4 px-4 font-semibold">Customer</th>
+                    <th className="py-4 px-4 font-semibold">Type</th>
+                    <th className="py-4 px-4 font-semibold">Title</th>
+                    <th className="py-4 px-4 font-semibold">Category</th>
+                    <th className="py-4 px-4 font-semibold">Priority</th>
+                    <th className="py-4 px-4 font-semibold">Status</th>
+                    <th className="py-4 px-4 font-semibold">Last Update</th>
                   </tr>
                 </thead>
                 <tbody className="text-gray-800">
@@ -402,7 +404,7 @@ export default function EmployeeAssigned() {
                         colSpan={8}
                         className="py-12 text-center text-gray-400 text-sm"
                       >
-                        No active tickets found in this tab.
+                        No incoming tickets pending acceptance.
                       </td>
                     </tr>
                   ) : (
@@ -420,7 +422,7 @@ export default function EmployeeAssigned() {
                         }}
                         className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
                       >
-                        <td className="py-2.5 px-2 align-middle">
+                        <td className="py-4 px-4 align-middle">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span
                               className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -447,12 +449,12 @@ export default function EmployeeAssigned() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-2.5 px-2 align-middle min-w-0">
+                        <td className="py-4 px-4 align-middle min-w-0">
                           <p className="font-semibold text-gray-900 text-xs truncate">
                             {t.customer}
                           </p>
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
+                        <td className="py-4 px-4 align-middle">
                           <span
                             className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
@@ -463,15 +465,15 @@ export default function EmployeeAssigned() {
                             {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle min-w-0">
+                        <td className="py-4 px-4 align-middle min-w-0">
                           <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">
                             {t.title}
                           </p>
                         </td>
-                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs truncate">
+                        <td className="py-4 px-4 align-middle text-gray-600 text-xs truncate">
                           {t.category}
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
+                        <td className="py-4 px-4 align-middle">
                           <span
                             className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               priorityColors[t.priority]
@@ -480,7 +482,7 @@ export default function EmployeeAssigned() {
                             {t.priority}
                           </span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
+                        <td className="py-4 px-4 align-middle">
                           <span
                             className={`inline-flex max-w-full whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                               t.reassignmentRequested
@@ -497,7 +499,7 @@ export default function EmployeeAssigned() {
                             {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : t.status.toLowerCase())}
                           </span>
                         </td>
-                        {/* <td className="py-2.5 px-2 align-middle">
+                        {/* <td className="py-4 px-4 align-middle">
                           <span
                             className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
@@ -506,7 +508,7 @@ export default function EmployeeAssigned() {
                             {t.slaStatus}
                           </span>
                         </td> */}
-                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">
+                        <td className="py-4 px-4 align-middle text-gray-600 text-xs whitespace-nowrap">
                           {t.lastUpdate}
                         </td>
                       </tr>
@@ -517,7 +519,7 @@ export default function EmployeeAssigned() {
             </div>
 
             <p className="text-sm text-gray-500 mt-4">
-              Showing {filtered.length} of {pendingCount} tickets
+              Showing {filtered.length} of {pendingCount} incoming tickets
             </p>
           </>
 

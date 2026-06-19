@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { Search, Filter } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
@@ -51,6 +52,7 @@ export default function EmployeeMachine() {
   const [sortPriority, setSortPriority] = useState('Priority');
 
   const [typeFilter, setTypeFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Modal states
   const [infoTicket, setInfoTicket] = useState(null);
@@ -182,7 +184,7 @@ export default function EmployeeMachine() {
       {/* Page Header */}
       <div className="mb-6 flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-[#252578]">My Progress Queue</h1>
+          <h1 className="text-2xl font-bold text-[#252578]">Assigned Ticket</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
             {['all', 'external', 'internal'].map((type) => (
               <button
@@ -201,7 +203,7 @@ export default function EmployeeMachine() {
           </div>
         </div>
         <p className="text-sm text-gray-500 mt-1">
-          Track and update tickets that you have accepted and are currently working on.
+          Tickets assigned to you — work, update, and resolve.
         </p>
       </div>
 
@@ -222,80 +224,80 @@ export default function EmployeeMachine() {
           </div>
         ) : (
           <>
-            {/* Filters */}
-            <div className="flex flex-row flex-wrap items-center gap-3 mb-6">
-              <div className="relative w-52 sm:w-60 shrink-0">
-                <svg
-                  className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+            {/* Search & Filter Toggle */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="search"
                   placeholder="Search ID, title, customer..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252578]/25"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
                 />
               </div>
-
-              <select
-                className={selectClass}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
               >
-                <option value="All Status">All Status</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Pending">Pending</option>
-                <option value="Pending Evaluation">Pending Evaluation</option>
-                <option value="Pending Reassign">Pending Reassign</option>
-                <option value="Resolved">Resolved</option>
-                <option value="Closed">Closed</option>
-                <option value="Reopened">Reopened</option>
-              </select>
-
-              <select
-                className={selectClass}
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="All Category">All Category</option>
-                <option value="MRI">MRI</option>
-                <option value="CT Scan">CT Scan</option>
-                <option value="Ultrasound">Ultrasound</option>
-                <option value="X-Ray">X-Ray</option>
-                <option value="Ventilator">Ventilator</option>
-              </select>
-
-              <select
-                className={selectClass}
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                <option value="All Priority">All Priority</option>
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-              </select>
-
-              <select
-                className={selectClass}
-                value={sortPriority}
-                onChange={(e) => setSortPriority(e.target.value)}
-              >
-                <option value="Priority">Sort: Default</option>
-                <option value="Standard">Sort: Standard</option>
-              </select>
+                <Filter size={16} />
+                Filters
+              </button>
             </div>
+
+            {/* Collapsible Filters */}
+            {showFilters && (
+              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
+                <select
+                  className={selectClass}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="All Status">All Status</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Pending Evaluation">Pending Evaluation</option>
+                  <option value="Pending Reassign">Pending Reassign</option>
+                  <option value="Resolved">Resolved</option>
+                  <option value="Closed">Closed</option>
+                  <option value="Reopened">Reopened</option>
+                </select>
+
+                <select
+                  className={selectClass}
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="All Category">All Category</option>
+                  <option value="MRI">MRI</option>
+                  <option value="CT Scan">CT Scan</option>
+                  <option value="Ultrasound">Ultrasound</option>
+                  <option value="X-Ray">X-Ray</option>
+                  <option value="Ventilator">Ventilator</option>
+                </select>
+
+                <select
+                  className={selectClass}
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                >
+                  <option value="All Priority">All Priority</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+
+                <select
+                  className={selectClass}
+                  value={sortPriority}
+                  onChange={(e) => setSortPriority(e.target.value)}
+                >
+                  <option value="Priority">Sort: Default</option>
+                  <option value="Standard">Sort: Standard</option>
+                </select>
+              </div>
+            )}
 
             {/* List */}
             <div className="overflow-x-auto">
@@ -309,14 +311,14 @@ export default function EmployeeMachine() {
                     <th className="pb-3 px-4">Category</th>
                     <th className="pb-3 px-4">Priority</th>
                     <th className="pb-3 px-4">Status</th>
-                    <th className="pb-3 px-4">SLA Status</th>
+                    {/* <th className="pb-3 px-4">SLA Status</th> */}
                     <th className="pb-3 px-4">Last Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 text-gray-700 text-sm">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-12 text-gray-400 italic">
+                      <td colSpan={8} className="text-center py-12 text-gray-400 italic">
                         No active accepted tickets found in your progress queue.
                       </td>
                     </tr>
@@ -374,8 +376,8 @@ export default function EmployeeMachine() {
                             {t.reassignmentRequested ? 'Pending Reassign' : getDisplayStatus(t)}
                           </span>
                         </td>
-                        <td className="py-4 px-4">
-                        </td>
+                        {/* <td className="py-4 px-4">
+                        </td> */}
                         <td className="py-4 px-4 text-gray-500 text-sm whitespace-nowrap">
                           {t.lastUpdate}
                         </td>
