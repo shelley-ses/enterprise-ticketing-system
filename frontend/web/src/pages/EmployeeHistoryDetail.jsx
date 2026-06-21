@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
 import FilePreviewModal from '@/components/FilePreviewModal';
 
@@ -146,7 +147,7 @@ export default function EmployeeHistoryDetail() {
           </div>
           <div className="bg-gray-50 rounded-xl p-3">
             <p className="text-[10px] text-gray-400 mb-0.5">Date Filed</p>
-            <p className="text-sm font-semibold text-gray-800">{ticket.date || '—'}</p>
+            <p className="text-sm font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
           </div>
           <div className="bg-gray-50 rounded-xl p-3">
             <p className="text-[10px] text-gray-400 mb-0.5">SLA</p>
@@ -160,7 +161,7 @@ export default function EmployeeHistoryDetail() {
           </div>
           <div className="bg-gray-50 rounded-xl p-3">
             <p className="text-[10px] text-gray-400 mb-0.5">Last Update</p>
-            <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate ?? '—'}</p>
+            <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate ? formatDisplayDate(ticket.lastUpdate) : '—'}</p>
           </div>
         </div>
 
@@ -324,7 +325,7 @@ export default function EmployeeHistoryDetail() {
                         ? 'Reassignment'
                         : evt.type || 'Update'}
                     </span>
-                    <span>{evt.timestamp}</span>
+                    <span>{formatDisplayDate(evt.timestamp)}</span>
                   </div>
                   <p className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2.5 rounded-lg border border-gray-100/50">
                     {evt.text}

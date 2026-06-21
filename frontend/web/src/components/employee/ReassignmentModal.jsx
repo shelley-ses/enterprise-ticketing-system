@@ -85,10 +85,12 @@ export default function ReassignmentModal({
                   placeholder="Detail why you cannot complete this assignment (e.g., specialized skills needed, scheduling conflict, equipment unavailable)..."
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
+                  maxLength={250}
                   className="w-full text-xs border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[5.5rem] resize-none"
                   required
                   disabled={isSubmitting}
                 />
+                <div className="text-right text-[10px] text-gray-400 mt-1">{reason.length}/250</div>
               </div>
 
               <div className="flex gap-3 pt-2">

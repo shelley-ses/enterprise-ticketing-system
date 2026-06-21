@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from '@/components/FilePreviewModal';
 
 export default function TicketInfoModal({ ticket, onClose }) {
@@ -65,7 +66,7 @@ export default function TicketInfoModal({ ticket, onClose }) {
             </div>
             <div className="bg-gray-50 rounded-xl p-3">
               <p className="text-[10px] text-gray-400 mb-0.5">Date Filed</p>
-              <p className="text-sm font-semibold text-gray-800">{ticket.date || '—'}</p>
+              <p className="text-sm font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
             </div>
           </div>
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 /**
  * First step when opening an assignment: summary + Accept / Reject (not shown in the table).
@@ -56,7 +57,7 @@ export default function AssignmentSummaryModal({ ticket, onClose }) {
           </div>
           <div>
             <p className="text-xs text-gray-400 mb-0.5">Date filed</p>
-            <p className="font-medium text-gray-800">{ticket.date}</p>
+            <p className="font-medium text-gray-800">{formatDisplayDate(ticket.date)}</p>
           </div>
         </div>
 

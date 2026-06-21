@@ -284,10 +284,17 @@ export function AuthProvider({ children }) {
       // For CSRF
       await ensureCsrfCookie();
 
+      const { fetchEncryptionKey, encryptPayload } = await import('@/utils/rsa');
+      const { public_key, key_id } = await fetchEncryptionKey();
+
       const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
         email,
-        password,
+        password: encryptPayload(password, public_key),
         mode,
+      }, {
+        headers: {
+          'X-Key-Id': key_id
+        }
       });
 
       const { user: userData, token, is_first_login: firstLogin } = response.data;

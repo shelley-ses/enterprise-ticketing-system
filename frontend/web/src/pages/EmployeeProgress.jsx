@@ -10,13 +10,9 @@ import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
-const HISTORY_STATUSES = ['Closed', 'Resolved', 'Pending Evaluation'];
+const HISTORY_STATUSES = ['Closed', 'Resolved'];
 
-const getDisplayStatus = (ticket) => (
-  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
-    ? 'Resolved'
-    : ticket.status
-);
+const getDisplayStatus = (ticket) => ticket.status;
 
 const buildHistorySignature = (list = []) => list
   .map((ticket) => [

@@ -11,7 +11,6 @@ import {
   statusColors,
   priorityColors,
 } from '@/constants/employeeTickets';
-import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails, getInternalTickets, getEmployeeProfile } from '@/services/ticketService';
@@ -57,7 +56,6 @@ export default function EmployeeDashboard() {
 
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
-  const [workTicket, setWorkTicket] = useState(null);
 
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -350,26 +348,22 @@ export default function EmployeeDashboard() {
 
   const openTicketFlow = useCallback((t) => {
     if (t.accepted) {
-      setWorkTicket(t);
+      navigate('/employee/machine', { state: { focusTicketId: t.id } });
     } else {
-      setSelectedMyTicket(t);
+      navigate('/employee/assigned', { state: { focusTicketId: t.id } });
     }
-  }, []);
+  }, [navigate]);
 
   const stats = useMemo(() => {
-    const active = visible.filter(
-      (t) => t.status === 'Open' || t.status === 'Pending Assignment' || t.status === 'In Progress' || t.status === 'Escalated' || t.status === 'On Hold'
-    ).length;
-    const inProg = visible.filter((t) => t.status === 'In Progress').length;
-    const done = visible.filter((t) => t.status === 'Resolved').length;
-    // const sla = visible.filter((t) => t.priority === 'Critical' || t.status === 'Escalated').length;
-    // const esc = visible.filter((t) => t.status === 'Escalated').length;
+    const CLOSED_STATUSES = ['Closed', 'Resolved'];
+    const incomingCount = visible.filter((t) => !t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
+    const assignedCount = visible.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
+    const completedCount = visible.filter((t) => CLOSED_STATUSES.includes(t.status)).length;
+
     return [
-      { label: 'Assigned Tickets', value: active, sub: 'Active tickets', icon: assignedStatIcon },
-      { label: 'In Progress', value: inProg, sub: 'Being worked on', icon: pendingIcon },
-      { label: 'Completed Tickets', value: done, sub: 'Resolved & closed', icon: unassignedIcon },
-      // { label: 'SLA Breaches', value: sla, sub: 'Immediate action needed', icon: warnIcon },
-      // { label: 'Escalated Tickets', value: esc, sub: 'Flagged tickets', icon: prioIcon },
+      { label: 'Incoming Tickets', value: incomingCount, sub: 'Awaiting acceptance', icon: assignedStatIcon },
+      { label: 'Assigned Tickets', value: assignedCount, sub: 'Active work in progress', icon: pendingIcon },
+      { label: 'Completed Tickets', value: completedCount, sub: 'Resolved & closed history', icon: unassignedIcon },
     ];
   }, [visible]);
 
@@ -384,12 +378,18 @@ export default function EmployeeDashboard() {
     });
   }, [visible, search, statusFilter, categoryFilter, priorityFilter]);
 
-  const activeTickets = visible.filter((t) => t.status === 'In Progress' || t.status === 'Pending Assignment' || t.status === 'Open' || t.status === 'On Hold');
+  const activeTickets = useMemo(() => {
+    const CLOSED_STATUSES = ['Closed', 'Resolved'];
+    return visible.filter((t) => !CLOSED_STATUSES.includes(t.status));
+  }, [visible]);
+
   const urgentTicket = visible.find((t) => t.status === 'Escalated');
   const escalatedTicket = visible.find((t) => t.priority === 'Critical' && t.status !== 'Resolved');
 
   const goAssigned = () => navigate('/employee/assigned');
+  const goMachine = () => navigate('/employee/machine');
   const goProgress = () => navigate('/employee/progress');
+
 
   return (
     <div className="p-6">
@@ -413,16 +413,23 @@ export default function EmployeeDashboard() {
           <button
             type="button"
             onClick={goAssigned}
-            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all"
+            className="px-5 py-2 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-xs font-semibold transition-all"
           >
-            View All Tickets
+            Incoming Tickets
+          </button>
+          <button
+            type="button"
+            onClick={goMachine}
+            className="px-5 py-2 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-xs font-semibold transition-all"
+          >
+            Assigned Tickets
           </button>
           <button
             type="button"
             onClick={goProgress}
-            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-medium transition-all"
+            className="px-5 py-2 bg-white/10 hover:bg-white/25 border border-white/20 rounded-xl text-white text-xs font-medium transition-all"
           >
-            Progress Logs
+            Ticket History
           </button>
         </div>
       </div>
@@ -514,7 +521,7 @@ export default function EmployeeDashboard() {
               </div>
               <button
                 type="button"
-                onClick={goAssigned}
+                onClick={goMachine}
                 className="flex items-center gap-1 text-sm font-semibold text-[#252578] hover:underline"
               >
                 View All <ArrowRight />
@@ -623,8 +630,12 @@ export default function EmployeeDashboard() {
                         </td>
                         <td className="py-3 px-3 text-gray-600 align-middle min-w-0 truncate">{t.customer}</td>
                         <td className="py-3 px-3 align-middle">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[t.status]}`}>
-                            {t.status}
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${
+                            t.proofRejected
+                              ? 'bg-rose-100 text-rose-700'
+                              : statusColors[t.status]
+                          }`}>
+                            {t.proofRejected ? 'Proof Rejected' : t.status}
                           </span>
                         </td>
                         <td className="py-3 px-3 align-middle">
@@ -707,13 +718,7 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      {workTicket && (
-        <TicketDetailModal
-          ticket={workTicket}
-          onClose={() => setWorkTicket(null)}
-          onStatusChange={handleStatusChange}
-        />
-      )}
+
 
       {selectedMyTicket && (
         <CustomerTicketDetailModal

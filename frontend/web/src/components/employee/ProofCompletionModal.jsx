@@ -255,15 +255,26 @@ export default function ProofCompletionModal({
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5 font-sans">
-                  Remarks / Completion Notes <span className="text-red-500">*</span>
-                </label>
+                <div className="flex justify-between items-end mb-1.5">
+                  <label className="block text-xs font-semibold text-gray-500 font-sans">
+                    Remarks / Completion Notes <span className="text-red-500">*</span>
+                  </label>
+                  <span className={`text-[10px] font-medium font-sans ${remarks.length >= 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {remarks.length}/250 characters
+                  </span>
+                </div>
                 <textarea
                   placeholder="Provide details of the resolution or notes for validation..."
                   value={remarks}
                   disabled={isSubmitting}
-                  onChange={(e) => setRemarks(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val.length <= 250) {
+                      setRemarks(val);
+                    }
+                  }}
                   rows={3}
+                  maxLength={250}
                   className="w-full text-xs border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 resize-none font-sans"
                   required
                 />

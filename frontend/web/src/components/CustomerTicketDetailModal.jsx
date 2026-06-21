@@ -1,17 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import FilePreviewModal from './FilePreviewModal';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
-
-const formatDate = (value) => {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
-};
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 export default function CustomerTicketDetailModal({
   ticket,
@@ -96,7 +86,7 @@ export default function CustomerTicketDetailModal({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.date_created || ticket.date)}</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.date_created || ticket.date)}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
@@ -104,7 +94,7 @@ export default function CustomerTicketDetailModal({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
             </div>
 
             {ticket.attachments && ticket.attachments.length > 0 && (
@@ -207,7 +197,7 @@ export default function CustomerTicketDetailModal({
                                       ? 'Reassignment'
                                       : evt.type || 'Update'}
                           </span>
-                          <span>{formatDate(evt.timestamp)}</span>
+                          <span>{formatDisplayDate(evt.timestamp)}</span>
                         </div>
                         <p className="rounded-lg border border-gray-100/50 bg-gray-50/50 p-2.5 font-semibold leading-relaxed text-gray-700">
                           {evt.text}

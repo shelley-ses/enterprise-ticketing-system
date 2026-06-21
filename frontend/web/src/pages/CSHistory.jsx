@@ -8,13 +8,9 @@ import {
   getCSIncomingTickets,
   getDepartments,
 } from '@/services/ticketService';
-const HISTORY_STATUSES = ['Closed', 'Resolved', 'Pending Evaluation'];
+const HISTORY_STATUSES = ['Closed', 'Resolved'];
 
-const getDisplayStatus = (ticket) => (
-  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
-    ? 'Resolved'
-    : ticket.status
-);
+const getDisplayStatus = (ticket) => ticket.status;
 
 export default function CSHistory() {
   const navigate = useNavigate();

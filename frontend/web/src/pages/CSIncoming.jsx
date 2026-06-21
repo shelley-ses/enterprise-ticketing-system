@@ -41,11 +41,7 @@ const buildEmployeeSignature = (list = []) => list
   ].join(':'))
   .join('|');
 
-const getDisplayStatus = (ticket) => (
-  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
-    ? 'Resolved'
-    : ticket.status
-);
+const getDisplayStatus = (ticket) => ticket.status;
 
 /* Modals are imported from @/components/CSModals */
 
@@ -103,8 +99,7 @@ export default function CSIncoming() {
     ]);
 
     if (incomingResult.status === 'fulfilled') {
-      const list = incomingResult.value.filter((ticket) => ticket.status !== 'Pending Evaluation');
-      setTickets(list);
+      setTickets(incomingResult.value);
     }
 
     if (assigneesResult.status === 'fulfilled') {
@@ -155,23 +150,20 @@ export default function CSIncoming() {
         if (!ticket) return;
 
         if (action === 'created') {
-          // Prepend the new ticket if it's not Pending Evaluation
-          if (ticket.status !== 'Pending Evaluation') {
-            setTickets((prev) => {
-              const exists = prev.some((t) => t.id === ticket.id || t.ticket_ID === ticket.ticket_ID);
-              if (exists) return prev;
-              return [ticket, ...prev];
-            });
+          setTickets((prev) => {
+            const exists = prev.some((t) => t.id === ticket.id || t.ticket_ID === ticket.ticket_ID);
+            if (exists) return prev;
+            return [ticket, ...prev];
+          });
 
-            // Set highlight timer
-            if (newTicketTimerRef.current) {
-              clearTimeout(newTicketTimerRef.current);
-            }
-            setNewTicketId(ticket.id);
-            newTicketTimerRef.current = setTimeout(() => {
-              setNewTicketId(null);
-            }, 5000);
+          // Set highlight timer
+          if (newTicketTimerRef.current) {
+            clearTimeout(newTicketTimerRef.current);
           }
+          setNewTicketId(ticket.id);
+          newTicketTimerRef.current = setTimeout(() => {
+            setNewTicketId(null);
+          }, 5000);
         } else if (
           action === 'assigned' ||
           action === 'accepted' ||
@@ -247,14 +239,15 @@ export default function CSIncoming() {
         if (isInternal) return false;
       }
       
-      const isAssigned = t.assigned && t.assigned.length > 0;
+      const isAssigned = t.assigned && t.assigned.length > 0 && t.accepted;
       const isPendingReassign = t.reassignmentRequested === true;
       const isPendingValidation = t.status === 'Pending Evaluation';
       const isReopened = t.status === 'Reopened' || t.status === 'Reopen';
 
       // Filter by assignment / reassignment / validation status
       if (assignmentFilter === 'All') {
-        if (isAssigned && !isPendingReassign && !isPendingValidation && !isReopened) return false;
+        if (isAssigned && !isPendingReassign && !isReopened) return false;
+        if (isPendingValidation && !isPendingReassign && !isReopened) return false;
       } else if (assignmentFilter === 'Pending Reassign') {
         if (!isPendingReassign) return false;
       } else if (assignmentFilter === 'Pending Evaluation') {
@@ -286,7 +279,7 @@ export default function CSIncoming() {
 
   const handleRowAction = async (t) => {
     // If already assigned / pending validation / resolved -> show summary first
-    const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending';
+    const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Pending Evaluation';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -338,7 +331,7 @@ export default function CSIncoming() {
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100 });
-        setTickets(incoming.filter((ticket) => ticket.status !== 'Pending Evaluation'));
+        setTickets(incoming);
         
         // Find the newly updated ticket
         const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
@@ -385,7 +378,7 @@ export default function CSIncoming() {
     try {
       await respondReassignment({ ticketId, action });
       const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-      setTickets(incoming.filter((ticket) => ticket.status !== 'Pending Evaluation'));
+      setTickets(incoming);
       setModal(null);
       if (action === 'approve') {
         const refreshedTicket = incoming.find(t => t.ticket_ID === ticketId);

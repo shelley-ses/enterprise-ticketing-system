@@ -64,13 +64,14 @@ export default function CSAssigned() {
         getAssignableEmployees({ forceRefresh }),
       ]);
 
-      // Assigned page: only show properly assigned tickets (not reassignment-requested ones)
+      // Assigned page: show accepted tickets + Pending Evaluation (may not have accepted flag)
       // Reassignment-requested tickets should be handled from the Incoming page
       const assignedTickets = incoming.filter(t =>
         (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
          t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
          t.status === 'Pending' || t.status === 'Closed') &&
-        !t.reassignmentRequested
+        !t.reassignmentRequested &&
+        (t.accepted || t.status === 'Pending Evaluation')
       );
       
       setTickets(assignedTickets);
@@ -234,7 +235,8 @@ export default function CSAssigned() {
           (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
            t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
            t.status === 'Pending' || t.status === 'Closed') &&
-          !t.reassignmentRequested
+          !t.reassignmentRequested &&
+          t.accepted
         );
         setTickets(assignedTickets);
         
@@ -551,7 +553,8 @@ export default function CSAssigned() {
                 (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
                  t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
                  t.status === 'Pending' || t.status === 'Closed') &&
-                !t.reassignmentRequested
+                !t.reassignmentRequested &&
+                t.accepted
               );
               setTickets(assignedTickets);
             } catch (e) {

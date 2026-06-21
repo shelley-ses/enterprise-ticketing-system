@@ -245,11 +245,6 @@ export default function EmployeeAssigned() {
         navigate('/employee/progress');
         return;
       }
-      // Denied reassignment → skip accept modal, show update modal directly
-      if (t.deniedReassignment) {
-        setDeniedReassignTicket(t);
-        return;
-      }
       // Not yet accepted → show full Accept/Reject modal
       if (!t.accepted) {
         setPendingTicket(t);

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
 import { getTicketDetails, updateEmployeeTicket } from '@/services/ticketService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
@@ -56,7 +57,7 @@ export default function EmployeeTicketUpdate() {
 
   useEffect(() => {
     if (!ticket) {
-      navigate('/employee/assigned', { replace: true });
+      navigate('/employee/machine', { replace: true });
     } else {
       loadTicketData();
     }
@@ -206,8 +207,6 @@ export default function EmployeeTicketUpdate() {
     }
   };
 
-
-
   if (!ticket) return null;
 
   return (
@@ -216,8 +215,11 @@ export default function EmployeeTicketUpdate() {
       <button
         onClick={() => {
           const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'];
+          const historyStatuses = ['Closed', 'Resolved'];
           if (ticket && activeStatuses.includes(ticket.status)) {
             navigate('/employee/machine');
+          } else if (ticket && historyStatuses.includes(ticket.status)) {
+            navigate('/employee/progress');
           } else {
             navigate('/employee/assigned');
           }
@@ -228,8 +230,10 @@ export default function EmployeeTicketUpdate() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
         {ticket && ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'].includes(ticket.status)
-          ? 'Back to Progress Queue'
-          : 'Back to Assigned Tickets'}
+          ? 'Back to Assigned Tickets'
+          : ticket && ['Closed', 'Resolved'].includes(ticket.status)
+            ? 'Back to Ticket History'
+            : 'Back to Incoming Tickets'}
       </button>
 
 
@@ -290,7 +294,7 @@ export default function EmployeeTicketUpdate() {
               </div>
               <div className="bg-gray-50 rounded-xl p-3">
                 <p className="text-[10px] text-gray-400 mb-0.5">Date Filed</p>
-                <p className="text-sm font-semibold text-gray-800">{ticket.date || '—'}</p>
+                <p className="text-sm font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
               </div>
               <div className="bg-gray-50 rounded-xl p-3">
                 <p className="text-[10px] text-gray-400 mb-0.5">SLA</p>
@@ -347,63 +351,62 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Proof of Completion */}
-            {isExternal &&
-              (statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
-                <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
-                  <div className="max-w-lg">
-                    {isProofRejected && (
-                      <div className="mb-2.5 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 px-3 py-1.5 rounded-xl text-xs font-semibold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
-                        Proof Rejected: &quot;{ticket.rejectionReason}&quot;
-                      </div>
-                    )}
-                    <h3 className="text-sm font-bold text-gray-800">
-                      {isProofRejected
-                        ? 'Re-upload Proof of Completion'
-                        : 'Proof of Completion Required'}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Supporting documentation (PDF, DOC, or images up to 15MB each) must be
-                      verified before the ticket can be resolved.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowProofModal(true)}
-                    disabled={isSaving}
-                    className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
-                  </button>
-
-                  {/* List of uploaded proofs */}
-                  {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
-                    <div className="w-full mt-4 border-t border-gray-100 pt-3 text-left">
-                      <p className="text-xs font-bold text-gray-600 mb-2">Uploaded Proof Documents:</p>
-                      <div className="flex flex-col gap-2">
-                        {ticket.proofAttachments.map((file) => (
-                          <a
-                            key={file.id}
-                            href={file.url}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPreviewFile({ name: file.name, url: file.url });
-                            }}
-                            className="flex items-center gap-2 text-xs font-semibold text-blue-600 hover:underline bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 w-fit cursor-pointer"
-                          >
-                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <span>{file.name}</span>
-                          </a>
-                        ))}
-                      </div>
+            {(statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
+              <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
+                <div className="max-w-lg">
+                  {isProofRejected && (
+                    <div className="mb-2.5 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 px-3 py-1.5 rounded-xl text-xs font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
+                      Proof Rejected: &quot;{ticket.rejectionReason}&quot;
                     </div>
                   )}
+                  <h3 className="text-sm font-bold text-gray-800">
+                    {isProofRejected
+                      ? 'Re-upload Proof of Completion'
+                      : 'Proof of Completion Required'}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Supporting documentation (PDF, DOC, or images up to 15MB each) must be
+                    verified before the ticket can be resolved.
+                  </p>
                 </div>
-              )}
+                <button
+                  onClick={() => setShowProofModal(true)}
+                  disabled={isSaving}
+                  className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
+                </button>
+
+                {/* List of uploaded proofs */}
+                {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
+                  <div className="w-full mt-4 border-t border-gray-100 pt-3 text-left">
+                    <p className="text-xs font-bold text-gray-600 mb-2">Uploaded Proof Documents:</p>
+                    <div className="flex flex-col gap-2">
+                      {ticket.proofAttachments.map((file) => (
+                        <a
+                          key={file.id}
+                          href={file.url}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setPreviewFile({ name: file.name, url: file.url });
+                          }}
+                          className="flex items-center gap-2 text-xs font-semibold text-blue-600 hover:underline bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 w-fit cursor-pointer"
+                        >
+                          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span>{file.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Status Update */}
             {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
@@ -608,7 +611,7 @@ export default function EmployeeTicketUpdate() {
                     <div key={note.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                       <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
                         <span className="font-bold text-[#252578]">{note.author}</span>
-                        <span>{note.timestamp}</span>
+                        <span>{formatDisplayDate(note.timestamp)}</span>
                       </div>
                       <p className="text-sm text-gray-700 font-medium">{note.text}</p>
                     </div>
@@ -660,7 +663,7 @@ export default function EmployeeTicketUpdate() {
                       <span className="font-bold text-[#252578] uppercase text-[9px] tracking-wide">
                         {evt.type === 'system' ? 'System' : evt.type || 'Update'}
                       </span>
-                      <span>{evt.timestamp}</span>
+                      <span>{formatDisplayDate(evt.timestamp)}</span>
                     </div>
                     <p className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
                       {evt.text}

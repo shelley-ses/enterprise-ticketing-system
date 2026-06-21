@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from './FilePreviewModal';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 
@@ -94,6 +95,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                 {/* Summary rows */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Requestor</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Status</span>
                     <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
                       {ticket.status || 'Pending'}
@@ -131,11 +136,11 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Date Submitted</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.date || '—'}</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Last Updated</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at || '—'}</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
                   </div>
                 </div>
               </>
@@ -153,8 +158,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   Ticket Summary
                 </h3>
 
+                {/* Ticket card */}
+                <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
+                      <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
+                      <div className="text-xs opacity-60 mt-1">{ticket.category}</div>
+                    </div>
+                    <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">{ticket.sla}</span>
+                  </div>
+                </div>
+
                 {/* Summary rows */}
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Requestor</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                  </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Status</span>
                     <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
@@ -214,9 +235,11 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           placeholder="Explain why this reassignment request is disapproved..."
                           value={reassignDenyReason}
                           onChange={(e) => setReassignDenyReason(e.target.value)}
+                          maxLength={250}
                           className="w-full text-xs border border-red-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-red-500/25 min-h-[3rem]"
                           required
                         />
+                        <div className="text-right text-[10px] text-gray-400 mt-0.5">{reassignDenyReason.length}/250</div>
                         <div className="flex gap-2 justify-end">
                           <button onClick={() => setShowReassignDeny(false)} className="px-2.5 py-1.5 text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg font-bold transition-colors">Cancel</button>
                           <button
@@ -266,7 +289,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     {showRejectInput ? (
                       <div className="space-y-2">
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide">Reason for rejection *</label>
-                        <textarea placeholder="Provide a reason for proof rejection..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]" required />
+                        <textarea placeholder="Provide a reason for proof rejection..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} maxLength={250} className="w-full text-xs border border-gray-200 rounded-lg p-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 min-h-[3rem]" required />
+                        <div className="text-right text-[10px] text-gray-400 mt-0.5">{rejectionReason.length}/250</div>
                         <div className="flex gap-2">
                           <button onClick={() => setShowRejectInput(false)} className="px-2.5 py-1 text-xs border border-gray-200 text-gray-600 rounded-lg font-bold">Cancel</button>
                           <button disabled={isProcessing} onClick={async () => { if (!rejectionReason.trim()) return; setIsProcessing(true); try { const timestamp = new Date().toLocaleString('en-US'); const updated = { id: ticket.id, status: 'In Progress', proofRejected: true, rejectionReason: rejectionReason.trim(), timeline: [{ id: `proof-reject-${Date.now()}`, type: 'proof', text: `Proof rejected by CS. Reason: "${rejectionReason.trim()}". Status returned to In Progress.`, timestamp }] }; await onStatusUpdate(updated); onClose(); } catch (err) { console.error(err); setIsProcessing(false); } }} className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
@@ -285,17 +309,6 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                 )}
 
-                {/* Ticket card */}
-                <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
-                      <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
-                      <div className="text-xs opacity-60 mt-1">{ticket.category}</div>
-                    </div>
-                    <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">{ticket.sla}</span>
-                  </div>
-                </div>
               </>
             )}
 
@@ -311,7 +324,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       <div className="flex justify-between items-start mb-1 text-[10px]">
                         <span className="font-bold text-[#252578]">{rem.author}</span>
                         <span className="text-gray-400">
-                          {new Date(rem.timestamp).toLocaleDateString()} at {new Date(rem.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          {formatDisplayDate(rem.timestamp)}
                         </span>
                       </div>
                       <p className="text-xs text-gray-700 leading-relaxed font-semibold italic">
@@ -408,13 +421,6 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
           {/* Footer */}
           <div className="flex flex-wrap justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
-            <button
-              onClick={onClose}
-              disabled={isProcessing}
-              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Close
-            </button>
             
             {ticket.status !== 'Resolved' && ticket.status !== 'Closed' && ticket.assigned && ticket.assigned.length > 0 && (
               <button

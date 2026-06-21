@@ -33,7 +33,11 @@ const getStoredUser = () => {
 
 const formatDate = (value) => {
   if (!value) return '-';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(value));
+  let dateStr = String(value);
+  if (typeof value === 'string' && !value.includes('T') && !value.includes('Z')) {
+    dateStr = value.replace(' ', 'T') + 'Z';
+  }
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(dateStr));
 };
 
 const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');

@@ -62,17 +62,14 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     const cachedOptions = getCachedTicketFormOptions();
     if (cachedOptions) {
       setOptions(cachedOptions);
-      setLoadingOptions(false);
-      setOptionsError('');
-      return;
     }
 
     const loadOptions = async () => {
-      setLoadingOptions(true);
+      if (!cachedOptions) setLoadingOptions(true);
       setOptionsError('');
 
       try {
-        const data = await getTicketFormOptions();
+        const data = await getTicketFormOptions({ forceRefresh: true });
         setOptions(data);
       } catch (error) {
         const status = error?.response?.status;

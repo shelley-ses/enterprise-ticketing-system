@@ -392,6 +392,7 @@ class TicketController extends Controller
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->select('ts.status_name', DB::raw('COUNT(*) as total'))
                 ->where('t.created_by', $createdBy)
+                ->where('t.is_internal', false)
                 ->groupBy('ts.status_name')
                 ->get();
 
@@ -428,6 +429,7 @@ class TicketController extends Controller
                     'pc.category_name'
                 )
                 ->where('t.created_by', $createdBy)
+                ->where('t.is_internal', false)
                 ->orderByDesc('t.created_at')
                 ->limit($limit)
                 ->get()
@@ -607,49 +609,21 @@ class TicketController extends Controller
 
         $user = auth('api')->user() ?? $request->user();
 
-        $ticketTypeId = null;
-        if ($user) {
-            if ($user instanceof \App\Models\Client) {
-                // Comes from a customer/client => External
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
-            } else {
-                // Comes from an employee (Employee or User model) => Internal
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
-            }
+        // This endpoint is for external (customer) tickets only
+        if ($user && !($user instanceof \App\Models\Client)) {
+            return response()->json(['message' => 'Use the internal ticket endpoint.'], 403);
         }
 
-        // Fallbacks if user is not authenticated:
-        if (!$ticketTypeId) {
-            if ($request->has('ticket_type_ID')) {
-                $ticketTypeId = $request->input('ticket_type_ID');
-            } elseif ($request->input('ticket_type') === 'External' || $request->input('is_internal') === false) {
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
-            } elseif ($request->input('ticket_type') === 'Internal' || $request->input('is_internal') === true) {
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
-            }
-        }
-
-        // If still not resolved, default to External if created_by is provided, else Internal
-        if (!$ticketTypeId) {
-            if ($request->has('created_by')) {
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
-            } else {
-                $ticketTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
-            }
-        }
-
-        $finalTicketTypeId = $ticketTypeId ?? 1;
-        $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
-        $isInternal = ($validated['ticket_type_ID'] ?? $finalTicketTypeId) == $internalTypeId;
+        $externalTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
 
         $ticketId = DB::table('tickets')->insertGetId([
             'machine_ID' => $validated['machine_ID'],
             'problem_category_ID' => $validated['problem_category_ID'],
             'created_by' => $validated['created_by'] ?? 1,
-            'requested_by' => ($user && !($user instanceof \App\Models\Client)) ? $user->emp_id : null,
+            'requested_by' => null,
             'assigned_to' => $validated['assigned_to'] ?? null,
-            'ticket_type_ID' => $validated['ticket_type_ID'] ?? $finalTicketTypeId,
-            'is_internal' => $isInternal,
+            'ticket_type_ID' => $validated['ticket_type_ID'] ?? $externalTypeId,
+            'is_internal' => false,
             'priority_ID' => $validated['priority_ID'] ?? null,
             'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
             'sla_ID' => $validated['sla_ID'] ?? null,
@@ -722,6 +696,19 @@ class TicketController extends Controller
             $categoryName,
             $priorityName
         );
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => $ticketId,
+            'action_type' => 'create',
+            'action_by_ID' => 2, // Default to placeholder employee ID
+            'actor_type' => 'customer',
+            'details' => json_encode([
+                'machine_ID' => $validated['machine_ID'],
+                'problem_category_ID' => $validated['problem_category_ID'],
+                'title' => strip_tags($validated['title']),
+            ]),
+            'created_at' => now(),
+        ]);
 
         $this->broadcastTicketChange('created', $ticketId, [
             'status' => 'Open',
@@ -889,7 +876,9 @@ class TicketController extends Controller
                     'c.client_name',
                     'm.machine_name',
                     'm.serial_number',
-                    'tt.type_name as ticket_type'
+                    'tt.type_name as ticket_type',
+                    't.proof_rejected',
+                    't.rejection_reason'
                 );
 
             if ($typeFilter === 'internal') {
@@ -925,6 +914,10 @@ class TicketController extends Controller
                     ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
                     : [];
 
+                $accepted = isset($assignments[$row->ticket_ID])
+                    ? $assignments[$row->ticket_ID]->contains('assignment_status', 'accepted')
+                    : false;
+
                 $pendingReassign = $pendingReassigns->get($row->ticket_ID);
 
                 $createdAtObj = is_string($row->created_at) ? \Carbon\Carbon::parse($row->created_at) : $row->created_at;
@@ -942,8 +935,11 @@ class TicketController extends Controller
                     'sla' => $this->slaLabel($createdAtObj),
                     'date' => $createdAtObj ? $createdAtObj->format('m/d/Y') : now()->format('m/d/Y'),
                     'assigned' => $assignedIds,
+                    'accepted' => $accepted,
                     'reassignmentRequested' => !empty($pendingReassign),
                     'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
+                    'proofRejected' => (bool)$row->proof_rejected,
+                    'rejectionReason' => $row->rejection_reason,
                     'type' => $row->ticket_type ?? 'External',
                     'ticket_type' => $row->ticket_type ?? 'External',
                     'is_internal' => (bool)$row->is_internal,
@@ -1053,7 +1049,7 @@ class TicketController extends Controller
         DB::transaction(function () use ($ticketId, $validated, $assignedBy) {
             $pendingAssignmentId = DB::table('ticket_statuses')
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
-                ->value('ticket_status_ID') ?? 9;
+                ->value('ticket_status_ID') ?? 7;
 
             $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
             $changes = [];
@@ -1368,7 +1364,7 @@ class TicketController extends Controller
         DB::transaction(function () use ($ticketId, $validated, $assignedBy, $employees, $changes) {
             $pendingAssignmentId = DB::table('ticket_statuses')
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
-                ->value('ticket_status_ID') ?? 9;
+                ->value('ticket_status_ID') ?? 7;
 
             $update = ['updated_at' => now(), 'ticket_status_ID' => $pendingAssignmentId];
             if ($employees->count() > 0) {
@@ -1503,6 +1499,12 @@ class TicketController extends Controller
         }
 
         $user = $request->user();
+
+        // Customers must not update internal tickets
+        if ($ticket->is_internal && $user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
         if (array_key_exists('ticket_status_ID', $validated)) {
             $newStatus = $validated['ticket_status_ID'];
             
@@ -2269,15 +2271,15 @@ class TicketController extends Controller
                         'updated_at' => now(),
                     ]);
 
-                $inProgressId = DB::table('ticket_statuses')
-                    ->whereRaw('LOWER(status_name) = ?', ['in progress'])
-                    ->value('ticket_status_ID') ?? 2;
+                $openId = DB::table('ticket_statuses')
+                    ->whereRaw('LOWER(status_name) = ?', ['open'])
+                    ->value('ticket_status_ID') ?? 1;
 
                 DB::table('tickets')
                     ->where('ticket_ID', $ticketId)
                     ->update([
                         'assigned_to' => $targetEmpId,
-                        'ticket_status_ID' => $inProgressId,
+                        'ticket_status_ID' => $openId,
                         'updated_at' => now(),
                     ]);
 
@@ -2509,6 +2511,11 @@ class TicketController extends Controller
             ->first();
 
         if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        // Customers must not view internal tickets
+        if ($ticket->is_internal && $user instanceof \App\Models\Client) {
             return response()->json(['message' => 'Ticket not found'], 404);
         }
 
@@ -2817,9 +2824,10 @@ class TicketController extends Controller
         // Validate
         $validated = $request->validate([
             'status' => ['nullable', 'string', 'in:In Progress,Pending,Resolved,Pending Assignment,On Hold'],
-            'remarks' => ['nullable', 'string'],
+            'remarks' => ['nullable', 'string', 'max:250'],
             'internal_note' => ['nullable', 'string'],
             'attachments' => ['nullable', 'array'],
+            'attachments.*' => ['nullable', 'file'],
             'is_proof' => ['nullable', 'string'], // Flag to indicate if attachments are proof documents
         ]);
 
@@ -3520,7 +3528,9 @@ class TicketController extends Controller
 
         $logs = DB::table('ticket_audit_logs as tal')
             ->leftJoin('employees as e', 'e.emp_id', '=', 'tal.action_by_ID')
-            ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role')
+            ->leftJoin('tickets as t', 't.ticket_ID', '=', 'tal.ticket_ID')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role', 'c.client_name')
             ->orderBy('tal.created_at', 'desc')
             ->get();
 
@@ -3532,6 +3542,9 @@ class TicketController extends Controller
             $role = 'System';
             if ($log->actor_type === 'superadmin') {
                 $role = 'Super Admin';
+            } elseif ($log->actor_type === 'customer') {
+                $role = 'Customer';
+                $userFullName = $log->client_name ?? 'Customer';
             } elseif ($log->role) {
                 $role = ucwords($log->role);
             }
@@ -3539,7 +3552,7 @@ class TicketController extends Controller
             // Default fallback mappings
             $action = 'Updated';
             $module = 'Tickets';
-            $target = $log->ticket_ID ? 'TKT-' . $log->ticket_ID : 'System';
+            $target = $log->ticket_ID ? 'TKT-' . str_pad((string) $log->ticket_ID, 4, '0', STR_PAD_LEFT) : 'System';
             $details = $log->details;
 
             $detailsDecoded = json_decode($log->details, true);
@@ -3560,6 +3573,9 @@ class TicketController extends Controller
                 // Standard ticket log mapping
                 if ($log->action_type === 'create') {
                     $action = 'Created';
+                    if ($detailsDecoded && isset($detailsDecoded['title'])) {
+                        $details = "Created ticket \"" . $detailsDecoded['title'] . "\"";
+                    }
                 } elseif ($log->action_type === 'accept') {
                     $action = 'Accepted';
                 } elseif ($log->action_type === 'reassign_request') {
@@ -3574,7 +3590,7 @@ class TicketController extends Controller
                     $action = 'Employee Updated';
                 }
 
-                if ($detailsDecoded) {
+                if ($log->action_type !== 'create' && $detailsDecoded) {
                     if (isset($detailsDecoded['field'])) {
                         $field = $detailsDecoded['field'];
                         $oldVal = is_array($detailsDecoded['old']) ? json_encode($detailsDecoded['old']) : ($detailsDecoded['old'] ?? 'null');

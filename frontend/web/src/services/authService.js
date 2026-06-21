@@ -1,5 +1,6 @@
 import axiosInstance from '@/api/axiosInstance';
 import { AUTH_ENDPOINTS, SANCTUM_URL } from '@/config/api.config';
+import { fetchEncryptionKey, encryptPayload } from '@/utils/rsa';
 
 // For API Calls
 
@@ -29,10 +30,17 @@ export const getCsrfToken = async () => {
 export const loginUser = async (email, password, mode = 'customer') => {
   try {
     await getCsrfToken();
+    const { public_key, key_id } = await fetchEncryptionKey();
+    console.log('Fetched encryption key:', { public_key, key_id });
+    
     const response = await axiosInstance.post(AUTH_ENDPOINTS.LOGIN, {
       email,
-      password,
+      password: encryptPayload(password, public_key),
       mode,
+    }, {
+      headers: {
+        'X-Key-Id': key_id
+      }
     });
     return response.data;
   } catch (error) {
@@ -44,11 +52,17 @@ export const loginUser = async (email, password, mode = 'customer') => {
 export const registerUser = async (name, email, password, passwordConfirmation) => {
   try {
     await getCsrfToken();
+    const { public_key, key_id } = await fetchEncryptionKey();
+
     const response = await axiosInstance.post(AUTH_ENDPOINTS.REGISTER, {
       name,
       email,
-      password,
-      password_confirmation: passwordConfirmation,
+      password: encryptPayload(password, public_key),
+      password_confirmation: encryptPayload(passwordConfirmation, public_key),
+    }, {
+      headers: {
+        'X-Key-Id': key_id
+      }
     });
     return response.data;
   } catch (error) {
@@ -111,11 +125,17 @@ export const verifyPasswordResetOtp = async (email, otp) => {
 export const resetPassword = async (email, otp, password, passwordConfirmation) => {
   try {
     await getCsrfToken();
+    const { public_key, key_id } = await fetchEncryptionKey();
+
     const response = await axiosInstance.post(AUTH_ENDPOINTS.RESET_PASSWORD, {
       email,
       otp,
-      password,
-      password_confirmation: passwordConfirmation,
+      password: encryptPayload(password, public_key),
+      password_confirmation: encryptPayload(passwordConfirmation, public_key),
+    }, {
+      headers: {
+        'X-Key-Id': key_id
+      }
     });
     return response.data;
   } catch (error) {

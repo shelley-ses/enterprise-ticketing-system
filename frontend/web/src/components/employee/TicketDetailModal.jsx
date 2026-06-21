@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride } from '@/services/ticketService';
 import ProofCompletionModal from './ProofCompletionModal';
@@ -252,7 +253,7 @@ export default function TicketDetailModal({
               </div>
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
                 <p className="text-xs text-gray-400 mb-0.5">Date Filed</p>
-                <p className="font-semibold text-gray-800">{ticket.date}</p>
+                <p className="font-semibold text-gray-800">{formatDisplayDate(ticket.date)}</p>
               </div>
             </div>
 
@@ -487,7 +488,7 @@ export default function TicketDetailModal({
                         <div key={note.id} className="bg-white border border-gray-100 rounded-xl p-3 text-xs leading-relaxed">
                           <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
                             <span className="font-bold text-[#252578]">{note.author}</span>
-                            <span>{note.timestamp}</span>
+                            <span>{formatDisplayDate(note.timestamp)}</span>
                           </div>
                           <p className="text-gray-700 font-medium">{note.text}</p>
                         </div>
@@ -538,7 +539,7 @@ export default function TicketDetailModal({
                           <span className="font-bold text-[#252578] uppercase text-[9px] tracking-wide">
                             {evt.type === 'system' ? 'System' : evt.type || 'Update'}
                           </span>
-                          <span>{evt.timestamp}</span>
+                          <span>{formatDisplayDate(evt.timestamp)}</span>
                         </div>
                         <p className="text-gray-700 leading-relaxed font-semibold bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
                           {evt.text}

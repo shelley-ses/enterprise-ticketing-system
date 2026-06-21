@@ -18,11 +18,9 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
 const getDisplayStatus = (ticket) => (
-  ticket.status === 'Pending Evaluation' && ticket.proofRejected !== true
-    ? 'Resolved'
-    : ticket.proofRejected
-      ? 'Proof Rejected'
-      : ticket.status
+  ticket.proofRejected
+    ? 'Proof Rejected'
+    : ticket.status
 );
 
 const isInternalTicket = (ticket) => (
@@ -109,6 +107,9 @@ export default function EmployeeMachine() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = tickets.filter((t) => {
+      if (!t.accepted) return false;
+      if (CLOSED_STATUSES.includes(t.status)) return false;
+
       if (statusFilter !== 'All Status') {
         if (statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
