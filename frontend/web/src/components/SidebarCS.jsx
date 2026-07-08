@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Inbox, UserCheck, ClipboardList, Clock } from 'lucide-react';
+import { LayoutDashboard, Inbox, UserCheck, ClipboardList, Clock, MessageCircle } from 'lucide-react';
 import SidebarBase from './SidebarBase';
 
 export default function SidebarCS({ collapsed, onHoverChange }) {
@@ -12,6 +12,7 @@ export default function SidebarCS({ collapsed, onHoverChange }) {
 
   const bottomItems = [
     { name: 'My Tickets', path: '/cs/my-tickets', icon: <ClipboardList size={20} /> },
+    { name: 'Messages', path: '/cs/messages', icon: <MessageCircle size={20} /> },
   ];
 
   return <SidebarBase navItems={navItems} bottomItems={bottomItems} collapsed={collapsed} onHoverChange={onHoverChange} />;
