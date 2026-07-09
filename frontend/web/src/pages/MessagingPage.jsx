@@ -1,10 +1,23 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { MessageCircle, Send, Filter, Users, User } from 'lucide-react';
+import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2 } from 'lucide-react';
+import {
+  getTicketMessages,
+  sendTicketMessage,
+  editTicketMessage,
+  deleteTicketMessage,
+} from '@/services/messagingService';
+import { getMessagingEcho } from '@/services/messagingEcho';
+import {
+  getCustomerTickets,
+  getCSIncomingTickets,
+  getEmployeeInternalTickets,
+} from '@/services/ticketService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const formatTime = (iso) => {
+  if (!iso) return '';
   const date = new Date(iso);
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
@@ -33,190 +46,6 @@ const checkIsEmployee = (user) => {
   return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
 
-// ─── Mock Data ────────────────────────────────────────────────────────────
-
-const generateCustomerData = () => [
-  {
-    id: 'cs-1',
-    name: 'Jessica Martinez',
-    role: 'Customer Service Agent',
-    type: 'external',
-    unread: 2,
-    lastMessage: "I've submitted your ticket to our IT department.",
-    lastTime: '2:30 PM',
-    messages: [
-      { id: 1, text: 'Hi, I need help with my printer.', sender: 'me', timestamp: '2026-07-08T09:00:00' },
-      { id: 2, text: "Hello! I'd be happy to help. What seems to be the problem?", sender: 'them', timestamp: '2026-07-08T09:05:00' },
-      { id: 3, text: "It keeps saying 'paper jam' even after I cleared it.", sender: 'me', timestamp: '2026-07-08T09:07:00' },
-      { id: 4, text: 'Let me check your account. One moment please.', sender: 'them', timestamp: '2026-07-08T09:10:00' },
-      { id: 5, text: 'I see your ticket has been created. Our technician will follow up within 24 hours.', sender: 'them', timestamp: '2026-07-08T09:12:00' },
-      { id: 6, text: 'Thank you!', sender: 'me', timestamp: '2026-07-08T09:15:00' },
-      { id: 7, text: "I've submitted your ticket to our IT department.", sender: 'them', timestamp: '2026-07-08T14:30:00' },
-    ],
-  },
-];
-
-const generateCSData = () => ({
-  internal: [
-    {
-      id: 'emp-1',
-      name: 'Mark Reyes',
-      role: 'IT Technician',
-      type: 'internal',
-      unread: 2,
-      lastMessage: 'Sure, I can take a look at that ticket.',
-      lastTime: '10:15 AM',
-      messages: [
-        { id: 1, text: 'Hey Mark, we have a ticket about a network issue.', sender: 'me', timestamp: '2026-07-08T08:00:00' },
-        { id: 2, text: 'Can you share the ticket ID?', sender: 'them', timestamp: '2026-07-08T08:05:00' },
-        { id: 3, text: 'Ticket #1041 — VLAN configuration error.', sender: 'me', timestamp: '2026-07-08T08:07:00' },
-        { id: 4, text: "I'll check it out. Might need to reconfigure the switch.", sender: 'them', timestamp: '2026-07-08T08:10:00' },
-        { id: 5, text: 'Sure, I can take a look at that ticket.', sender: 'them', timestamp: '2026-07-08T10:15:00' },
-      ],
-    },
-    {
-      id: 'emp-2',
-      name: 'Anna Santos',
-      role: 'Engineer',
-      type: 'internal',
-      unread: 0,
-      lastMessage: 'The replacement parts have been ordered.',
-      lastTime: 'Yesterday',
-      messages: [
-        { id: 1, text: 'Hi Anna, do we have ETA on the parts?', sender: 'me', timestamp: '2026-07-07T14:00:00' },
-        { id: 2, text: 'I just checked with the supplier. They expect delivery by Friday.', sender: 'them', timestamp: '2026-07-07T14:10:00' },
-        { id: 3, text: 'Great, thanks for the update!', sender: 'me', timestamp: '2026-07-07T14:15:00' },
-        { id: 4, text: 'The replacement parts have been ordered.', sender: 'them', timestamp: '2026-07-07T16:30:00' },
-      ],
-    },
-    {
-      id: 'emp-3',
-      name: 'Carlos Gomez',
-      role: 'Field Technician',
-      type: 'internal',
-      unread: 1,
-      lastMessage: "I'm on my way to the client site.",
-      lastTime: '8:45 AM',
-      messages: [
-        { id: 1, text: 'Carlos, are you available for a service call today?', sender: 'me', timestamp: '2026-07-08T07:30:00' },
-        { id: 2, text: 'Yes, what is the address?', sender: 'them', timestamp: '2026-07-08T07:35:00' },
-        { id: 3, text: '123 Business Park, Unit 4. Customer named Robert Chen.', sender: 'me', timestamp: '2026-07-08T07:37:00' },
-        { id: 4, text: "I'm on my way to the client site.", sender: 'them', timestamp: '2026-07-08T08:45:00' },
-      ],
-    },
-  ],
-  external: [
-    {
-      id: 'cust-1',
-      name: 'John Doe',
-      role: 'Customer',
-      type: 'external',
-      unread: 3,
-      lastMessage: 'When will someone come to fix it?',
-      lastTime: '9:45 AM',
-      messages: [
-        { id: 1, text: 'My air conditioning unit is not working.', sender: 'them', timestamp: '2026-07-07T10:00:00' },
-        { id: 2, text: "I'm sorry to hear that, John. Let me check your service records.", sender: 'me', timestamp: '2026-07-07T10:05:00' },
-        { id: 3, text: 'I can schedule a technician for tomorrow morning.', sender: 'me', timestamp: '2026-07-07T10:10:00' },
-        { id: 4, text: 'That works for me. Thank you.', sender: 'them', timestamp: '2026-07-07T10:15:00' },
-        { id: 5, text: "It's been two days and no one has arrived yet.", sender: 'them', timestamp: '2026-07-08T09:00:00' },
-        { id: 6, text: 'When will someone come to fix it?', sender: 'them', timestamp: '2026-07-08T09:45:00' },
-      ],
-    },
-    {
-      id: 'cust-2',
-      name: 'Maria Garcia',
-      role: 'Customer',
-      type: 'external',
-      unread: 1,
-      lastMessage: 'Thank you for the quick response!',
-      lastTime: 'Yesterday',
-      messages: [
-        { id: 1, text: 'I have an issue with my invoice.', sender: 'them', timestamp: '2026-07-07T13:00:00' },
-        { id: 2, text: 'Let me look into it. Can you provide the invoice number?', sender: 'me', timestamp: '2026-07-07T13:05:00' },
-        { id: 3, text: 'INV-2026-0789', sender: 'them', timestamp: '2026-07-07T13:07:00' },
-        { id: 4, text: 'I found it. There was a billing error which I have corrected.', sender: 'me', timestamp: '2026-07-07T13:15:00' },
-        { id: 5, text: 'Thank you for the quick response!', sender: 'them', timestamp: '2026-07-07T13:20:00' },
-      ],
-    },
-    {
-      id: 'cust-3',
-      name: 'Robert Chen',
-      role: 'Customer',
-      type: 'external',
-      unread: 0,
-      lastMessage: 'The machine is working perfectly now.',
-      lastTime: 'Mon',
-      messages: [
-        { id: 1, text: 'The laboratory centrifuge is making a strange noise.', sender: 'them', timestamp: '2026-07-06T11:00:00' },
-        { id: 2, text: "We'll send a technician to inspect it right away.", sender: 'me', timestamp: '2026-07-06T11:10:00' },
-        { id: 3, text: 'The technician came and fixed the issue. It was a loose bearing.', sender: 'them', timestamp: '2026-07-06T15:30:00' },
-        { id: 4, text: 'The machine is working perfectly now.', sender: 'them', timestamp: '2026-07-06T15:35:00' },
-      ],
-    },
-  ],
-});
-
-const generateEmployeeData = () => [
-  {
-    id: 'cs-1',
-    name: 'Jessica Martinez',
-    role: 'Customer Service Agent',
-    type: 'internal',
-    unread: 1,
-    lastMessage: 'Can you handle ticket #1042?',
-    lastTime: '11:30 AM',
-    messages: [
-      { id: 1, text: 'Hi Jessica, looking for my next assignment.', sender: 'me', timestamp: '2026-07-08T10:00:00' },
-      { id: 2, text: 'I have a ticket that needs a technician. AC repair at 456 Oak St.', sender: 'them', timestamp: '2026-07-08T10:05:00' },
-      { id: 3, text: "Sure, I can take that. What's the ticket number?", sender: 'me', timestamp: '2026-07-08T10:07:00' },
-      { id: 4, text: 'Can you handle ticket #1042?', sender: 'them', timestamp: '2026-07-08T11:30:00' },
-    ],
-  },
-  {
-    id: 'cs-2',
-    name: 'David Kim',
-    role: 'Customer Service Agent',
-    type: 'internal',
-    unread: 0,
-    lastMessage: 'Thanks for your help on the calibration!',
-    lastTime: 'Yesterday',
-    messages: [
-      { id: 1, text: 'David, I finished the calibration on the spectrometer.', sender: 'me', timestamp: '2026-07-07T16:00:00' },
-      { id: 2, text: 'Great work! The client was very happy.', sender: 'them', timestamp: '2026-07-07T16:30:00' },
-      { id: 3, text: 'Thanks for your help on the calibration!', sender: 'them', timestamp: '2026-07-07T17:00:00' },
-    ],
-  },
-  {
-    id: 'emp-1',
-    name: 'Mark Reyes',
-    role: 'IT Technician',
-    type: 'internal',
-    unread: 0,
-    lastMessage: 'The network issue is resolved.',
-    lastTime: '10:30 AM',
-    messages: [
-      { id: 1, text: 'Mark, did you manage to fix the VLAN config?', sender: 'me', timestamp: '2026-07-08T09:00:00' },
-      { id: 2, text: "Yes, it was a routing table misconfiguration. All good now.", sender: 'them', timestamp: '2026-07-08T09:30:00' },
-      { id: 3, text: 'The network issue is resolved.', sender: 'them', timestamp: '2026-07-08T10:30:00' },
-    ],
-  },
-  {
-    id: 'emp-2',
-    name: 'Anna Santos',
-    role: 'Engineer',
-    type: 'internal',
-    unread: 2,
-    lastMessage: 'Can you review the design specs?',
-    lastTime: '8:20 AM',
-    messages: [
-      { id: 1, text: 'Hey Anna, I sent you the design doc for the new cooling system.', sender: 'me', timestamp: '2026-07-07T15:00:00' },
-      { id: 2, text: "I'll review it first thing tomorrow.", sender: 'them', timestamp: '2026-07-07T15:30:00' },
-      { id: 3, text: 'Can you review the design specs?', sender: 'them', timestamp: '2026-07-08T08:20:00' },
-    ],
-  },
-];
-
 // ─── Avatar Component ─────────────────────────────────────────────────────
 
 function Avatar({ name, size = 'md' }) {
@@ -238,22 +67,98 @@ export default function MessagingPage() {
   const isEmployee = checkIsEmployee(user);
   const isCustomer = !isCS && !isEmployee;
 
-  const [contacts, setContacts] = useState(() => {
-    if (isCustomer) return generateCustomerData();
-    if (isCS) {
-      const data = generateCSData();
-      return [...data.internal, ...data.external];
-    }
-    return generateEmployeeData();
-  });
+  const userType = isCS ? 'cs' : (isEmployee ? 'employee' : 'customer');
+  const userId = isCustomer ? user?.id : user?.emp_id;
+  const currentUserKey = `${userType}:${userId}`;
 
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editInputText, setEditInputText] = useState('');
+  const [activeHistoryMsgId, setActiveHistoryMsgId] = useState(null);
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
+
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedContactId, setSelectedContactId] = useState(null);
   const [csFilter, setCsFilter] = useState('external');
-  const [unreadFilterActive, setUnreadFilterActive] = useState(false);
+  
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
 
   const messagesEndRef = useRef(null);
 
+  // 1. Fetch tickets for chat list
+  useEffect(() => {
+    let active = true;
+    async function loadTickets() {
+      try {
+        setLoading(true);
+        let list = [];
+        if (isCS) {
+          list = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+        } else if (isEmployee) {
+          const res = await getEmployeeInternalTickets();
+          list = res?.tickets || [];
+        } else {
+          list = await getCustomerTickets({ createdBy: user?.id, limit: 100, forceRefresh: true });
+        }
+        if (active) {
+          setTickets(list);
+        }
+      } catch (err) {
+        console.error("Failed to load tickets for messaging page", err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadTickets();
+    return () => { active = false; };
+  }, [isCS, isEmployee, user]);
+
+  // 2. Map tickets to formatted contacts
+  const contacts = useMemo(() => {
+    return tickets.map(t => {
+      const ticketId = t.ticket_ID || t.id;
+      let contactName = '';
+      let contactRole = '';
+      let type = 'external';
+
+      if (isCS) {
+        contactName = t.customer || t.created_by_name || 'Client';
+        contactRole = t.is_internal ? 'Employee' : 'Customer';
+        type = t.is_internal ? 'internal' : 'external';
+      } else {
+        contactName = 'Customer Support';
+        contactRole = 'Representative';
+        type = isEmployee ? 'internal' : 'external';
+      }
+
+      // Delegated check — only relevant for CS agents (customers always chat on their tickets).
+      // Since csIncoming does not return t.assigned_to but returns t.assigned as an array,
+      // we check both fields to determine if the ticket is assigned.
+      const hasAssignment = (t.assigned_to !== undefined && t.assigned_to !== null)
+        ? true
+        : (Array.isArray(t.assigned) && t.assigned.length > 0);
+
+      const isDelegated = isCS
+        ? (hasAssignment || (t.status !== 'Open' && t.status !== 'Pending Assignment' && t.status !== 'Pending'))
+        : false;
+
+      return {
+        id: ticketId,
+        name: `${contactName} (${t.title})`,
+        displayTitle: t.title,
+        subtitle: contactName,
+        role: contactRole,
+        type,
+        status: t.status,
+        isDelegated,
+        requested_by: t.requested_by,
+      };
+    }).filter(c => isCS ? !c.isDelegated : true);
+  }, [tickets, isCS, isEmployee]);
+
+  // 3. Auto select first contact if none selected
   useEffect(() => {
     if (contacts.length > 0 && !selectedContactId) {
       const firstId = isCS
@@ -263,53 +168,120 @@ export default function MessagingPage() {
     }
   }, [contacts, selectedContactId, isCS]);
 
-  const selectedContact = contacts.find(c => c.id === selectedContactId);
-  const messages = selectedContact?.messages || [];
+  const selectedContact = useMemo(() => contacts.find(c => c.id === selectedContactId), [contacts, selectedContactId]);
 
+  // 4. Fetch messages and bind WebSockets on selection
+  useEffect(() => {
+    if (!selectedContactId) return;
+
+    let active = true;
+    setMessagesLoading(true);
+
+    getTicketMessages(selectedContactId)
+      .then(msgs => {
+        if (active) {
+          setMessages(msgs);
+          setMessagesLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load messages", err);
+        if (active) setMessagesLoading(false);
+      });
+
+    // Use the singleton Echo instance (no new connections created)
+    const echo = getMessagingEcho();
+    const channelName = `ticket.${selectedContactId}`;
+    const channel = echo.private(channelName);
+
+    channel.listen('.App\\Events\\MessageSent', (e) => {
+      if (active) {
+        setMessages(prev => {
+          const msgId = e.id || e._id;
+          if (prev.some(m => m.id === msgId || m._id === msgId)) {
+            return prev;
+          }
+          return [...prev, {
+            id: msgId,
+            _id: msgId,
+            ticket_id: e.ticket_id,
+            sender_id: e.sender_id,
+            sender_name: e.sender_name,
+            sender_type: e.sender_type,
+            message: e.message,
+            created_at: e.created_at,
+          }];
+        });
+      }
+    });
+
+    channel.listen('.App\\Events\\MessageUpdated', (e) => {
+      if (active) {
+        setMessages(prev => {
+          return prev.map(m => {
+            if (m.id === e.id || m._id === e.id) {
+              return {
+                ...m,
+                message: e.message,
+                edit_history: e.edit_history,
+                updated_at: e.updated_at,
+              };
+            }
+            return m;
+          });
+        });
+      }
+    });
+
+    channel.listen('.App\\Events\\MessageDeleted', (e) => {
+      if (active) {
+        if (e.user_key === currentUserKey) {
+          setMessages(prev => prev.filter(m => m.id !== e.id && m._id !== e.id));
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      // Leave the channel but keep the WebSocket connection alive for reuse
+      echo.leave(channelName);
+    };
+  }, [selectedContactId, currentUserKey]);
+
+  // 5. Scroll to bottom of message logs
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, selectedContactId]);
 
+  // 6. Filter contacts
   const filteredContacts = useMemo(() => {
     let filtered = contacts;
     if (isCS) filtered = filtered.filter(c => c.type === csFilter);
-    if (unreadFilterActive) filtered = filtered.filter(c => c.unread > 0);
     return filtered;
-  }, [contacts, isCS, csFilter, unreadFilterActive]);
-
-  const totalUnread = useMemo(() => contacts.reduce((sum, c) => sum + c.unread, 0), [contacts]);
-
-  const csInternalUnread = useMemo(
-    () => contacts.filter(c => c.type === 'internal').reduce((s, c) => s + c.unread, 0),
-    [contacts],
-  );
-  const csExternalUnread = useMemo(
-    () => contacts.filter(c => c.type === 'external').reduce((s, c) => s + c.unread, 0),
-    [contacts],
-  );
+  }, [contacts, isCS, csFilter]);
 
   const handleSelectContact = useCallback((contactId) => {
     setSelectedContactId(contactId);
-    setContacts(prev => prev.map(c =>
-      c.id === contactId ? { ...c, unread: 0 } : c,
-    ));
   }, []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const text = messageInput.trim();
     if (!text || !selectedContactId) return;
-    const newMsg = {
-      id: Date.now(),
-      text,
-      sender: 'me',
-      timestamp: new Date().toISOString(),
-    };
-    setContacts(prev => prev.map(c =>
-      c.id === selectedContactId
-        ? { ...c, messages: [...c.messages, newMsg], lastMessage: text, lastTime: 'Just now', unread: 0 }
-        : c,
-    ));
+
     setMessageInput('');
+
+    try {
+      const newMsg = await sendTicketMessage(selectedContactId, text);
+      setMessages(prev => {
+        if (prev.some(m => m.id === newMsg.id || m._id === newMsg._id)) {
+          return prev;
+        }
+        return [...prev, newMsg];
+      });
+    } catch (err) {
+      console.error("Failed to send message", err);
+      window.alert("Failed to send message. Please try again.");
+    }
   }, [messageInput, selectedContactId]);
 
   const handleKeyDown = useCallback((e) => {
@@ -319,6 +291,35 @@ export default function MessagingPage() {
     }
   }, [handleSend]);
 
+  const handleUpdateMessage = useCallback(async (messageId) => {
+    const trimmed = editInputText.trim();
+    if (!trimmed || !selectedContactId) return;
+
+    try {
+      const updated = await editTicketMessage(selectedContactId, messageId, trimmed);
+      setMessages(prev => prev.map(m => (m.id === messageId || m._id === messageId) ? updated : m));
+      setEditingMessageId(null);
+    } catch (err) {
+      console.error("Failed to update message", err);
+      window.alert("Failed to update message. Please try again.");
+    }
+  }, [editInputText, selectedContactId]);
+
+  const handleDeleteMessage = useCallback(async (messageId) => {
+    if (!selectedContactId) return;
+    if (!window.confirm("Are you sure you want to delete this message for you? It will still be visible to other participants.")) {
+      return;
+    }
+
+    try {
+      await deleteTicketMessage(selectedContactId, messageId);
+      setMessages(prev => prev.filter(m => m.id !== messageId && m._id !== messageId));
+    } catch (err) {
+      console.error("Failed to delete message", err);
+      window.alert("Failed to delete message. Please try again.");
+    }
+  }, [selectedContactId]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-9rem)]">
       <h1 className="text-2xl font-bold text-gray-800 mb-4 flex-shrink-0">Messages</h1>
@@ -326,11 +327,11 @@ export default function MessagingPage() {
       <div className="flex flex-1 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden min-h-0">
         {/* ── Left Panel ── */}
         <div className="w-[360px] lg:w-[380px] border-r border-gray-100 flex flex-col flex-shrink-0">
-          {/* Filter bar — CS: External / Internal / Unread */}
+          {/* Filter bar — CS: External / Internal */}
           {isCS && (
             <div className="flex items-center gap-2 p-3 pb-2 border-b border-gray-100 flex-shrink-0 flex-wrap">
               <button
-                onClick={() => { setCsFilter('external'); setUnreadFilterActive(false); }}
+                onClick={() => setCsFilter('external')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   csFilter === 'external'
                     ? 'bg-[#252578] text-white shadow-sm'
@@ -339,14 +340,9 @@ export default function MessagingPage() {
               >
                 <Users size={13} />
                 External
-                {csExternalUnread > 0 && (
-                  <span className="bg-white/20 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold ml-0.5">
-                    {csExternalUnread}
-                  </span>
-                )}
               </button>
               <button
-                onClick={() => { setCsFilter('internal'); setUnreadFilterActive(false); }}
+                onClick={() => setCsFilter('internal')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   csFilter === 'internal'
                     ? 'bg-[#252578] text-white shadow-sm'
@@ -355,52 +351,27 @@ export default function MessagingPage() {
               >
                 <User size={13} />
                 Internal
-                {csInternalUnread > 0 && (
-                  <span className="bg-white/20 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold ml-0.5">
-                    {csInternalUnread}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setUnreadFilterActive(prev => !prev)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                  unreadFilterActive
-                    ? 'bg-[#252578] text-white shadow-sm'
-                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {totalUnread} unread
               </button>
             </div>
           )}
 
-          {/* Section label + Unread filter for non-CS */}
+          {/* Section label for non-CS */}
           {!isCS && (
             <div className="flex items-center justify-between px-4 pt-3 pb-1 flex-shrink-0">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                {isCustomer ? 'Your CS Agent' : 'Conversations'}
+                {isCustomer ? 'Your CS Active Tickets' : 'Active Ticket Chats'}
               </p>
-              <button
-                onClick={() => setUnreadFilterActive(prev => !prev)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
-                  unreadFilterActive
-                    ? 'bg-[#252578] text-white'
-                    : 'border border-gray-200 text-gray-500 hover:bg-gray-50'
-                }`}
-              >
-                {totalUnread} unread
-              </button>
             </div>
           )}
 
           {/* Contact list */}
           <div className="flex-1 overflow-y-auto">
-            {filteredContacts.length === 0 ? (
+            {loading ? (
+              <div className="p-8 text-center text-gray-400">Loading tickets...</div>
+            ) : filteredContacts.length === 0 ? (
               <div className="p-8 text-center">
                 <MessageCircle size={32} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-sm text-gray-400">
-                  {unreadFilterActive ? 'No unread conversations' : 'No conversations yet'}
-                </p>
+                <p className="text-sm text-gray-400">No active tickets for chat</p>
               </div>
             ) : (
               filteredContacts.map(contact => (
@@ -411,26 +382,21 @@ export default function MessagingPage() {
                     selectedContactId === contact.id ? 'bg-[#252578]/5' : ''
                   }`}
                 >
-                  <Avatar name={contact.name} />
+                  <Avatar name={contact.subtitle} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm truncate ${
-                        contact.unread > 0 ? 'font-bold text-gray-900' : 'font-semibold text-gray-800'
-                      }`}>
-                        {contact.name}
+                      <span className="text-sm font-semibold text-gray-800 truncate">
+                        {contact.displayTitle}
                       </span>
-                      <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">{contact.lastTime}</span>
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
-                      <span className={`text-xs truncate ${
-                        contact.unread > 0 ? 'font-semibold text-gray-700' : 'text-gray-500'
-                      }`}>
-                        {contact.lastMessage}
+                      <span className="text-xs text-gray-500 truncate">
+                        {contact.subtitle}
                       </span>
-                      {contact.unread > 0 && (
-                        <span className="bg-[#252578] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 ml-2 flex-shrink-0">
-                          {contact.unread}
-                        </span>
+                      {contact.isDelegated ? (
+                        <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Delegated</span>
+                      ) : (
+                        <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Active CS</span>
                       )}
                     </div>
                   </div>
@@ -445,64 +411,193 @@ export default function MessagingPage() {
           <div className="flex-1 flex flex-col min-w-0">
             {/* Conversation header */}
             <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
-              <Avatar name={selectedContact.name} />
+              <Avatar name={selectedContact.subtitle} />
               <div>
-                <p className="font-semibold text-sm text-gray-800">{selectedContact.name}</p>
-                <p className="text-xs text-gray-500">{selectedContact.role}</p>
+                <p className="font-semibold text-sm text-gray-800">{selectedContact.displayTitle}</p>
+                <p className="text-xs text-gray-500">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
               </div>
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
-              {messages.map(msg => {
-                const isMine = msg.sender === 'me';
-                return (
-                  <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                    <div className="max-w-[75%]">
-                      <div className={`px-4 py-2.5 ${
-                        isMine
-                          ? 'bg-[#252578] text-white rounded-2xl rounded-br-md'
-                          : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm'
-                      }`}>
-                        <p className="text-sm leading-relaxed">{msg.text}</p>
+              {messagesLoading ? (
+                <div className="text-center py-8 text-gray-400">Loading chat history...</div>
+              ) : messages.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <MessageCircle size={28} className="mx-auto text-gray-300 mb-1" />
+                  <p className="text-xs">No messages yet. Send a message to start the conversation.</p>
+                </div>
+              ) : (
+                messages.map(msg => {
+                  const msgId = msg.id || msg._id;
+                  const isMine = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
+                  return (
+                    <div key={msgId} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
+                      <div className="max-w-[75%] flex flex-col">
+                        <div className="text-[10px] text-gray-400 mb-0.5 px-1 flex justify-between gap-2">
+                          <span>{msg.sender_name}</span>
+                        </div>
+                        
+                        <div className={`flex items-center gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                          {/* Message Bubble */}
+                          <div className={`px-4 py-2.5 ${
+                            isMine
+                              ? 'bg-[#252578] text-white rounded-2xl rounded-br-md'
+                              : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm'
+                          }`}>
+                            {editingMessageId === msgId ? (
+                              <div className="flex flex-col gap-1.5 min-w-[200px]">
+                                <input
+                                  type="text"
+                                  value={editInputText}
+                                  onChange={e => setEditInputText(e.target.value)}
+                                  className="w-full text-sm text-gray-800 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#252578] dark:text-gray-900"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') handleUpdateMessage(msgId);
+                                    if (e.key === 'Escape') setEditingMessageId(null);
+                                  }}
+                                />
+                                <div className="flex justify-end gap-1.5 text-[10px]">
+                                  <button
+                                    onClick={() => setEditingMessageId(null)}
+                                    className="px-2 py-0.5 rounded hover:bg-gray-100 text-gray-500 font-semibold cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateMessage(msgId)}
+                                    disabled={!editInputText.trim()}
+                                    className="px-2 py-0.5 bg-[#f3f4f6] text-gray-800 hover:bg-gray-200 rounded font-semibold cursor-pointer disabled:opacity-50"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.message}</p>
+                            )}
+                          </div>
+
+                          {/* Options Menu Trigger & Dropdown */}
+                          {editingMessageId !== msgId && (
+                            <div className="relative flex items-center">
+                              <button
+                                onClick={() => setActiveMenuMsgId(activeMenuMsgId === msgId ? null : msgId)}
+                                className="opacity-0 group-hover/msg:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity p-1 rounded-full hover:bg-gray-100 cursor-pointer flex items-center justify-center"
+                                title="Options"
+                              >
+                                <MoreVertical size={14} />
+                              </button>
+                              {activeMenuMsgId === msgId && (
+                                <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-28 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
+                                  {isMine && (
+                                    <button
+                                      onClick={() => {
+                                        setEditingMessageId(msgId);
+                                        setEditInputText(msg.message);
+                                        setActiveMenuMsgId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 cursor-pointer font-medium"
+                                    >
+                                      <Edit2 size={12} />
+                                      Edit
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      handleDeleteMessage(msgId);
+                                      setActiveMenuMsgId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-red-600 hover:text-red-700 cursor-pointer font-medium"
+                                  >
+                                    <Trash2 size={12} />
+                                    Delete for you
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Footer / Edit History Toggle */}
+                        <div className={`flex items-center mt-1 text-[10px] text-gray-400 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                          <span>{formatTime(msg.created_at)}</span>
+                          {msg.edit_history && msg.edit_history.length > 0 && (
+                            <button
+                              onClick={() => setActiveHistoryMsgId(activeHistoryMsgId === msgId ? null : msgId)}
+                              className="hover:text-gray-600 underline ml-2 cursor-pointer font-medium text-[9px]"
+                            >
+                              (edited)
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Edit History dropdown */}
+                        {activeHistoryMsgId === msgId && msg.edit_history && (
+                          <div className={`mt-2 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs text-gray-600 max-w-[280px] shadow-sm ${isMine ? 'self-end' : 'self-start'}`}>
+                            <p className="font-semibold mb-1 border-b border-gray-100 pb-0.5 text-[9px] uppercase text-gray-400 tracking-wider">Edit History</p>
+                            <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                              {msg.edit_history.map((hist, idx) => (
+                                <div key={idx} className="border-b border-gray-100/50 pb-1 last:border-0 last:pb-0">
+                                  <p className="font-medium text-gray-800 break-words">{hist.message}</p>
+                                  <p className="text-[9px] text-gray-400 mt-0.5">{new Date(hist.edited_at).toLocaleString()}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <p className={`text-[10px] text-gray-400 mt-1 ${isMine ? 'text-right' : 'text-left'}`}>
-                        {formatTime(msg.timestamp)}
-                      </p>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
-            <div className="px-6 py-4 border-t border-gray-100 bg-white flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={messageInput}
-                  onChange={e => setMessageInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type a message..."
-                  className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={!messageInput.trim()}
-                  className="bg-[#252578] text-white rounded-xl px-4 py-2.5 transition-all hover:bg-[#1f1f66] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Send size={18} />
-                </button>
+            {/* Input / Delegated Banner / Self-created Ticket Banner */}
+            {selectedContact.isDelegated ? (
+              <div className="flex items-center justify-center gap-2 px-6 py-5 border-t border-gray-100 bg-amber-50/50 flex-shrink-0">
+                <AlertCircle className="text-amber-600" size={18} />
+                <p className="text-xs text-amber-800 font-medium">
+                  This ticket has been delegated or updated beyond the initial CS phase. Chat is now read-only.
+                </p>
               </div>
-            </div>
+            ) : isCS && Number(selectedContact.requested_by) === Number(user?.emp_id ?? user?.id) ? (
+              <div className="flex items-center justify-center gap-2 px-6 py-5 border-t border-gray-100 bg-amber-50/50 flex-shrink-0">
+                <AlertCircle className="text-amber-600" size={18} />
+                <p className="text-xs text-amber-800 font-medium">
+                  You cannot send messages on an internal ticket you created.
+                </p>
+              </div>
+            ) : (
+              <div className="px-6 py-4 border-t border-gray-100 bg-white flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={e => setMessageInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Type a message..."
+                    className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={!messageInput.trim()}
+                    className="bg-[#252578] text-white rounded-xl px-4 py-2.5 transition-all hover:bg-[#1f1f66] disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Send size={18} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#f4f7fb]/50">
             <div className="text-center">
               <MessageCircle size={48} className="mx-auto text-gray-300 mb-3" />
               <p className="text-gray-400 font-medium">Select a conversation</p>
-              <p className="text-xs text-gray-300 mt-1">Choose a contact from the left panel</p>
+              <p className="text-xs text-gray-300 mt-1">Choose a ticket from the left panel</p>
             </div>
           </div>
         )}

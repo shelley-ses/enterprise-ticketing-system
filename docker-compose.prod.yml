@@ -292,7 +292,7 @@ services:
     build:
       context: ./frontend/web
       args:
-        - VITE_BASE_PATH=/customer-service/
+        - VITE_BASE_PATH=/customer-ticketing/
         - VITE_APP_MODE=customer
         - VITE_REVERB_HOST=
         - VITE_REVERB_PORT=
@@ -306,9 +306,90 @@ services:
         aliases:
           - customer_ticketing_web
 
+  mongodb:
+    image: mongo:6.0
+    container_name: capstone-mongodb-prod
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-secret}
+    volumes:
+      - mongodb_data_prod:/data/db
+    networks:
+      - default
+      - shared-capstone-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  messaging-reverb:
+    build:
+      context: ./services/messaging-service
+    container_name: capstone-messaging-reverb-prod
+    restart: always
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      REVERB_APP_ID: messaging-local
+      REVERB_APP_KEY: messaging-local-key
+      REVERB_APP_SECRET: messaging-local-secret
+      REDIS_HOST: redis
+      REVERB_SERVER_HOST: 0.0.0.0
+      REVERB_SERVER_PORT: 6002
+    command: php artisan reverb:start --host=0.0.0.0 --port=6002
+    depends_on:
+      - redis
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - messaging-reverb
+
+  messaging-service:
+    build:
+      context: ./services/messaging-service
+    container_name: messaging-service-prod
+    restart: always
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      DB_CONNECTION: mongodb
+      MONGODB_URI: mongodb://root:${MONGO_ROOT_PASSWORD:-secret}@mongodb:27017/messaging?authSource=admin
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: messaging-local
+      REVERB_APP_KEY: messaging-local-key
+      REVERB_APP_SECRET: messaging-local-secret
+      REVERB_HOST: messaging-reverb
+      REVERB_PORT: 6002
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      messaging-reverb:
+        condition: service_started
+    networks:
+      default:
+      shared-capstone-network:
+        aliases:
+          - messaging-service
+
 volumes:
   db_data_prod:
   redis_data_prod:
+  mongodb_data_prod:
 
 networks:
   default:

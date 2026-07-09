@@ -37,6 +37,12 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/attachment/, '/api')
       },
+      '/api/ticketing/messaging': {
+        target: 'http://messaging-service:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ticketing\/messaging/, '/api')
+      },
       '/storage': {
         target: 'http://attachment-service:8000',
         changeOrigin: true,

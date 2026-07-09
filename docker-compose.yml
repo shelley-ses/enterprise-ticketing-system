@@ -321,6 +321,93 @@ services:
       clamav:
         condition: service_started
 
+  mongodb:
+    image: mongo:7.0
+    container_name: capstone-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: secret
+    networks:
+      - default
+      - shared-capstone-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  messaging-reverb:
+    build:
+      context: ./services/messaging-service
+    container_name: capstone-messaging-reverb
+    volumes:
+      - ./services/messaging-service:/var/www
+      - messaging-service-vendor:/var/www/vendor
+    restart: always
+    environment:
+      REVERB_APP_ID: messaging-local
+      REVERB_APP_KEY: messaging-local-key
+      REVERB_APP_SECRET: messaging-local-secret
+      REDIS_HOST: redis
+      REVERB_SERVER_HOST: 0.0.0.0
+      REVERB_SERVER_PORT: 6002
+    ports:
+      - "6002:6002"
+    command: >
+      sh -lc "php artisan reverb:start --host=0.0.0.0 --port=6002"
+    depends_on:
+      - redis
+    networks:
+      - default
+      - shared-capstone-network
+
+  messaging-service:
+    build:
+      context: ./services/messaging-service
+    container_name: messaging-service
+    volumes:
+      - ./services/messaging-service:/var/www
+      - messaging-service-vendor:/var/www/vendor
+    ports:
+      - "8007:8000"
+    networks:
+      - default
+      - shared-capstone-network
+    environment:
+      DB_CONNECTION: mongodb
+      PASSPORT_CONNECTION: mysql
+      MONGODB_URI: mongodb://root:secret@mongodb:27017/messaging?authSource=admin
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: messaging-local
+      REVERB_APP_KEY: messaging-local-key
+      REVERB_APP_SECRET: messaging-local-secret
+      REVERB_HOST: messaging-reverb
+      REVERB_PORT: 6002
+    command: >
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan serve --host=0.0.0.0 --port=8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      messaging-reverb:
+        condition: service_started
+
   ticketing-frontend:
     build:
       context: ./frontend/web
@@ -354,7 +441,7 @@ services:
       - default
       - shared-capstone-network
     environment:
-      VITE_BASE_PATH: "/customer-service/"
+      VITE_BASE_PATH: "/customer-ticketing/"
       VITE_APP_MODE: "customer"
       VITE_PORT: 5006
     command: npm run dev -- --host 0.0.0.0 --port 5006
@@ -363,10 +450,12 @@ services:
 volumes:
   db_data:
   redis_data:
+  mongodb_data:
   customer-service-vendor:
   ticket-service-vendor:
   auth-service-vendor:
   attachment-service-vendor:
+  messaging-service-vendor:
 
 networks:
   default:

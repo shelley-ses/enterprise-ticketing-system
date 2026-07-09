@@ -1,0 +1,51 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Laravel\Passport\HasApiTokens;
+
+class Employee extends Authenticatable
+{
+    use HasApiTokens;
+    use HasFactory;
+
+    protected $connection = 'mysql';
+    protected $table = 'employees';
+    protected $primaryKey = 'emp_id';
+    public $timestamps = false;
+
+    protected $fillable = [
+        'email',
+        'password_hash',
+        'first_name',
+        'last_name',
+        'role',
+        'department',
+        'is_active',
+        'failed_login_count',
+        'locked_until',
+        'last_login_at',
+        'last_seen_at',
+        'password_change_at',
+    ];
+
+    protected $hidden = [
+        'password_hash',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+        'failed_login_count' => 'integer',
+        'locked_until' => 'datetime',
+        'last_login_at' => 'datetime',
+        'last_seen_at' => 'datetime',
+        'password_change_at' => 'datetime',
+    ];
+
+    public function getAuthPassword()
+    {
+        return $this->password_hash;
+    }
+}
