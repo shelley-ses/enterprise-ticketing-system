@@ -95,28 +95,29 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     const selectedFiles = Array.from(event.target.files || []);
     setFileError('');
 
-    if (selectedFiles.length === 0) {
-      setAttachments([]);
-      return;
-    }
+    if (selectedFiles.length > 0) {
+      const invalidFile = selectedFiles.find((selected) => !allowedFileTypes.includes(selected.type));
+      if (invalidFile) {
+        setFileError('Invalid file type. Allowed: PDF, JPG, PNG, DOCX.');
+        return;
+      }
 
-    const invalidFile = selectedFiles.find((selected) => !allowedFileTypes.includes(selected.type));
-    if (invalidFile) {
-      setFileError('Invalid file type. Allowed: PDF, JPG, PNG, DOCX.');
-      setAttachments([]);
-      event.target.value = '';
-      return;
-    }
+      const oversizedFile = selectedFiles.find((selected) => selected.size > 15 * 1024 * 1024);
+      if (oversizedFile) {
+        setFileError('File size must be under 15MB.');
+        return;
+      }
 
-    const oversizedFile = selectedFiles.find((selected) => selected.size > 5 * 1024 * 1024);
-    if (oversizedFile) {
-      setFileError('File size must be under 5MB.');
-      setAttachments([]);
-      event.target.value = '';
-      return;
+      setAttachments((prev) => [...prev, ...selectedFiles]);
     }
+  };
 
-    setAttachments(selectedFiles);
+  const handleRemoveAttachment = (index) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    const fileInput = document.getElementById('file-upload');
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -285,47 +286,52 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Attachment (Optional)</label>
-            {attachments.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
-                <input
-                  type="file"
-                  id="file-upload"
-                  className="hidden"
-                  onChange={handleFileChange}
-                  accept=".pdf,.jpg,.png,.docx"
-                  disabled={isSubmitting}
-                />
-                <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
-                  <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                  <span className="mt-1 text-xs text-gray-500">PDF, JPG, PNG or DOCX (max. 5MB)</span>
-                </label>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-green-600">
-                  <svg className="h-5 w-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <span className="font-semibold">{attachments[0].name}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setAttachments([]); document.getElementById('file-upload').value = ''; }}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+            <label className="mb-2 block text-sm font-medium text-gray-700">Attachments (Optional)</label>
+            <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
+              <input
+                type="file"
+                id="file-upload"
+                className="hidden"
+                onChange={handleFileChange}
+                accept=".pdf,.jpg,.png,.docx"
+                disabled={isSubmitting}
+                multiple
+              />
+              <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
+                <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  />
+                </svg>
+                <span className="text-sm font-medium text-[#252578]">Click to upload</span>
+                <span className="mt-1 text-xs text-gray-500">PDF, JPG, PNG or DOCX (max. 15MB)</span>
+              </label>
+            </div>
+            {attachments.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {attachments.map((file, idx) => (
+                  <div key={idx} className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-green-600">
+                      <svg className="h-5 w-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-semibold truncate max-w-[200px]">{file.name}</span>
+                      <span className="text-xs text-gray-400">({(file.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(idx)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 

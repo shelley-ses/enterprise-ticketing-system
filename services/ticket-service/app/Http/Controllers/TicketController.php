@@ -601,10 +601,7 @@ class TicketController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
-            'attachments.*' => ['file', 'max:5120', 'mimes:pdf,jpg,jpeg,png,docx'],
-        ], [
-            'attachments.*.max' => 'Each attachment must be 5MB or smaller.',
-            'attachments.*.mimes' => 'Attachments must be PDF, JPG, PNG, or DOCX files.',
+            'attachments.*' => ['integer'],
         ]);
 
         $user = auth('api')->user() ?? $request->user();
@@ -635,29 +632,27 @@ class TicketController extends Controller
             'updated_at' => now(),
         ]);
 
+        $attachmentIds = $validated['attachments'] ?? [];
+        if (!empty($attachmentIds)) {
+            try {
+                \Illuminate\Support\Facades\Http::post('http://attachment-service:8000/api/bind', [
+                    'ticket_id' => $ticketId,
+                    'attachment_ids' => $attachmentIds,
+                    'is_proof' => false
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to bind attachments in store: " . $e->getMessage());
+            }
+        }
+
         $storedAttachments = [];
-        foreach ($request->file('attachments', []) as $attachment) {
-            $storedPath = $attachment->store("ticket-attachments/{$ticketId}", 'public');
-
-            $origName = $attachment->getClientOriginalName();
-            $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
-
-            $attachmentId = DB::table('ticket_attachments')->insertGetId([
-                'ticket_id' => $ticketId,
-                'file_name' => $safeName,
-                'file_path' => $storedPath,
-                'file_type' => $attachment->getClientMimeType(),
-                'uploaded_at' => now(),
-            ]);
-
-            $storedAttachments[] = [
-                'attachment_id' => $attachmentId,
-                'ticket_id' => $ticketId,
-                'file_name' => $safeName,
-                'file_path' => '/storage/' . $storedPath,
-                'file_type' => $attachment->getClientMimeType(),
-                'uploaded_at' => now()->toDateTimeString(),
-            ];
+        try {
+            $resp = \Illuminate\Support\Facades\Http::get("http://attachment-service:8000/api/attachments?ticket_id={$ticketId}");
+            if ($resp->successful()) {
+                $storedAttachments = $resp->json('attachments') ?? [];
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to fetch attachments in store: " . $e->getMessage());
         }
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
@@ -743,10 +738,7 @@ class TicketController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
-            'attachments.*' => ['file', 'max:5120', 'mimes:pdf,jpg,jpeg,png,docx'],
-        ], [
-            'attachments.*.max' => 'Each attachment must be 5MB or smaller.',
-            'attachments.*.mimes' => 'Attachments must be PDF, JPG, PNG, or DOCX files.',
+            'attachments.*' => ['integer'],
         ]);
 
         $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
@@ -784,29 +776,27 @@ class TicketController extends Controller
             'created_at' => now(),
         ]);
 
+        $attachmentIds = $validated['attachments'] ?? [];
+        if (!empty($attachmentIds)) {
+            try {
+                \Illuminate\Support\Facades\Http::post('http://attachment-service:8000/api/bind', [
+                    'ticket_id' => $ticketId,
+                    'attachment_ids' => $attachmentIds,
+                    'is_proof' => false
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to bind attachments in storeInternalTicket: " . $e->getMessage());
+            }
+        }
+
         $storedAttachments = [];
-        foreach ($request->file('attachments', []) as $attachment) {
-            $storedPath = $attachment->store("ticket-attachments/{$ticketId}", 'public');
-
-            $origName = $attachment->getClientOriginalName();
-            $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
-
-            $attachmentId = DB::table('ticket_attachments')->insertGetId([
-                'ticket_id' => $ticketId,
-                'file_name' => $safeName,
-                'file_path' => $storedPath,
-                'file_type' => $attachment->getClientMimeType(),
-                'uploaded_at' => now(),
-            ]);
-
-            $storedAttachments[] = [
-                'attachment_id' => $attachmentId,
-                'ticket_id' => $ticketId,
-                'file_name' => $safeName,
-                'file_path' => '/storage/' . $storedPath,
-                'file_type' => $attachment->getClientMimeType(),
-                'uploaded_at' => now()->toDateTimeString(),
-            ];
+        try {
+            $resp = \Illuminate\Support\Facades\Http::get("http://attachment-service:8000/api/attachments?ticket_id={$ticketId}");
+            if ($resp->successful()) {
+                $storedAttachments = $resp->json('attachments') ?? [];
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to fetch attachments in storeInternalTicket: " . $e->getMessage());
         }
 
         $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
@@ -2718,32 +2708,35 @@ class TicketController extends Controller
             return strcmp($a['timestamp'], $b['timestamp']);
         });
 
-        // Fetch attachments
-        $attachments = DB::table('ticket_attachments')
-            ->where('ticket_id', $ticketId)
-            ->get()
-            ->map(fn($row) => [
-                'id' => $row->attachment_id,
-                'name' => $row->file_name,
-                'url' => str_starts_with($row->file_path, 'http') ? $row->file_path : '/storage/' . $row->file_path,
-                'uploaded_at' => $row->uploaded_at,
-            ])
-            ->all();
+        // Fetch attachments from attachment-service
+        $attachments = [];
+        try {
+            $resp = \Illuminate\Support\Facades\Http::get("http://attachment-service:8000/api/attachments?ticket_id={$ticketId}");
+            if ($resp->successful()) {
+                $attachments = $resp->json('attachments') ?? [];
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to fetch attachments for ticket {$ticketId}: " . $e->getMessage());
+        }
 
-        // Fetch proof files from proof_of_completion table
-        $proofAttachments = DB::table('proof_of_completion as poc')
-            ->join('ticket_assignments as ta', 'ta.assignment_ID', '=', 'poc.assignment_ID')
-            ->where('ta.ticket_ID', $ticketId)
-            ->select('poc.proof_ID as id', 'poc.file_name as name', 'poc.file_path', 'poc.file_type', 'poc.file_size as size', 'poc.uploaded_at')
-            ->get()
-            ->map(fn($row) => [
-                'id' => $row->id,
-                'name' => $row->name,
-                'url' => str_starts_with($row->file_path, 'http') ? $row->file_path : '/storage/' . $row->file_path,
-                'size' => (int)$row->size,
-                'uploaded_at' => $row->uploaded_at,
-            ])
-            ->all();
+        // Fetch proof files from attachment-service
+        $proofAttachments = [];
+        try {
+            $assignments = DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->pluck('assignment_ID')
+                ->all();
+
+            foreach ($assignments as $assignmentId) {
+                $resp = \Illuminate\Support\Facades\Http::get("http://attachment-service:8000/api/attachments?assignment_id={$assignmentId}");
+                if ($resp->successful()) {
+                    $assignmentAttachments = $resp->json('attachments') ?? [];
+                    $proofAttachments = array_merge($proofAttachments, $assignmentAttachments);
+                }
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to fetch proof attachments for ticket {$ticketId}: " . $e->getMessage());
+        }
 
         $createdAtFormatted = $ticket->created_at ? \Carbon\Carbon::parse($ticket->created_at)->format('Y-m-d') : '';
         $updatedAtFormatted = $ticket->updated_at ? \Carbon\Carbon::parse($ticket->updated_at)->format('M d, Y') : '';
@@ -2827,90 +2820,54 @@ class TicketController extends Controller
             'remarks' => ['nullable', 'string', 'max:250'],
             'internal_note' => ['nullable', 'string'],
             'attachments' => ['nullable', 'array'],
-            'attachments.*' => ['nullable', 'file'],
+            'attachments.*' => ['integer'],
             'is_proof' => ['nullable', 'string'], // Flag to indicate if attachments are proof documents
         ]);
-
-        if ($request->hasFile('attachments')) {
-            foreach ($request->file('attachments') as $file) {
-                if (!$file->isValid()) {
-                    return response()->json(['message' => 'Invalid file upload.'], 422);
-                }
-                if ($file->getSize() > 15728640) {
-                    return response()->json(['message' => 'File size exceeds 15MB limit.'], 422);
-                }
-                $ext = strtolower($file->getClientOriginalExtension());
-                $allowed = ['png', 'jpg', 'jpeg', 'gif', 'pdf', 'doc', 'docx'];
-                if (!in_array($ext, $allowed)) {
-                    return response()->json(['message' => "Extension .{$ext} is not allowed."], 422);
-                }
-            }
-        }
 
         $newStatusName = $validated['status'] ?? null;
         $remarksText = $validated['remarks'] ?? '';
         $internalNoteText = $validated['internal_note'] ?? null;
         $isProof = filter_var($request->input('is_proof', false), FILTER_VALIDATE_BOOLEAN);
+        $attachmentIds = $validated['attachments'] ?? [];
+        $attachmentNames = [];
 
-        DB::transaction(function () use ($ticketId, $ticket, $empId, $newStatusName, $remarksText, $internalNoteText, $isProof, $request, $assignment) {
+        DB::transaction(function () use ($ticketId, $ticket, $empId, $newStatusName, $remarksText, $internalNoteText, $isProof, $request, $assignment, $attachmentIds, &$attachmentNames) {
             if ($isProof) {
-                $oldProofs = DB::table('proof_of_completion')
-                    ->where('assignment_ID', $assignment->assignment_ID)
-                    ->get();
-
-                foreach ($oldProofs as $oldProof) {
-                    if ($oldProof->file_path) {
-                        \Illuminate\Support\Facades\Storage::disk('public')->delete($oldProof->file_path);
-                        
-                        DB::table('ticket_attachments')
-                            ->where('ticket_id', $ticketId)
-                            ->where('file_path', $oldProof->file_path)
-                            ->delete();
+                // Fetch old proofs from attachment-service and delete them
+                try {
+                    $resp = \Illuminate\Support\Facades\Http::get("http://attachment-service:8000/api/attachments?assignment_id={$assignment->assignment_ID}");
+                    if ($resp->successful()) {
+                        $oldProofs = $resp->json('attachments') ?? [];
+                        foreach ($oldProofs as $oldProof) {
+                            \Illuminate\Support\Facades\Http::delete("http://attachment-service:8000/api/attachments/{$oldProof['id']}?is_proof=true");
+                        }
                     }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error("Failed to delete old proofs in employeeUpdate: " . $e->getMessage());
                 }
-
-                DB::table('proof_of_completion')
-                    ->where('assignment_ID', $assignment->assignment_ID)
-                    ->delete();
             }
 
-            $attachmentNames = [];
+            // Bind new attachments
+            if (!empty($attachmentIds)) {
+                try {
+                    $resp = \Illuminate\Support\Facades\Http::post('http://attachment-service:8000/api/bind', [
+                        'ticket_id' => $isProof ? null : $ticketId,
+                        'assignment_id' => $isProof ? $assignment->assignment_ID : null,
+                        'attachment_ids' => $attachmentIds,
+                        'is_proof' => $isProof
+                    ]);
+                    if ($resp->successful()) {
+                        $attachmentNames = $resp->json('file_names') ?? [];
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error("Failed to bind attachments in employeeUpdate: " . $e->getMessage());
+                }
+            }
+
             $emp = DB::table('employees')->where('emp_id', $empId)->first();
             $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : 'Engineer';
             $customerId = $ticket->created_by;
             $title = $ticket->title;
-
-            // 1. Process standard/proof attachments
-            if ($request->hasFile('attachments')) {
-                foreach ($request->file('attachments') as $file) {
-                    $storedPath = $file->store("ticket-attachments/{$ticketId}", 'public');
-                    
-                    $origName = $file->getClientOriginalName();
-                    $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
-                    $attachmentNames[] = $safeName;
-
-                    // If it is proof, insert to proof_of_completion table as well!
-                    if ($isProof) {
-                        DB::table('proof_of_completion')->insert([
-                            'assignment_ID' => $assignment->assignment_ID,
-                            'file_name' => $safeName,
-                            'file_path' => $storedPath,
-                            'file_type' => $file->getClientMimeType(),
-                            'file_size' => $file->getSize(),
-                            'uploaded_at' => now(),
-                        ]);
-                    }
-
-                    // Always insert into ticket_attachments
-                    DB::table('ticket_attachments')->insert([
-                        'ticket_id' => $ticketId,
-                        'file_name' => $safeName,
-                        'file_path' => $storedPath,
-                        'file_type' => $file->getClientMimeType(),
-                        'uploaded_at' => now(),
-                    ]);
-                }
-            }
 
             // 2. Process status update
             $statusChanged = false;

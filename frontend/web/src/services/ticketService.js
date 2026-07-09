@@ -51,6 +51,82 @@ ticketClient.interceptors.response.use(
   }
 );
 
+const attachmentClient = axios.create({
+  baseURL: '/api/ticketing/attachment',
+  withCredentials: false,
+  headers: {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json',
+  },
+});
+
+attachmentClient.interceptors.request.use((config) => {
+  const token = tokenStore.getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export const uploadAttachments = async (files, isProof = false) => {
+  if (!files || files.length === 0) return [];
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('attachments[]', file);
+  });
+  if (isProof) {
+    formData.append('is_proof', 'true');
+  }
+
+  const response = await attachmentClient.post('/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data?.attachments ?? [];
+};
+
+const processPayloadAndUpload = async (payload, isProof = false) => {
+  let files = [];
+  let fields = {};
+
+  if (payload instanceof FormData) {
+    for (const [key, value] of payload.entries()) {
+      if (key === 'attachments[]' || key === 'attachments') {
+        files.push(value);
+      } else if (key === 'file' && value) {
+        files.push(value);
+      } else {
+        fields[key] = value;
+      }
+    }
+  } else if (payload && typeof payload === 'object') {
+    fields = { ...payload };
+    if (Array.isArray(payload.attachments)) {
+      files = payload.attachments;
+      delete fields.attachments;
+    } else if (payload.attachments) {
+      files = [payload.attachments];
+      delete fields.attachments;
+    }
+    if (payload.file) {
+      files.push(payload.file);
+      delete fields.file;
+    }
+  } else {
+    return payload;
+  }
+
+  if (files.length > 0) {
+    const uploaded = await uploadAttachments(files, isProof);
+    fields.attachments = uploaded.map((a) => a.id);
+  } else {
+    fields.attachments = [];
+  }
+
+  return fields;
+};
+
 let optionsCache = null;
 let optionsCacheAt = 0;
 let optionsInFlight = null;
@@ -500,52 +576,8 @@ export const clearCSDashboardCache = () => {
 };
 
 export const createTicket = async (payload) => {
-  const hasFiles = payload instanceof FormData || Boolean(payload?.attachments?.length) || Boolean(payload?.file);
-
-  if (hasFiles) {
-    const formData = payload instanceof FormData ? payload : new FormData();
-
-    if (!(payload instanceof FormData)) {
-      Object.entries(payload).forEach(([key, value]) => {
-        if (key === 'attachments' && Array.isArray(value)) {
-          value.forEach((file) => formData.append('attachments[]', file));
-          return;
-        }
-
-        if (key === 'file' && value) {
-          formData.append('attachments[]', value);
-          return;
-        }
-
-        if (value !== null && value !== undefined && value !== '') {
-          formData.append(key, value);
-        }
-      });
-    }
-
-    const response = await ticketClient.post('/tickets', formData, {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-
-    clearCustomerDashboardCache();
-    clearCSDashboardCache();
-    notifyCsTicketRefresh();
-    if (response.data?.dashboard_ticket) {
-      saveCustomerTicketDetail({
-        ...response.data.dashboard_ticket,
-        ticket_ID: response.data.ticket?.ticket_ID,
-        description: response.data.ticket?.description,
-        date_created: response.data.ticket?.created_at,
-        last_updated: response.data.ticket?.updated_at,
-      });
-    }
-    return response.data;
-  }
-
-  const response = await ticketClient.post('/tickets', payload);
+  const processedPayload = await processPayloadAndUpload(payload, false);
+  const response = await ticketClient.post('/tickets', processedPayload);
   clearCustomerDashboardCache();
   clearCSDashboardCache();
   notifyCsTicketRefresh();
@@ -562,44 +594,8 @@ export const createTicket = async (payload) => {
 };
 
 export const createInternalTicket = async (payload) => {
-  const hasFiles = payload instanceof FormData || Boolean(payload?.attachments?.length) || Boolean(payload?.file);
-
-  if (hasFiles) {
-    const formData = payload instanceof FormData ? payload : new FormData();
-
-    if (!(payload instanceof FormData)) {
-      Object.entries(payload).forEach(([key, value]) => {
-        if (key === 'attachments' && Array.isArray(value)) {
-          value.forEach((file) => formData.append('attachments[]', file));
-          return;
-        }
-
-        if (key === 'file' && value) {
-          formData.append('attachments[]', value);
-          return;
-        }
-
-        if (value !== null && value !== undefined && value !== '') {
-          formData.append(key, value);
-        }
-      });
-    }
-
-    const response = await ticketClient.post('/tickets/internal', formData, {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-
-    clearIncomingTicketsCache();
-    clearCSDashboardCache();
-    clearEmployeeTicketsCache();
-    notifyCsTicketRefresh();
-    return response.data;
-  }
-
-  const response = await ticketClient.post('/tickets/internal', payload);
+  const processedPayload = await processPayloadAndUpload(payload, false);
+  const response = await ticketClient.post('/tickets/internal', processedPayload);
   clearIncomingTicketsCache();
   clearCSDashboardCache();
   clearEmployeeTicketsCache();
@@ -695,12 +691,12 @@ export const getTicketDetails = async (ticketId) => {
 };
 
 export const updateEmployeeTicket = async (ticketId, formData) => {
-  const response = await ticketClient.post(`/tickets/${ticketId}/employee-update`, formData, {
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  const isProof = formData instanceof FormData
+    ? formData.get('is_proof') === 'true'
+    : Boolean(formData?.is_proof);
+
+  const processedPayload = await processPayloadAndUpload(formData, isProof);
+  const response = await ticketClient.post(`/tickets/${ticketId}/employee-update`, processedPayload);
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();
   clearCSDashboardCache();

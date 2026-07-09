@@ -21,7 +21,7 @@ export default function TicketCreation() {
   });
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [error, setError] = useState('');
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState('');
   const [successModal, setSuccessModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -55,21 +55,21 @@ export default function TicketCreation() {
   };
 
   const handleFileChange = (e) => {
-    const selected = e.target.files[0];
+    const selected = Array.from(e.target.files || []);
     setFileError('');
-    if (selected) {
+    if (selected.length > 0) {
       const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-      if (!allowedTypes.includes(selected.type)) {
+      const invalidFile = selected.find((f) => !allowedTypes.includes(f.type));
+      if (invalidFile) {
          setFileError('Invalid file type. Allowed: PDF, JPG, PNG, DOCX.');
-         setFile(null);
          return;
       }
-      if (selected.size > 5 * 1024 * 1024) {
-         setFileError('File size must be under 5MB.');
-         setFile(null);
+      const oversizedFile = selected.find((f) => f.size > 15 * 1024 * 1024);
+      if (oversizedFile) {
+         setFileError('File size must be under 15MB.');
          return;
       }
-      setFile(selected);
+      setFiles((prev) => [...prev, ...selected]);
     }
   };
 
@@ -86,8 +86,10 @@ export default function TicketCreation() {
       payload.append('problem_category_ID', formData.problem_category_ID);
       payload.append('description', formData.description);
       payload.append('priority_ID', formData.priority_ID);
-      if (file) {
-        payload.append('attachments[]', file);
+      if (files && files.length > 0) {
+        files.forEach((f) => {
+          payload.append('attachments[]', f);
+        });
       }
       
       await createTicket(payload);
@@ -139,7 +141,18 @@ export default function TicketCreation() {
       </div>
 
       {error && (
-        <div className="mb-6 rounded-xl bg-red-50 text-red-700 px-4 py-3 text-sm font-medium border border-red-100">{error}</div>
+        <div className={`mb-6 rounded-xl p-4 text-sm font-medium border flex items-start gap-3 transition-all ${
+          error.includes('Security threat')
+            ? 'bg-red-50/90 text-red-800 border-red-200 shadow-md ring-2 ring-red-500/20'
+            : 'bg-red-50 text-red-700 border-red-100'
+        }`}>
+          {error.includes('Security threat') && (
+            <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+          )}
+          <div>{error}</div>
+        </div>
       )}
 
       <div className="bg-white/70 backdrop-blur-lg border border-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-8">
@@ -226,14 +239,37 @@ export default function TicketCreation() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Attachments (Optional)</label>
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
-              <input type="file" id="file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" />
+              <input type="file" id="file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" multiple />
               <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
                 <svg className="w-10 h-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                 <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                <span className="text-xs text-gray-500 mt-1">PDF, JPG, PNG or DOCX (max. 5MB)</span>
+                <span className="text-xs text-gray-500 mt-1">PDF, JPG, PNG or DOCX (max. 15MB)</span>
               </label>
             </div>
-            {file && <p className="text-sm text-green-600 mt-2 flex items-center gap-1"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg> Selected: {file.name}</p>}
+            {files.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {files.map((f, idx) => (
+                  <div key={idx} className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-green-600">
+                      <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-medium truncate max-w-xs">{f.name}</span>
+                      <span className="text-xs text-gray-400">({(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {fileError && <p className="text-sm text-red-500 mt-2">{fileError}</p>}
           </div>
 
