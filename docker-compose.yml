@@ -323,6 +323,7 @@ services:
 
   mongodb:
     image: mongo:7.0
+    platform: linux/arm64
     container_name: capstone-mongodb
     restart: always
     ports:

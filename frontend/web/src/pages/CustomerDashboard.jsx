@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Inbox, Clock, CheckCircle, Archive } from 'lucide-react';
-import Notifications from '@/components/Notifications';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -13,7 +12,6 @@ import {
   getTicketFormOptions,
   prefetchTicketFormOptions,
   saveCustomerTicketDetail,
-  getNotifications,
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
@@ -50,7 +48,6 @@ export default function CustomerDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [createdTicket, setCreatedTicket] = useState(null);
-  const [dbNotifications, setDbNotifications] = useState([]);
   const [summary, setSummary] = useState({
     open: 0,
     in_progress: 0,
@@ -103,12 +100,6 @@ export default function CustomerDashboard() {
       }));
       setRecentTickets(ticketsList);
 
-      try {
-        const notifData = await getNotifications();
-        setDbNotifications(notifData.notifications || []);
-      } catch (err) {
-        console.warn('Failed to load notifications for customer dashboard:', err);
-      }
     } catch (error) {
       setDashboardError('Failed to load dashboard data.');
     } finally {
@@ -455,10 +446,6 @@ export default function CustomerDashboard() {
           </div>
         </div>
 
-        {/* Notifications */}
-        <div className="w-full xl:w-96 flex flex-col gap-6">
-          <Notifications notifications={dbNotifications.slice(0, 3)} />
-        </div>
       </div>
 
       {/* Ticket Modal */}

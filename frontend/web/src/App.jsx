@@ -32,6 +32,7 @@ const CSAssigned = React.lazy(() => import('./pages/CSAssigned.jsx'));
 const CSHistory = React.lazy(() => import('./pages/CSHistory.jsx'));
 const Notifications = React.lazy(() => import('./pages/Notifications.jsx'));
 const MessagingPage = React.lazy(() => import('./pages/MessagingPage.jsx'));
+const Profile = React.lazy(() => import('./pages/Profile.jsx'));
 
 // Lazy loaded SuperAdmin page and layout components
 const SuperAdminLayout = React.lazy(() => import('./components/SuperAdminLayout.jsx'));
@@ -195,7 +196,7 @@ function App() {
                 <Route path="my-tickets" element={<MyTickets />} />
                 <Route path="history" element={<CustomerHistory />} />
                 <Route path="messages" element={<MessagingPage />} />
-                <Route path="profile" element={<div className="p-8 text-center text-gray-500">Profile — coming soon.</div>} />
+                <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>
 
@@ -219,6 +220,7 @@ function App() {
                 <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
                 <Route path="ticket-update" element={<EmployeeTicketUpdate />} />
                 <Route path="registration" element={<EmployeeRegistration />} />
+                <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>
 
@@ -246,6 +248,7 @@ function App() {
                 <Route path="history" element={<CSHistory />} />
                 <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
                 <Route path="analytics" element={<div className="p-6 text-gray-500">CS Analytics — coming soon.</div>} />
+                <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>
 
