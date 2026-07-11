@@ -25,6 +25,7 @@ export default function TicketCreation() {
   const [fileError, setFileError] = useState('');
   const [successModal, setSuccessModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [createdTicketId, setCreatedTicketId] = useState(null);
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -92,7 +93,9 @@ export default function TicketCreation() {
         });
       }
       
-      await createTicket(payload);
+      const response = await createTicket(payload);
+      const newTicketId = response.ticket?.ticket_ID || response.ticket_ID;
+      setCreatedTicketId(newTicketId);
       setSuccessModal(true);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to submit ticket. Please try again.');
@@ -104,7 +107,11 @@ export default function TicketCreation() {
 
   const handleSuccessClose = () => {
     setSuccessModal(false);
-    navigate('/customer-dashboard');
+    if (createdTicketId) {
+      navigate('/messages', { state: { selectedTicketId: createdTicketId } });
+    } else {
+      navigate('/customer-dashboard');
+    }
   };
 
   const equipmentOptions = options.equipment_options?.length

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import {
@@ -13,6 +14,23 @@ import {
   getCSIncomingTickets,
   getEmployeeInternalTickets,
 } from '@/services/ticketService';
+
+// ─── Badge Styling Helpers ──────────────────────────────────────────────────
+const statusBadges = {
+  'Open': 'bg-blue-50 text-blue-700 border-blue-100',
+  'In Progress': 'bg-amber-50 text-amber-700 border-amber-100',
+  'Resolved': 'bg-green-50 text-green-700 border-green-100',
+  'Closed': 'bg-gray-50 text-gray-700 border-gray-100',
+  'Pending Assignment': 'bg-indigo-50 text-indigo-700 border-indigo-100',
+  'Pending': 'bg-amber-50 text-amber-700 border-amber-100',
+};
+
+const priorityBadges = {
+  'Low': 'bg-gray-50 text-gray-600 border-gray-200',
+  'Medium': 'bg-blue-50 text-blue-600 border-blue-200',
+  'High': 'bg-orange-50 text-orange-600 border-orange-200',
+  'Critical': 'bg-red-50 text-red-600 border-red-200',
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -76,6 +94,10 @@ export default function MessagingPage() {
   const [activeHistoryMsgId, setActiveHistoryMsgId] = useState(null);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
 
+  const location = useLocation();
+  const initialTicketId = location.state?.selectedTicketId;
+  const [showDetailsSidebar, setShowDetailsSidebar] = useState(true);
+
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedContactId, setSelectedContactId] = useState(null);
@@ -97,7 +119,8 @@ export default function MessagingPage() {
     if (lastLoadIndex === -1) return -1;
     for (let i = lastLoadIndex + 1; i < messages.length; i++) {
       const msg = messages[i];
-      const isMine = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
+      const isMine = (msg.sender_type === userType && Number(msg.sender_id) === Number(userId)) ||
+                     (msg.sender_type === 'cs' && userType === 'cs');
       if (!isMine) {
         return i;
       }
@@ -122,6 +145,22 @@ export default function MessagingPage() {
         }
         if (active) {
           setTickets(list);
+
+          // Auto-select if initialTicketId is in the list
+          if (initialTicketId) {
+            const numericId = Number(initialTicketId);
+            const found = list.find(t => {
+              const ticketId = t.ticket_ID || t.id;
+              const numericTicketId = Number(String(ticketId).replace(/\D/g, ''));
+              return numericTicketId === numericId || String(ticketId) === String(initialTicketId);
+            });
+            if (found) {
+              const selectedId = found.ticket_ID || found.id;
+              setSelectedContactId(selectedId);
+              // Clear location state so it doesn't keep resetting selection on refresh
+              window.history.replaceState({}, document.title);
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to load tickets for messaging page", err);
@@ -131,7 +170,7 @@ export default function MessagingPage() {
     }
     loadTickets();
     return () => { active = false; };
-  }, [isCS, isEmployee, user]);
+  }, [isCS, isEmployee, user, initialTicketId]);
 
   // 2. Map tickets to formatted contacts
   const contacts = useMemo(() => {
@@ -142,7 +181,7 @@ export default function MessagingPage() {
       let type = 'external';
 
       if (isCS) {
-        contactName = t.customer || t.created_by_name || 'Client';
+        contactName = t.customer || t.client_name || t.created_by_name || 'Client';
         contactRole = t.is_internal ? 'Employee' : 'Customer';
         type = t.is_internal ? 'internal' : 'external';
       } else {
@@ -151,16 +190,13 @@ export default function MessagingPage() {
         type = isEmployee ? 'internal' : 'external';
       }
 
-      // Delegated check — only relevant for CS agents (customers always chat on their tickets).
-      // Since csIncoming does not return t.assigned_to but returns t.assigned as an array,
-      // we check both fields to determine if the ticket is assigned.
+      // Delegated check — once a ticket is assigned or moved past Open/Pending status,
+      // it is read-only for both CS agents and Customers.
       const hasAssignment = (t.assigned_to !== undefined && t.assigned_to !== null)
         ? true
         : (Array.isArray(t.assigned) && t.assigned.length > 0);
 
-      const isDelegated = isCS
-        ? (hasAssignment || (t.status !== 'Open' && t.status !== 'Pending Assignment' && t.status !== 'Pending'))
-        : false;
+      const isDelegated = hasAssignment || (t.status !== 'Open' && t.status !== 'Pending Assignment' && t.status !== 'Pending');
 
       return {
         id: ticketId,
@@ -169,11 +205,16 @@ export default function MessagingPage() {
         subtitle: contactName,
         role: contactRole,
         type,
-        status: t.status,
+        status: t.status || t.status_name || 'Open',
         isDelegated,
         requested_by: t.requested_by,
+        description: t.description || 'No description provided.',
+        category: t.category || t.category_name || 'General',
+        equipment: t.equipment || (t.machine_name ? `${t.machine_name} - ${t.serial_number}` : 'Unspecified equipment'),
+        date: t.date_created || t.created_at || t.date || '',
+        priority: t.priority || t.priority_name || 'Low',
       };
-    }).filter(c => isCS ? !c.isDelegated : true);
+    });
   }, [tickets, isCS, isEmployee]);
 
   // 3. Auto select first contact if none selected
@@ -272,12 +313,64 @@ export default function MessagingPage() {
     };
   }, [selectedContactId, currentUserKey]);
 
-  // 5. Scroll to bottom of message logs
+  // 5. Listen to ticket status/updates channel globally
+  useEffect(() => {
+    let active = true;
+    const echo = getMessagingEcho();
+    const updatesChannel = echo.channel('ticket-updates');
+
+    const handleTicketChanged = (e) => {
+      if (!active) return;
+      const changedTicketId = e.ticket_ID || e.ticketId || e.id;
+      if (!changedTicketId) return;
+
+      setTickets(prev => {
+        return prev.map(t => {
+          const tId = t.ticket_ID || t.id;
+          const match = Number(String(tId).replace(/\D/g, '')) === Number(changedTicketId) ||
+                        String(tId) === String(changedTicketId);
+          if (match) {
+            // Read updated ticket details
+            const rawTicket = e.ticket || {};
+            const updatedStatus = rawTicket.status_name || rawTicket.status || t.status || t.status_name;
+            const updatedPriority = rawTicket.priority_name || rawTicket.priority || t.priority || t.priority_name;
+            const updatedDescription = rawTicket.description || t.description;
+            const updatedCategory = rawTicket.category_name || rawTicket.category || t.category;
+            const updatedEquipment = rawTicket.machine_name 
+              ? `${rawTicket.machine_name} - ${rawTicket.serial_number}`
+              : (rawTicket.equipment || t.equipment);
+
+            return {
+              ...t,
+              status: updatedStatus,
+              status_name: updatedStatus,
+              priority: updatedPriority,
+              priority_name: updatedPriority,
+              description: updatedDescription,
+              category: updatedCategory,
+              equipment: updatedEquipment,
+              assigned_to: rawTicket.assigned_to !== undefined ? rawTicket.assigned_to : t.assigned_to,
+            };
+          }
+          return t;
+        });
+      });
+    };
+
+    updatesChannel.listen('.ticket.changed', handleTicketChanged);
+
+    return () => {
+      active = false;
+      updatesChannel.stopListening('.ticket.changed', handleTicketChanged);
+    };
+  }, []);
+
+  // 6. Scroll to bottom of message logs
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, selectedContactId]);
 
-  // 6. Filter contacts
+  // 7. Filter contacts
   const filteredContacts = useMemo(() => {
     let filtered = contacts;
     if (isCS) filtered = filtered.filter(c => c.type === csFilter);
@@ -291,6 +384,7 @@ export default function MessagingPage() {
   const handleSend = useCallback(async () => {
     const text = messageInput.trim();
     if (!text || !selectedContactId) return;
+    if (selectedContact?.isDelegated) return;
 
     setMessageInput('');
 
@@ -306,7 +400,7 @@ export default function MessagingPage() {
       console.error("Failed to send message", err);
       window.alert("Failed to send message. Please try again.");
     }
-  }, [messageInput, selectedContactId]);
+  }, [messageInput, selectedContactId, selectedContact?.isDelegated]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -439,15 +533,31 @@ export default function MessagingPage() {
 
         {/* ── Right Panel ── */}
         {selectedContact ? (
-          <div className="flex-1 flex flex-col min-w-0">
-            {/* Conversation header */}
-            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
-              <Avatar name={selectedContact.subtitle} />
-              <div>
-                <p className="font-semibold text-sm text-gray-800">{selectedContact.displayTitle}</p>
-                <p className="text-xs text-gray-500">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
+          <div className="flex-1 flex flex-row min-w-0">
+            {/* Chat Area */}
+            <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
+              {/* Conversation header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <Avatar name={selectedContact.subtitle} />
+                  <div>
+                    <p className="font-semibold text-sm text-gray-800">{selectedContact.displayTitle}</p>
+                    <p className="text-xs text-gray-500">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDetailsSidebar(!showDetailsSidebar)}
+                  className={`px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 text-xs font-semibold ${
+                    showDetailsSidebar
+                      ? 'bg-[#252578] text-white border-[#252578] shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                  title="Toggle Ticket Details"
+                >
+                  <AlertCircle size={14} />
+                  <span>Ticket Details</span>
+                </button>
               </div>
-            </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
@@ -461,8 +571,34 @@ export default function MessagingPage() {
               ) : (
                 messages.map((msg, idx) => {
                   const msgId = msg.id || msg._id;
-                  const isMine = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
+                  const isMine = (msg.sender_type === userType && Number(msg.sender_id) === Number(userId)) ||
+                                 (msg.sender_type === 'cs' && userType === 'cs');
+                  const isAuthor = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
                   const showNewMessagesBanner = idx === firstNewMessageIndex;
+
+                  if (msg.sender_type === 'system' || msg.sender_name === 'System') {
+                    return (
+                      <React.Fragment key={msgId}>
+                        {showNewMessagesBanner && (
+                          <div className="flex items-center my-4 select-none">
+                            <div className="flex-1 border-t border-gray-200"></div>
+                            <span className="mx-4 text-[10px] font-bold text-gray-600 bg-gray-50 px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm border border-gray-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse shrink-0"></span>
+                              New Messages
+                            </span>
+                            <div className="flex-1 border-t border-gray-200"></div>
+                          </div>
+                        )}
+                        <div className="flex justify-center my-3 select-none">
+                          <span className="text-[11px] text-gray-500 bg-gray-100 border border-gray-200/50 px-3.5 py-1.5 rounded-full shadow-xs flex items-center gap-1.5 font-medium max-w-[90%] text-center">
+                            <AlertCircle size={12} className="text-gray-400 shrink-0" />
+                            {msg.message}
+                          </span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
+
                   return (
                     <React.Fragment key={msgId}>
                       {showNewMessagesBanner && (
@@ -534,7 +670,7 @@ export default function MessagingPage() {
                               </button>
                               {activeMenuMsgId === msgId && (
                                 <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-32 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
-                                  {isMine && (
+                                  {isAuthor && (
                                     <button
                                       onClick={() => {
                                         setEditingMessageId(msgId);
@@ -637,6 +773,91 @@ export default function MessagingPage() {
               </div>
             )}
           </div>
+
+          {/* Collapsible details sidebar */}
+          {showDetailsSidebar && (
+            <div className="w-[300px] xl:w-[320px] bg-white flex flex-col flex-shrink-0 overflow-y-auto border-l border-gray-100 select-none">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 text-sm">Ticket Information</h3>
+                <button onClick={() => setShowDetailsSidebar(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-50">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Ticket ID</p>
+                  <p className="text-sm font-bold text-gray-800 mt-0.5">
+                    {typeof selectedContact.id === 'number'
+                      ? `TKT-${String(selectedContact.id).padStart(4, '0')}`
+                      : selectedContact.id}
+                  </p>
+                </div>
+                
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Title</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5 whitespace-normal break-words leading-relaxed">
+                    {selectedContact.displayTitle}
+                  </p>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status</p>
+                    <div className="mt-1">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        statusBadges[selectedContact.status] || 'bg-gray-50 text-gray-700 border-gray-100'
+                      }`}>
+                        {selectedContact.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Priority</p>
+                    <div className="mt-1">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        priorityBadges[selectedContact.priority] || 'bg-gray-50 text-gray-700 border-gray-100'
+                      }`}>
+                        {selectedContact.priority}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Category</p>
+                  <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.category}</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Equipment</p>
+                  <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.equipment}</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Date Created</p>
+                  <p className="text-xs font-medium text-gray-700 mt-0.5">
+                    {selectedContact.date ? new Date(selectedContact.date).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    }) : 'N/A'}
+                  </p>
+                </div>
+
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Description</p>
+                  <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                    {selectedContact.description}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#f4f7fb]/50">
             <div className="text-center">

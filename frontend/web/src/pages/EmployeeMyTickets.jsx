@@ -609,7 +609,17 @@ export default function EmployeeMyTickets({ roleContext }) {
             </div>
             <h2 className="mt-4 text-lg font-bold text-gray-900">Ticket submitted</h2>
             <p className="mt-2 text-sm text-gray-600">{confirmCreated.id} has been created successfully.</p>
-            <button onClick={() => setConfirmCreated(null)} className="mt-6 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1f1f66]">Done</button>
+             <button
+               onClick={() => {
+                 const ticketId = confirmCreated.ticket_ID || confirmCreated.id;
+                 setConfirmCreated(null);
+                 const targetPath = roleContext === 'cs' ? '/cs/messages' : '/employee/messages';
+                 navigate(targetPath, { state: { selectedTicketId: ticketId } });
+               }}
+               className="mt-6 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1f1f66]"
+             >
+               Done
+             </button>
           </div>
         </div>
       )}

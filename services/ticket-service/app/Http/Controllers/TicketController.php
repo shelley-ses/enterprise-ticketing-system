@@ -417,16 +417,19 @@ class TicketController extends Controller
                 ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+                ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->select(
                     't.ticket_ID',
                     't.title',
+                    't.description',
                     'm.machine_name',
                     'm.serial_number',
                     'ts.status_name',
                     't.created_at',
                     't.updated_at',
                     't.assigned_to',
-                    'pc.category_name'
+                    'pc.category_name',
+                    'tp.priority_name'
                 )
                 ->where('t.created_by', $createdBy)
                 ->where('t.is_internal', false)
@@ -437,9 +440,11 @@ class TicketController extends Controller
                     'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
                     'ticket_ID' => $row->ticket_ID,
                     'title' => $row->title,
+                    'description' => $row->description,
                     'category' => $row->category_name,
                     'equipment' => $row->machine_name . ' - ' . $row->serial_number,
                     'status' => $row->status_name,
+                    'priority' => $row->priority_name ?? 'Low',
                     'date_created' => $row->created_at,
                     'last_updated' => $row->updated_at ?? $row->created_at,
                     'assigned_to' => $row->assigned_to,
@@ -711,6 +716,20 @@ class TicketController extends Controller
             'customer_id' => $validated['created_by'] ?? 1,
         ]);
 
+        // Auto-generate initial welcome message in chat
+        try {
+            \Illuminate\Support\Facades\Http::withHeaders([
+                'X-Internal-Token' => env('INTERNAL_TOKEN'),
+            ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: TKT-" . str_pad((string)$ticketId, 4, '0', STR_PAD_LEFT) . ".",
+                'sender_name' => 'Customer Support Assistant',
+                'sender_type' => 'cs',
+                'sender_id' => null,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to send initial internal message: " . $e->getMessage());
+        }
+
         return response()->json([
             'message' => 'Ticket created successfully.',
             'ticket' => $ticket,
@@ -827,6 +846,20 @@ class TicketController extends Controller
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         $this->clearTicketCaches();
 
+        // Auto-generate initial welcome message in chat
+        try {
+            \Illuminate\Support\Facades\Http::withHeaders([
+                'X-Internal-Token' => env('INTERNAL_TOKEN'),
+            ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: TKT-" . str_pad((string)$ticketId, 4, '0', STR_PAD_LEFT) . ".",
+                'sender_name' => 'Customer Support Assistant',
+                'sender_type' => 'cs',
+                'sender_id' => null,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to send initial internal message: " . $e->getMessage());
+        }
+
         return response()->json([
             'message' => 'Internal ticket created successfully.',
             'ticket' => $ticket,
@@ -856,6 +889,7 @@ class TicketController extends Controller
                 ->select(
                     't.ticket_ID',
                     't.title',
+                    't.description',
                     't.is_internal',
                     't.requested_by',
                     'pc.category_name',
@@ -1195,6 +1229,27 @@ class TicketController extends Controller
             'employee_ids' => $validated['employee_ids'],
         ]);
 
+        // Auto-generate system assignment message in chat
+        try {
+            $empNames = DB::table('employees')
+                ->whereIn('emp_id', $validated['employee_ids'])
+                ->selectRaw("CONCAT(first_name, ' ', last_name) as name")
+                ->pluck('name')
+                ->all();
+            $empNamesStr = implode(', ', $empNames);
+
+            \Illuminate\Support\Facades\Http::withHeaders([
+                'X-Internal-Token' => env('INTERNAL_TOKEN'),
+            ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                'message' => "System: A Service Engineer ({$empNamesStr}) has been assigned to your ticket.",
+                'sender_name' => 'System',
+                'sender_type' => 'system',
+                'sender_id' => null,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to send internal assignment message in assignTicket: " . $e->getMessage());
+        }
+
         $updatedTicket = DB::table('tickets')
             ->where('ticket_ID', $ticketId)
             ->first();
@@ -1300,6 +1355,23 @@ class TicketController extends Controller
                 'assigned_to' => $empId,
                 'employee_ids' => [$empId],
             ]);
+
+            // Auto-generate system acceptance message in chat
+            try {
+                $emp = DB::table('employees')->where('emp_id', $empId)->first();
+                $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : 'Engineer';
+
+                \Illuminate\Support\Facades\Http::withHeaders([
+                    'X-Internal-Token' => env('INTERNAL_TOKEN'),
+                ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                    'message' => "System: Service Engineer {$empName} has accepted and is now working on your ticket.",
+                    'sender_name' => 'System',
+                    'sender_type' => 'system',
+                    'sender_id' => null,
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to send internal acceptance message in acceptTicket: " . $e->getMessage());
+            }
 
             $this->clearTicketCaches();
 
@@ -1463,10 +1535,33 @@ class TicketController extends Controller
             $ticket->title,
             $catName,
             $prioName
-        );        $this->broadcastTicketChange('assigned', $ticketId, [
+        );
+        
+        $this->broadcastTicketChange('assigned', $ticketId, [
             'assigned_to' => $employees->first(),
             'employee_ids' => $employees->all(),
         ]);
+
+        // Auto-generate system assignment message in chat
+        try {
+            $empNames = DB::table('employees')
+                ->whereIn('emp_id', $employees->all())
+                ->selectRaw("CONCAT(first_name, ' ', last_name) as name")
+                ->pluck('name')
+                ->all();
+            $empNamesStr = implode(', ', $empNames);
+
+            \Illuminate\Support\Facades\Http::withHeaders([
+                'X-Internal-Token' => env('INTERNAL_TOKEN'),
+            ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                'message' => "System: A Service Engineer ({$empNamesStr}) has been assigned to your ticket.",
+                'sender_name' => 'System',
+                'sender_type' => 'system',
+                'sender_id' => null,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to send internal assignment message in acceptTicket (CS): " . $e->getMessage());
+        }
 
         $this->clearTicketCaches();
 

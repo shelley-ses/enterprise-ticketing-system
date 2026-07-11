@@ -9,6 +9,8 @@ use App\Http\Controllers\MessageController;
 |--------------------------------------------------------------------------
 */
 
+Route::post('/internal/tickets/{ticket_id}/messages', [MessageController::class, 'storeInternal']);
+
 Route::middleware('auth.subsystem')->group(function () {
     Route::get('/tickets/{ticket_id}/messages', [MessageController::class, 'index']);
     Route::post('/tickets/{ticket_id}/messages', [MessageController::class, 'store']);

@@ -36,6 +36,39 @@ class MessageController extends Controller
     }
 
     /**
+     * Store an auto-generated internal message from a subsystem.
+     */
+    public function storeInternal(Request $request, $ticket_id)
+    {
+        $token = $request->header('X-Internal-Token');
+        if (!$token || $token !== env('INTERNAL_TOKEN')) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $request->validate([
+            'message' => 'required|string|max:5000',
+            'sender_name' => 'required|string|max:255',
+            'sender_type' => 'required|string|max:50',
+            'sender_id' => 'nullable|integer',
+        ]);
+
+        $message = Message::create([
+            'ticket_id' => (int)$ticket_id,
+            'sender_id' => $request->input('sender_id'),
+            'sender_name' => $request->input('sender_name'),
+            'sender_type' => $request->input('sender_type'),
+            'message' => $request->input('message'),
+        ]);
+
+        broadcast(new MessageSent($message))->toOthers();
+
+        return response()->json([
+            'message' => 'Internal message stored successfully.',
+            'message_obj' => $message
+        ], 201);
+    }
+
+    /**
      * Store a new message and broadcast it.
      */
     public function store(Request $request, $ticket_id)

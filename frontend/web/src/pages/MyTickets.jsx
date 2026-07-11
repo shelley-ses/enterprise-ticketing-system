@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MoreVertical, Filter } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
@@ -48,6 +48,7 @@ export default function MyTickets({ mode = 'all' }) {
   const effectiveUser = user || getStoredUser();
   const customerId = effectiveUser?.id || 1;
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -168,9 +169,19 @@ export default function MyTickets({ mode = 'all' }) {
         ? 'TKT-' + String(response.ticket.ticket_ID).padStart(3, '0')
         : 'TKT-' + String(response.ticket_ID || 'new').padStart(3, '0');
         
+      const newTicketId = response.ticket?.ticket_ID || response.ticket_ID;
+        
       setIsModalOpen(false);
       loadTickets({ forceRefresh: true });
-      showSuccess('Ticket submitted', `${createdId} has been created successfully.`);
+      setNotification({
+        type: 'success',
+        title: 'Ticket submitted',
+        message: `${createdId} has been created successfully.`,
+        onClose: () => {
+          setNotification(null);
+          navigate('/messages', { state: { selectedTicketId: newTicketId } });
+        }
+      });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to create ticket.');
@@ -745,7 +756,7 @@ export default function MyTickets({ mode = 'all' }) {
         type={notification?.type}
         title={notification?.title}
         message={notification?.message}
-        onClose={closeNotif}
+        onClose={notification?.onClose || closeNotif}
         onConfirm={notification?.onConfirm}
         onCancel={notification?.onCancel}
         confirmText={notification?.confirmText}

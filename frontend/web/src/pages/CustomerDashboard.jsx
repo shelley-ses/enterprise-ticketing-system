@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Inbox, Clock, CheckCircle, Archive } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
@@ -57,7 +57,9 @@ export default function CustomerDashboard() {
   const [recentTickets, setRecentTickets] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [createdTicketId, setCreatedTicketId] = useState(null);
   const [loadingText, setLoadingText] = useState('Loading...');
+  const navigate = useNavigate();
   const { user } = useAuth();
   const effectiveUser = user || getStoredUser();
   const customerName = effectiveUser?.first_name
@@ -317,11 +319,13 @@ export default function CustomerDashboard() {
     setLoadingText('Creating ticket...');
     setModalLoading(true);
     try {
-      await createTicket({
+      const response = await createTicket({
         ...payload,
         created_by: customerId,
       });
       
+      const newTicketId = response.ticket?.ticket_ID || response.ticket_ID;
+      setCreatedTicketId(newTicketId);
       setIsTicketModalOpen(false);
       setShowSuccess(true);
       setTimeout(() => {
@@ -332,6 +336,13 @@ export default function CustomerDashboard() {
       window.alert(err?.response?.data?.message || 'Failed to create ticket.');
     } finally {
       setModalLoading(false);
+    }
+  };
+
+  const handleCloseSuccess = () => {
+    setShowSuccess(false);
+    if (createdTicketId) {
+      navigate('/messages', { state: { selectedTicketId: createdTicketId } });
     }
   };
 
@@ -408,7 +419,15 @@ export default function CustomerDashboard() {
               <tbody>
                 {recentTickets.length === 0 && (
                   dashboardLoading ? (
-                    <tr><td colSpan="4"><SkeletonLoader variant="table-row" /></td></tr>
+                    <tr>
+                      <td colSpan="4" className="p-0">
+                        <table className="w-full">
+                          <tbody>
+                            <SkeletonLoader variant="table-row" />
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
                   ) : (
                     <tr>
                       <td colSpan="4" className="px-4 py-6 text-center text-sm text-gray-500">
@@ -493,7 +512,7 @@ export default function CustomerDashboard() {
       )}
 
       {showSuccess && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]" onClick={() => setShowSuccess(false)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]" onClick={handleCloseSuccess}>
           <div className="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4 border border-gray-100" onClick={(e) => e.stopPropagation()}>
             <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
               <CheckCircle size={32} className="text-green-600" />
@@ -501,7 +520,7 @@ export default function CustomerDashboard() {
             <h3 className="text-lg font-bold text-gray-900">Ticket Created</h3>
             <p className="text-sm text-gray-500 text-center">Your ticket has been submitted successfully.</p>
             <button
-              onClick={() => setShowSuccess(false)}
+              onClick={handleCloseSuccess}
               className="mt-2 px-6 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1a1a5c] transition-colors"
             >
               Got it
