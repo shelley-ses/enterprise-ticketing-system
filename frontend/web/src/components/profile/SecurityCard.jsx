@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 export default function SecurityCard() {
+  const { changePassword } = useAuth();
   const [form, setForm] = useState({ current: '', next: '', confirm: '' });
   const [touched, setTouched] = useState({});
   const [show, setShow] = useState({ current: false, next: false, confirm: false });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const pwRules = {
     minLength: form.next.length >= 8,
@@ -35,13 +40,30 @@ export default function SecurityCard() {
     return `${base} border-gray-200 focus:border-[#252578] focus:ring-[#252578]/10 text-gray-800`;
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     setTouched({ current: true, next: true, confirm: true });
     if (!form.current || !passwordValid || passwordMismatch) return;
-    setForm({ current: '', next: '', confirm: '' });
-    setTouched({});
-    setShow({ current: false, next: false, confirm: false });
+
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const res = await changePassword(form.current, form.next, form.confirm);
+      if (res.success) {
+        setSuccess('Password updated successfully.');
+        setForm({ current: '', next: '', confirm: '' });
+        setTouched({});
+        setShow({ current: false, next: false, confirm: false });
+      } else {
+        setError(res.error || 'Failed to update password.');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -57,6 +79,20 @@ export default function SecurityCard() {
       </div>
 
       <form onSubmit={handleSave} className="px-6 py-5">
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2.5 text-xs text-red-600 font-semibold animate-fade-in">
+            <AlertCircle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-2.5 text-xs text-emerald-600 font-semibold animate-fade-in">
+            <CheckCircle size={14} className="shrink-0" />
+            <span>{success}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Current Password */}
           <div className="space-y-1.5">
@@ -158,9 +194,10 @@ export default function SecurityCard() {
         <div className="mt-4">
           <button
             type="submit"
-            className="h-9 px-5 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors"
+            disabled={saving}
+            className="h-9 px-5 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors disabled:opacity-50"
           >
-            Update password
+            {saving ? 'Updating password...' : 'Update password'}
           </button>
         </div>
       </form>

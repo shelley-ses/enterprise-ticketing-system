@@ -17,6 +17,7 @@ const AuthContext = createContext({
   register: async () => ({ success: false }),
   logout: async () => ({ success: true }),
   updateProfile: async () => ({ success: false }),
+  changePassword: async () => ({ success: false }),
   clearError: () => {},
   revalidateSession: async () => false,
 });
@@ -66,8 +67,21 @@ const checkIsEmployee = (user) => {
 
 const normalizeUser = (userData) => {
   if (!userData) return null;
+
+  let firstName = userData.first_name;
+  let lastName = userData.last_name;
+
+  if (!firstName && userData.client_name) {
+    const parts = userData.client_name.split(' ');
+    firstName = parts[0];
+    lastName = parts.slice(1).join(' ');
+  }
+
   return {
     ...userData,
+    first_name: firstName || userData.name || '',
+    last_name: lastName || '',
+    phone: userData.phone || userData.contact_number || '',
     role: userData.role || 'customer',
   };
 };
@@ -465,6 +479,36 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Change password
+  const changePassword = useCallback(async (currentPassword, newPassword, confirmPassword) => {
+    try {
+      setError(null);
+
+      if (MOCK_AUTH_ENABLED) {
+        return { success: true };
+      }
+
+      const { fetchEncryptionKey, encryptPayload } = await import('@/utils/rsa');
+      const { public_key, key_id } = await fetchEncryptionKey();
+
+      const response = await axiosInstance.post('/change-password', {
+        current_password: encryptPayload(currentPassword, public_key),
+        new_password: encryptPayload(newPassword, public_key),
+        new_password_confirmation: encryptPayload(confirmPassword, public_key),
+      }, {
+        headers: {
+          'X-Key-Id': key_id
+        }
+      });
+
+      return { success: true, message: response.data.message };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to change password';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   // Heartbeat loop for employees
   useEffect(() => {
     if (!isAuthenticated || !user || user.role === 'customer' || user.role === 'customer service') {
@@ -498,6 +542,7 @@ export function AuthProvider({ children }) {
     register,
     logout,
     updateProfile,
+    changePassword,
     clearError,
     revalidateSession,
   };

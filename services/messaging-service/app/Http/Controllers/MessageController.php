@@ -96,8 +96,117 @@ class MessageController extends Controller
             'message' => $request->input('message'),
         ]);
 
-        // Broadcast to Reverb
+        // Broadcast to Reverb (port 6002) for real-time messaging
         broadcast(new MessageSent($message))->toOthers();
+
+        // Create Notifications in MySQL & Broadcast TicketChanged on central Reverb
+        try {
+            $ticket = \Illuminate\Support\Facades\DB::connection('mysql')
+                ->table('tickets')
+                ->where('ticket_ID', (int)$ticket_id)
+                ->first();
+
+            if ($ticket) {
+                $recipients = []; // array of ['id' => X, 'type' => 'client'|'employee']
+                
+                // Get assigned employee IDs
+                $assignedEmpIds = [];
+                if ($ticket->assigned_to) {
+                    $assignedEmpIds[] = (int)$ticket->assigned_to;
+                }
+                $dbAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                    ->table('ticket_assignments')
+                    ->where('ticket_ID', (int)$ticket_id)
+                    ->pluck('employee_ID')
+                    ->map(fn($id) => (int)$id)
+                    ->all();
+                $assignedEmpIds = array_unique(array_merge($assignedEmpIds, $dbAssigned));
+
+                if ($senderType === 'customer') {
+                    // Message from customer -> notify all assigned employees, or CS if none assigned
+                    if (empty($assignedEmpIds)) {
+                        $assignedEmpIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('employees')
+                            ->where('role', 'customer service')
+                            ->pluck('emp_id')
+                            ->map(fn($id) => (int)$id)
+                            ->all();
+                    }
+                    
+                    foreach ($assignedEmpIds as $empId) {
+                        $recipients[] = [
+                            'id' => $empId,
+                            'type' => 'employee'
+                        ];
+                    }
+                } else {
+                    // Message from employee or CS agent -> notify customer/requester AND other assigned employees
+                    if ($ticket->is_internal) {
+                        // Internal ticket: notify requester (if not sender) AND other assigned employees
+                        $requesterId = (int)$ticket->requested_by;
+                        if ($senderId !== $requesterId) {
+                            $recipients[] = [
+                                'id' => $requesterId,
+                                'type' => 'employee'
+                            ];
+                        }
+                        
+                        foreach ($assignedEmpIds as $empId) {
+                            if ($senderId !== $empId) {
+                                $recipients[] = [
+                                    'id' => $empId,
+                                    'type' => 'employee'
+                                ];
+                            }
+                        }
+                    } else {
+                        // External ticket: notify customer AND other assigned employees
+                        $recipients[] = [
+                            'id' => (int)$ticket->created_by,
+                            'type' => 'client'
+                        ];
+
+                        foreach ($assignedEmpIds as $empId) {
+                            if ($senderId !== $empId) {
+                                $recipients[] = [
+                                    'id' => $empId,
+                                    'type' => 'employee'
+                                ];
+                            }
+                        }
+                    }
+                }
+
+                // Insert notifications in MySQL DB
+                foreach ($recipients as $recipient) {
+                    \Illuminate\Support\Facades\DB::connection('mysql')
+                        ->table('notifications')
+                        ->insert([
+                            'recipient_id' => $recipient['id'],
+                            'recipient_type' => $recipient['type'],
+                            'title' => 'New Message on Ticket #' . $ticket_id,
+                            'message' => $senderName . ': ' . \Illuminate\Support\Str::limit($message->message, 60),
+                            'ticket_id' => (int)$ticket_id,
+                            'is_read' => false,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                }
+
+                // Broadcast TicketChanged event to update frontend headers (port 6001) in real-time
+                event(new \App\Events\TicketChanged([
+                    'action' => 'message_sent',
+                    'ticket_ID' => (int)$ticket_id,
+                    'ticketId' => (int)$ticket_id,
+                    'updated_at' => now()->toISOString(),
+                    'customer_id' => $ticket->created_by,
+                    'assigned_to' => $ticket->assigned_to,
+                    'ticket_status_ID' => $ticket->ticket_status_ID,
+                ]));
+            }
+        } catch (\Exception $ex) {
+            \Illuminate\Support\Facades\Log::error('Error creating notification for message: ' . $ex->getMessage());
+        }
 
         return response()->json([
             'message' => 'Message sent successfully',

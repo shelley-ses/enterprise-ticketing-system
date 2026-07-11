@@ -84,8 +84,26 @@ export default function MessagingPage() {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [lastMessageIdOnLoad, setLastMessageIdOnLoad] = useState(null);
 
   const messagesEndRef = useRef(null);
+
+  const lastLoadIndex = useMemo(() => {
+    if (!lastMessageIdOnLoad) return -1;
+    return messages.findIndex(m => (m.id === lastMessageIdOnLoad || m._id === lastMessageIdOnLoad));
+  }, [messages, lastMessageIdOnLoad]);
+
+  const firstNewMessageIndex = useMemo(() => {
+    if (lastLoadIndex === -1) return -1;
+    for (let i = lastLoadIndex + 1; i < messages.length; i++) {
+      const msg = messages[i];
+      const isMine = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
+      if (!isMine) {
+        return i;
+      }
+    }
+    return -1;
+  }, [messages, lastLoadIndex, userType, userId]);
 
   // 1. Fetch tickets for chat list
   useEffect(() => {
@@ -182,6 +200,12 @@ export default function MessagingPage() {
         if (active) {
           setMessages(msgs);
           setMessagesLoading(false);
+          if (msgs.length > 0) {
+            const lastMsg = msgs[msgs.length - 1];
+            setLastMessageIdOnLoad(lastMsg.id || lastMsg._id);
+          } else {
+            setLastMessageIdOnLoad(null);
+          }
         }
       })
       .catch(err => {
@@ -290,6 +314,13 @@ export default function MessagingPage() {
       handleSend();
     }
   }, [handleSend]);
+
+  const handleInputFocus = useCallback(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      setLastMessageIdOnLoad(lastMsg.id || lastMsg._id);
+    }
+  }, [messages]);
 
   const handleUpdateMessage = useCallback(async (messageId) => {
     const trimmed = editInputText.trim();
@@ -428,12 +459,24 @@ export default function MessagingPage() {
                   <p className="text-xs">No messages yet. Send a message to start the conversation.</p>
                 </div>
               ) : (
-                messages.map(msg => {
+                messages.map((msg, idx) => {
                   const msgId = msg.id || msg._id;
                   const isMine = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
+                  const showNewMessagesBanner = idx === firstNewMessageIndex;
                   return (
-                    <div key={msgId} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
-                      <div className="max-w-[75%] flex flex-col">
+                    <React.Fragment key={msgId}>
+                      {showNewMessagesBanner && (
+                        <div className="flex items-center my-4 select-none">
+                          <div className="flex-1 border-t border-gray-200"></div>
+                          <span className="mx-4 text-[10px] font-bold text-gray-600 bg-gray-50 px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm border border-gray-200 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse shrink-0"></span>
+                            New Messages
+                          </span>
+                          <div className="flex-1 border-t border-gray-200"></div>
+                        </div>
+                      )}
+                      <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
+                        <div className="max-w-[75%] flex flex-col">
                         <div className="text-[10px] text-gray-400 mb-0.5 px-1 flex justify-between gap-2">
                           <span>{msg.sender_name}</span>
                         </div>
@@ -490,7 +533,7 @@ export default function MessagingPage() {
                                 <MoreVertical size={14} />
                               </button>
                               {activeMenuMsgId === msgId && (
-                                <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-28 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
+                                <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-32 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
                                   {isMine && (
                                     <button
                                       onClick={() => {
@@ -498,7 +541,7 @@ export default function MessagingPage() {
                                         setEditInputText(msg.message);
                                         setActiveMenuMsgId(null);
                                       }}
-                                      className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 cursor-pointer font-medium"
+                                      className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 cursor-pointer font-medium whitespace-nowrap"
                                     >
                                       <Edit2 size={12} />
                                       Edit
@@ -509,7 +552,7 @@ export default function MessagingPage() {
                                       handleDeleteMessage(msgId);
                                       setActiveMenuMsgId(null);
                                     }}
-                                    className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-red-600 hover:text-red-700 cursor-pointer font-medium"
+                                    className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-red-600 hover:text-red-700 cursor-pointer font-medium whitespace-nowrap"
                                   >
                                     <Trash2 size={12} />
                                     Delete for you
@@ -549,6 +592,7 @@ export default function MessagingPage() {
                         )}
                       </div>
                     </div>
+                    </React.Fragment>
                   );
                 })
               )}
@@ -578,6 +622,7 @@ export default function MessagingPage() {
                     value={messageInput}
                     onChange={e => setMessageInput(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    onFocus={handleInputFocus}
                     placeholder="Type a message..."
                     className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
                   />

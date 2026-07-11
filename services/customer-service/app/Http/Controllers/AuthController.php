@@ -419,4 +419,35 @@ class AuthController extends Controller
             'last_seen_at' => $user->last_seen_at->toISOString(),
         ]);
     }
+
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        if ($user instanceof Employee) {
+            return response()->json(['message' => 'SSO users cannot edit profile details locally.'], 403);
+        }
+
+        $validated = $request->validate([
+            'firstName' => 'required|string|max:255',
+            'lastName' => 'required|string|max:255',
+            'email' => 'required|email|unique:clients,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+        ]);
+
+        $user->client_name = trim($validated['firstName'] . ' ' . $validated['lastName']);
+        $user->email = $validated['email'];
+        if ($request->has('phone')) {
+            $user->contact_number = $validated['phone'] ?? '';
+        }
+        $user->save();
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => $user,
+        ]);
+    }
 }

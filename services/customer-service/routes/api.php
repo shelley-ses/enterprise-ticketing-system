@@ -30,6 +30,7 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/heartbeat', [AuthController::class, 'heartbeat']);
     Route::post('/change-password', [AuthController::class, 'changePassword'])->middleware(['throttle:otp_request', 'decrypt.rsa:current_password,new_password,new_password_confirmation']);
+    Route::put('/profile', [AuthController::class, 'updateProfile']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/employee-statuses', [AuthController::class, 'employeeStatuses']);
     Route::get('/user', function (Request $request) {

@@ -22,7 +22,7 @@ export const formatDisplayDate = (dateStr) => {
 
 export const formatRelativeTime = (dateStr) => {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  const date = parseUTCDate(dateStr);
   if (isNaN(date.getTime())) return dateStr;
 
   const now = new Date();

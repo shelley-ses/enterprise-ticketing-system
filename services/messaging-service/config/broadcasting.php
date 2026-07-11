@@ -64,6 +64,19 @@ return [
             ],
         ],
 
+        'central_reverb' => [
+            'driver' => 'reverb',
+            'key' => 'local',
+            'secret' => 'local',
+            'app_id' => 'local',
+            'options' => [
+                'host' => 'reverb',
+                'port' => 6001,
+                'scheme' => 'http',
+                'useTLS' => false,
+            ],
+        ],
+
         'ably' => [
             'driver' => 'ably',
             'key' => env('ABLY_KEY'),
