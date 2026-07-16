@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Inbox, Clock, CheckCircle, Archive } from 'lucide-react';
+import { Inbox, Clock, CheckCircle, Archive, Bot } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -362,18 +362,12 @@ export default function CustomerDashboard() {
             <p className="text-white/70 text-sm">Here's a summary of your equipment support tickets.</p>
           </div>
           <div className="relative z-10 flex flex-col gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsTicketModalOpen(true)}
-              className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all"
-            >
-              Submit New Ticket
-            </button>
             <Link
-              to="/my-tickets"
-              className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-medium transition-all text-center"
+              to="/ai-support"
+              className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
             >
-              View All Tickets
+              <Bot size={20} />
+              AI Support Assistant
             </Link>
           </div>
         </div>

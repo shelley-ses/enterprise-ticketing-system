@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Inbox, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Inbox, Clock, CheckCircle, AlertTriangle, Bot } from 'lucide-react';
 import { getCSDashboard } from '@/services/ticketService';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -226,17 +226,11 @@ export default function CSDashboard() {
         <div className="relative z-10 flex flex-col gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => navigate('/cs/incoming')}
-            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all"
+            onClick={() => navigate('/ai-support')}
+            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
           >
-            View Incoming
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/cs/assigned')}
-            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-medium transition-all"
-          >
-            View Assigned
+            <Bot size={20} />
+            AI Support Assistant
           </button>
         </div>
       </div>

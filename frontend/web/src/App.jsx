@@ -32,6 +32,7 @@ const CSAssigned = React.lazy(() => import('./pages/CSAssigned.jsx'));
 const CSHistory = React.lazy(() => import('./pages/CSHistory.jsx'));
 const Notifications = React.lazy(() => import('./pages/Notifications.jsx'));
 const MessagingPage = React.lazy(() => import('./pages/MessagingPage.jsx'));
+const AISupportPage = React.lazy(() => import('./pages/AISupportPage.jsx'));
 const Profile = React.lazy(() => import('./pages/Profile.jsx'));
 
 // Lazy loaded SuperAdmin page and layout components
@@ -39,6 +40,7 @@ const SuperAdminLayout = React.lazy(() => import('./components/SuperAdminLayout.
 const SuperAdminTicketConfig = React.lazy(() => import('./pages/SuperAdminTicketConfig.jsx'));
 const SuperAdminAuditLogs = React.lazy(() => import('./pages/SuperAdminAuditLogs.jsx'));
 const SuperAdminHistory = React.lazy(() => import('./pages/SuperAdminHistory.jsx'));
+const AIKnowledgeBase = React.lazy(() => import('./pages/AIKnowledgeBase.jsx'));
 const SuperAdminDevLogin = React.lazy(() => import('./pages/SuperAdminDevLogin.jsx'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 
@@ -230,6 +232,9 @@ function App() {
               <Route path="/employee-progress" element={<Navigate to="/employee/progress" replace />} />
               <Route path="/employee-registration" element={<Navigate to="/employee/registration" replace />} />
 
+              {/* /ai-support — accessible by all authenticated roles */}
+              <Route path="/ai-support" element={<AISupportPage />} />
+
               {/* Customer Service (CS) Routes */}
               <Route
                 path="/cs"
@@ -265,6 +270,9 @@ function App() {
                 <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
                 <Route path="history" element={<SuperAdminHistory />} />
+                <Route path="knowledge-base" element={<AIKnowledgeBase />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="notifications" element={<Notifications />} />
               </Route>
 
               <Route path="/employee-login" element={<Navigate to="/login/employee" replace />} />

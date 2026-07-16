@@ -5,7 +5,7 @@ import pendingIcon from '@/assets/cs-pending.png';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, Bot } from 'lucide-react';
 import {
   recentProgress,
   statusColors,
@@ -386,9 +386,8 @@ export default function EmployeeDashboard() {
   const urgentTicket = visible.find((t) => t.status === 'Escalated');
   const escalatedTicket = visible.find((t) => t.priority === 'Critical' && t.status !== 'Resolved');
 
-  const goAssigned = () => navigate('/employee/assigned');
   const goMachine = () => navigate('/employee/machine');
-  const goProgress = () => navigate('/employee/progress');
+  const goAISupport = () => navigate('/ai-support');
 
 
   return (
@@ -412,24 +411,11 @@ export default function EmployeeDashboard() {
         <div className="relative z-10 flex flex-col gap-2 shrink-0">
           <button
             type="button"
-            onClick={goAssigned}
-            className="px-5 py-2 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-xs font-semibold transition-all"
+            onClick={goAISupport}
+            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
           >
-            Incoming Tickets
-          </button>
-          <button
-            type="button"
-            onClick={goMachine}
-            className="px-5 py-2 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-xs font-semibold transition-all"
-          >
-            Assigned Tickets
-          </button>
-          <button
-            type="button"
-            onClick={goProgress}
-            className="px-5 py-2 bg-white/10 hover:bg-white/25 border border-white/20 rounded-xl text-white text-xs font-medium transition-all"
-          >
-            Ticket History
+            <Bot size={20} />
+            AI Support Assistant
           </button>
         </div>
       </div>
