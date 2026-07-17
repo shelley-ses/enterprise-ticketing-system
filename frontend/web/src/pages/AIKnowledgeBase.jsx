@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Book, Search, Filter, ChevronDown, X, Upload, FileText, Download,
   Trash2, Edit3, Eye, RefreshCw, Plus, FolderOpen, CheckCircle,
   AlertTriangle, Loader, File, FileSpreadsheet, Archive, ArrowUpDown,
 } from 'lucide-react';
+import axios from 'axios';
+import { KB_API_URL } from '@/config/api.config';
 
 const MOCK_CATEGORIES = [
   'User Manuals', 'Troubleshooting Guides', 'FAQs',
@@ -207,15 +209,16 @@ function CategoriesManager({ isOpen, onClose }) {
   );
 }
 
-function UploadModal({ isOpen, onClose }) {
+function UploadModal({ isOpen, onClose, onUploadComplete }) {
   const [step, setStep] = useState('form');
   const [progress, setProgress] = useState(0);
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [form, setForm] = useState({ title: '', category: '', machine: '', version: '', description: '', tags: '' });
+  const [uploadError, setUploadError] = useState('');
 
-  const reset = () => { setStep('form'); setProgress(0); setCurrentStepIdx(0); setSelectedFile(null); setForm({ title: '', category: '', machine: '', version: '', description: '', tags: '' }); };
+  const reset = () => { setStep('form'); setProgress(0); setCurrentStepIdx(0); setSelectedFile(null); setForm({ title: '', category: '', machine: '', version: '', description: '', tags: '' }); setUploadError(''); };
 
   if (!isOpen) return null;
 
@@ -225,19 +228,52 @@ function UploadModal({ isOpen, onClose }) {
     if (file) setSelectedFile(file);
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     setStep('uploading');
     setProgress(0);
     setCurrentStepIdx(0);
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        const next = prev + (100 / (UPLOAD_STEPS.length * 2));
-        if (next >= 100) { clearInterval(interval); return 100; }
-        const newIdx = Math.floor((next / 100) * UPLOAD_STEPS.length);
-        setCurrentStepIdx(Math.min(newIdx, UPLOAD_STEPS.length - 1));
-        return next;
+    setUploadError('');
+
+    // Animate steps for the first 2 steps (uploading)
+    setCurrentStepIdx(0);
+    setProgress(10);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('title', form.title);
+      formData.append('category', form.category || 'Uncategorized');
+      formData.append('machine', form.machine || 'No Machine');
+      formData.append('version', form.version || '1.0');
+      formData.append('description', form.description || '');
+      formData.append('tags', form.tags || '');
+
+      setCurrentStepIdx(1);
+      setProgress(20);
+
+      const res = await axios.post(`${KB_API_URL}/documents`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 30) / progressEvent.total) + 20;
+          setProgress(percentCompleted);
+        },
       });
-    }, 600);
+
+      // Simulate remaining processing steps
+      for (let i = 2; i < UPLOAD_STEPS.length; i++) {
+        setCurrentStepIdx(i);
+        setProgress(20 + ((i + 1) / UPLOAD_STEPS.length) * 80);
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+
+      setProgress(100);
+      setCurrentStepIdx(UPLOAD_STEPS.length - 1);
+      if (onUploadComplete) onUploadComplete();
+    } catch (err) {
+      console.error('Upload failed:', err);
+      setUploadError(err.response?.data?.message || 'Upload failed. Please try again.');
+      setStep('form');
+    }
   };
 
   const totalSize = selectedFile ? (selectedFile.size / 1024 / 1024).toFixed(1) : 0;
@@ -254,6 +290,12 @@ function UploadModal({ isOpen, onClose }) {
 
         {step === 'form' && (
           <div className="overflow-y-auto px-6 py-4 space-y-4 flex-1">
+            {uploadError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                {uploadError}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Document Title</label>
@@ -268,10 +310,7 @@ function UploadModal({ isOpen, onClose }) {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Machine Model</label>
-                <select value={form.machine} onChange={e => setForm({ ...form, machine: e.target.value })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                  <option value="">Optional</option>
-                  {MOCK_MACHINES.map(m => <option key={m}>{m}</option>)}
-                </select>
+                <input type="text" value={form.machine} onChange={e => setForm({ ...form, machine: e.target.value })} placeholder="e.g. Canon X120" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Version</label>
@@ -306,7 +345,7 @@ function UploadModal({ isOpen, onClose }) {
                   <>
                     <Upload size={32} className="mx-auto text-gray-300 mb-2" />
                     <p className="text-sm text-gray-500">Drag & drop a file here, or <span className="text-[#252578] font-semibold">browse</span></p>
-                    <p className="text-xs text-gray-400 mt-1">Supported: PDF, DOC, DOCX, TXT (max 50 MB)</p>
+                    <p className="text-xs text-gray-400 mt-1">Supported: PDF, DOC, DOCX, TXT (max 10 MB)</p>
                     <input type="file" accept=".pdf,.doc,.docx,.txt" onChange={handleFileDrop} className="hidden" id="file-upload" />
                     <label htmlFor="file-upload" className="inline-block mt-3 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:border-[#252578] hover:text-[#252578] transition-all cursor-pointer">Choose File</label>
                   </>
@@ -466,27 +505,25 @@ function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
   );
 }
 
-function AISidePanel() {
+function AISidePanel({ summary }) {
   return (
     <div className="w-full xl:w-72 bg-white border-l border-gray-100 flex flex-col flex-shrink-0">
       <div className="p-4 border-b border-gray-100">
         <h3 className="text-sm font-bold text-gray-800">Knowledge Base Status</h3>
       </div>
       <div className="p-4 space-y-4">
-        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Documents Indexed</p><p className="text-lg font-bold text-gray-800 mt-0.5">1,247</p></div>
-        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Categories</p><p className="text-lg font-bold text-gray-800 mt-0.5">7</p></div>
+        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Documents Indexed</p><p className="text-lg font-bold text-gray-800 mt-0.5">{summary?.ready || 0}</p></div>
+        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Categories</p><p className="text-lg font-bold text-gray-800 mt-0.5">{summary?.categories || 0}</p></div>
         <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">AI Service Status</p><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-semibold mt-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />Operational</span></div>
-        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Knowledge Base Status</p><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold mt-1"><RefreshCw size={11} />Syncing</span></div>
-        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Last Synchronization</p><p className="text-sm font-medium text-gray-700 mt-0.5">2 minutes ago</p></div>
-        <div className="pt-3 border-t border-gray-100">
-          <button className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:border-[#252578] hover:text-[#252578] transition-all cursor-pointer"><RefreshCw size={14} />Sync Now</button>
-        </div>
+        <div><p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Processing</p><p className="text-lg font-bold text-gray-800 mt-0.5">{summary?.processing || 0}</p></div>
       </div>
     </div>
   );
 }
 
 function AIKnowledgeBase() {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -502,32 +539,81 @@ function AIKnowledgeBase() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [selectedDocs, setSelectedDocs] = useState([]);
 
+  const fetchDocuments = useCallback(() => {
+    setLoading(true);
+    axios.get(`${KB_API_URL}/documents`)
+      .then(res => {
+        if (res.data.success) {
+          setDocuments(res.data.conversations || []);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch documents:', err);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
   const filteredDocs = useMemo(() => {
-    let docs = [...MOCK_DOCUMENTS];
-    if (search) { const q = search.toLowerCase(); docs = docs.filter(d => d.title.toLowerCase().includes(q) || d.description.toLowerCase().includes(q) || d.tags.some(t => t.includes(q))); }
+    let docs = [...documents];
+    if (search) { const q = search.toLowerCase(); docs = docs.filter(d => d.title.toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q) || (d.tags || []).some(t => t.includes(q))); }
     if (filterCategory) docs = docs.filter(d => d.category === filterCategory);
     if (filterStatus) docs = docs.filter(d => d.status === filterStatus);
     if (filterMachine) docs = docs.filter(d => d.machine === filterMachine);
     if (filterFileType) docs = docs.filter(d => d.fileType === filterFileType);
     docs.sort((a, b) => sortOrder === 'newest' ? new Date(b.uploadDate) - new Date(a.uploadDate) : new Date(a.uploadDate) - new Date(b.uploadDate));
     return docs;
-  }, [search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
+  }, [documents, search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
 
   const summary = useMemo(() => ({
-    total: MOCK_DOCUMENTS.length,
-    ready: MOCK_DOCUMENTS.filter(d => d.status === 'Ready').length,
-    processing: MOCK_DOCUMENTS.filter(d => d.status === 'Processing').length,
-    failed: MOCK_DOCUMENTS.filter(d => d.status === 'Failed').length,
+    total: documents.length,
+    ready: documents.filter(d => d.status === 'Ready').length,
+    processing: documents.filter(d => d.status === 'Processing').length,
+    failed: documents.filter(d => d.status === 'Failed').length,
     categories: MOCK_CATEGORIES.length,
-  }), []);
+  }), [documents]);
 
-  const allFileTypes = useMemo(() => [...new Set(MOCK_DOCUMENTS.map(d => d.fileType))], []);
+  const allFileTypes = useMemo(() => [...new Set(documents.map(d => d.fileType).filter(Boolean))], [documents]);
 
   const handleView = (doc) => { setSelectedDoc(doc); setShowDetailModal(true); };
   const handleEdit = (doc) => { setSelectedDoc(doc); setShowEditModal(true); };
   const handleDelete = (doc) => { setSelectedDoc(doc); setShowDeleteModal(true); };
   const handleReplace = (doc) => { setSelectedDoc(doc); setShowReplaceModal(true); };
-  const handleSaveEdit = (form) => { setShowEditModal(false); };
+
+  const handleSaveEdit = (form) => {
+    if (!selectedDoc) return;
+    axios.put(`${KB_API_URL}/documents/${selectedDoc.id}`, {
+      title: form.title,
+      category: form.category,
+      machine: form.machine,
+      version: form.version,
+      tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      description: form.description,
+    })
+    .then(() => {
+      setShowEditModal(false);
+      fetchDocuments();
+    })
+    .catch(err => console.error('Failed to update document:', err));
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedDoc) return;
+    axios.delete(`${KB_API_URL}/documents/${selectedDoc.id}`)
+      .then(() => {
+        setShowDeleteModal(false);
+        fetchDocuments();
+      })
+      .catch(err => console.error('Failed to delete document:', err));
+  };
+
+  const handleConfirmReplace = () => {
+    // The replace modal should have a file input; for now close and re-upload
+    setShowReplaceModal(false);
+  };
 
   const toggleSelectDoc = (id) => {
     setSelectedDocs(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -568,7 +654,12 @@ function AIKnowledgeBase() {
 
       <div className="flex flex-col xl:flex-row gap-6">
         <div className="flex-1 min-w-0">
-          {filteredDocs.length === 0 ? (
+          {loading ? (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex items-center justify-center py-20">
+              <Loader size={24} className="animate-spin text-[#252578]" />
+              <span className="ml-3 text-sm text-gray-500">Loading documents...</span>
+            </div>
+          ) : filteredDocs.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
               <EmptyState onUpload={() => setShowUploadModal(true)} />
             </div>
@@ -604,7 +695,7 @@ function AIKnowledgeBase() {
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50">
                       <th className="text-left px-4 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider w-8">
-                        <input type="checkbox" onChange={e => setSelectedDocs(e.target.checked ? MOCK_DOCUMENTS.map(d => d.id) : [])} checked={selectedDocs.length === MOCK_DOCUMENTS.length && MOCK_DOCUMENTS.length > 0} className="rounded border-gray-300" />
+                        <input type="checkbox" onChange={e => setSelectedDocs(e.target.checked ? documents.map(d => d.id) : [])} checked={selectedDocs.length === documents.length && documents.length > 0} className="rounded border-gray-300" />
                       </th>
                       <th className="text-left px-4 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Document Title</th>
                       <th className="text-left px-4 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Category</th>
@@ -651,21 +742,21 @@ function AIKnowledgeBase() {
               </div>
 
               <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                <span>{filteredDocs.length} of {MOCK_DOCUMENTS.length} documents</span>
+                <span>{filteredDocs.length} of {documents.length} documents</span>
                 {selectedDocs.length > 0 && <span>{selectedDocs.length} selected</span>}
               </div>
             </div>
           )}
         </div>
 
-        <AISidePanel />
+        <AISidePanel summary={summary} />
       </div>
 
-      <UploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} />
+      <UploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUploadComplete={fetchDocuments} />
       <DocumentDetailModal isOpen={showDetailModal} doc={selectedDoc} onClose={() => setShowDetailModal(false)} />
       <EditMetadataModal isOpen={showEditModal} doc={selectedDoc} onClose={() => setShowEditModal(false)} onSave={handleSaveEdit} />
-      <DeleteConfirmModal isOpen={showDeleteModal} title={selectedDoc?.title} onClose={() => setShowDeleteModal(false)} onConfirm={() => setShowDeleteModal(false)} />
-      <ReplaceConfirmModal isOpen={showReplaceModal} title={selectedDoc?.title} onClose={() => setShowReplaceModal(false)} onConfirm={() => setShowReplaceModal(false)} />
+      <DeleteConfirmModal isOpen={showDeleteModal} title={selectedDoc?.title} onClose={() => setShowDeleteModal(false)} onConfirm={handleConfirmDelete} />
+      <ReplaceConfirmModal isOpen={showReplaceModal} title={selectedDoc?.title} onClose={() => setShowReplaceModal(false)} onConfirm={handleConfirmReplace} />
       <CategoriesManager isOpen={showCategories} onClose={() => setShowCategories(false)} />
     </div>
   );

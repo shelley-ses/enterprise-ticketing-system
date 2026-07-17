@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Plus, MessageSquare, Trash2, ArrowLeft, Clock } from 'lucide-react';
+import axiosInstance from '@/api/axiosInstance';
+import { AI_API_URL } from '@/config/api.config';
 
 const formatTime = (iso) => {
   if (!iso) return '';
@@ -41,6 +43,24 @@ const welcomeMessage = {
       <p className="text-sm leading-relaxed">
         I can help troubleshoot your purchased machines using the company's knowledge base, manuals, FAQs, and troubleshooting guides. If your issue cannot be resolved, I can also assist in preparing a support ticket for submission.
       </p>
+    </div>
+  ),
+  timestamp: new Date().toISOString(),
+};
+
+const gatherDetailsMessage = {
+  id: 'gather-details',
+  role: 'ai',
+  content: (
+    <div>
+      <p className="text-sm font-semibold mb-2">Before I begin troubleshooting, I'd like to gather a few details so I can provide the most accurate assistance</p>
+      <ol className="list-decimal list-inside text-sm space-y-1 text-gray-700">
+        <li>What machine are you having an issue?</li>
+        <li>What is the brand and model of the machine?</li>
+        <li>Do you know the serial number? (Type "Not Available" if you dont)</li>
+        <li>What problem are you experiencing?</li>
+        <li>Are there any troubleshooting you already did?</li>
+      </ol>
     </div>
   ),
   timestamp: new Date().toISOString(),
@@ -278,13 +298,9 @@ function AISupportPage() {
   const inputRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [conversations, setConversations] = useState([
-    { id: 'conv-1', title: 'Printer Error 402', timestamp: new Date(Date.now() - 300000).toISOString(), messageCount: 8 },
-    { id: 'conv-2', title: 'Paper Jam Issue', timestamp: new Date(Date.now() - 86400000).toISOString(), messageCount: 5 },
-    { id: 'conv-3', title: 'Scanner not detected', timestamp: new Date(Date.now() - 172800000).toISOString(), messageCount: 3 },
-  ]);
-  const [activeConversationId, setActiveConversationId] = useState('conv-1');
-  const [messages, setMessages] = useState([welcomeMessage]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState('');
+  const [messages, setMessages] = useState([welcomeMessage, gatherDetailsMessage]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showSuggestionChips, setShowSuggestionChips] = useState(true);
@@ -294,9 +310,48 @@ function AISupportPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [ticketNumber, setTicketNumber] = useState('');
   const [conversationPhase, setConversationPhase] = useState(0);
+  const [escalationTicketData, setEscalationTicketData] = useState(null);
 
   // Store per-conversation state
   const conversationStateRef = useRef({});
+
+  // Load all conversations from MongoDB
+  const fetchConversationsListOnly = useCallback(() => {
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+      .then(res => {
+        if (res.data.success && res.data.conversations) {
+          setConversations(res.data.conversations);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh conversations list:", err);
+      });
+  }, []);
+
+  const fetchConversations = useCallback(() => {
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+      .then(res => {
+        if (res.data.success && res.data.conversations) {
+          const fetched = res.data.conversations;
+          setConversations(fetched);
+          if (fetched.length > 0 && fetched[0].id) {
+            loadConversation(fetched[0].id);
+          } else {
+            handleNewChat();
+          }
+        } else {
+          handleNewChat();
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load conversations:", err);
+        handleNewChat();
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchConversations();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -304,28 +359,72 @@ function AISupportPage() {
 
   // Load conversation state
   const loadConversation = useCallback((convId) => {
-    const saved = conversationStateRef.current[convId];
-    if (saved) {
-      setMessages(saved.messages);
-      setShowSuggestionChips(saved.showSuggestionChips);
-      setShowTicketCard(saved.showTicketCard);
-      setConversationPhase(saved.conversationPhase);
-    } else {
-      setMessages([welcomeMessage]);
-      setShowSuggestionChips(true);
-      setShowTicketCard(false);
-      setConversationPhase(0);
-    }
-    setActiveConversationId(convId);
+    axiosInstance.get(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
+      .then(res => {
+        if (res.data.success && res.data.conversation) {
+          const conv = res.data.conversation;
+          let finalMessages = conv.messages || [];
+          if (typeof finalMessages === 'string') {
+            try {
+              finalMessages = JSON.parse(finalMessages);
+            } catch (e) {
+              console.error("Failed to parse messages string:", e);
+              finalMessages = [];
+            }
+          }
+          
+          if (finalMessages.length === 0) {
+            finalMessages = [welcomeMessage, gatherDetailsMessage];
+          } else {
+            if (finalMessages[0] && finalMessages[0].role !== 'system') {
+              finalMessages = [welcomeMessage, gatherDetailsMessage, ...finalMessages];
+            }
+          }
+
+          setMessages(finalMessages);
+          setShowSuggestionChips(finalMessages.length <= 2);
+          setShowTicketCard(conv.status === 'escalated');
+          setConversationPhase(conv.status === 'escalated' ? 3 : 0);
+          setEscalationTicketData(conv.escalation_data || null);
+          setActiveConversationId(convId);
+          
+          conversationStateRef.current[convId] = {
+            messages: finalMessages,
+            conversationPhase: conv.status === 'escalated' ? 3 : 0,
+            showSuggestionChips: finalMessages.length <= 2,
+            showTicketCard: conv.status === 'escalated',
+            escalationTicketData: conv.escalation_data || null,
+          };
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load conversation from backend:", err);
+        const saved = conversationStateRef.current[convId];
+        if (saved) {
+          setMessages(saved.messages);
+          setShowSuggestionChips(saved.showSuggestionChips);
+          setShowTicketCard(saved.showTicketCard);
+          setConversationPhase(saved.conversationPhase);
+          setEscalationTicketData(saved.escalationTicketData || null);
+        } else {
+          setMessages([welcomeMessage, gatherDetailsMessage]);
+          setShowSuggestionChips(true);
+          setShowTicketCard(false);
+          setConversationPhase(0);
+          setEscalationTicketData(null);
+        }
+        setActiveConversationId(convId);
+      });
   }, []);
 
   // Save conversation state
-  const saveConversationState = useCallback((convId, msgs, phase, showSugg, showCard) => {
+  const saveConversationState = useCallback((convId, msgs, phase, showSugg, showCard, escData) => {
     conversationStateRef.current[convId] = {
       messages: msgs,
       conversationPhase: phase,
       showSuggestionChips: showSugg,
       showTicketCard: showCard,
+      escalationTicketData: escData !== undefined ? escData : null,
     };
     setConversations(prev => prev.map(c =>
       c.id === convId
@@ -337,10 +436,10 @@ function AISupportPage() {
   const addMessage = useCallback((msg) => {
     setMessages(prev => {
       const updated = [...prev, msg];
-      saveConversationState(activeConversationId, updated, conversationPhase, showSuggestionChips, showTicketCard);
+      saveConversationState(activeConversationId, updated, conversationPhase, showSuggestionChips, showTicketCard, escalationTicketData);
       return updated;
     });
-  }, [activeConversationId, conversationPhase, showSuggestionChips, showTicketCard, saveConversationState]);
+  }, [activeConversationId, conversationPhase, showSuggestionChips, showTicketCard, escalationTicketData, saveConversationState]);
 
   const simulateAIResponse = useCallback((content, sources) => {
     setIsTyping(true);
@@ -365,117 +464,97 @@ function AISupportPage() {
     const text = input.trim();
     if (!text || isTyping) return;
 
-    addMessage({
+    const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    addMessage(userMessage);
     setInput('');
-    const hadChips = showSuggestionChips;
     if (showSuggestionChips) setShowSuggestionChips(false);
+    setIsTyping(true);
 
-    const lower = text.toLowerCase();
+    const updatedMessages = [...messages, userMessage];
+    const apiMessages = updatedMessages
+      .filter(m => m.id !== 'welcome')
+      .map(m => ({
+        role: m.role === 'ai' ? 'assistant' : m.role,
+        content: typeof m.content === 'string' ? m.content : ''
+      }))
+      .filter(m => m.content !== '');
 
-    if (conversationPhase === 0 && (lower.includes('error') || lower.includes('issue') || lower.includes('problem') || lower.includes('won\'t') || lower.includes('not') || lower.includes('jam') || lower.includes('toner'))) {
-      const newPhase = 1;
-      setConversationPhase(newPhase);
-      saveConversationState(activeConversationId, [...messages, { id: `user-${Date.now()}`, role: 'user', content: text, timestamp: new Date().toISOString() }], newPhase, false, showTicketCard);
-      setTimeout(() => {
-        simulateAIResponse(
-          <div>
-            <p className="text-sm font-semibold mb-2">I'd be happy to help you with that!</p>
-            <p className="text-sm leading-relaxed">To better assist you, could you please provide the following details:</p>
-            <ol className="mt-2 space-y-1 text-sm">
-              <li className="flex items-start gap-2">
-                <span className="text-[#252578] font-bold">1.</span>
-                <span>What is the <strong>machine model</strong> you're using?</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#252578] font-bold">2.</span>
-                <span>What is your <strong>company name</strong>?</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#252578] font-bold">3.</span>
-                <span>When was the machine <strong>purchased</strong> (approximate date)?</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#252578] font-bold">4.</span>
-                <span>Can you describe the <strong>issue</strong> in detail?</span>
-              </li>
-            </ol>
-          </div>,
-          ['AI Support Knowledge Base v3.2', 'Troubleshooting FAQ — Common Issues']
-        );
-      }, 500);
-    } else if (conversationPhase === 1) {
-      const newPhase = 2;
-      setConversationPhase(newPhase);
-      setTimeout(() => {
-        simulateAIResponse(
-          <div>
-            <p className="text-sm font-semibold mb-2">Thank you for the information!</p>
-            <p className="text-sm leading-relaxed">Based on the details you've shared, here is what I've found:</p>
-            <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-lg">
-              <p className="text-xs font-bold text-red-700 flex items-center gap-1.5">
-                <AlertTriangle size={14} />
-                Possible Cause
-              </p>
-              <p className="text-sm text-red-800 mt-1">The Error 402 indicates a paper feed issue.</p>
-            </div>
-            <div className="mt-3">
-              <p className="text-sm font-semibold mb-1.5">Recommended Steps</p>
-              <div className="space-y-2">
-                <div className="flex items-start gap-2 text-sm">
-                  <span className="w-5 h-5 rounded-full bg-[#252578] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                  <span>Check the paper tray for any obstructions or misaligned paper.</span>
-                </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <span className="w-5 h-5 rounded-full bg-[#252578] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                  <span>Remove any jammed paper and ensure the paper guides are properly set.</span>
-                </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <span className="w-5 h-5 rounded-full bg-[#252578] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
-                  <span>Restart the machine and run a test print.</span>
-                </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <span className="w-5 h-5 rounded-full bg-[#252578] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
-                  <span>If the error persists, check for firmware updates in the settings menu.</span>
-                </div>
-              </div>
-            </div>
-          </div>,
-          ['Canon X120 User Manual — Section 4.3', 'Troubleshooting Guide v2.1', 'Internal Knowledge Base']
-        );
-      }, 500);
-    } else if (conversationPhase === 2) {
-      const newPhase = 3;
-      setConversationPhase(newPhase);
-      setTimeout(() => {
-        setShowTicketCard(true);
-        addMessage({
+    axiosInstance.post(`${AI_API_URL}/chat`, { 
+      messages: apiMessages,
+      conversation_id: activeConversationId
+    }, { baseURL: '' })
+      .then(res => {
+        setIsTyping(false);
+        const reply = res.data.content || 'I could not generate a response. Please try again.';
+        
+        const aiMessage = {
           id: `ai-${Date.now()}`,
           role: 'ai',
-          content: (
-            <div>
-              <p className="text-sm leading-relaxed">
-                I've documented everything we've discussed. If you'd like, I can prepare a support ticket with all the information gathered so one of our technicians can follow up with you directly.
-              </p>
-            </div>
-          ),
-          sources: ['AI Support Assistant — Session Summary'],
+          content: reply,
           timestamp: new Date().toISOString(),
+        };
+
+        const isEscalated = res.data.escalate === true;
+        const escTicketData = res.data.ticket_data || null;
+
+        if (isEscalated && escTicketData) {
+          setEscalationTicketData(escTicketData);
+          setReviewData({
+            machineModel: escTicketData.machineModel || '',
+            companyName: 'Acme Corporation',
+            purchaseDate: new Date().toISOString().split('T')[0],
+            problemSummary: escTicketData.problemSummary || '',
+            category: escTicketData.category || 'Hardware',
+            priority: escTicketData.priority || 'Medium',
+            conversationSummary: escTicketData.conversationSummary || '',
+          });
+        }
+
+        setMessages(prev => {
+          const updated = [...prev, aiMessage];
+          const lowerReply = reply.toLowerCase();
+          const shouldSuggestTicket = isEscalated ||
+                                       lowerReply.includes('support ticket') || 
+                                       lowerReply.includes('create a ticket') || 
+                                       lowerReply.includes('open a ticket') || 
+                                       lowerReply.includes('technician') ||
+                                       lowerReply.includes('escalate');
+          
+          if (shouldSuggestTicket) {
+            setShowTicketCard(true);
+          }
+
+          saveConversationState(activeConversationId, updated, conversationPhase, false, shouldSuggestTicket, escTicketData);
+          fetchConversationsListOnly();
+          return updated;
         });
-      }, 500);
-    } else {
-      setTimeout(() => {
-        simulateAIResponse(
-          <p className="text-sm leading-relaxed">I understand. Is there anything else I can help you with regarding this issue? If you're ready, I can also create a support ticket for further assistance.</p>,
-          null
-        );
-      }, 1000);
-    }
-  }, [input, conversationPhase, messages, showSuggestionChips, showTicketCard, activeConversationId, isTyping, addMessage, simulateAIResponse, saveConversationState]);
+      })
+      .catch(err => {
+        setIsTyping(false);
+        console.error(err);
+        const errMsg = err.response?.data?.error || 'Sorry, I encountered an issue connecting to the AI support service. Please try again.';
+        
+        const aiMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: errMsg,
+          timestamp: new Date().toISOString(),
+        };
+
+        setMessages(prev => {
+          const updated = [...prev, aiMessage];
+          saveConversationState(activeConversationId, updated, conversationPhase, false, showTicketCard, escalationTicketData);
+          return updated;
+        });
+      });
+
+  }, [input, conversationPhase, messages, showSuggestionChips, showTicketCard, activeConversationId, isTyping, addMessage, saveConversationState, escalationTicketData, fetchConversationsListOnly]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -486,45 +565,65 @@ function AISupportPage() {
 
   const handleNewChat = useCallback(() => {
     const id = `conv-${Date.now()}`;
-    setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 1 }, ...prev]);
+    setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 2 }, ...prev]);
     setActiveConversationId(id);
-    setMessages([welcomeMessage]);
+    setMessages([welcomeMessage, gatherDetailsMessage]);
     setShowSuggestionChips(true);
     setShowTicketCard(false);
     setConversationPhase(0);
+    setEscalationTicketData(null);
     conversationStateRef.current[id] = {
-      messages: [welcomeMessage],
+      messages: [welcomeMessage, gatherDetailsMessage],
       conversationPhase: 0,
       showSuggestionChips: true,
       showTicketCard: false,
+      escalationTicketData: null,
     };
   }, []);
 
   const handleDeleteConversation = useCallback((e, convId) => {
     e.stopPropagation();
-    setConversations(prev => prev.filter(c => c.id !== convId));
-    if (activeConversationId === convId) {
-      const remaining = conversations.filter(c => c.id !== convId);
-      if (remaining.length > 0) {
-        loadConversation(remaining[0].id);
-      } else {
-        handleNewChat();
-      }
-    }
+    axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
+      .then(() => {
+        setConversations(prev => prev.filter(c => c.id !== convId));
+        if (activeConversationId === convId) {
+          const remaining = conversations.filter(c => c.id !== convId);
+          if (remaining.length > 0) {
+            loadConversation(remaining[0].id);
+          } else {
+            handleNewChat();
+          }
+        }
+      })
+      .catch(err => {
+        console.error("Failed to delete conversation from backend:", err);
+      });
   }, [activeConversationId, conversations, loadConversation, handleNewChat]);
 
   const handleCreateTicket = useCallback(() => {
-    setReviewData({
-      machineModel: 'Canon X120',
-      companyName: 'Acme Corporation',
-      purchaseDate: '2025-03-15',
-      problemSummary: 'Machine displaying Error 402 — paper feed issue. Steps attempted: checked tray, removed obstructions, restarted machine.',
-      category: 'Hardware',
-      priority: 'Medium',
-      conversationSummary: 'User reported Error 402 on Canon X120. Troubleshooting steps provided but issue persists. Recommended to escalate to technical support.',
-    });
+    if (escalationTicketData) {
+      setReviewData({
+        machineModel: escalationTicketData.machineModel || '',
+        companyName: 'Acme Corporation',
+        purchaseDate: new Date().toISOString().split('T')[0],
+        problemSummary: escalationTicketData.problemSummary || '',
+        category: escalationTicketData.category || 'Hardware',
+        priority: escalationTicketData.priority || 'Medium',
+        conversationSummary: escalationTicketData.conversationSummary || '',
+      });
+    } else {
+      setReviewData({
+        machineModel: 'Canon X120',
+        companyName: 'Acme Corporation',
+        purchaseDate: '2025-03-15',
+        problemSummary: 'Machine displaying Error 402 — paper feed issue. Steps attempted: checked tray, removed obstructions, restarted machine.',
+        category: 'Hardware',
+        priority: 'Medium',
+        conversationSummary: 'User reported Error 402 on Canon X120. Troubleshooting steps provided but issue persists. Recommended to escalate to technical support.',
+      });
+    }
     setShowReviewModal(true);
-  }, []);
+  }, [escalationTicketData]);
 
   const handleSubmitTicket = useCallback((formData) => {
     setShowReviewModal(false);
@@ -551,12 +650,14 @@ function AISupportPage() {
       timestamp: new Date().toISOString(),
     });
     setTimeout(() => {
-      simulateAIResponse(
-        <p className="text-sm leading-relaxed">Sounds good! Feel free to come back anytime if you need further assistance. I'll be here to help.</p>,
-        null
-      );
+      addMessage({
+        id: `ai-${Date.now()}`,
+        role: 'ai',
+        content: 'Sounds good! Feel free to come back anytime if you need further assistance. I\'ll be here to help.',
+        timestamp: new Date().toISOString(),
+      });
     }, 1200);
-  }, [addMessage, simulateAIResponse]);
+  }, [addMessage]);
 
   const handleBack = useCallback(() => {
     const dept = (user?.department || user?.profile?.department?.name || '').toLowerCase();
@@ -589,14 +690,20 @@ function AISupportPage() {
                 <Plus size={14} />
                 New Chat
               </button>
+              <button
+                onClick={handleCreateTicket}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 hover:border-amber-300 text-amber-800 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer"
+              >
+                <AlertTriangle size={14} className="text-amber-700" />
+                Create Support Ticket
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
-              {conversations.map((conv) => (
-                <button
+              {conversations.map((conv) => (                <div
                   key={conv.id}
                   onClick={() => loadConversation(conv.id)}
-                  className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-all border-l-2 cursor-pointer ${
+                  className={`group w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-all border-l-2 cursor-pointer ${
                     activeConversationId === conv.id
                       ? 'bg-[#252578]/5 border-l-[#252578]'
                       : 'border-l-transparent hover:bg-gray-100'
@@ -620,7 +727,7 @@ function AISupportPage() {
                   >
                     <Trash2 size={12} />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
 
@@ -665,7 +772,7 @@ function AISupportPage() {
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className="max-w-[75%] flex flex-col">
                   <div className="flex items-start gap-3">
-                    {msg.role === 'ai' && (
+                    {(msg.role === 'ai' || msg.role === 'assistant') && (
                       <div className="w-8 h-8 rounded-full bg-[#252578] flex items-center justify-center flex-shrink-0 mt-1">
                         <Bot size={16} className="text-white" />
                       </div>

@@ -462,3 +462,5 @@ networks:
     driver: bridge
   shared-capstone-network:
     external: true
+  ai-ticketing-network:
+    external: true
