@@ -611,9 +611,9 @@ class TicketController extends Controller
 
         $user = auth('api')->user() ?? $request->user();
 
-        // This endpoint is for external (customer) tickets only
-        if ($user && !($user instanceof \App\Models\Client)) {
-            return response()->json(['message' => 'Use the internal ticket endpoint.'], 403);
+        $clientId = 1;
+        if ($user && ($user instanceof \App\Models\Client)) {
+            $clientId = $user->id;
         }
 
         $externalTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID');
@@ -621,7 +621,7 @@ class TicketController extends Controller
         $ticketId = DB::table('tickets')->insertGetId([
             'machine_ID' => $validated['machine_ID'],
             'problem_category_ID' => $validated['problem_category_ID'],
-            'created_by' => $validated['created_by'] ?? 1,
+            'created_by' => $validated['created_by'] ?? $clientId,
             'requested_by' => null,
             'assigned_to' => $validated['assigned_to'] ?? null,
             'ticket_type_ID' => $validated['ticket_type_ID'] ?? $externalTypeId,

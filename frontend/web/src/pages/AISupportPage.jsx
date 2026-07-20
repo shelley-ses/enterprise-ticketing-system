@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Plus, MessageSquare, Trash2, ArrowLeft, Clock } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
+import { getTicketFormOptions, createTicket } from '@/services/ticketService';
 
 const formatTime = (iso) => {
   if (!iso) return '';
@@ -24,6 +25,51 @@ const formatShortTime = (iso) => {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
+
+function FormattedText({ text }) {
+  if (typeof text !== 'string') return text;
+
+  const lines = text.split('\n');
+  return (
+    <div className="text-sm leading-relaxed break-words space-y-1">
+      {lines.map((line, lineIdx) => {
+        const trimmed = line.trim();
+        const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ');
+        const cleanLine = isBullet ? trimmed.substring(2) : line;
+
+        // Match **bold**, *italic*, and `code`
+        const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
+        const elements = parts.map((part, idx) => {
+          if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+            return <strong key={idx} className="font-bold">{part.slice(2, -2)}</strong>;
+          }
+          if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+            return <em key={idx} className="italic">{part.slice(1, -1)}</em>;
+          }
+          if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+            return <code key={idx} className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+          }
+          return part;
+        });
+
+        if (isBullet) {
+          return (
+            <div key={lineIdx} className="flex items-start gap-2 pl-2">
+              <span className="text-gray-900 font-bold flex-shrink-0 select-none">•</span>
+              <div>{elements}</div>
+            </div>
+          );
+        }
+
+        return (
+          <p key={lineIdx} className={lineIdx > 0 && line === '' ? 'h-2' : ''}>
+            {elements}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 const suggestionChips = [
   'Printer won\'t start',
@@ -311,6 +357,13 @@ function AISupportPage() {
   const [ticketNumber, setTicketNumber] = useState('');
   const [conversationPhase, setConversationPhase] = useState(0);
   const [escalationTicketData, setEscalationTicketData] = useState(null);
+  const [ticketOptions, setTicketOptions] = useState(null);
+
+  useEffect(() => {
+    getTicketFormOptions()
+      .then(opts => setTicketOptions(opts))
+      .catch(err => console.warn("Failed to load ticket form options:", err));
+  }, []);
 
   // Store per-conversation state
   const conversationStateRef = useRef({});
@@ -505,21 +558,13 @@ function AISupportPage() {
 
         if (isEscalated && escTicketData) {
           setEscalationTicketData(escTicketData);
-          setReviewData({
-            machineModel: escTicketData.machineModel || '',
-            companyName: 'Acme Corporation',
-            purchaseDate: new Date().toISOString().split('T')[0],
-            problemSummary: escTicketData.problemSummary || '',
-            category: escTicketData.category || 'Hardware',
-            priority: escTicketData.priority || 'Medium',
-            conversationSummary: escTicketData.conversationSummary || '',
-          });
         }
 
         setMessages(prev => {
           const updated = [...prev, aiMessage];
           const lowerReply = reply.toLowerCase();
           const shouldSuggestTicket = isEscalated ||
+                                       (res.data.attempt && res.data.attempt >= 1) ||
                                        lowerReply.includes('support ticket') || 
                                        lowerReply.includes('create a ticket') || 
                                        lowerReply.includes('open a ticket') || 
@@ -585,51 +630,188 @@ function AISupportPage() {
     e.stopPropagation();
     axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
       .then(() => {
-        setConversations(prev => prev.filter(c => c.id !== convId));
-        if (activeConversationId === convId) {
-          const remaining = conversations.filter(c => c.id !== convId);
-          if (remaining.length > 0) {
-            loadConversation(remaining[0].id);
-          } else {
-            handleNewChat();
-          }
-        }
+        axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+          .then(res => {
+            if (res.data.success && res.data.conversations) {
+              const fetched = res.data.conversations;
+              setConversations(fetched);
+              if (activeConversationId === convId) {
+                if (fetched.length > 0 && fetched[0].id) {
+                  loadConversation(fetched[0].id);
+                } else {
+                  handleNewChat();
+                }
+              }
+            } else {
+              setConversations([]);
+              if (activeConversationId === convId) handleNewChat();
+            }
+          })
+          .catch(() => {
+            setConversations(prev => prev.filter(c => c.id !== convId));
+            if (activeConversationId === convId) handleNewChat();
+          });
       })
       .catch(err => {
         console.error("Failed to delete conversation from backend:", err);
       });
-  }, [activeConversationId, conversations, loadConversation, handleNewChat]);
+  }, [activeConversationId, loadConversation, handleNewChat]);
+
+  const generateRealReviewData = useCallback((escData) => {
+    const activeConv = conversations.find(c => c.id === activeConversationId);
+
+    const userMsgs = messages
+      .filter(m => m.role === 'user' && typeof m.content === 'string')
+      .map(m => m.content.trim())
+      .filter(txt => txt.length > 0 && !['hi', 'hello', 'hey', 'yes', 'no', 'ok', 'okay', 'not working'].includes(txt.toLowerCase()));
+
+    const firstUserMsg = userMsgs.length > 0 ? userMsgs[0] : '';
+    const convoTitle = (activeConv?.title && activeConv.title !== 'New Conversation' && activeConv.title !== 'New Chat')
+      ? activeConv.title
+      : (firstUserMsg ? (firstUserMsg.length > 60 ? firstUserMsg.slice(0, 60) + '...' : firstUserMsg) : 'Support Request');
+
+    const userOrg = user?.company_name || user?.organization || user?.client_name || user?.company ||
+      (user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : '') || 'Customer Organization';
+
+    // ─── DYNAMIC MACHINE MODEL RESOLUTION ─────────────────────
+    let model = escData?.machineModel;
+    if (model && model.trim() !== '' && model.toLowerCase() !== 'unknown machine' && model.toLowerCase() !== 'general equipment') {
+      model = model.trim();
+    } else {
+      model = null;
+    }
+
+    // Match chat messages against database equipment list
+    if (!model && ticketOptions?.machines && ticketOptions.machines.length > 0) {
+      const combinedChatText = userMsgs.join(' ').toLowerCase();
+      const matchedMachine = ticketOptions.machines.find(m => {
+        const nameMatch = m.machine_name && combinedChatText.includes(m.machine_name.toLowerCase());
+        const modelMatch = m.model && combinedChatText.includes(m.model.toLowerCase());
+        const brandMatch = m.brand && combinedChatText.includes(m.brand.toLowerCase());
+        return nameMatch || modelMatch || brandMatch;
+      });
+
+      if (matchedMachine) {
+        const brandStr = matchedMachine.brand ? `${matchedMachine.brand} ` : '';
+        const modelStr = matchedMachine.model ? `${matchedMachine.model} ` : '';
+        model = `${brandStr}${modelStr}(${matchedMachine.machine_name})`.trim();
+      }
+    }
+
+    // Fallback to user's chat message answers if no database match
+    if (!model) {
+      if (userMsgs.length >= 2 && userMsgs[1].length < 80) {
+        model = `${userMsgs[1]} ${userMsgs[0]}`.trim();
+      } else if (userMsgs.length >= 1 && userMsgs[0].length < 80) {
+        model = userMsgs[0];
+      } else if (ticketOptions?.machines && ticketOptions.machines.length > 0) {
+        const first = ticketOptions.machines[0];
+        model = `${first.brand || ''} ${first.model || ''} (${first.machine_name})`.trim();
+      } else {
+        model = 'Equipment Support Request';
+      }
+    }
+
+    let convSummary = escData?.conversationSummary;
+    if (convSummary && typeof convSummary === 'string') {
+      convSummary = convSummary
+        .replace(/(?:\b|\n)(?:\d+[\.\)]|Step \d+:|-|\*)\s+[^\n]+/gi, '')
+        .replace(/\n{2,}/g, '\n\n')
+        .trim();
+    }
+
+    if (!convSummary || convSummary.trim() === '') {
+      const userProblemDetails = userMsgs.length > 0 ? userMsgs.join('. ') : 'Issue reported via AI Assistant.';
+      convSummary = `Customer reported an issue regarding "${convoTitle}". Machine: ${model}. Problem details: ${userProblemDetails}. Automated troubleshooting was attempted but the issue persists. Ticket escalated to technical team for follow-up.`;
+    }
+
+    return {
+      machineModel: model,
+      companyName: userOrg,
+      purchaseDate: new Date().toISOString().split('T')[0],
+      problemSummary: convoTitle,
+      category: escData?.category || 'Hardware',
+      priority: escData?.priority || 'Medium',
+      conversationSummary: convSummary,
+    };
+  }, [conversations, activeConversationId, messages, user, ticketOptions]);
 
   const handleCreateTicket = useCallback(() => {
-    if (escalationTicketData) {
-      setReviewData({
-        machineModel: escalationTicketData.machineModel || '',
-        companyName: 'Acme Corporation',
-        purchaseDate: new Date().toISOString().split('T')[0],
-        problemSummary: escalationTicketData.problemSummary || '',
-        category: escalationTicketData.category || 'Hardware',
-        priority: escalationTicketData.priority || 'Medium',
-        conversationSummary: escalationTicketData.conversationSummary || '',
-      });
-    } else {
-      setReviewData({
-        machineModel: 'Canon X120',
-        companyName: 'Acme Corporation',
-        purchaseDate: '2025-03-15',
-        problemSummary: 'Machine displaying Error 402 — paper feed issue. Steps attempted: checked tray, removed obstructions, restarted machine.',
-        category: 'Hardware',
-        priority: 'Medium',
-        conversationSummary: 'User reported Error 402 on Canon X120. Troubleshooting steps provided but issue persists. Recommended to escalate to technical support.',
-      });
-    }
+    setReviewData(generateRealReviewData(escalationTicketData));
     setShowReviewModal(true);
-  }, [escalationTicketData]);
+  }, [escalationTicketData, generateRealReviewData]);
 
-  const handleSubmitTicket = useCallback((formData) => {
-    setShowReviewModal(false);
-    setTicketNumber('TCK-000123');
-    setShowSuccess(true);
-    setShowTicketCard(false);
+  const handleSubmitTicket = useCallback(async (formData) => {
+    try {
+      const options = await getTicketFormOptions().catch(() => null);
+
+      let machineId = 1;
+      if (options?.machines && options.machines.length > 0) {
+        const found = options.machines.find(m =>
+          m.machine_name?.toLowerCase().includes((formData.machineModel || '').toLowerCase()) ||
+          m.model?.toLowerCase().includes((formData.machineModel || '').toLowerCase()) ||
+          ((formData.machineModel || '').toLowerCase().includes(m.machine_name?.toLowerCase()))
+        );
+        if (found) machineId = found.machine_ID;
+        else machineId = options.machines[0].machine_ID;
+      }
+
+      let categoryId = 1;
+      if (options?.problem_categories && options.problem_categories.length > 0) {
+        const found = options.problem_categories.find(c =>
+          c.category_name?.toLowerCase() === (formData.category || '').toLowerCase()
+        );
+        if (found) categoryId = found.problem_category_ID;
+        else categoryId = options.problem_categories[0].problem_category_ID;
+      }
+
+      let priorityId = 2;
+      if (options?.ticket_priorities && options.ticket_priorities.length > 0) {
+        const found = options.ticket_priorities.find(p =>
+          p.priority_name?.toLowerCase() === (formData.priority || '').toLowerCase()
+        );
+        if (found) priorityId = found.priority_ID;
+        else priorityId = options.ticket_priorities[0].priority_ID;
+      }
+
+      const activeConv = conversations.find(c => c.id === activeConversationId);
+      const ticketTitle = (activeConv?.title && activeConv.title !== 'New Conversation' && activeConv.title !== 'New Chat')
+        ? activeConv.title
+        : (formData.problemSummary || 'Support Ticket');
+
+      const payload = new FormData();
+      payload.append('title', ticketTitle);
+      payload.append('machine_ID', machineId);
+      payload.append('problem_category_ID', categoryId);
+      payload.append('priority_ID', priorityId);
+      payload.append('description', formData.conversationSummary || formData.problemSummary || 'Submitted via AI Support Assistant.');
+
+      let response;
+      try {
+        response = await createTicket(payload);
+      } catch (err1) {
+        console.warn("FormData ticket creation attempt failed, attempting JSON payload fallback...", err1);
+        const objPayload = {
+          title: ticketTitle,
+          machine_ID: machineId,
+          problem_category_ID: categoryId,
+          priority_ID: priorityId,
+          description: formData.conversationSummary || formData.problemSummary || 'Submitted via AI Support Assistant.',
+        };
+        response = await createTicket(objPayload);
+      }
+
+      const rawTicketId = response?.ticket?.ticket_ID || response?.ticket_ID || response?.dashboard_ticket?.ticket_ID || response?.id;
+      const formattedNo = rawTicketId ? (String(rawTicketId).startsWith('TKT-') ? String(rawTicketId) : `TKT-${String(rawTicketId).padStart(4, '0')}`) : 'TKT-0001';
+
+      setShowReviewModal(false);
+      setTicketNumber(formattedNo);
+      setShowSuccess(true);
+      setShowTicketCard(false);
+    } catch (err) {
+      console.error('Failed to submit support ticket to enterprise ticketing system:', err);
+      alert(err?.response?.data?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.');
+    }
   }, []);
 
   const handleViewTicket = useCallback(() => {
@@ -783,7 +965,7 @@ function AISupportPage() {
                         : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm px-4 py-3'
                       }>
                         {typeof msg.content === 'string' ? (
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
+                          <FormattedText text={msg.content} />
                         ) : (
                           msg.content
                         )}
@@ -837,14 +1019,14 @@ function AISupportPage() {
               >
                 <Paperclip size={18} />
               </button>
-              <input
+              <textarea
                 ref={inputRef}
-                type="text"
+                rows={1}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
-                className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none min-h-[42px] max-h-[120px] overflow-y-auto"
               />
               <button
                 onClick={handleSend}
