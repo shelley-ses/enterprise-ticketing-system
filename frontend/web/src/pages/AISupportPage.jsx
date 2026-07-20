@@ -872,13 +872,6 @@ function AISupportPage() {
                 <Plus size={14} />
                 New Chat
               </button>
-              <button
-                onClick={handleCreateTicket}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 hover:border-amber-300 text-amber-800 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer"
-              >
-                <AlertTriangle size={14} className="text-amber-700" />
-                Create Support Ticket
-              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
