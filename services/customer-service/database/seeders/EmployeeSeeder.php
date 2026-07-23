@@ -38,6 +38,15 @@ class EmployeeSeeder extends Seeder
                 'department' => 'Super Admin',
                 'password_change_at' => now(),
             ],
+            [
+                'email' => 'admin@example.com',
+                'password_hash' => Hash::make('password'),
+                'first_name' => 'System',
+                'last_name' => 'Administrator',
+                'role' => 'admin',
+                'department' => 'Admin',
+                'password_change_at' => now(),
+            ],
         ];
 
         foreach ($employees as $employee) {

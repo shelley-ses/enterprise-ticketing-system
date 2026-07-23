@@ -18,9 +18,17 @@ export const checkIsSuperAdmin = (user) => {
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
+export const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
+};
+
 export const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
+  if (checkIsAdmin(user)) return false;
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
@@ -97,9 +105,10 @@ export default function PrivateRoute({ children, role }) {
 
   // Authenticated — check roles
   const isCS          = checkIsCS(user);
+  const isAdmin       = checkIsAdmin(user);
   const isEmployee    = checkIsEmployee(user);
   const isSuperAdmin  = checkIsSuperAdmin(user);
-  const isCustomer    = !isCS && !isEmployee && !isSuperAdmin;
+  const isCustomer    = !isCS && !isEmployee && !isSuperAdmin && !isAdmin;
 
   // ── Customer portal (port 5006) ──────────────────────────────────────────
   if (isCustomerSite) {
@@ -118,9 +127,15 @@ export default function PrivateRoute({ children, role }) {
       if (isSuperAdmin && normalizedRole !== 'superadmin') {
         return <Navigate to="/superadmin/ticket-config" replace />;
       }
+      if (isAdmin && normalizedRole !== 'admin') {
+        return <Navigate to="/admin/dashboard" replace />;
+      }
       if (normalizedRole === 'customer') {
         if (isSuperAdmin) {
           return <Navigate to="/superadmin/ticket-config" replace />;
+        }
+        if (isAdmin) {
+          return <Navigate to="/admin/dashboard" replace />;
         }
         if (isCS) {
           return <Navigate to="/cs/dashboard" replace />;
@@ -129,10 +144,17 @@ export default function PrivateRoute({ children, role }) {
           return <Navigate to="/employee/dashboard" replace />;
         }
       }
+      if (normalizedRole === 'admin' && !isAdmin) {
+        if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+        if (isCS) return <Navigate to="/cs/dashboard" replace />;
+        return <Navigate to="/employee/dashboard" replace />;
+      }
       if (normalizedRole === 'superadmin' && !isSuperAdmin) {
+        if (isAdmin) return <Navigate to="/admin/dashboard" replace />;
         return <Navigate to="/employee/dashboard" replace />;
       }
       if (normalizedRole === 'employee' && !isEmployee) {
+        if (isAdmin) return <Navigate to="/admin/dashboard" replace />;
         return <Navigate to="/cs/dashboard" replace />;
       }
       if (
@@ -141,6 +163,7 @@ export default function PrivateRoute({ children, role }) {
           normalizedRole === 'customer-service') &&
         !isCS
       ) {
+        if (isAdmin) return <Navigate to="/admin/dashboard" replace />;
         return <Navigate to="/employee/dashboard" replace />;
       }
     }

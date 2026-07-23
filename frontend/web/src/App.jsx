@@ -44,6 +44,13 @@ const AIKnowledgeBase = React.lazy(() => import('./pages/AIKnowledgeBase.jsx'));
 const SuperAdminDevLogin = React.lazy(() => import('./pages/SuperAdminDevLogin.jsx'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 
+// Lazy loaded Admin page and layout components
+const AdminLayout = React.lazy(() => import('./components/AdminLayout.jsx'));
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard.jsx'));
+const AdminEmployees = React.lazy(() => import('./pages/AdminEmployees.jsx'));
+const AdminReports = React.lazy(() => import('./pages/AdminReports.jsx'));
+const AdminSettings = React.lazy(() => import('./pages/AdminSettings.jsx'));
+
 // ─── Role helpers (mirrors GuestRoute / PrivateRoute) ─────────────────────────
 const checkIsCS = (user) => {
   if (!user) return false;
@@ -55,6 +62,7 @@ const checkIsCS = (user) => {
 const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
+  if (checkIsAdmin(user)) return false;
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
@@ -65,6 +73,12 @@ const checkIsSuperAdmin = (user) => {
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
 // ─── Employee Portal Gate ─────────────────────────────────────────────────────
@@ -93,10 +107,12 @@ function EmployeePortalGate() {
   }
 
   const isSuperAdmin = checkIsSuperAdmin(user);
+  const isAdmin      = checkIsAdmin(user);
   const isCS         = checkIsCS(user);
   const isEmployee   = checkIsEmployee(user);
 
   if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+  if (isAdmin)      return <Navigate to="/admin/dashboard" replace />;
   if (isCS)         return <Navigate to="/cs/dashboard" replace />;
   if (isEmployee)   return <Navigate to="/employee/dashboard" replace />;
 
@@ -271,6 +287,24 @@ function App() {
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
                 <Route path="history" element={<SuperAdminHistory />} />
                 <Route path="knowledge-base" element={<AIKnowledgeBase />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="notifications" element={<Notifications />} />
+              </Route>
+
+              {/* Admin Routes */}
+              <Route
+                path="/admin"
+                element={
+                  <PrivateRoute role="admin">
+                    <AdminLayout />
+                  </PrivateRoute>
+                }
+              >
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="employees" element={<AdminEmployees />} />
+                <Route path="reports" element={<AdminReports />} />
+                <Route path="settings" element={<AdminSettings />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>

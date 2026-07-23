@@ -423,7 +423,7 @@ services:
       VITE_BASE_PATH: "/ticketing/"
       VITE_APP_MODE: "employee"
       VITE_PORT: 5005
-    command: npm run dev -- --host 0.0.0.0 --port 5005
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5005"
     restart: always
 
   customer-ticketing-frontend:
@@ -444,7 +444,7 @@ services:
       VITE_BASE_PATH: "/customer-ticketing/"
       VITE_APP_MODE: "customer"
       VITE_PORT: 5006
-    command: npm run dev -- --host 0.0.0.0 --port 5006
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5006"
     restart: always
 
 volumes:

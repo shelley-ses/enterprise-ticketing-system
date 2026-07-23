@@ -337,9 +337,21 @@ function SuccessDialog({ isOpen, ticketNumber, onViewTicket, onClose }) {
   );
 }
 
+const getStoredUser = () => {
+  try {
+    const raw = localStorage.getItem('user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 function AISupportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const effectiveUser = user || getStoredUser();
+  const currentUserId = effectiveUser?.id;
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -370,7 +382,7 @@ function AISupportPage() {
 
   // Load all conversations from MongoDB
   const fetchConversationsListOnly = useCallback(() => {
-    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
       .then(res => {
         if (res.data.success && res.data.conversations) {
           setConversations(res.data.conversations);
@@ -379,10 +391,10 @@ function AISupportPage() {
       .catch(err => {
         console.error("Failed to refresh conversations list:", err);
       });
-  }, []);
+  }, [currentUserId]);
 
   const fetchConversations = useCallback(() => {
-    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
       .then(res => {
         if (res.data.success && res.data.conversations) {
           const fetched = res.data.conversations;
@@ -400,11 +412,11 @@ function AISupportPage() {
         console.error("Failed to load conversations:", err);
         handleNewChat();
       });
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     fetchConversations();
-  }, []);
+  }, [fetchConversations]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -436,16 +448,50 @@ function AISupportPage() {
 
           setMessages(finalMessages);
           setShowSuggestionChips(finalMessages.length <= 2);
-          setShowTicketCard(conv.status === 'escalated');
-          setConversationPhase(conv.status === 'escalated' ? 3 : 0);
+
+          // Determine if ticket recommendation card should be displayed
+          const isEscalatedStatus = conv.status === 'escalated' || conv.escalation_data != null;
+          let shouldShowCard = isEscalatedStatus;
+
+          if (!shouldShowCard && finalMessages.length > 0) {
+            const aiMsgs = finalMessages.filter(m => m.role === 'ai' || m.role === 'assistant');
+            const lastAiMsg = aiMsgs[aiMsgs.length - 1];
+            const userMsgs = finalMessages.filter(m => m.role === 'user');
+            const lastUserMsg = userMsgs[userMsgs.length - 1];
+
+            if (lastAiMsg && typeof lastAiMsg.content === 'string') {
+              const lower = lastAiMsg.content.toLowerCase();
+              const suggestsTicket = lower.includes('support ticket') || 
+                                     lower.includes('create a ticket') || 
+                                     lower.includes('open a ticket') || 
+                                     lower.includes('technician') ||
+                                     lower.includes('escalate');
+              
+              const userDismissed = lastUserMsg && typeof lastUserMsg.content === 'string' &&
+                (lastUserMsg.content.includes("I'll try the steps first") || 
+                 lastUserMsg.content.includes("I'll try the steps") || 
+                 lastUserMsg.content.includes("successfully created"));
+
+              if (suggestsTicket && !userDismissed) {
+                shouldShowCard = true;
+              }
+            }
+          }
+
+          if (conv.status === 'resolved' || conv.status === 'ticket_created') {
+            shouldShowCard = false;
+          }
+
+          setShowTicketCard(shouldShowCard);
+          setConversationPhase(shouldShowCard ? 3 : 0);
           setEscalationTicketData(conv.escalation_data || null);
           setActiveConversationId(convId);
           
           conversationStateRef.current[convId] = {
             messages: finalMessages,
-            conversationPhase: conv.status === 'escalated' ? 3 : 0,
+            conversationPhase: shouldShowCard ? 3 : 0,
             showSuggestionChips: finalMessages.length <= 2,
-            showTicketCard: conv.status === 'escalated',
+            showTicketCard: shouldShowCard,
             escalationTicketData: conv.escalation_data || null,
           };
         }
@@ -540,7 +586,8 @@ function AISupportPage() {
 
     axiosInstance.post(`${AI_API_URL}/chat`, { 
       messages: apiMessages,
-      conversation_id: activeConversationId
+      conversation_id: activeConversationId,
+      user_id: currentUserId
     }, { baseURL: '' })
       .then(res => {
         setIsTyping(false);
@@ -630,7 +677,7 @@ function AISupportPage() {
     e.stopPropagation();
     axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
       .then(() => {
-        axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '' })
+        axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
           .then(res => {
             if (res.data.success && res.data.conversations) {
               const fetched = res.data.conversations;
@@ -655,7 +702,7 @@ function AISupportPage() {
       .catch(err => {
         console.error("Failed to delete conversation from backend:", err);
       });
-  }, [activeConversationId, loadConversation, handleNewChat]);
+  }, [activeConversationId, loadConversation, handleNewChat, currentUserId]);
 
   const generateRealReviewData = useCallback((escData) => {
     const activeConv = conversations.find(c => c.id === activeConversationId);
@@ -808,11 +855,18 @@ function AISupportPage() {
       setTicketNumber(formattedNo);
       setShowSuccess(true);
       setShowTicketCard(false);
+
+      addMessage({
+        id: `ai-${Date.now()}`,
+        role: 'ai',
+        content: `Support ticket **${formattedNo}** has been successfully created. Our technical support team will review your ticket and get back to you shortly.`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (err) {
       console.error('Failed to submit support ticket to enterprise ticketing system:', err);
       alert(err?.response?.data?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.');
     }
-  }, []);
+  }, [addMessage, conversations, activeConversationId]);
 
   const handleViewTicket = useCallback(() => {
     setShowSuccess(false);

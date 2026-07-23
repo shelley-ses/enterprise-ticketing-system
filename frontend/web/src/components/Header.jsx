@@ -22,7 +22,9 @@ export default function Header({ sidebarHovered }) {
       ? '/employee'
       : location.pathname.startsWith('/superadmin')
         ? '/superadmin'
-        : '';
+        : location.pathname.startsWith('/admin')
+          ? '/admin'
+          : '';
 
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
