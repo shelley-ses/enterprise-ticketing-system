@@ -120,7 +120,14 @@ class TicketController extends Controller
                 'c.client_name',
                 'm.machine_name',
                 'm.serial_number',
-                'tt.type_name as ticket_type'
+                'tt.type_name as ticket_type',
+                't.sla_rule_id',
+                't.response_due_at',
+                't.resolution_due_at',
+                't.first_response_at',
+                't.resolved_at',
+                't.response_sla_status',
+                't.resolution_sla_status'
             )
             ->where('t.ticket_ID', $ticketId)
             ->first();
@@ -142,6 +149,9 @@ class TicketController extends Controller
 
         $createdAtObj = is_string($row->created_at) ? \Carbon\Carbon::parse($row->created_at) : $row->created_at;
 
+        // Dynamic SLA status evaluation
+        $slaStatusEval = app(\App\Services\SLAService::class)->evaluateSlaStatusForTicket($row);
+
         return [
             'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
             'ticket_ID' => (int) $row->ticket_ID,
@@ -161,6 +171,13 @@ class TicketController extends Controller
             'ticket_type' => $row->ticket_type ?? 'External',
             'is_internal' => (bool)$row->is_internal,
             'requested_by' => $row->requested_by,
+            'sla_rule_id' => $row->sla_rule_id,
+            'response_due_at' => $row->response_due_at,
+            'resolution_due_at' => $row->resolution_due_at,
+            'first_response_at' => $row->first_response_at,
+            'resolved_at' => $row->resolved_at,
+            'response_sla_status' => $slaStatusEval['response_sla_status'] ?? $row->response_sla_status,
+            'resolution_sla_status' => $slaStatusEval['resolution_sla_status'] ?? $row->resolution_sla_status,
         ];
     }
 
@@ -637,6 +654,23 @@ class TicketController extends Controller
             'updated_at' => now(),
         ]);
 
+        try {
+            $deptId = $request->input('department_id', 2);
+            $priorityName = 'Low';
+            if (!empty($validated['priority_ID'])) {
+                $priorityName = DB::table('ticket_priorities')->where('priority_ID', $validated['priority_ID'])->value('priority_name') ?? 'Low';
+            }
+            app(\App\Services\SLAService::class)->assignSlaToTicket(
+                $ticketId,
+                (int)$deptId,
+                (int)$validated['problem_category_ID'],
+                $priorityName,
+                now()
+            );
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to assign SLA in store: " . $e->getMessage());
+        }
+
         $attachmentIds = $validated['attachments'] ?? [];
         if (!empty($attachmentIds)) {
             try {
@@ -781,6 +815,29 @@ class TicketController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        try {
+            $deptId = $request->input('department_id');
+            if (!$deptId && !empty($user->department)) {
+                $deptId = DB::table('departments')->whereRaw('LOWER(name) = ?', [strtolower($user->department)])->value('id');
+            }
+            if (!$deptId) {
+                $deptId = 2; // Default IT department
+            }
+            $priorityName = 'Low';
+            if (!empty($validated['priority_ID'])) {
+                $priorityName = DB::table('ticket_priorities')->where('priority_ID', $validated['priority_ID'])->value('priority_name') ?? 'Low';
+            }
+            app(\App\Services\SLAService::class)->assignSlaToTicket(
+                $ticketId,
+                (int)$deptId,
+                (int)$validated['problem_category_ID'],
+                $priorityName,
+                now()
+            );
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to assign SLA in storeInternalTicket: " . $e->getMessage());
+        }
 
         DB::table('ticket_audit_logs')->insert([
             'ticket_ID' => $ticketId,
@@ -1314,6 +1371,12 @@ class TicketController extends Controller
                         'updated_at' => now(),
                     ]);
 
+                try {
+                    app(\App\Services\SLAService::class)->recordFirstResponse($ticketId, now());
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to record first response in acceptTicket: " . $e->getMessage());
+                }
+
                 DB::table('ticket_audit_logs')->insert([
                     'ticket_ID' => $ticketId,
                     'action_type' => 'accept',
@@ -1687,16 +1750,24 @@ class TicketController extends Controller
                 $statusToSet = $validated['ticket_status_ID'];
                 $update['ticket_status_ID'] = $statusToSet;
                 
-                if ($statusToSet == 3) {
+                if ($statusToSet == 3 || $statusToSet == 4) {
                     if (!$ticket->resolved_at) {
                         $update['resolved_at'] = now();
+                    }
+                    if ($statusToSet == 4) {
+                        $update['closed_at'] = now();
+                    }
+                    try {
+                        app(\App\Services\SLAService::class)->recordResolution($ticketId, now());
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::warning("Failed to record resolution SLA in employeeUpdate: " . $e->getMessage());
                     }
                 }
-                if ($statusToSet == 4) {
-                    if (!$ticket->resolved_at) {
-                        $update['resolved_at'] = now();
-                    }
-                    $update['closed_at'] = now();
+
+                if ($actorType === 'employee') {
+                    try {
+                        app(\App\Services\SLAService::class)->recordFirstResponse($ticketId, now());
+                    } catch (\Exception $e) {}
                 }
                 
                 // Reset metadata if reopened

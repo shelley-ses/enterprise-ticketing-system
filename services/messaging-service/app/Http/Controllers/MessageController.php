@@ -140,6 +140,23 @@ class MessageController extends Controller
                 ->first();
 
             if ($ticket) {
+                if (($senderType === 'cs' || $senderType === 'employee') && !$ticket->first_response_at) {
+                    $now = now();
+                    $status = null;
+                    if (!empty($ticket->response_due_at)) {
+                        $dueAt = \Illuminate\Support\Carbon::parse($ticket->response_due_at);
+                        $status = $now->lte($dueAt) ? 'MET' : 'BREACHED';
+                    }
+                    \Illuminate\Support\Facades\DB::connection('mysql')
+                        ->table('tickets')
+                        ->where('ticket_ID', (int)$ticket_id)
+                        ->update([
+                            'first_response_at' => $now,
+                            'response_sla_status' => $status,
+                            'updated_at' => $now,
+                        ]);
+                }
+
                 $recipients = []; // array of ['id' => X, 'type' => 'client'|'employee']
                 
                 // Get assigned employee IDs
