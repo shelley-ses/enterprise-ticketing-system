@@ -1,7 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import FilePreviewModal from './FilePreviewModal';
+import FeedbackModal from './feedback/FeedbackModal';
+import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 
 export default function CustomerTicketDetailModal({
   ticket,
@@ -16,6 +19,17 @@ export default function CustomerTicketDetailModal({
   const [reopenReason, setReopenReason] = useState('');
   const [showReopenForm, setShowReopenForm] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+
+  const isExternalClosed = ticket?.status === 'Closed' && ticket?.id?.startsWith?.('EXT-');
+  const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id);
+
+  useEffect(() => {
+    if (isExternalClosed && !feedbackAlreadySubmitted && !feedbackSubmitted) {
+      setShowFeedbackModal(true);
+    }
+  }, [isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id]);
 
   const sortedTimelineEvents = useMemo(() => {
     if (!ticket) return [];
@@ -208,6 +222,16 @@ export default function CustomerTicketDetailModal({
                 </div>
               )}
             </div>
+
+            {isExternalClosed && (
+              <div className="md:col-span-2">
+                <TicketFeedbackSection
+                  key={feedbackSubmitted ? 'submitted' : 'pending'}
+                  ticket={ticket}
+                  onLeaveFeedback={() => setShowFeedbackModal(true)}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -278,6 +302,15 @@ export default function CustomerTicketDetailModal({
           )}
         </div>
       </div>
+      {showFeedbackModal && (
+        <FeedbackModal
+          ticket={ticket}
+          onClose={() => {
+            setShowFeedbackModal(false);
+            setFeedbackSubmitted(true);
+          }}
+        />
+      )}
       {previewFile && (
         <FilePreviewModal
           file={previewFile}

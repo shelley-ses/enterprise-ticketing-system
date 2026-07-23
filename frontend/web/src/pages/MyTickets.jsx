@@ -19,6 +19,7 @@ import {
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
+import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 
 const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded', 'On Hold'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
@@ -81,15 +82,23 @@ export default function MyTickets({ mode = 'all' }) {
 
     try {
       const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh });
-      setTickets(ticketsList);
+      const externalTickets = getExternalTicketsFromStorage();
+      const merged = [...externalTickets, ...ticketsList];
+      setTickets(merged);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to load tickets.');
+      const externalTickets = getExternalTicketsFromStorage();
+      if (externalTickets.length > 0) {
+        setTickets(externalTickets);
+      } else {
+        setError(err?.response?.data?.message || 'Failed to load tickets.');
+      }
     } finally {
       setLoading(false);
     }
   }, [customerId]);
 
   useEffect(() => {
+    seedDemoExternalTicket();
     loadTickets({ forceRefresh: false });
   }, [loadTickets]);
 

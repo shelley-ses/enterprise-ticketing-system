@@ -18,6 +18,7 @@ import {
 import { statusColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
+import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 
 const getStoredUser = () => {
   try {
@@ -96,14 +97,26 @@ export default function CustomerDashboard() {
         closed: stats.closed ?? 0,
       });
 
-      const ticketsList = (data?.recent_tickets || []).map(t => ({
+      const apiTickets = (data?.recent_tickets || []).map(t => ({
         ...t,
         statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
       }));
-      setRecentTickets(ticketsList);
+      const externalTickets = getExternalTicketsFromStorage().map(t => ({
+        ...t,
+        statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
+      }));
+      setRecentTickets([...externalTickets, ...apiTickets]);
 
     } catch (error) {
-      setDashboardError('Failed to load dashboard data.');
+      const external = getExternalTicketsFromStorage();
+      if (external.length > 0) {
+        setRecentTickets(external.map(t => ({
+          ...t,
+          statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
+        })));
+      } else {
+        setDashboardError('Failed to load dashboard data.');
+      }
     } finally {
       setDashboardLoading(false);
     }
@@ -112,6 +125,8 @@ export default function CustomerDashboard() {
 
 
   useEffect(() => {
+    seedDemoExternalTicket();
+
     prefetchTicketFormOptions().catch(() => {
       // Modal handles display error if options cannot be fetched.
     });
