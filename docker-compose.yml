@@ -378,10 +378,11 @@ services:
     networks:
       - default
       - shared-capstone-network
+    env_file:
+      - ./services/messaging-service/.env
     environment:
       DB_CONNECTION: mongodb
       PASSPORT_CONNECTION: mysql
-      MONGODB_URI: mongodb://root:secret@mongodb:27017/messaging?authSource=admin
       DB_HOST: db
       DB_PORT: 3306
       DB_DATABASE: ${MYSQL_DATABASE}
@@ -423,6 +424,10 @@ services:
       VITE_BASE_PATH: "/ticketing/"
       VITE_APP_MODE: "employee"
       VITE_PORT: 5005
+      VITE_CUSTOMER_SERVICE_URL: "http://customer-service:8000"
+      VITE_TICKET_SERVICE_URL: "http://ticket-service:8000"
+      VITE_ATTACHMENT_SERVICE_URL: "http://attachment-service:8000"
+      VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5005"
     restart: always
 
@@ -444,6 +449,10 @@ services:
       VITE_BASE_PATH: "/customer-ticketing/"
       VITE_APP_MODE: "customer"
       VITE_PORT: 5006
+      VITE_CUSTOMER_SERVICE_URL: "http://customer-service:8000"
+      VITE_TICKET_SERVICE_URL: "http://ticket-service:8000"
+      VITE_ATTACHMENT_SERVICE_URL: "http://attachment-service:8000"
+      VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5006"
     restart: always
 

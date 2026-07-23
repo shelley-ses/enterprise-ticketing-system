@@ -352,11 +352,12 @@ services:
       context: ./services/messaging-service
     container_name: messaging-service-prod
     restart: always
+    env_file:
+      - ./services/messaging-service/.env
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
       DB_CONNECTION: mongodb
-      MONGODB_URI: mongodb://root:${MONGO_ROOT_PASSWORD:-secret}@mongodb:27017/messaging?authSource=admin
       DB_HOST: db
       DB_PORT: 3306
       DB_DATABASE: ${MYSQL_DATABASE}

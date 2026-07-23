@@ -20,31 +20,31 @@ export default defineConfig({
     },
     proxy: {
       '/api/ticketing/customer': {
-        target: 'http://customer-service:8000',
+        target: process.env.VITE_CUSTOMER_SERVICE_URL || 'http://127.0.0.1:8001',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/customer/, '/api')
       },
       '/api/ticketing/ticket': {
-        target: 'http://ticket-service:8000',
+        target: process.env.VITE_TICKET_SERVICE_URL || 'http://127.0.0.1:8002',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/ticket/, '/api')
       },
       '/api/ticketing/attachment': {
-        target: 'http://attachment-service:8000',
+        target: process.env.VITE_ATTACHMENT_SERVICE_URL || 'http://127.0.0.1:8006',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/attachment/, '/api')
       },
       '/api/ticketing/messaging': {
-        target: 'http://messaging-service:8000',
+        target: process.env.VITE_MESSAGING_SERVICE_URL || 'http://127.0.0.1:8007',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/messaging/, '/api')
       },
       '/storage': {
-        target: 'http://attachment-service:8000',
+        target: process.env.VITE_ATTACHMENT_SERVICE_URL || 'http://127.0.0.1:8006',
         changeOrigin: true,
         secure: false,
       }

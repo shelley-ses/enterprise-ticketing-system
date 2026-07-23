@@ -1142,6 +1142,11 @@ class TicketController extends Controller
                     'created_at' => now(),
                 ]);
             }
+
+            DB::table('tickets')
+                ->where('ticket_ID', $ticketId)
+                ->whereNull('first_cs_response_at')
+                ->update(['first_cs_response_at' => now()]);
         });
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
@@ -1294,6 +1299,7 @@ class TicketController extends Controller
                     ->where('employee_ID', $empId)
                     ->update([
                         'assignment_status' => 'accepted',
+                        'accepted_at' => now(),
                         'updated_at' => now(),
                     ]);
 
