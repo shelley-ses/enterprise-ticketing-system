@@ -775,3 +775,28 @@ export const getSuperAdminHistory = async () => {
   const response = await ticketClient.get('/superadmin/history');
   return response.data;
 };
+
+export const getSLARules = async (params = {}) => {
+  const response = await ticketClient.get('/superadmin/sla-rules', { params });
+  return response.data;
+};
+
+export const createSLARule = async (payload) => {
+  const response = await ticketClient.post('/superadmin/sla-rules', payload);
+  return response.data;
+};
+
+export const updateSLARule = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/sla-rules/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSLARule = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/sla-rules/${id}`);
+  return response.data;
+};
+
+export const saveDepartmentSLARules = async (departmentId, rules) => {
+  const response = await ticketClient.post(`/superadmin/sla-rules/department/${departmentId}`, { rules });
+  return response.data;
+};

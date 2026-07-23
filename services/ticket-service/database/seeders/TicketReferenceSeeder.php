@@ -303,5 +303,71 @@ class TicketReferenceSeeder extends Seeder
                 'updated_at' => $now,
             ],
         ], ['sla_ID'], ['sla_name', 'description', 'response_time_minutes', 'resolution_time_minutes', 'is_active', 'updated_at']);
+
+        // SLA Rules by Department & Priority
+        DB::table('sla_rules')->upsert([
+            // IT Support (Department ID 2)
+            [
+                'id' => 1,
+                'department_id' => 2,
+                'category_id' => null,
+                'priority' => 'Critical',
+                'response_time_limit' => 15,
+                'resolution_time_limit' => 240,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 2,
+                'department_id' => 2,
+                'category_id' => null,
+                'priority' => 'High',
+                'response_time_limit' => 30,
+                'resolution_time_limit' => 480,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 3,
+                'department_id' => 2,
+                'category_id' => null,
+                'priority' => 'Medium',
+                'response_time_limit' => 120,
+                'resolution_time_limit' => 1440,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 4,
+                'department_id' => 2,
+                'category_id' => null,
+                'priority' => 'Low',
+                'response_time_limit' => 240,
+                'resolution_time_limit' => 4320,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            // Service / Facilities (Department ID 1)
+            [
+                'id' => 5,
+                'department_id' => 1,
+                'category_id' => null,
+                'priority' => 'Critical',
+                'response_time_limit' => 30,
+                'resolution_time_limit' => 480,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'id' => 6,
+                'department_id' => 1,
+                'category_id' => null,
+                'priority' => 'High',
+                'response_time_limit' => 60,
+                'resolution_time_limit' => 1440,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ], ['id'], ['department_id', 'category_id', 'priority', 'response_time_limit', 'resolution_time_limit', 'updated_at']);
     }
 }

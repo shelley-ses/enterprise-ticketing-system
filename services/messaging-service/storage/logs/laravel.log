@@ -5823,3 +5823,9 @@
 #36 /var/www/vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php(16): require_once('/var/www/public...')
 #37 {main}
 "} 
+[2026-07-23 14:46:03] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  
+[2026-07-23 14:46:04] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  
+[2026-07-23 14:54:09] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  
+[2026-07-23 14:54:09] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  
+[2026-07-23 15:05:04] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  
+[2026-07-23 15:05:04] local.WARNING: VerifyEmployeeJwt: Signature verification failed. Verification status: 0  

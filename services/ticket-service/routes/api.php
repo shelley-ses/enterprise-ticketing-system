@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\WorkLogController;
+use App\Http\Controllers\SLARuleController;
 
 /*
 |--------------------------------------------------------------------------
@@ -56,5 +57,13 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::delete('/superadmin/priority/{id}', [TicketController::class, 'deleteSuperAdminPriority']);
     Route::get('/superadmin/audit-logs', [TicketController::class, 'getSuperAdminAuditLogs']);
     Route::get('/superadmin/history', [TicketController::class, 'getSuperAdminHistory']);
+
+    // SuperAdmin SLA Rules routes
+    Route::get('/superadmin/sla-rules', [SLARuleController::class, 'index']);
+    Route::post('/superadmin/sla-rules', [SLARuleController::class, 'store']);
+    Route::post('/superadmin/sla-rules/department/{departmentId}', [SLARuleController::class, 'saveDepartmentRules']);
+    Route::get('/superadmin/sla-rules/{id}', [SLARuleController::class, 'show']);
+    Route::put('/superadmin/sla-rules/{id}', [SLARuleController::class, 'update']);
+    Route::delete('/superadmin/sla-rules/{id}', [SLARuleController::class, 'destroy']);
 });
 Route::post('/tickets', [TicketController::class, 'store']);
