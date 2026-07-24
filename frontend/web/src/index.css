@@ -47,3 +47,7 @@ body, input, select, textarea, button {
 .animate-fade-slide-in {
   animation: fadeSlideIn 0.2s ease-out;
 }
+
+.animate-fadeSlideIn {
+  animation: fadeSlideIn 0.35s ease-out;
+}

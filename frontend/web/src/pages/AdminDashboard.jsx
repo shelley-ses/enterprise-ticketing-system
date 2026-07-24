@@ -12,7 +12,8 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
-import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu } from 'lucide-react';
+import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart } from 'lucide-react';
+import PredictiveAnalytics from './PredictiveAnalytics';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
@@ -21,17 +22,17 @@ const FILTER_OPTIONS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days'];
 
 // ─── Chart Color Palette ─────────────────────────────────────────────────────
 const COLORS = {
-  indigo: { bg: 'rgba(99, 102, 241, 0.15)', border: 'rgb(99, 102, 241)' },
+  blue: { bg: 'rgba(37, 37, 120, 0.12)', border: 'rgb(37, 37, 120)' },
   emerald: { bg: 'rgba(16, 185, 129, 0.15)', border: 'rgb(16, 185, 129)' },
   rose: { bg: 'rgba(244, 63, 94, 0.15)', border: 'rgb(244, 63, 94)' },
   amber: { bg: 'rgba(245, 158, 11, 0.15)', border: 'rgb(245, 158, 11)' },
   sky: { bg: 'rgba(14, 165, 233, 0.15)', border: 'rgb(14, 165, 233)' },
-  violet: { bg: 'rgba(139, 92, 246, 0.15)', border: 'rgb(139, 92, 246)' },
+  violet: { bg: 'rgba(59, 130, 246, 0.12)', border: 'rgb(59, 130, 246)' },
   teal: { bg: 'rgba(20, 184, 166, 0.15)', border: 'rgb(20, 184, 166)' },
 };
 
 const BAR_PALETTE = [
-  'rgba(99, 102, 241, 0.75)',
+  'rgba(37, 37, 120, 0.75)',
   'rgba(16, 185, 129, 0.75)',
   'rgba(245, 158, 11, 0.75)',
   'rgba(244, 63, 94, 0.75)',
@@ -225,7 +226,7 @@ function FilterDropdown({ value, onChange }) {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 pr-9 text-sm text-gray-600 font-medium cursor-pointer hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300"
+        className="appearance-none bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 pr-9 text-sm text-gray-600 font-medium cursor-pointer hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300"
       >
         {FILTER_OPTIONS.map((opt) => (
           <option key={opt} value={opt}>{opt}</option>
@@ -242,13 +243,13 @@ function ChartViewDropdown({ value, onChange, options }) {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2 pr-9 text-sm text-indigo-700 font-semibold cursor-pointer hover:bg-indigo-100 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        className="appearance-none bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 pr-9 text-sm text-blue-700 font-semibold cursor-pointer hover:bg-blue-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200"
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>{opt}</option>
         ))}
       </select>
-      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none" />
+      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
     </div>
   );
 }
@@ -259,7 +260,7 @@ function SectionCard({ icon, title, instruction, children, filter, onFilterChang
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#252578] to-[#3b82f6] flex items-center justify-center flex-shrink-0">
             {icon}
           </div>
           <div>
@@ -287,14 +288,14 @@ function SectionCard({ icon, title, instruction, children, filter, onFilterChang
 
 function StatCard({ label, value, icon, color }) {
   const colorMap = {
-    indigo: 'from-indigo-500 to-indigo-600',
+    blue: 'from-[#252578] to-[#3b82f6]',
     emerald: 'from-emerald-500 to-emerald-600',
     rose: 'from-rose-500 to-rose-600',
     amber: 'from-amber-500 to-amber-600',
   };
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center gap-4 hover:shadow-md transition-all duration-200">
-      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colorMap[color] || colorMap.indigo} flex items-center justify-center flex-shrink-0`}>
+      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colorMap[color] || colorMap.blue} flex items-center justify-center flex-shrink-0`}>
         {icon}
       </div>
       <div>
@@ -307,6 +308,8 @@ function StatCard({ label, value, icon, color }) {
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState('overview');
+
   // Section filters
   const [ticketFilter, setTicketFilter] = useState('Last 7 Days');
   const [slaFilter, setSlaFilter] = useState('Last 7 Days');
@@ -400,8 +403,8 @@ export default function AdminDashboard() {
                 {
                   label: 'New Tickets',
                   data: data.new,
-                  borderColor: COLORS.indigo.border,
-                  backgroundColor: COLORS.indigo.bg,
+                  borderColor: COLORS.blue.border,
+                  backgroundColor: COLORS.blue.bg,
                   fill: true,
                   tension: 0.4,
                   borderWidth: 2.5,
@@ -438,7 +441,7 @@ export default function AdminDashboard() {
               labels: ['Open', 'In Progress', 'Resolved', 'Closed'],
               datasets: [{
                 data: [data.open, data.inProgress, data.resolved, data.closed],
-                backgroundColor: [COLORS.amber.border, COLORS.sky.border, COLORS.emerald.border, COLORS.indigo.border],
+                backgroundColor: [COLORS.amber.border, COLORS.sky.border, COLORS.emerald.border, COLORS.blue.border],
                 borderRadius: 8,
                 barThickness: 28,
               }],
@@ -691,7 +694,7 @@ export default function AdminDashboard() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {syncStatusMsg && (
-            <span className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded-lg animate-pulse">
+            <span className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 font-medium rounded-lg animate-pulse">
               {syncStatusMsg}
             </span>
           )}
@@ -700,13 +703,13 @@ export default function AdminDashboard() {
             disabled={isSyncing}
             className="flex items-center gap-2 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
             Run Incremental ETL
           </button>
           <button
             onClick={() => handleRunEtl(true)}
             disabled={isSyncing}
-            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl text-xs font-semibold shadow-sm hover:opacity-95 active:scale-95 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white rounded-xl text-xs font-semibold shadow-sm hover:opacity-95 active:scale-95 transition-all disabled:opacity-50"
           >
             <Cpu className="w-3.5 h-3.5" />
             Full ETL Sync (--full-sync)
@@ -714,87 +717,122 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* 2-Column Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Section 1: Ticket Trends */}
-        <SectionCard
-          icon={<TrendingUp className="w-5 h-5 text-white" />}
-          title="Ticket Trends"
-          instruction="Track new vs resolved tickets and overall ticket status distribution."
-          filter={ticketFilter}
-          onFilterChange={setTicketFilter}
-          viewOptions={['Ticket Trends', 'Ticket Status']}
-          currentView={ticketView}
-          onViewChange={setTicketView}
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5 w-fit">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'overview'
+              ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
         >
-          {ticketChart}
-        </SectionCard>
-
-        {/* Section 2: SLA Compliance */}
-        <SectionCard
-          icon={<ShieldCheck className="w-5 h-5 text-white" />}
-          title="SLA Compliance"
-          instruction="Monitor SLA adherence, breaches, resolution times, and per-department performance."
-          filter={slaFilter}
-          onFilterChange={setSlaFilter}
-          viewOptions={['Compliance', 'Breaches', 'Resolution SLA', 'SLA by Dept']}
-          currentView={slaView}
-          onViewChange={setSlaView}
+          <BarChart3 className="w-4 h-4" />
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('predictive')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'predictive'
+              ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
         >
-          {slaChart}
-        </SectionCard>
-
-        {/* Section 3: Employee Performance */}
-        <SectionCard
-          icon={<Users className="w-5 h-5 text-white" />}
-          title="Employee Performance"
-          instruction="Review individual employee metrics across tickets, response times, and SLA adherence."
-          filter={empFilter}
-          onFilterChange={setEmpFilter}
-          viewOptions={['Tickets Resolved', 'Avg Response Time', 'Avg Resolution Time', 'SLA Compliance']}
-          currentView={empView}
-          onViewChange={setEmpView}
-        >
-          {/* Active Employees Stat */}
-          <div className="mb-5">
-            <StatCard
-              label="Active Employees"
-              value={analyticsData.performance?.active_employees_count || activeEmployeesMock[empFilter]}
-              icon={<Users className="w-5 h-5 text-white" />}
-              color="indigo"
-            />
-          </div>
-          {empChart}
-        </SectionCard>
-
-        {/* Section 4: Customer Satisfaction */}
-        <SectionCard
-          icon={<Smile className="w-5 h-5 text-white" />}
-          title="Customer Satisfaction"
-          instruction="Monitor CSAT score trends over time to gauge customer happiness."
-          filter={csatFilter}
-          onFilterChange={setCsatFilter}
-        >
-          {csatChart}
-        </SectionCard>
-
-        {/* Section 5: Workload Distribution — Full Width */}
-        <div className="lg:col-span-2">
-          <SectionCard
-            icon={<Briefcase className="w-5 h-5 text-white" />}
-            title="Workload Distribution"
-            instruction="View ticket assignments distributed across employees and departments."
-            filter={workloadFilter}
-            onFilterChange={setWorkloadFilter}
-            viewOptions={['By Employee', 'By Department']}
-            currentView={workloadView}
-            onViewChange={setWorkloadView}
-          >
-            {workloadChart}
-          </SectionCard>
-        </div>
+          <LineChart className="w-4 h-4" />
+          Predictive Analytics
+        </button>
       </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' ? (
+        <div className="animate-fadeSlideIn">
+          {/* 2-Column Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            {/* Section 1: Ticket Trends */}
+            <SectionCard
+              icon={<TrendingUp className="w-5 h-5 text-white" />}
+              title="Ticket Trends"
+              instruction="Track new vs resolved tickets and overall ticket status distribution."
+              filter={ticketFilter}
+              onFilterChange={setTicketFilter}
+              viewOptions={['Ticket Trends', 'Ticket Status']}
+              currentView={ticketView}
+              onViewChange={setTicketView}
+            >
+              {ticketChart}
+            </SectionCard>
+
+            {/* Section 2: SLA Compliance */}
+            <SectionCard
+              icon={<ShieldCheck className="w-5 h-5 text-white" />}
+              title="SLA Compliance"
+              instruction="Monitor SLA adherence, breaches, resolution times, and per-department performance."
+              filter={slaFilter}
+              onFilterChange={setSlaFilter}
+              viewOptions={['Compliance', 'Breaches', 'Resolution SLA', 'SLA by Dept']}
+              currentView={slaView}
+              onViewChange={setSlaView}
+            >
+              {slaChart}
+            </SectionCard>
+
+            {/* Section 3: Employee Performance */}
+            <SectionCard
+              icon={<Users className="w-5 h-5 text-white" />}
+              title="Employee Performance"
+              instruction="Review individual employee metrics across tickets, response times, and SLA adherence."
+              filter={empFilter}
+              onFilterChange={setEmpFilter}
+              viewOptions={['Tickets Resolved', 'Avg Response Time', 'Avg Resolution Time', 'SLA Compliance']}
+              currentView={empView}
+              onViewChange={setEmpView}
+            >
+              {/* Active Employees Stat */}
+              <div className="mb-5">
+                <StatCard
+                  label="Active Employees"
+                  value={analyticsData.performance?.active_employees_count || activeEmployeesMock[empFilter]}
+                  icon={<Users className="w-5 h-5 text-white" />}
+                  color="blue"
+                />
+              </div>
+              {empChart}
+            </SectionCard>
+
+            {/* Section 4: Customer Satisfaction */}
+            <SectionCard
+              icon={<Smile className="w-5 h-5 text-white" />}
+              title="Customer Satisfaction"
+              instruction="Monitor CSAT score trends over time to gauge customer happiness."
+              filter={csatFilter}
+              onFilterChange={setCsatFilter}
+            >
+              {csatChart}
+            </SectionCard>
+
+            {/* Section 5: Workload Distribution — Full Width */}
+            <div className="lg:col-span-2">
+              <SectionCard
+                icon={<Briefcase className="w-5 h-5 text-white" />}
+                title="Workload Distribution"
+                instruction="View ticket assignments distributed across employees and departments."
+                filter={workloadFilter}
+                onFilterChange={setWorkloadFilter}
+                viewOptions={['By Employee', 'By Department']}
+                currentView={workloadView}
+                onViewChange={setWorkloadView}
+              >
+                {workloadChart}
+              </SectionCard>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="animate-fadeSlideIn">
+          <PredictiveAnalytics />
+        </div>
+      )}
     </div>
   );
 }
