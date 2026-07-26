@@ -359,14 +359,16 @@ export default function AdminDashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
+  const ANALYTICS_BASE = import.meta.env.VITE_ANALYTICS_API_URL || 'http://localhost:8010';
+
   const fetchAnalytics = async () => {
     try {
       const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes] = await Promise.all([
-        fetch('http://localhost:8010/api/analytics/trends').then(r => r.json()).catch(() => null),
-        fetch('http://localhost:8010/api/analytics/workload').then(r => r.json()).catch(() => null),
-        fetch('http://localhost:8010/api/analytics/employee-performance').then(r => r.json()).catch(() => null),
-        fetch('http://localhost:8010/api/analytics/volume-reports').then(r => r.json()).catch(() => null),
-        fetch('http://localhost:8010/api/analytics/equipment-reports').then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/api/analytics/trends`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/api/analytics/workload`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/api/analytics/employee-performance`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/api/analytics/volume-reports`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/api/analytics/equipment-reports`).then(r => r.json()).catch(() => null),
       ]);
 
       setAnalyticsData({
@@ -389,7 +391,7 @@ export default function AdminDashboard() {
     setIsSyncing(true);
     setSyncStatusMsg(fullSync ? 'Executing Full ETL Sync...' : 'Running Incremental ETL...');
     try {
-      const res = await fetch('http://localhost:8010/api/analytics/etl/trigger', {
+      const res = await fetch(`${ANALYTICS_BASE}/api/analytics/etl/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_sync: fullSync }),
@@ -800,22 +802,20 @@ export default function AdminDashboard() {
       <div className="flex items-center gap-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5 w-fit">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
-            activeTab === 'overview'
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'overview'
               ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-          }`}
+            }`}
         >
           <BarChart3 className="w-4 h-4" />
           Overview
         </button>
         <button
           onClick={() => setActiveTab('predictive')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
-            activeTab === 'predictive'
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'predictive'
               ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-          }`}
+            }`}
         >
           <LineChart className="w-4 h-4" />
           Predictive Analytics
