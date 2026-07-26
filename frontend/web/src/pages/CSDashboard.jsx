@@ -12,6 +12,8 @@ const MOCK_STATS = {
   pending: 3,
   assigned: 9,
   highPriority: 11,
+  slaBreached: 2,
+  escalated: 4,
 };
 
 const MOCK_TICKETS = [
@@ -45,17 +47,22 @@ export default function CSDashboard() {
 
     try {
       const payload = await getCSDashboard({ limit: 10, forceRefresh: forceRefresh || refreshKey > 0 });
+      const recentTickets = (payload.recent_tickets || MOCK_TICKETS).map((t) => ({
+        ...t,
+        updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
+        priority: t.priority || 'Unassigned',
+      }));
+      const slaBreachedCount = recentTickets.filter((t) => t.status === 'Escalated').length;
+      const escalatedCount = recentTickets.filter((t) => (t.priority === 'Critical' || t.priority === 'High') && t.status !== 'Resolved' && t.status !== 'Closed').length;
       setStats({
         unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
         pending: payload.summary?.in_progress ?? MOCK_STATS.pending,
         assigned: payload.summary?.resolved ?? MOCK_STATS.assigned,
         highPriority: 0,
+        slaBreached: slaBreachedCount,
+        escalated: escalatedCount,
       });
-      setTickets((payload.recent_tickets || MOCK_TICKETS).map((t) => ({
-        ...t,
-        updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
-        priority: t.priority || 'Unassigned',
-      })));
+      setTickets(recentTickets);
     } catch (err) {
       setError('Unable to load data from API — using local mock data.');
       setStats(MOCK_STATS);
@@ -200,7 +207,9 @@ export default function CSDashboard() {
         { label: 'Unassigned Tickets', value: stats.unassigned, icon: <Inbox size={28} /> },
         { label: 'Pending Tickets', value: stats.pending, icon: <Clock size={28} /> },
         { label: 'Assigned Tickets', value: stats.assigned, icon: <CheckCircle size={28} /> },
-        // { label: 'High Priority', value: stats.highPriority, icon: <AlertTriangle size={28} /> },
+        { label: 'High Priority', value: stats.highPriority, icon: <AlertTriangle size={28} /> },
+        { label: 'SLA Breached', value: stats.slaBreached, icon: <AlertTriangle size={28} />, color: 'rose' },
+        { label: 'Escalated Tickets', value: stats.escalated, icon: <AlertTriangle size={28} />, color: 'amber' },
       ]
     : [];
 
@@ -238,8 +247,8 @@ export default function CSDashboard() {
 
       {loading ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {[1,2,3,4].map(i => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            {[1,2,3,4,5,6].map(i => (
               <div key={i} className="bg-white rounded-xl shadow-md p-4">
                 <div className="h-10 bg-gray-200 rounded-lg w-12 mb-3 animate-pulse" />
                 <div className="h-6 bg-gray-200 rounded w-16 mb-2 animate-pulse" />
@@ -258,10 +267,14 @@ export default function CSDashboard() {
             <div className="mb-4 p-3 text-sm bg-yellow-50 text-yellow-800 rounded">{error}</div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
             {statItems.map((s) => (
-              <div key={s.label} className="bg-white rounded-xl shadow-md p-6 flex items-center gap-5">
-                <div className="w-16 h-16 bg-[#f1f5f9] rounded-lg flex items-center justify-center text-[#252578]">
+              <div key={s.label} className={`bg-white rounded-xl shadow-md p-5 flex items-center gap-4 ${
+                s.color === 'rose' ? 'border-l-4 border-l-rose-500' : s.color === 'amber' ? 'border-l-4 border-l-amber-500' : ''
+              }`}>
+                <div className={`w-14 h-14 rounded-lg flex items-center justify-center shrink-0 ${
+                  s.color === 'rose' ? 'bg-rose-50 text-rose-500' : s.color === 'amber' ? 'bg-amber-50 text-amber-500' : 'bg-[#f1f5f9] text-[#252578]'
+                }`}>
                   {s.icon}
                 </div>
                 <div>

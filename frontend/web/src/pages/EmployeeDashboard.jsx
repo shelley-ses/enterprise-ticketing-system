@@ -5,7 +5,7 @@ import pendingIcon from '@/assets/cs-pending.png';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
-import { Search, Filter, Bot } from 'lucide-react';
+import { Search, Filter, Bot, AlertTriangle, ShieldAlert } from 'lucide-react';
 import {
   recentProgress,
   statusColors,
@@ -359,11 +359,15 @@ export default function EmployeeDashboard() {
     const incomingCount = visible.filter((t) => !t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
     const assignedCount = visible.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
     const completedCount = visible.filter((t) => CLOSED_STATUSES.includes(t.status)).length;
+    const slaBreachedCount = visible.filter((t) => t.status === 'Escalated').length;
+    const escalatedCount = visible.filter((t) => t.priority === 'Critical' && !CLOSED_STATUSES.includes(t.status)).length;
 
     return [
       { label: 'Incoming Tickets', value: incomingCount, sub: 'Awaiting acceptance', icon: assignedStatIcon },
       { label: 'Assigned Tickets', value: assignedCount, sub: 'Active work in progress', icon: pendingIcon },
       { label: 'Completed Tickets', value: completedCount, sub: 'Resolved & closed history', icon: unassignedIcon },
+      { label: 'SLA Breached', value: slaBreachedCount, sub: 'SLA violations detected', icon: 'AlertTriangle' },
+      { label: 'Escalated Tickets', value: escalatedCount, sub: 'Critical tickets requiring review', icon: 'ShieldAlert' },
     ];
   }, [visible]);
 
@@ -420,11 +424,21 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
         {stats.map((s) => (
-          <div key={s.label} className="bg-white rounded-xl shadow-md p-4 flex items-center gap-4">
-            <div className="w-14 h-14 bg-[#f1f5f9] rounded-lg flex items-center justify-center">
-              <img src={s.icon} alt="" className="w-8 h-8 object-contain" />
+          <div key={s.label} className={`bg-white rounded-xl shadow-md p-4 flex items-center gap-4 ${
+            s.label === 'SLA Breached' ? 'border-l-4 border-l-rose-500' : s.label === 'Escalated Tickets' ? 'border-l-4 border-l-amber-500' : ''
+          }`}>
+            <div className={`w-14 h-14 rounded-lg flex items-center justify-center shrink-0 ${
+              s.label === 'SLA Breached' ? 'bg-rose-50' : s.label === 'Escalated Tickets' ? 'bg-amber-50' : 'bg-[#f1f5f9]'
+            }`}>
+              {typeof s.icon === 'string' && s.icon === 'AlertTriangle' ? (
+                <AlertTriangle className="w-7 h-7 text-rose-500" />
+              ) : typeof s.icon === 'string' && s.icon === 'ShieldAlert' ? (
+                <ShieldAlert className="w-7 h-7 text-amber-500" />
+              ) : (
+                <img src={s.icon} alt="" className="w-8 h-8 object-contain" />
+              )}
             </div>
             <div>
               <div className="text-2xl font-semibold text-gray-800">{s.value}</div>
@@ -443,7 +457,6 @@ export default function EmployeeDashboard() {
 
 
 
-      {/*
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-red-50 rounded-xl shadow-md border border-red-100 p-6">
           <div className="flex items-center gap-2 mb-2">
@@ -496,7 +509,6 @@ export default function EmployeeDashboard() {
           )}
         </div>
       </div>
-      */}
 
       <div className="flex flex-col gap-6">
           <div className="bg-white rounded-xl shadow-md p-6">
