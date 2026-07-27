@@ -359,16 +359,17 @@ export default function AdminDashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
-  const ANALYTICS_BASE = import.meta.env.VITE_ANALYTICS_API_URL || 'http://localhost:8010';
+  const ANALYTICS_BASE = import.meta.env.VITE_ANALYTICS_API_URL || '/api/analytics';
 
   const fetchAnalytics = async () => {
     try {
-      const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes] = await Promise.all([
-        fetch(`${ANALYTICS_BASE}/api/analytics/trends`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/api/analytics/workload`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/api/analytics/employee-performance`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/api/analytics/volume-reports`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/api/analytics/equipment-reports`).then(r => r.json()).catch(() => null),
+      const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes, csatRes] = await Promise.all([
+        fetch(`${ANALYTICS_BASE}/trends`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/workload`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/employee-performance`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/volume-reports`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/equipment-reports`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/csat-stats`).then(r => r.json()).catch(() => null),
       ]);
 
       setAnalyticsData({
@@ -377,6 +378,7 @@ export default function AdminDashboard() {
         performance: perfRes || { active_employees_count: 0, data: [] },
         volume: volumeRes?.data || { by_category: [], by_priority: [], by_status: [] },
         equipment: equipmentRes?.data || [],
+        csat: csatRes?.data || null,
       });
     } catch (err) {
       console.warn('Analytics API offline, using fallback UI metrics', err);

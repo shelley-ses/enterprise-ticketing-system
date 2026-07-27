@@ -92,15 +92,41 @@ export function hasFeedbackBeenSubmitted(ticketId) {
   return !!(feedback && feedback.submitted);
 }
 
-export function saveFeedback(ticketId, ratings, comments, overallComment) {
+export async function saveFeedback(ticketId, ratings, comments, overallComment, customerId = null) {
   const all = getAllFeedback();
-  all[ticketId] = {
+  const feedbackData = {
     ratings,
     comments: comments || {},
     overallComment: overallComment || '',
     submittedAt: new Date().toISOString(),
     submitted: true,
   };
+
+  all[ticketId] = feedbackData;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+
+  // Send rating payload to analytics-service backend API
+  try {
+    const res = await fetch('/api/analytics/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        ticket_id: String(ticketId),
+        customer_id: customerId ? String(customerId) : null,
+        ratings,
+        comments: comments || {},
+        overall_comment: overallComment || '',
+      }),
+    });
+    const result = await res.json();
+    console.log('CSAT feedback posted to analytics-service:', result);
+  } catch (err) {
+    console.warn('Analytics service offline. Feedback persisted locally:', err);
+  }
+
   return all[ticketId];
 }
+

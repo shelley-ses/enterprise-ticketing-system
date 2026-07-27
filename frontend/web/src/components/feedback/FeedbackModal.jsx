@@ -33,13 +33,22 @@ export default function FeedbackModal({ ticket, onClose }) {
 
   const allRated = employees.every((emp) => ratings[emp.id] && ratings[emp.id] > 0);
 
-  const handleSubmit = () => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
     if (!allRated) {
       setValidationError('Please provide a rating for all assigned support personnel.');
       return;
     }
-    saveFeedback(ticket.id, ratings, comments, overallComment);
-    setStep('thankyou');
+    setIsSubmitting(true);
+    try {
+      await saveFeedback(ticket.id, ratings, comments, overallComment, ticket.customer_id || ticket.customer);
+    } catch (err) {
+      console.error('Failed to submit feedback:', err);
+    } finally {
+      setIsSubmitting(false);
+      setStep('thankyou');
+    }
   };
 
   if (step === 'thankyou') {
@@ -146,10 +155,10 @@ export default function FeedbackModal({ ticket, onClose }) {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!allRated}
+              disabled={!allRated || isSubmitting}
               className="rounded-xl bg-[#252578] px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Submit Feedback
+              {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
             </button>
           </div>
         </div>

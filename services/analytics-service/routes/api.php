@@ -14,6 +14,14 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+use App\Http\Controllers\FeedbackController;
+
 Route::middleware('auth:api')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+Route::prefix('analytics')->group(function () {
+    Route::post('/feedback', [FeedbackController::class, 'store']);
+    Route::get('/csat-stats', [FeedbackController::class, 'csatStats']);
+});
+

@@ -11,6 +11,9 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
     ports:
       - "33061:3306"
+    networks:
+      - default
+      - shared-capstone-network
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
