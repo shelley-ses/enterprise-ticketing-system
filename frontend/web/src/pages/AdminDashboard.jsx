@@ -393,7 +393,7 @@ export default function AdminDashboard() {
     setIsSyncing(true);
     setSyncStatusMsg(fullSync ? 'Executing Full ETL Sync...' : 'Running Incremental ETL...');
     try {
-      const res = await fetch(`${ANALYTICS_BASE}/api/analytics/etl/trigger`, {
+      const res = await fetch(`${ANALYTICS_BASE}/etl/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_sync: fullSync }),

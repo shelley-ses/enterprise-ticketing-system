@@ -50,10 +50,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/ticketing\/analytics/, '/api')
       },
       '/api/analytics': {
-        target: process.env.VITE_ANALYTICS_SERVICE_URL || 'http://127.0.0.1:8004',
+        target: process.env.VITE_ANALYTICS_SERVICE_URL || 'http://127.0.0.1:8010',
         changeOrigin: true,
         secure: false,
       },
+
       '/api/ticketing/ai': {
         target: process.env.VITE_AI_SERVICE_URL || 'http://127.0.0.1:8005',
         changeOrigin: true,

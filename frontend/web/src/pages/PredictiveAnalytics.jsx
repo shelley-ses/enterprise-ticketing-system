@@ -196,7 +196,7 @@ export default function PredictiveAnalytics() {
               labels,
               datasets: [
                 { label: 'Upper', data: d.upper, borderColor: 'transparent', backgroundColor: 'rgba(37,37,120,0.06)', pointRadius: 0, fill: '+1' },
-                { label: 'Historical', data: d.hist, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5,3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
+                { label: 'Historical', data: d.hist, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5, 3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
                 { label: 'Predicted', data: d.pred, borderColor: COLORS.blue.border, backgroundColor: COLORS.blue.bg, fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
                 { label: 'Lower', data: d.lower, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false },
               ],
@@ -345,9 +345,8 @@ export default function PredictiveAnalytics() {
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      c.trend === 'up' ? 'bg-rose-400' : c.trend === 'down' ? 'bg-emerald-400' : 'bg-blue-400'
-                    }`}
+                    className={`h-full rounded-full transition-all duration-500 ${c.trend === 'up' ? 'bg-rose-400' : c.trend === 'down' ? 'bg-emerald-400' : 'bg-blue-400'
+                      }`}
                     style={{ width: `${c.pct}%` }}
                   />
                 </div>
