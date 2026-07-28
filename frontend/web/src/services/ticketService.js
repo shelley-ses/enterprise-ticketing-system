@@ -800,3 +800,50 @@ export const saveDepartmentSLARules = async (departmentId, rules) => {
   const response = await ticketClient.post(`/superadmin/sla-rules/department/${departmentId}`, { rules });
   return response.data;
 };
+
+// Workflow Statuses
+export const getWorkflowStatuses = async () => {
+  const response = await ticketClient.get('/superadmin/workflow-statuses');
+  return response.data;
+};
+
+export const createWorkflowStatus = async (payload) => {
+  const response = await ticketClient.post('/superadmin/workflow-statuses', payload);
+  return response.data;
+};
+
+export const updateWorkflowStatus = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/workflow-statuses/${id}`, payload);
+  return response.data;
+};
+
+export const deleteWorkflowStatus = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/workflow-statuses/${id}`);
+  return response.data;
+};
+
+// Escalation Rules
+export const getEscalationRules = async () => {
+  const response = await ticketClient.get('/superadmin/escalation-rules');
+  return response.data;
+};
+
+export const createEscalationRule = async (payload) => {
+  const response = await ticketClient.post('/superadmin/escalation-rules', payload);
+  return response.data;
+};
+
+export const updateEscalationRule = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/escalation-rules/${id}`, payload);
+  return response.data;
+};
+
+export const toggleEscalationRule = async (id) => {
+  const response = await ticketClient.patch(`/superadmin/escalation-rules/${id}/toggle`);
+  return response.data;
+};
+
+export const deleteEscalationRule = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/escalation-rules/${id}`);
+  return response.data;
+};
