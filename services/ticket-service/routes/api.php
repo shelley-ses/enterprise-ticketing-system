@@ -65,5 +65,19 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::get('/superadmin/sla-rules/{id}', [SLARuleController::class, 'show']);
     Route::put('/superadmin/sla-rules/{id}', [SLARuleController::class, 'update']);
     Route::delete('/superadmin/sla-rules/{id}', [SLARuleController::class, 'destroy']);
+
+    // SuperAdmin Workflow Statuses routes
+    Route::get('/superadmin/workflow-statuses', [\App\Http\Controllers\WorkflowEscalationController::class, 'getWorkflowStatuses']);
+    Route::post('/superadmin/workflow-statuses', [\App\Http\Controllers\WorkflowEscalationController::class, 'storeWorkflowStatus']);
+    Route::put('/superadmin/workflow-statuses/{id}', [\App\Http\Controllers\WorkflowEscalationController::class, 'updateWorkflowStatus']);
+    Route::delete('/superadmin/workflow-statuses/{id}', [\App\Http\Controllers\WorkflowEscalationController::class, 'destroyWorkflowStatus']);
+
+    // SuperAdmin Escalation Rules routes
+    Route::get('/superadmin/escalation-rules', [\App\Http\Controllers\WorkflowEscalationController::class, 'getEscalationRules']);
+    Route::post('/superadmin/escalation-rules', [\App\Http\Controllers\WorkflowEscalationController::class, 'storeEscalationRule']);
+    Route::put('/superadmin/escalation-rules/{id}', [\App\Http\Controllers\WorkflowEscalationController::class, 'updateEscalationRule']);
+    Route::patch('/superadmin/escalation-rules/{id}/toggle', [\App\Http\Controllers\WorkflowEscalationController::class, 'toggleEscalationRule']);
+    Route::delete('/superadmin/escalation-rules/{id}', [\App\Http\Controllers\WorkflowEscalationController::class, 'destroyEscalationRule']);
 });
+
 Route::post('/tickets', [TicketController::class, 'store']);
