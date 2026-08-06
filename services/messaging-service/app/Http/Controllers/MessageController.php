@@ -108,15 +108,34 @@ class MessageController extends Controller
             $senderType = 'customer';
         }
 
-        // Prevent CS agent from messaging on a ticket they created
-        if ($senderType === 'cs') {
-            $ticket = \Illuminate\Support\Facades\DB::connection('mysql')
-                ->table('tickets')
-                ->where('ticket_ID', (int)$ticket_id)
-                ->first();
+        // Check ticket status and delegation state for archiving restriction
+        $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
+            ->table('tickets')
+            ->where('ticket_ID', (int)$ticket_id)
+            ->first();
 
-            if ($ticket && (int)$ticket->requested_by === (int)$senderId) {
+        if ($ticketRecord) {
+            $statusId = (int)$ticketRecord->ticket_status_ID;
+            if ($senderType === 'cs' && (int)$ticketRecord->requested_by === (int)$senderId) {
                 return response()->json(['message' => 'You cannot message on a ticket you created.'], 403);
+            }
+
+            $hasAssignment = !empty($ticketRecord->assigned_to);
+            if (!$hasAssignment) {
+                $hasAssignment = \Illuminate\Support\Facades\DB::connection('mysql')
+                    ->table('ticket_assignments')
+                    ->where('ticket_ID', (int)$ticket_id)
+                    ->exists();
+            }
+
+            // Status ID 4 = Closed, Status ID 8 = Reopened
+            $isClosed = ($statusId === 4);
+            $isDelegated = $hasAssignment || (!in_array($statusId, [1, 7, 8])); // 1: Open, 7: Pending, 8: Reopened
+
+            if ($isClosed || $isDelegated) {
+                return response()->json([
+                    'message' => 'This conversation is archived because the ticket has been delegated or closed. Reopen the ticket to restore the conversation.'
+                ], 403);
             }
         }
 

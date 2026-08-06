@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Plus, MessageSquare, Trash2, ArrowLeft, Clock } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
-import { getTicketFormOptions, createTicket } from '@/services/ticketService';
+import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
 
 const formatTime = (iso) => {
   if (!iso) return '';
@@ -193,18 +193,33 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
 
 function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
   const [form, setForm] = useState(data || {});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   useEffect(() => {
-    if (data) setForm(data);
-  }, [data]);
+    if (data) {
+      setForm(data);
+      setIsSubmitting(false);
+    }
+  }, [data, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleSubmit = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(form);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <h2 className="text-lg font-bold text-gray-900">Review Support Ticket</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 cursor-pointer">
+          <button onClick={onClose} disabled={isSubmitting} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 cursor-pointer disabled:opacity-50">
             <X size={20} />
           </button>
         </div>
@@ -291,15 +306,26 @@ function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
           <button
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer"
+            disabled={isSubmitting}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
           >
             Cancel
           </button>
           <button
-            onClick={() => onSubmit(form)}
-            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#252578] hover:bg-[#1f1f66] transition-all cursor-pointer"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
+              isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
+            }`}
           >
-            Submit Ticket
+            {isSubmitting ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              'Submit Ticket'
+            )}
           </button>
         </div>
       </div>
@@ -591,6 +617,11 @@ function AISupportPage() {
     }, { baseURL: '' })
       .then(res => {
         setIsTyping(false);
+        if (res.data.is_duplicate && res.data.conversation_id) {
+          loadConversation(res.data.conversation_id);
+          fetchConversationsListOnly();
+          return;
+        }
         const reply = res.data.content || 'I could not generate a response. Please try again.';
         
         const aiMessage = {
@@ -610,16 +641,13 @@ function AISupportPage() {
         setMessages(prev => {
           const updated = [...prev, aiMessage];
           const lowerReply = reply.toLowerCase();
-          const shouldSuggestTicket = isEscalated ||
-                                       (res.data.attempt && res.data.attempt >= 1) ||
-                                       lowerReply.includes('support ticket') || 
-                                       lowerReply.includes('create a ticket') || 
-                                       lowerReply.includes('open a ticket') || 
-                                       lowerReply.includes('technician') ||
-                                       lowerReply.includes('escalate');
+          // Only show create ticket card if AI explicitly escalates or fails to generate
+          const shouldSuggestTicket = isEscalated === true || lowerReply.includes('could not generate');
           
           if (shouldSuggestTicket) {
             setShowTicketCard(true);
+          } else {
+            setShowTicketCard(false);
           }
 
           saveConversationState(activeConversationId, updated, conversationPhase, false, shouldSuggestTicket, escTicketData);
@@ -630,18 +658,37 @@ function AISupportPage() {
       .catch(err => {
         setIsTyping(false);
         console.error(err);
-        const errMsg = err.response?.data?.error || 'Sorry, I encountered an issue connecting to the AI support service. Please try again.';
+        const errorText = err.response?.data?.error || 'AI Assistant is currently offline or unreachable. You can create a support ticket manually with our technical support team.';
         
+        const offlineErrorContent = (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 space-y-2">
+            <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
+              <AlertTriangle size={18} />
+              <span>AI Service Unavailable</span>
+            </div>
+            <p className="text-xs leading-relaxed text-amber-800">{errorText}</p>
+            <div className="pt-1">
+              <button
+                onClick={handleCreateTicket}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Plus size={14} />
+                Create Ticket Manually
+              </button>
+            </div>
+          </div>
+        );
+
         const aiMessage = {
           id: `ai-${Date.now()}`,
           role: 'ai',
-          content: errMsg,
+          content: offlineErrorContent,
           timestamp: new Date().toISOString(),
         };
 
         setMessages(prev => {
           const updated = [...prev, aiMessage];
-          saveConversationState(activeConversationId, updated, conversationPhase, false, showTicketCard, escalationTicketData);
+          saveConversationState(activeConversationId, updated, conversationPhase, false, true, escalationTicketData);
           return updated;
         });
       });
@@ -656,6 +703,13 @@ function AISupportPage() {
   }, [handleSend]);
 
   const handleNewChat = useCallback(() => {
+    // Prevent creating multiple duplicate "New Conversation" entries in sidebar
+    const existingUnused = conversations.find(c => (c.title === 'New Conversation' || c.title === 'New Chat') && c.messageCount <= 2);
+    if (existingUnused && existingUnused.id) {
+      loadConversation(existingUnused.id);
+      return;
+    }
+
     const id = `conv-${Date.now()}`;
     setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 2 }, ...prev]);
     setActiveConversationId(id);
@@ -671,7 +725,7 @@ function AISupportPage() {
       showTicketCard: false,
       escalationTicketData: null,
     };
-  }, []);
+  }, [conversations, loadConversation]);
 
   const handleDeleteConversation = useCallback((e, convId) => {
     e.stopPropagation();
@@ -783,13 +837,48 @@ function AISupportPage() {
     };
   }, [conversations, activeConversationId, messages, user, ticketOptions]);
 
-  const handleCreateTicket = useCallback(() => {
+  const handleCreateTicket = useCallback(async () => {
+    try {
+      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+      const ongoing = (existingTickets || []).find(t => {
+        const s = (t.status || '').toLowerCase();
+        return s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled';
+      });
+
+      if (ongoing) {
+        const ticketNo = ongoing.ticket_ID ? (String(ongoing.ticket_ID).startsWith('TKT-') ? String(ongoing.ticket_ID) : `TKT-${String(ongoing.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+        addMessage({
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: `Notice: You already have an active ongoing support ticket (**${ticketNo}** - Status: *${ongoing.status || 'Open'}*). To prevent duplicate entries, additional ticket creation is restricted until your current ticket is resolved.\n\nYou can view and track your ticket details under My Tickets.`,
+          timestamp: new Date().toISOString(),
+        });
+        setShowTicketCard(false);
+        return;
+      }
+    } catch (err) {
+      console.warn("Failed to check ongoing customer tickets:", err);
+    }
+
     setReviewData(generateRealReviewData(escalationTicketData));
     setShowReviewModal(true);
-  }, [escalationTicketData, generateRealReviewData]);
+  }, [currentUserId, escalationTicketData, generateRealReviewData, addMessage]);
 
   const handleSubmitTicket = useCallback(async (formData) => {
     try {
+      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+      const ongoing = (existingTickets || []).find(t => {
+        const s = (t.status || '').toLowerCase();
+        return s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled';
+      });
+
+      if (ongoing) {
+        const ticketNo = ongoing.ticket_ID ? (String(ongoing.ticket_ID).startsWith('TKT-') ? String(ongoing.ticket_ID) : `TKT-${String(ongoing.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+        setShowReviewModal(false);
+        alert(`Ongoing Ticket Protection: You already have an active ticket (${ticketNo} - Status: ${ongoing.status || 'Open'}). Duplicate ticket creation is blocked until your current ticket is resolved.`);
+        return;
+      }
+
       const options = await getTicketFormOptions().catch(() => null);
 
       let machineId = 1;
@@ -855,6 +944,13 @@ function AISupportPage() {
       setTicketNumber(formattedNo);
       setShowSuccess(true);
       setShowTicketCard(false);
+
+      // Update active conversation status in AI service backend to ticket_created
+      axiosInstance.post(`${AI_API_URL}/tickets`, {
+        title: ticketTitle,
+        description: formData.conversationSummary || formData.problemSummary || 'Submitted via AI Support Assistant.',
+        conversation_id: activeConversationId
+      }, { baseURL: '' }).catch(() => null);
 
       addMessage({
         id: `ai-${Date.now()}`,
