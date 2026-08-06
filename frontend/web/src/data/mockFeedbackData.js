@@ -105,9 +105,9 @@ export async function saveFeedback(ticketId, ratings, comments, overallComment, 
   all[ticketId] = feedbackData;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 
-  // Send rating payload to analytics-service backend API
+  // Send rating payload to legacy DB via analytics-service backend API
   try {
-    const res = await fetch('/api/analytics/feedback', {
+    const res = await fetch('/api/ticketing/analytics/feedback', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

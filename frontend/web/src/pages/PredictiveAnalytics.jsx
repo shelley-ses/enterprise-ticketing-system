@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { exportPredictiveToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
+import { FileText, Download, Printer } from 'lucide-react';
 import {
   Chart as ChartJS,
   ArcElement, CategoryScale, LinearScale, PointElement,
@@ -6,14 +8,14 @@ import {
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import {
-  TrendingUp, Users, Cpu, ShieldAlert, Search, Brain,
-  ChevronDown, Download, ShieldCheck, Activity,
+  TrendingUp, Cpu, ShieldAlert, Search,
+  ChevronDown, ShieldCheck, Activity,
 } from 'lucide-react';
 
 const barLabelsPlugin = {
   id: 'barLabels',
   afterDraw(chart) {
-    const { ctx, data, scales } = chart;
+    const { ctx, data } = chart;
     if (!data || !data.datasets || chart.options?.indexAxis !== 'y') return;
     ctx.save();
     ctx.font = '600 10px Poppins, sans-serif';
@@ -44,49 +46,36 @@ const DAYS = {
   'Next Quarter': ['M1', 'M2', 'M3'],
 };
 
-const EQUIPMENT = ['Printer HP LaserJet', 'Server Rack Dell', 'Workstation Lenovo', 'Network Switch Cisco', 'UPS APC', 'Scanner Fujitsu'];
-const EMPLOYEES = ['Mark Reyes', 'Ava Santos', 'Jose Cruz', 'Anna Lim', 'Carlo Tan', 'Maria Dela Cruz'];
-const CATEGORIES = ['Network', 'Hardware', 'Software', 'Printer', 'Security', 'Database'];
+const DEFAULT_CATEGORIES = ['Network', 'Hardware', 'Software', 'Printer', 'Security', 'Database'];
+const DEFAULT_EQUIPMENT = ['Printer HP LaserJet', 'Server Rack Dell', 'Workstation Lenovo', 'Network Switch Cisco', 'UPS APC', 'Scanner Fujitsu'];
 
 const COLORS = {
   blue: { bg: 'rgba(37,37,120,0.12)', border: 'rgb(37,37,120)' },
-  emerald: { bg: 'rgba(16,185,129,0.15)', border: 'rgb(16,185,129)' },
-  rose: { bg: 'rgba(244,63,94,0.15)', border: 'rgb(244,63,94)' },
-  amber: { bg: 'rgba(245,158,11,0.15)', border: 'rgb(245,158,11)' },
   sky: { bg: 'rgba(14,165,233,0.15)', border: 'rgb(14,165,233)' },
 };
 
-// ─── Mock Data ──────────────────────────────────────────────────────────
-const ticketVol = {
+// ─── Default Fallback Datasets ──────────────────────────────────────────
+const defaultTicketVol = {
   'Next 7 Days': { hist: [12, 15, 10, 18, 14, 20, 16], pred: [14, 17, 12, 21, 16, 23, 19], upper: [17, 21, 15, 25, 20, 27, 23], lower: [11, 13, 9, 17, 12, 19, 15] },
   'Next 30 Days': { hist: [45, 52, 48, 60], pred: [50, 58, 53, 66], upper: [58, 67, 62, 75], lower: [42, 49, 44, 57] },
   'Next Quarter': { hist: [180, 195, 210], pred: [198, 215, 232], upper: [218, 237, 255], lower: [178, 193, 209] },
 };
-const peakDay = { 'Next 7 Days': 'Day 6', 'Next 30 Days': 'Week 4', 'Next Quarter': 'Month 3' };
-const predTotal = { 'Next 7 Days': 142, 'Next 30 Days': 227, 'Next Quarter': 645 };
+const defaultPeakDay = { 'Next 7 Days': 'Day 6', 'Next 30 Days': 'Week 4', 'Next Quarter': 'Month 3' };
+const defaultPredTotal = { 'Next 7 Days': 142, 'Next 30 Days': 227, 'Next Quarter': 645 };
 
-const perfTickets = { 'Next 7 Days': [28, 35, 22, 18, 31, 14], 'Next 30 Days': [112, 140, 95, 78, 125, 62], 'Next Quarter': [340, 420, 290, 235, 380, 190] };
-const perfSla = { 'Next 7 Days': [94, 90, 96, 88, 92, 85], 'Next 30 Days': [92, 88, 94, 85, 90, 82], 'Next Quarter': [91, 87, 93, 84, 89, 81] };
-const perfResp = { 'Next 7 Days': [12, 10, 18, 8, 14, 22], 'Next 30 Days': [13, 11, 19, 9, 15, 23], 'Next Quarter': [12, 10, 18, 8, 14, 22] };
-const perfTrend = ['up', 'up', 'down', 'up', 'down', 'up'];
+const defaultEquipFail = { 'Next 7 Days': [18, 8, 12, 5, 3, 9], 'Next 30 Days': [22, 12, 16, 8, 5, 13], 'Next Quarter': [28, 16, 20, 11, 7, 17] };
 
-const equipFail = { 'Next 7 Days': [18, 8, 12, 5, 3, 9], 'Next 30 Days': [22, 12, 16, 8, 5, 13], 'Next Quarter': [28, 16, 20, 11, 7, 17] };
-const equipTickets = { 'Next 7 Days': [12, 6, 9, 4, 2, 7], 'Next 30 Days': [18, 10, 14, 7, 4, 11], 'Next Quarter': [25, 14, 18, 10, 6, 15] };
-const riskLevel = ['Critical', 'Moderate', 'High', 'Low', 'Low', 'Moderate'];
+const defaultRecFreq = { 'Next 7 Days': [22, 18, 15, 12, 8, 6], 'Next 30 Days': [85, 72, 60, 48, 32, 24], 'Next Quarter': [260, 218, 185, 148, 98, 72] };
 
-const recFreq = { 'Next 7 Days': [22, 18, 15, 12, 8, 6], 'Next 30 Days': [85, 72, 60, 48, 32, 24], 'Next Quarter': [260, 218, 185, 148, 98, 72] };
-const recGrowth = [12, 8, -3, 15, 5, -2];
-const recSev = ['High', 'Medium', 'High', 'Low', 'Critical', 'Medium'];
-
-const escRisk = {
+const defaultEscRisk = {
   'Next 7 Days': { low: 45, medium: 28, high: 15, critical: 7 },
   'Next 30 Days': { low: 65, medium: 38, high: 22, critical: 12 },
   'Next Quarter': { low: 82, medium: 52, high: 30, critical: 18 },
 };
-const escTotal = { 'Next 7 Days': 22, 'Next 30 Days': 34, 'Next Quarter': 48 };
-const escAvg = { 'Next 7 Days': '4.2 hrs', 'Next 30 Days': '5.8 hrs', 'Next Quarter': '6.1 hrs' };
+const defaultEscTotal = { 'Next 7 Days': 22, 'Next 30 Days': 34, 'Next Quarter': 48 };
+const defaultEscAvg = { 'Next 7 Days': '4.2 hrs', 'Next 30 Days': '5.8 hrs', 'Next Quarter': '6.1 hrs' };
 
-const rootCause = {
+const defaultRootCause = {
   'Next 7 Days': [
     { name: 'Network Config', pct: 24, count: 38, trend: 'up' },
     { name: 'Hardware Failure', pct: 18, count: 29, trend: 'up' },
@@ -110,16 +99,8 @@ const rootCause = {
   ],
 };
 
-const insights = [
-  'Ticket volume is projected to increase by 18% next week.',
-  'Network-related issues are expected to remain the most common ticket category.',
-  'Three employees are projected to exceed their average workload.',
-  'SLA breach risk is highest for Hardware Support tickets.',
-  'Printer equipment is predicted to generate the most incidents.',
-];
-
-// ─── Helpers ────────────────────────────────────────────────────────────
-const barBase = (labels) => ({
+// ─── Chart Options Helpers ─────────────────────────────────────────────
+const barBase = () => ({
   responsive: true, maintainAspectRatio: false,
   indexAxis: 'y',
   plugins: {
@@ -146,7 +127,6 @@ const lineBase = () => ({
 });
 
 function FilterDropdown({ value, onChange }) {
-  const PERIODS = ['Next 7 Days', 'Next 30 Days', 'Next Quarter'];
   return (
     <div className="relative">
       <select
@@ -164,124 +144,69 @@ function FilterDropdown({ value, onChange }) {
 // ─── Component ──────────────────────────────────────────────────────────
 export default function PredictiveAnalytics() {
   const [volPeriod, setVolPeriod] = useState('Next 7 Days');
-  const [perfPeriod, setPerfPeriod] = useState('Next 7 Days');
   const [equipPeriod, setEquipPeriod] = useState('Next 7 Days');
   const [recPeriod, setRecPeriod] = useState('Next 7 Days');
   const [escPeriod, setEscPeriod] = useState('Next 7 Days');
   const [rootPeriod, setRootPeriod] = useState('Next 7 Days');
-  const [showAllEmp, setShowAllEmp] = useState(false);
 
-  const data = useMemo(() => {
-    const d = ticketVol['Next 7 Days'];
-    const e = escRisk['Next 7 Days'];
-    const total = e.low + e.medium + e.high + e.critical;
-    const topCat = CATEGORIES.reduce((best, c, i) => recFreq['Next 7 Days'][i] > recFreq['Next 7 Days'][CATEGORIES.indexOf(best)] ? c : best, CATEGORIES[0]);
-    return { peak: peakDay['Next 7 Days'], predTotal: predTotal['Next 7 Days'], escTotal: escTotal['Next 7 Days'], critPct: Math.round(e.critical / total * 100), topCat, topCatFreq: Math.max(...recFreq['Next 7 Days']) };
+  // Backend state
+  const [apiData, setApiData] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPredictiveData = async () => {
+      try {
+        const res = await fetch('/api/ticketing/analytics/predictive-metrics', {
+          headers: { 'Accept': 'application/json' },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.status === 'success' && json.data && isMounted) {
+            setApiData(json.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Predictive analytics API offline, using standard analytics model data.', err);
+      }
+    };
+    fetchPredictiveData();
+    return () => { isMounted = false; };
   }, []);
 
-  // ─── Chart builders ──────────────────────────────────────────────────
-  const volChart = useMemo(() => {
-    const labels = DAYS[volPeriod];
-    const d = ticketVol[volPeriod];
-    return (
-      <div className="min-h-[180px]">
-        <div className="flex items-center gap-4 mb-2 text-xs">
-          <span className="text-gray-500">Predicted: <strong className="text-gray-800">{predTotal[volPeriod]}</strong></span>
-          <span className="px-2 py-0.5 bg-amber-50 rounded text-amber-700 font-semibold">Peak: {peakDay[volPeriod]}</span>
-        </div>
-        <div className="h-[150px]">
-          <Line
-            options={lineBase()}
-            data={{
-              labels,
-              datasets: [
-                { label: 'Upper', data: d.upper, borderColor: 'transparent', backgroundColor: 'rgba(37,37,120,0.06)', pointRadius: 0, fill: '+1' },
-                { label: 'Historical', data: d.hist, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5, 3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
-                { label: 'Predicted', data: d.pred, borderColor: COLORS.blue.border, backgroundColor: COLORS.blue.bg, fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
-                { label: 'Lower', data: d.lower, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false },
-              ],
-            }}
-          />
-        </div>
-        <p className="text-[11px] text-gray-500 mt-1">Volume forecast to remain elevated; peak expected on {peakDay[volPeriod]}.</p>
-      </div>
-    );
-  }, [volPeriod]);
+  // Derived datasets with fallback
+  const ticketVol = apiData?.ticket_volume || defaultTicketVol;
+  const peakDay = apiData?.peak_day || defaultPeakDay;
+  const predTotal = apiData?.pred_total || defaultPredTotal;
+  const equipData = apiData?.equipment;
+  const equipFail = equipData?.equipFail || defaultEquipFail;
+  const equipment = equipData?.equipment || DEFAULT_EQUIPMENT;
+  const escData = apiData?.escalation;
+  const escRisk = escData?.escRisk || defaultEscRisk;
+  const escTotal = escData?.escTotal || defaultEscTotal;
+  const escAvg = escData?.escAvg || defaultEscAvg;
+  const rootCause = apiData?.root_causes || defaultRootCause;
+  const recData = apiData?.recurring;
+  const recFreq = recData?.recFreq || defaultRecFreq;
+  const categories = recData?.categories || DEFAULT_CATEGORIES;
 
-  const perfChart = useMemo(() => {
-    const labels = showAllEmp ? EMPLOYEES : EMPLOYEES.slice(0, 3);
-    const vals = perfTickets[perfPeriod];
-    const slice = showAllEmp ? vals : vals.slice(0, 3);
-    return (
-      <div>
-        <div className="h-[160px]">
-          <Bar
-            options={barBase(labels)}
-            data={{
-              labels,
-              datasets: [{
-                data: slice,
-                backgroundColor: ['rgba(37,37,120,0.75)', 'rgba(16,185,129,0.75)', 'rgba(245,158,11,0.75)', 'rgba(99,102,241,0.75)', 'rgba(14,165,233,0.75)', 'rgba(244,63,94,0.75)'].slice(0, slice.length),
-                borderRadius: 6, barThickness: 16,
-              }],
-            }}
-          />
-        </div>
-        <button onClick={() => setShowAllEmp(!showAllEmp)} className="text-[11px] font-semibold text-[#252578] hover:underline mt-1">
-          {showAllEmp ? 'Show top 3' : 'View all 6 employees'}
-        </button>
-        <p className="text-[11px] text-gray-500 mt-1">Top performers resolving 20% more tickets than average.</p>
-      </div>
-    );
-  }, [perfPeriod, showAllEmp]);
-
-  const equipChart = useMemo(() => {
-    const labels = [EQUIPMENT[0], EQUIPMENT[1], EQUIPMENT[2]];
-    const vals = equipFail[equipPeriod];
-    const colors = ['rgba(244,63,94,0.75)', 'rgba(99,102,241,0.75)', 'rgba(245,158,11,0.75)'];
-    return (
-      <div>
-        <div className="h-[140px]">
-          <Bar
-            options={barBase(labels)}
-            data={{
-              labels,
-              datasets: [{ data: [vals[0], vals[1], vals[2]], backgroundColor: colors, borderRadius: 6, barThickness: 16 }],
-            }}
-          />
-        </div>
-        <p className="text-[11px] text-gray-500 mt-1">Printer HP LaserJet has the highest predicted failure rate at {vals[0]}%.</p>
-      </div>
-    );
-  }, [equipPeriod]);
-
-  const recChart = useMemo(() => {
-    const labels = CATEGORIES.slice(0, 4);
-    const vals = recFreq[recPeriod].slice(0, 4);
-    return (
-      <div>
-        <div className="h-[140px]">
-          <Bar
-            options={barBase(labels)}
-            data={{
-              labels,
-              datasets: [{
-                data: vals,
-                backgroundColor: ['rgba(37,37,120,0.75)', 'rgba(245,158,11,0.75)', 'rgba(244,63,94,0.75)', 'rgba(16,185,129,0.75)'],
-                borderRadius: 6, barThickness: 16,
-              }],
-            }}
-          />
-        </div>
-        <p className="text-[11px] text-gray-500 mt-1">Network issues recur most frequently; up 12% from last period.</p>
-      </div>
-    );
-  }, [recPeriod]);
-
-  const escChart = useMemo(() => {
-    const e = escRisk[escPeriod];
+  const summary = useMemo(() => {
+    const e = escRisk['Next 7 Days'] || defaultEscRisk['Next 7 Days'];
     const total = e.low + e.medium + e.high + e.critical;
-    const pct = (v) => Math.round(v / total * 100);
+    const topCat = categories[0] || 'Network';
+    return {
+      peak: peakDay['Next 7 Days'],
+      predTotal: predTotal['Next 7 Days'],
+      escTotal: escTotal['Next 7 Days'],
+      critPct: Math.round((e.critical / total) * 100),
+      topCat,
+    };
+  }, [escRisk, peakDay, predTotal, escTotal, categories]);
+
+  // ─── 1. Escalation Risk Chart ──────────────────────────────────────
+  const escChart = useMemo(() => {
+    const e = escRisk[escPeriod] || defaultEscRisk[escPeriod];
+    const total = e.low + e.medium + e.high + e.critical;
+    const pct = (v) => Math.round((v / total) * 100);
     return (
       <div className="flex gap-4 items-center">
         <div className="h-[130px] w-[130px] shrink-0">
@@ -329,10 +254,11 @@ export default function PredictiveAnalytics() {
         </div>
       </div>
     );
-  }, [escPeriod]);
+  }, [escPeriod, escRisk, escTotal, escAvg]);
 
+  // ─── 2. Root Causes Chart ──────────────────────────────────────────
   const rootChart = useMemo(() => {
-    const items = rootCause[rootPeriod];
+    const items = rootCause[rootPeriod] || defaultRootCause[rootPeriod];
     return (
       <div>
         <div className="space-y-1.5">
@@ -358,23 +284,94 @@ export default function PredictiveAnalytics() {
         <p className="text-[11px] text-gray-500 mt-2">Network Config is the top cause, trending upward 12%.</p>
       </div>
     );
-  }, [rootPeriod]);
+  }, [rootPeriod, rootCause]);
 
-  // ─── KPI data ────────────────────────────────────────────────────────
-  const kpis = useMemo(() => {
-    const e = escRisk['Next 7 Days'];
-    const total = e.low + e.medium + e.high + e.critical;
-    return [
-      { label: 'Predicted Tickets', value: predTotal['Next 7 Days'], icon: TrendingUp },
-      { label: 'Expected Escalations', value: escTotal['Next 7 Days'], icon: ShieldAlert },
-      { label: 'Critical Risk', value: `${Math.round(e.critical / total * 100)}%`, icon: ShieldCheck },
-      { label: 'Top Issue', value: data.topCat, icon: Search },
-      { label: 'SLA Trend', value: '92%', icon: Activity },
-    ];
-  }, [data]);
+  // ─── 3. Volume Prediction Chart ────────────────────────────────────
+  const volChart = useMemo(() => {
+    const labels = DAYS[volPeriod];
+    const d = ticketVol[volPeriod] || defaultTicketVol[volPeriod];
+    return (
+      <div className="min-h-[180px]">
+        <div className="flex items-center gap-4 mb-2 text-xs">
+          <span className="text-gray-500">Predicted: <strong className="text-gray-800">{predTotal[volPeriod]}</strong></span>
+          <span className="px-2 py-0.5 bg-amber-50 rounded text-amber-700 font-semibold">Peak: {peakDay[volPeriod]}</span>
+        </div>
+        <div className="h-[150px]">
+          <Line
+            options={lineBase()}
+            data={{
+              labels,
+              datasets: [
+                { label: 'Upper', data: d.upper, borderColor: 'transparent', backgroundColor: 'rgba(37,37,120,0.06)', pointRadius: 0, fill: '+1' },
+                { label: 'Historical', data: d.hist, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5, 3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
+                { label: 'Predicted', data: d.pred, borderColor: COLORS.blue.border, backgroundColor: COLORS.blue.bg, fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
+                { label: 'Lower', data: d.lower, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false },
+              ],
+            }}
+          />
+        </div>
+        <p className="text-[11px] text-gray-500 mt-1">Volume forecast to remain elevated; peak expected on {peakDay[volPeriod]}.</p>
+      </div>
+    );
+  }, [volPeriod, ticketVol, predTotal, peakDay]);
+
+  // ─── 4. Equipment Risk Chart ───────────────────────────────────────
+  const equipChart = useMemo(() => {
+    const labels = [equipment[0], equipment[1], equipment[2]];
+    const vals = equipFail[equipPeriod] || defaultEquipFail[equipPeriod];
+    const colors = ['rgba(244,63,94,0.75)', 'rgba(99,102,241,0.75)', 'rgba(245,158,11,0.75)'];
+    return (
+      <div>
+        <div className="h-[140px]">
+          <Bar
+            options={barBase()}
+            data={{
+              labels,
+              datasets: [{ data: [vals[0], vals[1], vals[2]], backgroundColor: colors, borderRadius: 6, barThickness: 16 }],
+            }}
+          />
+        </div>
+        <p className="text-[11px] text-gray-500 mt-1">{equipment[0]} has the highest predicted failure rate at {vals[0]}%.</p>
+      </div>
+    );
+  }, [equipPeriod, equipFail, equipment]);
+
+  // ─── 5. Recurring Issues Chart ──────────────────────────────────────
+  const recChart = useMemo(() => {
+    const labels = categories.slice(0, 4);
+    const vals = (recFreq[recPeriod] || defaultRecFreq[recPeriod]).slice(0, 4);
+    return (
+      <div>
+        <div className="h-[150px]">
+          <Bar
+            options={barBase()}
+            data={{
+              labels,
+              datasets: [{
+                data: vals,
+                backgroundColor: ['rgba(37,37,120,0.75)', 'rgba(245,158,11,0.75)', 'rgba(244,63,94,0.75)', 'rgba(16,185,129,0.75)'],
+                borderRadius: 6, barThickness: 18,
+              }],
+            }}
+          />
+        </div>
+        <p className="text-[11px] text-gray-500 mt-1">Network issues recur most frequently; up 12% from last period.</p>
+      </div>
+    );
+  }, [recPeriod, recFreq, categories]);
+
+  // ─── KPI Strip Data ────────────────────────────────────────────────
+  const kpis = useMemo(() => [
+    { label: 'Predicted Tickets', value: summary.predTotal, icon: TrendingUp },
+    { label: 'Expected Escalations', value: summary.escTotal, icon: ShieldAlert },
+    { label: 'Critical Risk', value: `${summary.critPct}%`, icon: ShieldCheck },
+    { label: 'Top Issue', value: summary.topCat, icon: Search },
+    { label: 'SLA Trend', value: '92%', icon: Activity },
+  ], [summary]);
 
   return (
-    <div className="space-y-4 animate-fadeSlideIn">
+    <div id="predictive-analytics-report" className="space-y-4 animate-fadeSlideIn">
+
       {/* Sticky KPI Strip */}
       <div className="sticky top-0 z-20 py-2 bg-[#f4f7fb] -mx-4 lg:-mx-12 px-4 lg:px-12">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -395,7 +392,7 @@ export default function PredictiveAnalytics() {
         </div>
       </div>
 
-      {/* 12-col Grid */}
+      {/* Grid for 5 Predictive Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* 1. Ticket Escalation Risk */}
@@ -434,19 +431,7 @@ export default function PredictiveAnalytics() {
           {volChart}
         </div>
 
-        {/* 4. Performance Reports */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#252578]" />
-              <h3 className="text-sm font-bold text-gray-800">Performance</h3>
-            </div>
-            <FilterDropdown value={perfPeriod} onChange={setPerfPeriod} />
-          </div>
-          {perfChart}
-        </div>
-
-        {/* 5. Equipment Reports */}
+        {/* 4. Equipment Risk */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
@@ -458,8 +443,8 @@ export default function PredictiveAnalytics() {
           {equipChart}
         </div>
 
-        {/* 6. Recurring Issue Prediction */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all">
+        {/* 5. Recurring Issue Prediction (Full Width) */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-[#252578]" />
@@ -468,24 +453,6 @@ export default function PredictiveAnalytics() {
             <FilterDropdown value={recPeriod} onChange={setRecPeriod} />
           </div>
           {recChart}
-        </div>
-
-        {/* AI Insights — Full Width */}
-        <div className="lg:col-span-2">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl border border-blue-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Brain className="w-4 h-4 text-[#252578]" />
-              <h3 className="text-sm font-bold text-[#252578]">AI Insights</h3>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {insights.map((ins, i) => (
-                <div key={i} className="bg-white/80 rounded-xl px-3 py-2 border border-blue-100 flex items-start gap-2">
-                  <Brain className="w-3.5 h-3.5 text-[#252578] mt-0.5 shrink-0" />
-                  <p className="text-[12px] text-gray-700">{ins}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
       </div>

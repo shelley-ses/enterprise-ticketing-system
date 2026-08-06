@@ -104,10 +104,14 @@ axiosInstance.interceptors.response.use(
         return axiosInstance(originalRequest);
       }
 
-      tokenStore.clearToken();
-      localStorage.removeItem('user');
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('auth:unauthorized'));
+      // Only clear session & dispatch logout if the request was to a core session endpoint
+      const isCoreSessionUrl = requestUrl.includes('/me') || requestUrl.includes('/profile') || requestUrl.includes('/user');
+      if (isCoreSessionUrl) {
+        tokenStore.clearToken();
+        localStorage.removeItem('user');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('auth:unauthorized'));
+        }
       }
     }
 

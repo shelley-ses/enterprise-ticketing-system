@@ -12,7 +12,8 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
-import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock } from 'lucide-react';
+import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer } from 'lucide-react';
+import { exportAnalyticsToCsv, exportPredictiveToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
 import PredictiveAnalytics from './PredictiveAnalytics';
 
 // Custom plugin to show data labels at bar ends (no external dependency)
@@ -768,7 +769,7 @@ export default function AdminDashboard() {
   }).format(new Date());
 
   return (
-    <div className="space-y-4">
+    <div id="admin-analytics-report" className="space-y-4">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
         <div>
@@ -782,9 +783,33 @@ export default function AdminDashboard() {
             </span>
           )}
           <button
+            onClick={() => downloadPdfFromElement(activeTab === 'predictive' ? 'predictive-analytics-report' : 'admin-analytics-report', activeTab === 'predictive' ? 'Predictive_Analytics_Report.pdf' : 'Analytics_Operational_Report.pdf')}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-xs font-semibold text-white shadow-sm transition-all print:hidden"
+            title="Download PDF report file directly"
+          >
+            <FileText className="w-3.5 h-3.5 text-white" />
+            Export to PDF
+          </button>
+          <button
+            onClick={() => activeTab === 'predictive' ? exportPredictiveToCsv(analyticsData?.predictive || {}) : exportAnalyticsToCsv(analyticsData)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-semibold text-emerald-800 transition-colors print:hidden"
+            title="Export metrics to Excel / CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            Export Excel / CSV
+          </button>
+          <button
+            onClick={triggerPdfPrint}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors print:hidden"
+            title="Print report"
+          >
+            <Printer className="w-3.5 h-3.5 text-gray-600" />
+            Print
+          </button>
+          <button
             onClick={() => handleRunEtl(false)}
             disabled={isSyncing}
-            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50 print:hidden"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
             Run Incremental ETL
@@ -792,7 +817,7 @@ export default function AdminDashboard() {
           <button
             onClick={() => handleRunEtl(true)}
             disabled={isSyncing}
-            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white rounded-xl text-xs font-semibold shadow-sm hover:opacity-95 active:scale-95 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white rounded-xl text-xs font-semibold shadow-sm hover:opacity-95 active:scale-95 transition-all disabled:opacity-50 print:hidden"
           >
             <Cpu className="w-3.5 h-3.5" />
             Full ETL Sync (--full-sync)
