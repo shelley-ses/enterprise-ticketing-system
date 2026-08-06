@@ -12,7 +12,7 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
-import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer } from 'lucide-react';
+import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer, Calendar } from 'lucide-react';
 import { exportAnalyticsToCsv, exportPredictiveToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
 import PredictiveAnalytics from './PredictiveAnalytics';
 
@@ -280,7 +280,7 @@ function ChartViewDropdown({ value, onChange, options }) {
   );
 }
 
-function SectionCard({ icon, title, instruction, subInstruction, children, filter, onFilterChange, viewOptions, currentView, onViewChange }) {
+function SectionCard({ icon, title, instruction, subInstruction, children, viewOptions, currentView, onViewChange }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 transition-all duration-200 hover:shadow-md">
       {/* Header */}
@@ -303,13 +303,41 @@ function SectionCard({ icon, title, instruction, subInstruction, children, filte
           {viewOptions && (
             <ChartViewDropdown value={currentView} onChange={onViewChange} options={viewOptions} />
           )}
-          <FilterDropdown value={filter} onChange={onFilterChange} />
         </div>
       </div>
       {/* Chart Content */}
       <div className="relative">{children}</div>
     </div>
   );
+}
+
+class AnalyticsErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("PredictiveAnalytics error caught by ErrorBoundary:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-white rounded-2xl border border-rose-100 p-6 text-center space-y-3">
+          <p className="text-sm font-semibold text-rose-600">Unable to load Predictive Analytics view.</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="px-3.5 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-blue-900 transition-all"
+          >
+            Retry Analytics View
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function StatCard({ label, value, icon, color }) {
@@ -336,12 +364,45 @@ function StatCard({ label, value, icon, color }) {
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
 
-  // Section filters
-  const [ticketFilter, setTicketFilter] = useState('Last 7 Days');
-  const [slaFilter, setSlaFilter] = useState('Last 7 Days');
-  const [empFilter, setEmpFilter] = useState('Last 7 Days');
-  const [csatFilter, setCsatFilter] = useState('Last 7 Days');
-  const [workloadFilter, setWorkloadFilter] = useState('Last 7 Days');
+  // Filter Options
+  const FILTER_OPTIONS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'Custom Range'];
+
+  // Global Date Range State
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const default7DaysAgo = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
+  }, []);
+
+  const [selectedPreset, setSelectedPreset] = useState('Last 7 Days');
+  const [customStartDate, setCustomStartDate] = useState(default7DaysAgo);
+  const [customEndDate, setCustomEndDate] = useState(todayStr);
+
+  // Active Date Preset fallback for mock lookups
+  const activeDatePreset = useMemo(() => {
+    if (selectedPreset !== 'Custom Range') return selectedPreset;
+    return 'Last 7 Days';
+  }, [selectedPreset]);
+
+  const globalDateFrom = useMemo(() => {
+    if (selectedPreset === 'Custom Range') return customStartDate;
+    const now = new Date();
+    if (selectedPreset === 'Today') return now.toISOString().split('T')[0];
+    if (selectedPreset === 'Last 7 Days') {
+      const d = new Date(now); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
+    }
+    if (selectedPreset === 'Last 30 Days') {
+      const d = new Date(now); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0];
+    }
+    if (selectedPreset === 'Last 90 Days') {
+      const d = new Date(now); d.setDate(d.getDate() - 90); return d.toISOString().split('T')[0];
+    }
+    return '';
+  }, [selectedPreset, customStartDate]);
+
+  const globalDateTo = useMemo(() => {
+    if (selectedPreset === 'Custom Range') return customEndDate;
+    return new Date().toISOString().split('T')[0];
+  }, [selectedPreset, customEndDate]);
 
   // Section view toggles
   const [ticketView, setTicketView] = useState('Ticket Trends');
@@ -356,21 +417,28 @@ export default function AdminDashboard() {
     performance: { active_employees_count: 0, data: [] },
     volume: { by_category: [], by_priority: [], by_status: [] },
     equipment: [],
+    predictive: null,
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
   const ANALYTICS_BASE = import.meta.env.VITE_ANALYTICS_API_URL || '/api/analytics';
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = async (fromDate = globalDateFrom, toDate = globalDateTo) => {
     try {
-      const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes, csatRes] = await Promise.all([
-        fetch(`${ANALYTICS_BASE}/trends`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/workload`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/employee-performance`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/volume-reports`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/equipment-reports`).then(r => r.json()).catch(() => null),
-        fetch(`${ANALYTICS_BASE}/csat-stats`).then(r => r.json()).catch(() => null),
+      const queryParams = new URLSearchParams();
+      if (fromDate) queryParams.append('date_from', fromDate);
+      if (toDate) queryParams.append('date_to', toDate);
+      const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+      const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes, csatRes, predRes] = await Promise.all([
+        fetch(`${ANALYTICS_BASE}/trends${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/workload${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/employee-performance${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/volume-reports${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/equipment-reports${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/csat-stats${queryString}`).then(r => r.json()).catch(() => null),
+        fetch(`${ANALYTICS_BASE}/predictive-metrics${queryString}`).then(r => r.json()).catch(() => null),
       ]);
 
       setAnalyticsData({
@@ -380,6 +448,7 @@ export default function AdminDashboard() {
         volume: volumeRes?.data || { by_category: [], by_priority: [], by_status: [] },
         equipment: equipmentRes?.data || [],
         csat: csatRes?.data || null,
+        predictive: predRes?.data || null,
       });
     } catch (err) {
       console.warn('Analytics API offline, using fallback UI metrics', err);
@@ -387,8 +456,8 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    fetchAnalytics();
-  }, []);
+    fetchAnalytics(globalDateFrom, globalDateTo);
+  }, [globalDateFrom, globalDateTo]);
 
   const handleRunEtl = async (fullSync = false) => {
     setIsSyncing(true);
@@ -416,9 +485,9 @@ export default function AdminDashboard() {
 
   // ─── Section 1: Ticket Trends Charts ─────────────────────────────────────
   const ticketChart = useMemo(() => {
-    const labels = LABELS[ticketFilter];
+    const labels = LABELS[activeDatePreset] || LABELS['Last 7 Days'];
     if (ticketView === 'Ticket Trends') {
-      const data = ticketTrendsMock[ticketFilter];
+      const data = ticketTrendsMock[activeDatePreset] || ticketTrendsMock['Last 7 Days'];
       const lastNew = data.new[data.new.length - 1];
       const lastResolved = data.resolved[data.resolved.length - 1];
       return (
@@ -459,49 +528,50 @@ export default function AdminDashboard() {
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">{lastNew > lastResolved ? 'Incoming tickets outpacing resolutions.' : 'Resolution rate keeping pace with new tickets.'}</p>
+          <p className="text-[11px] text-gray-500 mt-1">Latest Period: {lastNew} new, {lastResolved} resolved tickets.</p>
         </div>
       );
     } else {
-      const data = ticketStatusMock[ticketFilter];
+      const data = ticketStatusMock[activeDatePreset] || ticketStatusMock['Last 7 Days'];
       return (
         <div>
-          <div className="h-[140px]">
+          <div className="h-[150px]">
             <Bar
-              options={defaultHorizontalBarOptions('Ticket Status')}
+              options={defaultHorizontalBarOptions('Ticket Status Distribution')}
               data={{
                 labels: ['Open', 'In Progress', 'Resolved', 'Closed'],
                 datasets: [{
+                  label: 'Tickets',
                   data: [data.open, data.inProgress, data.resolved, data.closed],
-                  backgroundColor: [COLORS.amber.border, COLORS.sky.border, COLORS.emerald.border, COLORS.blue.border],
+                  backgroundColor: [BAR_PALETTE[2], BAR_PALETTE[0], BAR_PALETTE[1], BAR_PALETTE[3]],
                   borderRadius: 6,
-                  barThickness: 20,
+                  barThickness: 18,
                 }],
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">{data.open + data.inProgress} tickets still open or in progress.</p>
+          <p className="text-[11px] text-gray-500 mt-1">Active tickets: {data.open + data.inProgress} ({data.open} open, {data.inProgress} in progress).</p>
         </div>
       );
     }
-  }, [ticketFilter, ticketView]);
+  }, [activeDatePreset, ticketView]);
 
-  // ─── Section 2: SLA Compliance Charts ────────────────────────────────────
+  // ─── Section 2: SLA Compliance Charts ─────────────────────────────────────
   const slaChart = useMemo(() => {
-    const labels = LABELS[slaFilter];
-
+    const labels = LABELS[activeDatePreset] || LABELS['Last 7 Days'];
     if (slaView === 'Compliance') {
-      const lastVal = slaComplianceMock[slaFilter].slice(-1)[0];
+      const data = slaComplianceMock[activeDatePreset] || slaComplianceMock['Last 7 Days'];
+      const avgVal = (data.reduce((a, b) => a + b, 0) / data.length).toFixed(1);
       return (
         <div>
           <div className="h-[150px]">
             <Line
-              options={defaultLineOptions('SLA Compliance', 'Compliance %')}
+              options={defaultLineOptions('SLA Compliance Rate (%)')}
               data={{
                 labels,
                 datasets: [{
-                  label: 'SLA Compliance %',
-                  data: slaComplianceMock[slaFilter],
+                  label: 'Compliance %',
+                  data,
                   borderColor: COLORS.emerald.border,
                   backgroundColor: COLORS.emerald.bg,
                   fill: true,
@@ -515,11 +585,12 @@ export default function AdminDashboard() {
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">SLA compliance at {lastVal}% this period.</p>
+          <p className="text-[11px] text-gray-500 mt-1">Average SLA compliance is {avgVal}% for selected period.</p>
         </div>
       );
     } else if (slaView === 'Breaches') {
-      const totalBreaches = slaBreachesMock[slaFilter].reduce((a, b) => a + b, 0);
+      const data = slaBreachesMock[activeDatePreset] || slaBreachesMock['Last 7 Days'];
+      const totalBreaches = data.reduce((a, b) => a + b, 0);
       return (
         <div>
           <div className="h-[150px]">
@@ -529,33 +600,32 @@ export default function AdminDashboard() {
                 labels,
                 datasets: [{
                   label: 'Breaches',
-                  data: slaBreachesMock[slaFilter],
-                  backgroundColor: COLORS.rose.bg,
-                  borderColor: COLORS.rose.border,
-                  borderWidth: 2,
-                  borderRadius: 6,
-                  barThickness: 24,
+                  data,
+                  backgroundColor: BAR_PALETTE[3],
+                  borderRadius: 4,
+                  barThickness: 16,
                 }],
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">{totalBreaches} total SLA breaches recorded.</p>
+          <p className="text-[11px] text-gray-500 mt-1">Total SLA breaches: {totalBreaches} in selected period.</p>
         </div>
       );
     } else if (slaView === 'Resolution SLA') {
-      const lastHrs = resolutionSlaMock[slaFilter].slice(-1)[0];
+      const data = resolutionSlaMock[activeDatePreset] || resolutionSlaMock['Last 7 Days'];
+      const avgTime = (data.reduce((a, b) => a + b, 0) / data.length).toFixed(1);
       return (
         <div>
           <div className="h-[150px]">
             <Line
-              options={defaultLineOptions('Resolution SLA', 'Hours')}
+              options={defaultLineOptions('Avg Resolution Time (hrs)')}
               data={{
                 labels,
                 datasets: [{
-                  label: 'Avg Resolution Time (hrs)',
-                  data: resolutionSlaMock[slaFilter],
-                  borderColor: COLORS.violet.border,
-                  backgroundColor: COLORS.violet.bg,
+                  label: 'Resolution Time (h)',
+                  data,
+                  borderColor: COLORS.amber.border,
+                  backgroundColor: COLORS.amber.bg,
                   fill: true,
                   tension: 0.4,
                   borderWidth: 2,
@@ -567,10 +637,11 @@ export default function AdminDashboard() {
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">Avg resolution: {lastHrs} hours.</p>
+          <p className="text-[11px] text-gray-500 mt-1">Average resolution time: {avgTime} hours.</p>
         </div>
       );
     } else {
+      const data = slaDeptMock[activeDatePreset] || slaDeptMock['Last 7 Days'];
       return (
         <div>
           <div className="h-[150px]">
@@ -580,7 +651,7 @@ export default function AdminDashboard() {
                 labels: DEPARTMENTS,
                 datasets: [{
                   label: 'SLA %',
-                  data: slaDeptMock[slaFilter],
+                  data,
                   backgroundColor: BAR_PALETTE.slice(0, DEPARTMENTS.length),
                   borderRadius: 6,
                   barThickness: 18,
@@ -588,102 +659,132 @@ export default function AdminDashboard() {
               }}
             />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">QA department has the lowest SLA compliance.</p>
+          <p className="text-[11px] text-gray-500 mt-1">Engineering maintains highest SLA compliance.</p>
         </div>
       );
     }
-  }, [slaFilter, slaView]);
+  }, [activeDatePreset, slaView]);
 
-  // ─── Section 3: Employee Performance Charts ──────────────────────────────
+  // ─── Section 3: Employee Performance Chart ──────────────────────────────
   const empChart = useMemo(() => {
     const perfList = analyticsData.performance?.data || [];
     const hasLivePerf = perfList.length > 0;
-
     const labels = hasLivePerf ? perfList.map(p => p.employee_name) : EMPLOYEES;
 
-    const getLiveData = () => {
-      if (!hasLivePerf) return null;
-      switch (empView) {
-        case 'Tickets Resolved': return perfList.map(p => p.resolved_tickets_count);
-        case 'Avg Response Time': return perfList.map(p => p.avg_response_time_minutes);
-        case 'Avg Resolution Time': return perfList.map(p => Math.round(p.avg_resolution_time_minutes / 60 * 10) / 10); // convert mins to hrs
-        case 'SLA Compliance': return perfList.map(() => 95);
-        default: return perfList.map(p => p.resolved_tickets_count);
-      }
-    };
-
-    const getMockData = () => {
-      switch (empView) {
-        case 'Tickets Resolved': return empResolvedMock[empFilter];
-        case 'Avg Response Time': return empResponseTimeMock[empFilter];
-        case 'Avg Resolution Time': return empResTimeMock[empFilter];
-        case 'SLA Compliance': return empSlaMock[empFilter];
-        default: return empResolvedMock[empFilter];
-      }
-    };
-
-    const getLabel = () => {
-      switch (empView) {
-        case 'Tickets Resolved': return 'Tickets';
-        case 'Avg Response Time': return 'Minutes';
-        case 'Avg Resolution Time': return 'Hours';
-        case 'SLA Compliance': return 'Compliance %';
-        default: return '';
-      }
-    };
-
-    const chartData = getLiveData() || getMockData();
-
-    return (
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-xs text-gray-500">Active: <strong className="text-gray-800">{analyticsData.performance?.active_employees_count || activeEmployeesMock[empFilter]}</strong></span>
+    if (empView === 'Tickets Resolved') {
+      const data = hasLivePerf
+        ? perfList.map(p => p.ticket_count || p.resolved_tickets_count || 0)
+        : (empResolvedMock[activeDatePreset] || empResolvedMock['Last 7 Days']);
+      return (
+        <div>
+          <div className="h-[150px]">
+            <Bar
+              options={defaultHorizontalBarOptions('Tickets Resolved by Employee')}
+              data={{
+                labels,
+                datasets: [{
+                  label: 'Tickets',
+                  data,
+                  backgroundColor: BAR_PALETTE.slice(0, labels.length),
+                  borderRadius: 6,
+                  barThickness: 16,
+                }],
+              }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">Top performer: Jose Cruz with highest resolved count.</p>
         </div>
-        <div className="h-[150px]">
-          <Bar
-            options={defaultHorizontalBarOptions(empView)}
-            data={{
-              labels,
-              datasets: [{
-                label: getLabel(),
-                data: chartData,
-                backgroundColor: BAR_PALETTE.slice(0, labels.length),
-                borderRadius: 6,
-                barThickness: 16,
-              }],
-            }}
-          />
+      );
+    } else if (empView === 'Avg Response Time') {
+      const data = hasLivePerf
+        ? perfList.map(p => p.avg_response_hours || p.avg_response_time_minutes || 0)
+        : (empResponseTimeMock[activeDatePreset] || empResponseTimeMock['Last 7 Days']);
+      return (
+        <div>
+          <div className="h-[150px]">
+            <Bar
+              options={defaultHorizontalBarOptions('Avg Response Time')}
+              data={{
+                labels,
+                datasets: [{
+                  label: 'Response Time',
+                  data,
+                  backgroundColor: BAR_PALETTE[4],
+                  borderRadius: 6,
+                  barThickness: 16,
+                }],
+              }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">Fastest response: Anna Lim (8 mins average).</p>
         </div>
-        <p className="text-[11px] text-gray-500 mt-1">Top employee resolving {Math.max(...chartData)} tickets in this period.</p>
-      </div>
-    );
-  }, [empFilter, empView, analyticsData.performance]);
+      );
+    } else if (empView === 'Avg Resolution Time') {
+      const data = hasLivePerf
+        ? perfList.map(p => p.avg_resolution_hours || Math.round((p.avg_resolution_time_minutes || 0) / 60 * 10) / 10)
+        : (empResTimeMock[activeDatePreset] || empResTimeMock['Last 7 Days']);
+      return (
+        <div>
+          <div className="h-[150px]">
+            <Bar
+              options={defaultHorizontalBarOptions('Avg Resolution Time (hrs)')}
+              data={{
+                labels,
+                datasets: [{
+                  label: 'Resolution Time (h)',
+                  data,
+                  backgroundColor: BAR_PALETTE[2],
+                  borderRadius: 6,
+                  barThickness: 16,
+                }],
+              }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">Fastest resolution: Mark Reyes (2.1 hrs average).</p>
+        </div>
+      );
+    } else {
+      const data = hasLivePerf
+        ? perfList.map(p => p.sla_compliance || 95)
+        : (empSlaMock[activeDatePreset] || empSlaMock['Last 7 Days']);
+      return (
+        <div>
+          <div className="h-[150px]">
+            <Bar
+              options={defaultHorizontalBarOptions('SLA Compliance by Employee')}
+              data={{
+                labels,
+                datasets: [{
+                  label: 'SLA %',
+                  data,
+                  backgroundColor: BAR_PALETTE[1],
+                  borderRadius: 6,
+                  barThickness: 16,
+                }],
+              }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">All employees meeting minimum 90% SLA target.</p>
+        </div>
+      );
+    }
+  }, [activeDatePreset, empView, analyticsData.performance]);
 
   // ─── Section 4: Customer Satisfaction Chart ──────────────────────────────
   const csatChart = useMemo(() => {
-    const labels = LABELS[csatFilter];
-    const lastScore = csatMock[csatFilter].slice(-1)[0];
+    const labels = LABELS[activeDatePreset] || LABELS['Last 7 Days'];
+    const data = csatMock[activeDatePreset] || csatMock['Last 7 Days'];
+    const lastScore = data[data.length - 1];
     return (
       <div>
         <div className="h-[150px]">
           <Line
-            options={{
-              ...defaultLineOptions('Customer Satisfaction', 'CSAT Score'),
-              scales: {
-                ...defaultLineOptions('', '').scales,
-                y: {
-                  ...defaultLineOptions('', '').scales.y,
-                  min: 1,
-                  max: 5,
-                  title: { display: true, text: 'CSAT Score (1-5)', font: { family: 'Poppins', size: 11 }, color: '#64748b' },
-                },
-              },
-            }}
+            options={defaultLineOptions('CSAT Rating Trend (1-5)')}
             data={{
               labels,
               datasets: [{
                 label: 'CSAT Score',
-                data: csatMock[csatFilter],
+                data,
                 borderColor: COLORS.amber.border,
                 backgroundColor: COLORS.amber.bg,
                 fill: true,
@@ -700,7 +801,7 @@ export default function AdminDashboard() {
         <p className="text-[11px] text-gray-500 mt-1">CSAT score: {lastScore}/5 — customer satisfaction is stable.</p>
       </div>
     );
-  }, [csatFilter]);
+  }, [activeDatePreset]);
 
   // ─── Section 5: Workload Distribution Chart ──────────────────────────────
   const workloadChart = useMemo(() => {
@@ -714,7 +815,7 @@ export default function AdminDashboard() {
                 labels: EMPLOYEES,
                 datasets: [{
                   label: 'Tickets Assigned',
-                  data: workloadEmpMock[workloadFilter],
+                  data: workloadEmpMock[activeDatePreset] || workloadEmpMock['Last 7 Days'],
                   backgroundColor: BAR_PALETTE.slice(0, EMPLOYEES.length),
                   borderRadius: 6,
                   barThickness: 16,
@@ -735,7 +836,7 @@ export default function AdminDashboard() {
                 labels: DEPARTMENTS,
                 datasets: [{
                   label: 'Tickets Assigned',
-                  data: workloadDeptMock[workloadFilter],
+                  data: workloadDeptMock[activeDatePreset] || workloadDeptMock['Last 7 Days'],
                   backgroundColor: BAR_PALETTE.slice(0, DEPARTMENTS.length),
                   borderRadius: 6,
                   barThickness: 18,
@@ -747,22 +848,23 @@ export default function AdminDashboard() {
         </div>
       );
     }
-  }, [workloadFilter, workloadView]);
+  }, [activeDatePreset, workloadView]);
 
   // KPI data
   const kpis = useMemo(() => {
-    const slaVal = slaComplianceMock[slaFilter].slice(-1)[0];
-    const tData = ticketStatusMock[slaFilter];
-    const totalTickets = tData.open + tData.inProgress + tData.resolved + tData.closed;
-    const csatVal = csatMock[csatFilter].slice(-1)[0];
+    const realCounts = analyticsData.predictive?.real_ticket_counts;
+    const slaVal = (slaComplianceMock[activeDatePreset] || slaComplianceMock['Last 7 Days']).slice(-1)[0];
+    const tData = ticketStatusMock[activeDatePreset] || ticketStatusMock['Last 7 Days'];
+    const totalTickets = realCounts?.total ?? (tData.open + tData.inProgress + tData.resolved + tData.closed);
+    const csatVal = (csatMock[activeDatePreset] || csatMock['Last 7 Days']).slice(-1)[0];
     return [
       { label: 'Total Tickets', value: totalTickets, icon: Inbox },
       { label: 'SLA Compliance', value: `${slaVal}%`, icon: ShieldCheck },
-      { label: 'Active Employees', value: analyticsData.performance?.active_employees_count || activeEmployeesMock[empFilter], icon: Users },
+      { label: 'Active Employees', value: analyticsData.performance?.active_employees_count || activeEmployeesMock[activeDatePreset] || 6, icon: Users },
       { label: 'CSAT Score', value: csatVal.toFixed(1), icon: Smile },
-      { label: 'Avg Resolution', value: `${resolutionSlaMock[slaFilter].slice(-1)[0]}h`, icon: Clock },
+      { label: 'Avg Resolution', value: `${(resolutionSlaMock[activeDatePreset] || resolutionSlaMock['Last 7 Days']).slice(-1)[0]}h`, icon: Clock },
     ];
-  }, [slaFilter, csatFilter, empFilter, analyticsData.performance]);
+  }, [activeDatePreset, analyticsData]);
 
   const dateStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -825,28 +927,71 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex items-center gap-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5 w-fit">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'overview'
-              ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
-              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+      {/* Single-Line Toolbar: Tab Navigation & Global Date Range Filters */}
+      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 p-2 print:hidden">
+        {/* Left: Tab Switcher */}
+        <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 shrink-0">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'overview'
+                ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
             }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          Overview
-        </button>
-        <button
-          onClick={() => setActiveTab('predictive')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'predictive'
-              ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
-              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          >
+            <BarChart3 className="w-4 h-4" />
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('predictive')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'predictive'
+                ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
             }`}
-        >
-          <LineChart className="w-4 h-4" />
-          Predictive Analytics
-        </button>
+          >
+            <LineChart className="w-4 h-4" />
+            Predictive Analytics
+          </button>
+        </div>
+
+        {/* Right: Date Range Preset Filters */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 border border-gray-100">
+            {FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt}
+                onClick={() => setSelectedPreset(opt)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                  selectedPreset === opt
+                    ? 'bg-[#252578] text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+
+          {selectedPreset === 'Custom Range' && (
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs animate-fadeSlideIn">
+              <Calendar className="w-3.5 h-3.5 text-gray-500" />
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="bg-white border border-gray-200 rounded px-2 py-0.5 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#252578]"
+              />
+              <span className="text-gray-400 font-medium">to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="bg-white border border-gray-200 rounded px-2 py-0.5 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#252578]"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -881,8 +1026,6 @@ export default function AdminDashboard() {
               title="SLA Compliance"
               instruction="Adherence, breaches, resolution times"
               subInstruction="and per-department performance"
-              filter={slaFilter}
-              onFilterChange={setSlaFilter}
               viewOptions={['Compliance', 'Breaches', 'Resolution SLA', 'SLA by Dept']}
               currentView={slaView}
               onViewChange={setSlaView}
@@ -895,8 +1038,6 @@ export default function AdminDashboard() {
               icon={<Users className="w-4 h-4 text-white" />}
               title="Employee Performance"
               instruction="Metrics across tickets, response times, and SLA."
-              filter={empFilter}
-              onFilterChange={setEmpFilter}
               viewOptions={['Tickets Resolved', 'Avg Response Time', 'Avg Resolution Time', 'SLA Compliance']}
               currentView={empView}
               onViewChange={setEmpView}
@@ -909,8 +1050,6 @@ export default function AdminDashboard() {
               icon={<TrendingUp className="w-4 h-4 text-white" />}
               title="Ticket Trends"
               instruction="New vs resolved tickets and status distribution."
-              filter={ticketFilter}
-              onFilterChange={setTicketFilter}
               viewOptions={['Ticket Trends', 'Ticket Status']}
               currentView={ticketView}
               onViewChange={setTicketView}
@@ -923,8 +1062,6 @@ export default function AdminDashboard() {
               icon={<Smile className="w-4 h-4 text-white" />}
               title="Customer Satisfaction"
               instruction="CSAT score trends over time."
-              filter={csatFilter}
-              onFilterChange={setCsatFilter}
             >
               {csatChart}
             </SectionCard>
@@ -935,8 +1072,6 @@ export default function AdminDashboard() {
                 icon={<Briefcase className="w-4 h-4 text-white" />}
                 title="Workload Distribution"
                 instruction="Ticket assignments across employees and departments."
-                filter={workloadFilter}
-                onFilterChange={setWorkloadFilter}
                 viewOptions={['By Employee', 'By Department']}
                 currentView={workloadView}
                 onViewChange={setWorkloadView}
@@ -947,7 +1082,9 @@ export default function AdminDashboard() {
           </div>
         </div>
       ) : (
-        <PredictiveAnalytics />
+        <AnalyticsErrorBoundary>
+          <PredictiveAnalytics selectedPreset={selectedPreset} analyticsData={analyticsData} />
+        </AnalyticsErrorBoundary>
       )}
     </div>
   );

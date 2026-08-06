@@ -152,11 +152,7 @@ export default function Header({ sidebarHovered }) {
     setLoggingOut(true);
     try {
       await logout();
-      if (import.meta.env.VITE_APP_MODE === 'customer') {
-        window.location.href = '/customer-service/';
-      } else {
-        window.location.href = '/';
-      }
+      window.location.href = '/';
     } catch (err) {
       console.error('Logout failed:', err);
       setLoggingOut(false);

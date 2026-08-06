@@ -38,9 +38,13 @@ const barLabelsPlugin = {
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler, barLabelsPlugin);
 
-const PERIODS = ['Next 7 Days', 'Next 30 Days', 'Next Quarter'];
+const PERIODS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'Next 7 Days', 'Next 30 Days', 'Next Quarter'];
 
 const DAYS = {
+  'Today': ['8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM'],
+  'Last 7 Days': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+  'Last 30 Days': ['Wk1', 'Wk2', 'Wk3', 'Wk4'],
+  'Last 90 Days': ['Month 1', 'Month 2', 'Month 3'],
   'Next 7 Days': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
   'Next 30 Days': ['Wk1', 'Wk2', 'Wk3', 'Wk4'],
   'Next Quarter': ['M1', 'M2', 'M3'],
@@ -56,26 +60,78 @@ const COLORS = {
 
 // ─── Default Fallback Datasets ──────────────────────────────────────────
 const defaultTicketVol = {
+  'Today': { hist: [3, 5, 8, 12, 9, 6, 4, 2], pred: [1, 3, 6, 10, 11, 8, 5, 3], upper: [4, 6, 9, 13, 10, 7, 5, 3], lower: [2, 4, 7, 11, 8, 5, 3, 1] },
+  'Last 7 Days': { hist: [12, 19, 15, 22, 18, 8, 5], pred: [10, 14, 13, 20, 16, 7, 4], upper: [15, 22, 18, 25, 21, 10, 7], lower: [9, 16, 12, 19, 15, 6, 3] },
+  'Last 30 Days': { hist: [45, 62, 58, 71], pred: [38, 55, 52, 68], upper: [50, 68, 63, 76], lower: [40, 56, 53, 66] },
+  'Last 90 Days': { hist: [180, 210, 195], pred: [165, 198, 188], upper: [190, 220, 205], lower: [170, 200, 185] },
   'Next 7 Days': { hist: [12, 15, 10, 18, 14, 20, 16], pred: [14, 17, 12, 21, 16, 23, 19], upper: [17, 21, 15, 25, 20, 27, 23], lower: [11, 13, 9, 17, 12, 19, 15] },
   'Next 30 Days': { hist: [45, 52, 48, 60], pred: [50, 58, 53, 66], upper: [58, 67, 62, 75], lower: [42, 49, 44, 57] },
   'Next Quarter': { hist: [180, 195, 210], pred: [198, 215, 232], upper: [218, 237, 255], lower: [178, 193, 209] },
 };
-const defaultPeakDay = { 'Next 7 Days': 'Day 6', 'Next 30 Days': 'Week 4', 'Next Quarter': 'Month 3' };
-const defaultPredTotal = { 'Next 7 Days': 142, 'Next 30 Days': 227, 'Next Quarter': 645 };
+const defaultPeakDay = { 'Today': '12PM', 'Last 7 Days': 'Thursday', 'Last 30 Days': 'Week 4', 'Last 90 Days': 'Month 2', 'Next 7 Days': 'Day 6', 'Next 30 Days': 'Week 4', 'Next Quarter': 'Month 3' };
+const defaultPredTotal = { 'Today': 47, 'Last 7 Days': 99, 'Last 30 Days': 236, 'Last 90 Days': 585, 'Next 7 Days': 142, 'Next 30 Days': 227, 'Next Quarter': 645 };
 
-const defaultEquipFail = { 'Next 7 Days': [18, 8, 12, 5, 3, 9], 'Next 30 Days': [22, 12, 16, 8, 5, 13], 'Next Quarter': [28, 16, 20, 11, 7, 17] };
+const defaultEquipFail = {
+  'Today': [8, 4, 6, 2, 1, 4],
+  'Last 7 Days': [15, 8, 12, 5, 3, 9],
+  'Last 30 Days': [22, 12, 16, 8, 5, 13],
+  'Last 90 Days': [28, 16, 20, 11, 7, 17],
+  'Next 7 Days': [18, 8, 12, 5, 3, 9],
+  'Next 30 Days': [22, 12, 16, 8, 5, 13],
+  'Next Quarter': [28, 16, 20, 11, 7, 17],
+};
 
-const defaultRecFreq = { 'Next 7 Days': [22, 18, 15, 12, 8, 6], 'Next 30 Days': [85, 72, 60, 48, 32, 24], 'Next Quarter': [260, 218, 185, 148, 98, 72] };
+const defaultRecFreq = {
+  'Today': [5, 4, 3, 2, 1, 1],
+  'Last 7 Days': [22, 18, 15, 12, 8, 6],
+  'Last 30 Days': [85, 72, 60, 48, 32, 24],
+  'Last 90 Days': [260, 218, 185, 148, 98, 72],
+  'Next 7 Days': [22, 18, 15, 12, 8, 6],
+  'Next 30 Days': [85, 72, 60, 48, 32, 24],
+  'Next Quarter': [260, 218, 185, 148, 98, 72],
+};
 
 const defaultEscRisk = {
+  'Today': { low: 10, medium: 5, high: 3, critical: 1 },
+  'Last 7 Days': { low: 45, medium: 28, high: 15, critical: 7 },
+  'Last 30 Days': { low: 65, medium: 38, high: 22, critical: 12 },
+  'Last 90 Days': { low: 82, medium: 52, high: 30, critical: 18 },
   'Next 7 Days': { low: 45, medium: 28, high: 15, critical: 7 },
   'Next 30 Days': { low: 65, medium: 38, high: 22, critical: 12 },
   'Next Quarter': { low: 82, medium: 52, high: 30, critical: 18 },
 };
-const defaultEscTotal = { 'Next 7 Days': 22, 'Next 30 Days': 34, 'Next Quarter': 48 };
-const defaultEscAvg = { 'Next 7 Days': '4.2 hrs', 'Next 30 Days': '5.8 hrs', 'Next Quarter': '6.1 hrs' };
+const defaultEscTotal = { 'Today': 5, 'Last 7 Days': 22, 'Last 30 Days': 34, 'Last 90 Days': 48, 'Next 7 Days': 22, 'Next 30 Days': 34, 'Next Quarter': 48 };
+const defaultEscAvg = { 'Today': '2.1 hrs', 'Last 7 Days': '4.2 hrs', 'Last 30 Days': '5.8 hrs', 'Last 90 Days': '6.1 hrs', 'Next 7 Days': '4.2 hrs', 'Next 30 Days': '5.8 hrs', 'Next Quarter': '6.1 hrs' };
 
 const defaultRootCause = {
+  'Today': [
+    { name: 'Network Config', pct: 25, count: 5, trend: 'up' },
+    { name: 'Hardware Failure', pct: 20, count: 4, trend: 'up' },
+    { name: 'Software Bug', pct: 15, count: 3, trend: 'down' },
+    { name: 'User Error', pct: 15, count: 3, trend: 'down' },
+    { name: 'Printer Issues', pct: 10, count: 2, trend: 'up' },
+  ],
+  'Last 7 Days': [
+    { name: 'Network Config', pct: 24, count: 38, trend: 'up' },
+    { name: 'Hardware Failure', pct: 18, count: 29, trend: 'up' },
+    { name: 'Software Bug', pct: 16, count: 25, trend: 'down' },
+    { name: 'User Error', pct: 14, count: 22, trend: 'down' },
+    { name: 'Printer Issues', pct: 12, count: 19, trend: 'up' },
+  ],
+  'Last 30 Days': [
+    { name: 'Network Config', pct: 26, count: 155, trend: 'up' },
+    { name: 'Hardware Failure', pct: 20, count: 120, trend: 'up' },
+    { name: 'Software Bug', pct: 17, count: 102, trend: 'down' },
+    { name: 'User Error', pct: 13, count: 78, trend: 'down' },
+    { name: 'Printer Issues', pct: 11, count: 66, trend: 'up' },
+  ],
+  'Last 90 Days': [
+    { name: 'Network Config', pct: 27, count: 470, trend: 'up' },
+    { name: 'Hardware Failure', pct: 21, count: 365, trend: 'up' },
+    { name: 'Software Bug', pct: 16, count: 278, trend: 'down' },
+    { name: 'User Error', pct: 12, count: 208, trend: 'down' },
+    { name: 'Printer Issues', pct: 11, count: 191, trend: 'up' },
+  ],
   'Next 7 Days': [
     { name: 'Network Config', pct: 24, count: 38, trend: 'up' },
     { name: 'Hardware Failure', pct: 18, count: 29, trend: 'up' },
@@ -142,71 +198,48 @@ function FilterDropdown({ value, onChange }) {
 }
 
 // ─── Component ──────────────────────────────────────────────────────────
-export default function PredictiveAnalytics() {
-  const [volPeriod, setVolPeriod] = useState('Next 7 Days');
-  const [equipPeriod, setEquipPeriod] = useState('Next 7 Days');
-  const [recPeriod, setRecPeriod] = useState('Next 7 Days');
-  const [escPeriod, setEscPeriod] = useState('Next 7 Days');
-  const [rootPeriod, setRootPeriod] = useState('Next 7 Days');
+export default function PredictiveAnalytics({ selectedPreset = 'Last 7 Days', analyticsData = null }) {
+  const activePeriod = selectedPreset !== 'Custom Range' ? selectedPreset : 'Last 7 Days';
 
-  // Backend state
+  // Backend state fallback
   const [apiData, setApiData] = useState(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchPredictiveData = async () => {
-      try {
-        const res = await fetch('/api/ticketing/analytics/predictive-metrics', {
-          headers: { 'Accept': 'application/json' },
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.status === 'success' && json.data && isMounted) {
-            setApiData(json.data);
-          }
-        }
-      } catch (err) {
-        console.warn('Predictive analytics API offline, using standard analytics model data.', err);
-      }
-    };
-    fetchPredictiveData();
-    return () => { isMounted = false; };
-  }, []);
+  const effectiveApiData = analyticsData?.predictive || apiData;
 
   // Derived datasets with fallback
-  const ticketVol = apiData?.ticket_volume || defaultTicketVol;
-  const peakDay = apiData?.peak_day || defaultPeakDay;
-  const predTotal = apiData?.pred_total || defaultPredTotal;
-  const equipData = apiData?.equipment;
+  const ticketVol = effectiveApiData?.ticket_volume || defaultTicketVol;
+  const peakDay = effectiveApiData?.peak_day || defaultPeakDay;
+  const predTotal = effectiveApiData?.pred_total || defaultPredTotal;
+  const equipData = effectiveApiData?.equipment;
   const equipFail = equipData?.equipFail || defaultEquipFail;
   const equipment = equipData?.equipment || DEFAULT_EQUIPMENT;
-  const escData = apiData?.escalation;
+  const escData = effectiveApiData?.escalation;
   const escRisk = escData?.escRisk || defaultEscRisk;
   const escTotal = escData?.escTotal || defaultEscTotal;
   const escAvg = escData?.escAvg || defaultEscAvg;
-  const rootCause = apiData?.root_causes || defaultRootCause;
-  const recData = apiData?.recurring;
+  const rootCause = effectiveApiData?.root_causes || defaultRootCause;
+  const recData = effectiveApiData?.recurring;
   const recFreq = recData?.recFreq || defaultRecFreq;
   const categories = recData?.categories || DEFAULT_CATEGORIES;
 
   const summary = useMemo(() => {
-    const e = escRisk['Next 7 Days'] || defaultEscRisk['Next 7 Days'];
-    const total = e.low + e.medium + e.high + e.critical;
+    const e = escRisk[activePeriod] || escRisk['Last 7 Days'] || defaultEscRisk['Last 7 Days'];
+    const total = (e.low || 0) + (e.medium || 0) + (e.high || 0) + (e.critical || 0) || 1;
     const topCat = categories[0] || 'Network';
     return {
-      peak: peakDay['Next 7 Days'],
-      predTotal: predTotal['Next 7 Days'],
-      escTotal: escTotal['Next 7 Days'],
-      critPct: Math.round((e.critical / total) * 100),
+      peak: peakDay[activePeriod] || peakDay['Last 7 Days'] || 'Thursday',
+      predTotal: predTotal[activePeriod] || predTotal['Last 7 Days'] || 99,
+      escTotal: escTotal[activePeriod] || escTotal['Last 7 Days'] || 16,
+      critPct: Math.round(((e.critical || 0) / total) * 100),
       topCat,
     };
-  }, [escRisk, peakDay, predTotal, escTotal, categories]);
+  }, [activePeriod, escRisk, peakDay, predTotal, escTotal, categories]);
 
   // ─── 1. Escalation Risk Chart ──────────────────────────────────────
   const escChart = useMemo(() => {
-    const e = escRisk[escPeriod] || defaultEscRisk[escPeriod];
-    const total = e.low + e.medium + e.high + e.critical;
-    const pct = (v) => Math.round((v / total) * 100);
+    const e = escRisk[activePeriod] || escRisk['Last 7 Days'] || defaultEscRisk['Last 7 Days'];
+    const total = (e.low || 0) + (e.medium || 0) + (e.high || 0) + (e.critical || 0) || 1;
+    const pct = (v) => Math.round(((v || 0) / total) * 100);
     return (
       <div className="flex gap-4 items-center">
         <div className="h-[130px] w-[130px] shrink-0">
@@ -233,10 +266,10 @@ export default function PredictiveAnalytics() {
         </div>
         <div className="flex-1 min-w-0 space-y-1.5">
           {[
-            { label: 'Low', v: e.low, p: pct(e.low), color: 'bg-emerald-500' },
-            { label: 'Medium', v: e.medium, p: pct(e.medium), color: 'bg-amber-500' },
-            { label: 'High', v: e.high, p: pct(e.high), color: 'bg-rose-500' },
-            { label: 'Critical', v: e.critical, p: pct(e.critical), color: 'bg-red-600' },
+            { label: 'Low', v: e.low || 0, p: pct(e.low), color: 'bg-emerald-500' },
+            { label: 'Medium', v: e.medium || 0, p: pct(e.medium), color: 'bg-amber-500' },
+            { label: 'High', v: e.high || 0, p: pct(e.high), color: 'bg-rose-500' },
+            { label: 'Critical', v: e.critical || 0, p: pct(e.critical), color: 'bg-red-600' },
           ].map((r) => (
             <div key={r.label} className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${r.color}`} />
@@ -248,17 +281,17 @@ export default function PredictiveAnalytics() {
             </div>
           ))}
           <div className="flex gap-3 pt-1 text-[11px]">
-            <span className="text-gray-500">Escalations: <strong className="text-gray-800">{escTotal[escPeriod]}</strong></span>
-            <span className="text-gray-500">Avg: <strong className="text-gray-800">{escAvg[escPeriod]}</strong></span>
+            <span className="text-gray-500">Escalations: <strong className="text-gray-800">{escTotal[activePeriod] || escTotal['Last 7 Days'] || 16}</strong></span>
+            <span className="text-gray-500">Avg: <strong className="text-gray-800">{escAvg[activePeriod] || escAvg['Last 7 Days'] || '2.4 hrs'}</strong></span>
           </div>
         </div>
       </div>
     );
-  }, [escPeriod, escRisk, escTotal, escAvg]);
+  }, [activePeriod, escRisk, escTotal, escAvg]);
 
   // ─── 2. Root Causes Chart ──────────────────────────────────────────
   const rootChart = useMemo(() => {
-    const items = rootCause[rootPeriod] || defaultRootCause[rootPeriod];
+    const items = rootCause[activePeriod] || rootCause['Last 7 Days'] || defaultRootCause['Last 7 Days'];
     return (
       <div>
         <div className="space-y-1.5">
@@ -284,17 +317,24 @@ export default function PredictiveAnalytics() {
         <p className="text-[11px] text-gray-500 mt-2">Network Config is the top cause, trending upward 12%.</p>
       </div>
     );
-  }, [rootPeriod, rootCause]);
+  }, [activePeriod, rootCause]);
 
   // ─── 3. Volume Prediction Chart ────────────────────────────────────
   const volChart = useMemo(() => {
-    const labels = DAYS[volPeriod];
-    const d = ticketVol[volPeriod] || defaultTicketVol[volPeriod];
+    const labels = DAYS[activePeriod] || DAYS['Last 7 Days'];
+    const d = ticketVol[activePeriod] || ticketVol['Last 7 Days'] || defaultTicketVol['Last 7 Days'];
+    const histSeries = d.historical || d.hist || [12, 19, 15, 22, 18, 8, 5];
+    const predSeries = d.predicted || d.pred || [10, 14, 13, 20, 16, 7, 4];
+    const upperSeries = d.upper_bound || d.upper || [15, 22, 18, 25, 21, 10, 7];
+    const lowerSeries = d.lower_bound || d.lower || [9, 16, 12, 19, 15, 6, 3];
+    const peak = peakDay[activePeriod] || peakDay['Last 7 Days'] || 'Thursday';
+    const total = predTotal[activePeriod] || predTotal['Last 7 Days'] || 99;
+
     return (
       <div className="min-h-[180px]">
         <div className="flex items-center gap-4 mb-2 text-xs">
-          <span className="text-gray-500">Predicted: <strong className="text-gray-800">{predTotal[volPeriod]}</strong></span>
-          <span className="px-2 py-0.5 bg-amber-50 rounded text-amber-700 font-semibold">Peak: {peakDay[volPeriod]}</span>
+          <span className="text-gray-500">Predicted: <strong className="text-gray-800">{total}</strong></span>
+          <span className="px-2 py-0.5 bg-amber-50 rounded text-amber-700 font-semibold">Peak: {peak}</span>
         </div>
         <div className="h-[150px]">
           <Line
@@ -302,23 +342,23 @@ export default function PredictiveAnalytics() {
             data={{
               labels,
               datasets: [
-                { label: 'Upper', data: d.upper, borderColor: 'transparent', backgroundColor: 'rgba(37,37,120,0.06)', pointRadius: 0, fill: '+1' },
-                { label: 'Historical', data: d.hist, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5, 3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
-                { label: 'Predicted', data: d.pred, borderColor: COLORS.blue.border, backgroundColor: COLORS.blue.bg, fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
-                { label: 'Lower', data: d.lower, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false },
+                { label: 'Upper', data: upperSeries, borderColor: 'transparent', backgroundColor: 'rgba(37,37,120,0.06)', pointRadius: 0, fill: '+1' },
+                { label: 'Historical', data: histSeries, borderColor: COLORS.sky.border, backgroundColor: COLORS.sky.bg, borderDash: [5, 3], fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
+                { label: 'Predicted', data: predSeries, borderColor: COLORS.blue.border, backgroundColor: COLORS.blue.bg, fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#fff', pointBorderWidth: 2 },
+                { label: 'Lower', data: lowerSeries, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false },
               ],
             }}
           />
         </div>
-        <p className="text-[11px] text-gray-500 mt-1">Volume forecast to remain elevated; peak expected on {peakDay[volPeriod]}.</p>
+        <p className="text-[11px] text-gray-500 mt-1">Volume forecast to remain elevated; peak expected on {peak}.</p>
       </div>
     );
-  }, [volPeriod, ticketVol, predTotal, peakDay]);
+  }, [activePeriod, ticketVol, predTotal, peakDay]);
 
   // ─── 4. Equipment Risk Chart ───────────────────────────────────────
   const equipChart = useMemo(() => {
     const labels = [equipment[0], equipment[1], equipment[2]];
-    const vals = equipFail[equipPeriod] || defaultEquipFail[equipPeriod];
+    const vals = equipFail[activePeriod] || equipFail['Last 7 Days'] || defaultEquipFail['Last 7 Days'];
     const colors = ['rgba(244,63,94,0.75)', 'rgba(99,102,241,0.75)', 'rgba(245,158,11,0.75)'];
     return (
       <div>
@@ -334,12 +374,12 @@ export default function PredictiveAnalytics() {
         <p className="text-[11px] text-gray-500 mt-1">{equipment[0]} has the highest predicted failure rate at {vals[0]}%.</p>
       </div>
     );
-  }, [equipPeriod, equipFail, equipment]);
+  }, [activePeriod, equipFail, equipment]);
 
   // ─── 5. Recurring Issues Chart ──────────────────────────────────────
   const recChart = useMemo(() => {
     const labels = categories.slice(0, 4);
-    const vals = (recFreq[recPeriod] || defaultRecFreq[recPeriod]).slice(0, 4);
+    const vals = (recFreq[activePeriod] || recFreq['Last 7 Days'] || defaultRecFreq['Last 7 Days']).slice(0, 4);
     return (
       <div>
         <div className="h-[150px]">
@@ -358,7 +398,7 @@ export default function PredictiveAnalytics() {
         <p className="text-[11px] text-gray-500 mt-1">Network issues recur most frequently; up 12% from last period.</p>
       </div>
     );
-  }, [recPeriod, recFreq, categories]);
+  }, [activePeriod, recFreq, categories]);
 
   // ─── KPI Strip Data ────────────────────────────────────────────────
   const kpis = useMemo(() => [
@@ -402,7 +442,6 @@ export default function PredictiveAnalytics() {
               <ShieldAlert className="w-4 h-4 text-[#252578]" />
               <h3 className="text-sm font-bold text-gray-800">Escalation Risk</h3>
             </div>
-            <FilterDropdown value={escPeriod} onChange={setEscPeriod} />
           </div>
           {escChart}
         </div>
@@ -414,7 +453,6 @@ export default function PredictiveAnalytics() {
               <Search className="w-4 h-4 text-[#252578]" />
               <h3 className="text-sm font-bold text-gray-800">Root Causes</h3>
             </div>
-            <FilterDropdown value={rootPeriod} onChange={setRootPeriod} />
           </div>
           {rootChart}
         </div>
@@ -426,7 +464,6 @@ export default function PredictiveAnalytics() {
               <TrendingUp className="w-4 h-4 text-[#252578]" />
               <h3 className="text-sm font-bold text-gray-800">Volume Prediction</h3>
             </div>
-            <FilterDropdown value={volPeriod} onChange={setVolPeriod} />
           </div>
           {volChart}
         </div>
@@ -438,7 +475,6 @@ export default function PredictiveAnalytics() {
               <Cpu className="w-4 h-4 text-[#252578]" />
               <h3 className="text-sm font-bold text-gray-800">Equipment Risk</h3>
             </div>
-            <FilterDropdown value={equipPeriod} onChange={setEquipPeriod} />
           </div>
           {equipChart}
         </div>
@@ -450,7 +486,6 @@ export default function PredictiveAnalytics() {
               <Activity className="w-4 h-4 text-[#252578]" />
               <h3 className="text-sm font-bold text-gray-800">Recurring Issues</h3>
             </div>
-            <FilterDropdown value={recPeriod} onChange={setRecPeriod} />
           </div>
           {recChart}
         </div>
