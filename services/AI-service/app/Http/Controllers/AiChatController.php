@@ -32,47 +32,51 @@ class AiChatController extends Controller
         $userId = $validated['user_id'] ?? null;
         $incomingMessages = $validated['messages'];
 
-        // Retrieve or initialize conversation record
-        $conversation = AiConversation::find($convId);
-        if (!$conversation) {
-            $title = 'Support Inquiry';
-            foreach ($incomingMessages as $m) {
-                if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
-                    $title = mb_substr(trim($m['content']), 0, 50);
-                    break;
-                }
-            }
-
-            $conversation = new AiConversation([
-                'id' => $convId,
-                'user_id' => $userId,
-                'title' => $title,
-                'status' => 'active',
-                'messages' => [],
-            ]);
-        }
-
-        // Call Gemini Service
+        // Call Gemini Service immediately
         $result = $this->geminiService->generateResponse($incomingMessages, $convId);
 
-        // Append latest exchange
-        $aiTimestamp = now()->toIso8601String();
-        $aiMsgRecord = [
-            'id' => 'ai-' . round(microtime(true) * 1000),
-            'role' => 'ai',
-            'content' => $result['content'],
-            'timestamp' => $aiTimestamp,
-        ];
+        // Retrieve or initialize conversation record and persist
+        try {
+            $conversation = AiConversation::find($convId);
+            if (!$conversation) {
+                $title = 'Support Inquiry';
+                foreach ($incomingMessages as $m) {
+                    if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
+                        $title = mb_substr(trim($m['content']), 0, 50);
+                        break;
+                    }
+                }
 
-        $allMessages = array_merge($incomingMessages, [$aiMsgRecord]);
-        $conversation->messages = $allMessages;
+                $conversation = new AiConversation([
+                    'id' => $convId,
+                    'user_id' => $userId,
+                    'title' => $title,
+                    'status' => 'active',
+                    'messages' => [],
+                ]);
+            }
 
-        if ($result['escalate']) {
-            $conversation->status = 'escalated';
-            $conversation->escalation_data = $result['ticket_data'];
+            // Append latest exchange
+            $aiTimestamp = now()->toIso8601String();
+            $aiMsgRecord = [
+                'id' => 'ai-' . round(microtime(true) * 1000),
+                'role' => 'ai',
+                'content' => $result['content'],
+                'timestamp' => $aiTimestamp,
+            ];
+
+            $allMessages = array_merge($incomingMessages, [$aiMsgRecord]);
+            $conversation->messages = $allMessages;
+
+            if ($result['escalate']) {
+                $conversation->status = 'escalated';
+                $conversation->escalation_data = $result['ticket_data'];
+            }
+
+            $conversation->save();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to save AI conversation: ' . $e->getMessage());
         }
-
-        $conversation->save();
 
         return response()->json([
             'success' => true,

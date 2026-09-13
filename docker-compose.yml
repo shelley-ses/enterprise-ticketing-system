@@ -259,6 +259,7 @@ services:
     container_name: ai-service
     volumes:
       - ./services/AI-service:/var/www
+      - ai-service-vendor:/var/www/vendor
     ports:
       - "8005:8000"
     environment:
@@ -269,7 +270,12 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+    networks:
+      - default
+      - shared-capstone-network
+    command: >
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -434,6 +440,8 @@ services:
       VITE_TICKET_SERVICE_URL: "http://ticket-service:8000"
       VITE_ATTACHMENT_SERVICE_URL: "http://attachment-service:8000"
       VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
+      VITE_AI_SERVICE_URL: "http://ai-service:8000"
+      VITE_ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5005"
     restart: always
 
@@ -459,8 +467,25 @@ services:
       VITE_TICKET_SERVICE_URL: "http://ticket-service:8000"
       VITE_ATTACHMENT_SERVICE_URL: "http://attachment-service:8000"
       VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
+      VITE_AI_SERVICE_URL: "http://ai-service:8000"
+      VITE_ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5006"
     restart: always
+
+  ticketing-gateway:
+    image: nginx:alpine
+    container_name: ticketing-gateway
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.gateway.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - default
+      - shared-capstone-network
+    depends_on:
+      - customer-service
+      - ticket-service
 
 volumes:
   db_data:
@@ -471,6 +496,7 @@ volumes:
   auth-service-vendor:
   attachment-service-vendor:
   messaging-service-vendor:
+  ai-service-vendor:
 
 networks:
   default:
