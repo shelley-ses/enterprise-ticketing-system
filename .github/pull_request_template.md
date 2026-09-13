@@ -1,67 +1,91 @@
-## Description
-<!-- Provide a brief description of the changes introduced by this PR. Include motivation, context, and problem statement. -->
+# Pull Request: [Title]
 
-Closes # <!-- Link issue number if applicable (e.g. Closes #42) -->
-
----
-
-## Type of Change
-<!-- Check the boxes that apply using an 'x' (e.g. [x]) -->
-- [ ] 🐛 Bug fix (non-breaking change fixing an issue)
-- [ ] ✨ New feature (non-breaking change adding functionality)
-- [ ] 💥 Breaking change (fix or feature causing existing functionality to change)
-- [ ] ♻️ Refactoring / Technical Debt (code reorganization with no behavioral change)
-- [ ] 📝 Documentation update (changes to `docs/` or README)
-- [ ] ⚙️ DevOps / Infrastructure (`docker-compose`, Nginx, CI/CD)
+### Metadata
+| Attribute | Details |
+| :--- | :--- |
+| **Tracking Issue / Ticket** | Ref # |
+| **Target Base Branch** | `dev` (Staging) / `main` (Production Release) |
+| **Change Classification** | Feature / Bug Fix / Refactor / Security / Infrastructure / Documentation |
+| **Impact Level** | Low / Medium / High / Critical |
 
 ---
 
-## Microservices & Components Affected
-<!-- Select all subsystems modified by this PR -->
-- [ ] `frontend/web` (React 19 / Tailwind v4)
-- [ ] `customer-service` (Port 8001 / Auth & Clients)
-- [ ] `ticket-service` (Port 8002 / Core Tickets & SLAs)
-- [ ] `attachment-service` (Port 8006 / ClamAV Uploads)
-- [ ] `messaging-service` (Port 8007 / MongoDB & Reverb)
-- [ ] `analytics-service` (Port 8004 / CSAT & Reports)
-- [ ] `notification-service` (Port 8003 / Email & Push)
-- [ ] `AI-service` (Port 8005 / Gemini AI Support)
-- [ ] `docker-compose` / `nginx.conf` / Environment configs
+## 1. Executive Summary & Business Rationale
+<!-- Provide a concise explanation of the change, the problem being addressed, and the business or operational value delivered. -->
 
 ---
 
-## Database & Environment Changes
-<!-- Please specify if migrations or new environment variables are needed -->
-- [ ] **Database Migration required?**
-  - [ ] Yes (specify service: `services/<service>/database/migrations`)
-  - [ ] No
-- [ ] **New Environment Variables (`.env`) required?**
-  - [ ] Yes (specify variable names and update `.env.example`)
-  - [ ] No
+## 2. Technical Architecture & Affected Subsystems
+<!-- Identify all subsystems and architectural layers modified by this change. -->
+
+### Affected Components
+- [ ] `frontend/web` — React 19 / Tailwind v4 Single-Page Application
+- [ ] `services/customer-service` — Customer Identity, Authentication, and Profiles (Port 8001)
+- [ ] `services/ticket-service` — Core Ticket Lifecycle, State Machine, and SLA Engine (Port 8002)
+- [ ] `services/notification-service` — Reverb WebSockets and Email Alerts (Port 8003)
+- [ ] `services/analytics-service` — CSAT Ratings and Metric Reporting (Port 8004)
+- [ ] `services/AI-service` — Google Gemini 2.0 Flash Automated Triage (Port 8005)
+- [ ] `services/attachment-service` — Attachment Storage and ClamAV Antivirus Inspection (Port 8006)
+- [ ] `services/messaging-service` — Real-Time Chat System / MongoDB 7 (Port 8007)
+- [ ] `gateway` / `infrastructure` — Nginx Reverse Proxy, Docker Compose, CI/CD Workflows
+
+### Architectural Invariants Verification
+- [ ] **Decoupled Persistence**: No cross-service database queries or direct table access.
+- [ ] **Thin Controllers**: Business logic encapsulated into service classes (`app/Services/`).
+- [ ] **Documentation Compliance**: No Mermaid diagrams introduced; documentation uses structured tables/ASCII.
+- [ ] **AI Fallback Invariant**: Google Gemini failures degrade directly to manual ticket escalation (no local LLM).
 
 ---
 
-## How Has This Been Tested?
-<!-- Describe the manual or automated test steps you performed to verify these changes -->
-1. **Setup Steps**:
-   ```bash
-   # e.g., docker compose up -d --build
-   ```
-2. **Action Performed**:
-   * *Step 1: Navigate to ...*
-   * *Step 2: Click on ...*
-3. **Observed Result**:
-   * *The ticket status changed to ...*
+## 3. Security, Cryptography & Compliance
+<!-- Verify adherence to enterprise security and compliance standards. -->
+- [ ] **Client-Side RSA Encryption**: Sensitive credentials encrypted client-side via RSA prior to network transit.
+- [ ] **Antivirus Inspection**: File upload endpoints enforce ClamAV daemon verification before persistence.
+- [ ] **Subsystem Authentication**: Inter-service requests authenticated via JWT and shared public keys (`oauth-public.key`).
+- [ ] **Non-Blocking Cache Invalidation**: Redis cache operations use `SCAN` chunking; zero blocking `KEYS *` calls.
+- [ ] **Secret Hygiene**: Zero credentials, private keys, or `.env` files staged or committed.
 
 ---
 
-## Pre-Merge Checklist
-<!-- Review against project standards before requesting review -->
-- [ ] My code follows the repository's [AI & Coding Guidelines](docs/ai-guidelines.md).
-- [ ] Sensitive credentials/passwords are RSA-encrypted before transit (`encryptPayload`).
-- [ ] File uploads continue to be validated through ClamAV antivirus scanning.
-- [ ] Changes to shared frontend components do not break either **Employee** (`/ticketing/`) or **Customer** (`/`) portals.
-- [ ] Any new API routes have corresponding entries in `nginx.conf` and `nginx.prod.conf`.
-- [ ] Documentation updated in `docs/` if architectural changes were made.
+## 4. Infrastructure, Database & Environment Impact
+| Prerequisite | Status | Details |
+| :--- | :--- | :--- |
+| **Database Migrations** | None / Required | e.g. `services/<service>/database/migrations/...` |
+| **Environment Variables** | None / Required | e.g. Key additions documented in `.env.example` |
+| **Nginx Routing Rules** | None / Required | e.g. Gateway updates in `nginx.conf` / `nginx.prod.conf` |
+| **Daemon / Worker Restarts**| None / Required | e.g. `reverb`, queue workers |
 
 ---
+
+## 5. Testing & Verification Evidence
+<!-- Provide automated test execution results and manual verification records. -->
+
+### Automated Test Execution
+```bash
+# Commands executed to validate the changes
+docker compose exec <service> php artisan test
+```
+
+### Manual Verification Matrix
+| Test Case | Procedure | Expected Outcome | Actual Result | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| TC-01 | | | | Verified |
+| TC-02 | | | | Verified |
+
+---
+
+## 6. Deployment & Rollback Strategy
+* **Deployment Sequence**:
+  1. Deploy updated service containers or code.
+  2. Execute pending database migrations (`php artisan migrate --force`).
+  3. Reload Nginx configuration if routing rules were modified.
+* **Rollback Plan**:
+  <!-- Outline step-by-step instructions to revert this change if unexpected anomalies occur. -->
+
+---
+
+## 7. Pre-Merge Verification Checklist
+- [ ] Branch complies with repository naming conventions (`feat/*`, `fix/*`, `chore/*`, `docs/*`).
+- [ ] Commit history follows Conventional Commits standard.
+- [ ] Shared frontend changes tested across both Customer (`/`) and Employee (`/ticketing/`) contexts.
+- [ ] Automated CI pipeline checks pass without errors.
