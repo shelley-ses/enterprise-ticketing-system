@@ -268,9 +268,12 @@ services:
       DB_DATABASE: ${MYSQL_DATABASE}
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
     depends_on:
       db:
         condition: service_healthy
+
 
   clamav:
     image: clamav/clamav:stable

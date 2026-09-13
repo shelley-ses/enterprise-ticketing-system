@@ -2,7 +2,8 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL;
 export const SANCTUM_URL = import.meta.env.VITE_SANCTUM_URL;
 export const TICKET_API_URL = import.meta.env.VITE_TICKET_API_URL;
-export const AI_API_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8008/api';
+export const AI_API_URL = import.meta.env.VITE_AI_API_URL || '/api/ticketing/ai';
+
 export const KB_API_URL = import.meta.env.VITE_KB_API_URL || 'http://localhost:8009/api';
 
 if(!API_BASE_URL){

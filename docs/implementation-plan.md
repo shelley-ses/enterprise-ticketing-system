@@ -14,32 +14,36 @@ This document outlines the current maturity of the **Enterprise Ticketing System
 | **`messaging-service`** | **Production Ready** | 90% | Group chat & typing presence indicators |
 | **`analytics-service`** | **Production Ready** | 85% | Automated daily snapshot cron jobs |
 | **`frontend/web`** | **Production Ready** | 90% | Dark mode theme toggle & i18n localization |
-| **`AI-service`** | **Scaffolded** | 20% | Dual Gemini/OpenAI API + Ollama local engine |
+| **`AI-service`** | **Implemented** | 90% | Google Gemini 2.0 Flash + Manual Ticket Fallback |
 | **`notification-service`** | **Scaffolded** | 20% | Dedicated Redis queue consumers for multi-channel alerts |
 
 ---
 
 ## Phased Execution Roadmap
 
-### Phase 1: AI Service Completion (`AI-service`)
-**Objective**: Transform `AI-service` from a boilerplate scaffold into an autonomous triage and intelligence engine.
+### Phase 1: AI Service Integration (`AI-service`)
+**Objective**: Autonomous triage, conversational technical troubleshooting, and intelligent ticket escalation via Google Gemini API (`gemini-2.0-flash`).
 
 ```
 [Triggers]                               [AI-service Router]                   [Target Capabilities]
 - New Ticket Ingestion   -----\
-- Customer Chat Message  ------> [Provider Dispatcher] ------------> - Auto-Categorization & Priority
-                                   |                                  - Customer Sentiment Scoring
-                                   +--> Cloud #1: Gemini 2.0 Flash    - Smart Knowledge Base Matcher
-                                   +--> Cloud #2: OpenAI GPT-4o-mini
-                                   +--> Fallback: Local Ollama (Llama 3)
+- Customer Chat Message  ------> [GeminiService (gemini-2.0-flash)] -> - Automated Diagnostic Support
+                                   |                                   - Equipment Troubleshooting
+                                   |                                   - Step-by-step resolution
+                                   |
+                                   +--> Success: Markdown Diagnostic Advice & Structured Escalation
+                                   +--> API Error / Offline: Graceful Fallback to Manual Support Ticket
 ```
 
-#### Key Implementation Steps:
-1. **Model Provider Abstraction**:
-   * Create `App\Services\Contracts\LLMProviderInterface`.
-   * Implement `GeminiProvider` (Google Gemini REST API), `OpenAIProvider`, and `OllamaProvider`.
-   * Implement fallback circuit-breaker logic: if cloud API quotas are exhausted or network is offline, fallback automatically to local Ollama container.
-2. **Automated Triage Endpoint (`POST /api/tickets/triage`)**:
+#### Key Implementation Components:
+1. **Google Gemini Service (`App\Services\GeminiService`)**:
+   * Uses Google Gemini REST API (`gemini-2.0-flash`) with prompt engineering tuned for industrial IT and equipment diagnosis.
+   * Detects when problems require on-site technical inspection and generates structured ticket parameters (`title`, `description`, `escalate = true`).
+   * On API failure or rate limit, automatically defaults to manual ticket submission guidance.
+2. **Conversation Persistence (`App\Models\AiConversation`)**:
+   * Saves customer chat histories in MySQL `ai_conversations` table.
+   * Tracks states (`active`, `escalated`, `ticket_created`, `closed`).
+
    * Analyzes ticket title and description to predict:
      * `suggested_department_id`
      * `suggested_priority_id`
