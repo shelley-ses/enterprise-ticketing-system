@@ -14,7 +14,7 @@ class GeminiService
     public function __construct()
     {
         $this->apiKey = config('services.gemini.api_key') ?? env('GEMINI_API_KEY', '');
-        $this->model = config('services.gemini.model') ?? env('GEMINI_MODEL', 'gemini-2.0-flash');
+        $this->model = config('services.gemini.model') ?? env('GEMINI_MODEL', 'gemini-3.5-flash-lite');
         $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
     }
 
@@ -38,7 +38,7 @@ class GeminiService
             $systemInstruction = "You are an expert enterprise technical support AI assistant for an industrial, equipment, and IT ticketing platform. " .
                 "Your objective is to guide customers through clear, step-by-step diagnostic and troubleshooting actions for their machines, hardware, or software problems.\n\n" .
                 "Key Guidelines:\n" .
-                "1. Keep responses clear, concise, and formatted using clean markdown (bullet points, bold highlights).\n" .
+                "1. Keep troubleshooting steps concise and direct (maximum 3 to 4 short bullet points, under 150 words total). Avoid unnecessary filler text.\n" .
                 "2. If the user indicates that basic troubleshooting failed, or if the issue involves dangerous high-voltage electrical, jammed heavy machinery, broken hardware, or requires an on-site technician dispatch, you MUST recommend escalating to a support ticket.\n" .
                 "3. When escalating, append a structured JSON block at the very end of your response exactly like this:\n" .
                 "```json\n" .
@@ -49,9 +49,12 @@ class GeminiService
                 "}\n" .
                 "```";
 
+            // Limit conversation window to latest 8 messages to prevent latency degradation in long chats
+            $recentMessages = count($messages) > 8 ? array_slice($messages, -8) : $messages;
+
             // Format contents for Gemini API (roles: 'user' and 'model')
             $contents = [];
-            foreach ($messages as $msg) {
+            foreach ($recentMessages as $msg) {
                 $role = ($msg['role'] === 'assistant' || $msg['role'] === 'ai' || $msg['role'] === 'model') ? 'model' : 'user';
                 $text = is_string($msg['content'] ?? null) ? trim($msg['content']) : '';
                 if (!empty($text)) {
@@ -79,14 +82,14 @@ class GeminiService
                 ],
                 'contents' => $contents,
                 'generationConfig' => [
-                    'temperature' => 0.4,
-                    'maxOutputTokens' => 1024,
+                    'temperature' => 0.3,
+                    'maxOutputTokens' => 600,
                 ]
             ];
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
-            ])->timeout(25)->post($url, $payload);
+            ])->timeout(12)->post($url, $payload);
 
             if (!$response->successful()) {
                 Log::error('Gemini API request failed', [
