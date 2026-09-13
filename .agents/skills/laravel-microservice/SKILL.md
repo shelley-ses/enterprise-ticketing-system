@@ -9,13 +9,14 @@ This skill governs development across the 7 backend Laravel microservices locate
 
 | Microservice | Port | Primary Responsibility | Key Dependencies |
 | :--- | :--- | :--- | :--- |
-| `AI-service` | 8008 | Google Gemini Flash automated support & triage | Google Gemini API, MySQL |
-| `ticketing-service` | 8001 | Tickets, SLA timers, status state machines | MySQL, Redis, Reverb |
-| `auth-service` | 8002 | JWT issuance, RBAC, RSA decryption | Laravel Passport, RSA Keypair |
-| `asset-service` | 8003 | Hardware/software inventory & lifecycle | MySQL |
-| `attachment-service` | 8004 | File uploads, S3 storage, ClamAV antivirus | ClamAV Daemon (port 3310) |
-| `audit-service` | 8005 | Immutable audit trail & compliance logging | MySQL (append-only) |
-| `notification-service` | 8006 | Reverb WebSockets & email dispatch | Laravel Reverb (port 6001) |
+| `customer-service` | 8001 | Customer identity, authentication, client profiles | MySQL, Redis, Reverb |
+| `ticket-service` | 8002 | Core tickets, SLA timers, status state machines | MySQL, Redis, Reverb |
+| `notification-service` | 8003 | Reverb WebSockets & transactional email dispatch | Laravel Reverb (port 6001) |
+| `analytics-service` | 8004 | CSAT ratings, metrics, and analytics reporting | MySQL |
+| `AI-service` | 8005 | Google Gemini 2.0 Flash automated support & triage | Google Gemini API, MySQL |
+| `attachment-service` | 8006 | File uploads, S3 storage, ClamAV antivirus | ClamAV Daemon (port 3310) |
+| `messaging-service` | 8007 | Real-time ticket chat messaging | MongoDB 7, Reverb |
+
 
 ---
 

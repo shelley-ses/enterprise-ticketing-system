@@ -7,15 +7,15 @@ Welcome to the **Enterprise Ticketing System** codebase. This file serves as the
 This repository is an enterprise-grade, microservice-based IT service desk and ticketing platform:
 
 * **Microservices (`services/`)**:
-  * `services/AI-service`: Google Gemini 2.0 Flash automated support assistant, conversation persistence, ticket triage, and fallback ticket escalation.
-  * `services/ticketing-service`: Core ticket lifecycle, SLA monitoring, status state machines, and priority management.
-  * `services/auth-service`: JWT token issuance, RBAC, RSA credential decryption, and subsystem authentication.
-  * `services/asset-service`: Hardware/software asset catalog, serial tracking, and ticket linkages.
-  * `services/attachment-service`: Attachment storage with mandatory ClamAV antivirus daemon inspection.
-  * `services/audit-service`: Immutable append-only audit trails for regulatory compliance.
-  * `services/notification-service`: Real-time Reverb WebSocket broadcasting and transactional email alerts.
+  * `services/AI-service` (Port 8005): Google Gemini 2.0 Flash automated support assistant, conversation persistence, ticket triage, and fallback ticket escalation.
+  * `services/customer-service` (Port 8001): Customer identity, authentication, client profiles, and user management.
+  * `services/ticket-service` (Port 8002): Core ticket lifecycle, SLA monitoring, status state machines, and priority management.
+  * `services/notification-service` (Port 8003): Real-time Reverb WebSocket broadcasting and transactional email alerts.
+  * `services/analytics-service` (Port 8004): CSAT ratings, performance metrics, and reporting.
+  * `services/attachment-service` (Port 8006): Attachment storage with mandatory ClamAV antivirus daemon inspection.
+  * `services/messaging-service` (Port 8007): Real-time ticket chat messaging backed by MongoDB 7.
 * **Frontend (`frontend/web/`)**: React 19 SPA with Vite, Tailwind CSS v4, Lucide icons, and dual-mode runtime (`employee` at `/ticketing/` vs `customer` at `/`).
-* **Gateway (`nginx/`)**: Nginx reverse proxy routing `/api/*` to corresponding microservice FastCGI or HTTP sockets.
+* **Gateway (`nginx.conf` & `nginx.prod.conf`)**: Nginx reverse proxy routing `/api/*` to corresponding microservice FastCGI or HTTP sockets.
 * **Documentation (`docs/`)**: Technical specs and architecture guides (maintained with zero Mermaid diagrams, relying on clear ASCII tables).
 
 ## Agent Customizations

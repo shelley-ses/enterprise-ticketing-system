@@ -11,19 +11,21 @@ This skill outlines operational procedures and common commands for managing the 
 
 | Service Container | Port Mapping | Description |
 | :--- | :--- | :--- |
-| `nginx-gateway` | 80, 443 | Reverse proxy gateway routing `/api/*` and serving static frontend |
-| `frontend-web` | 5005, 5006 | Vite React development server |
-| `ticketing-service` | 8001:8000 | Ticketing core, SLA engine |
-| `auth-service` | 8002:8000 | Authentication, Passport, RSA decryptor |
-| `asset-service` | 8003:8000 | Asset management service |
-| `attachment-service` | 8004:8000 | Uploads & ClamAV scanner client |
-| `audit-service` | 8005:8000 | Audit trail logger |
-| `notification-service`| 8006:8000 | Email and notification worker |
-| `ai-service` | 8008:8000 | Google Gemini 2.0 Flash AI assistant |
-| `mysql` | 3306:3306 | Per-service MySQL databases |
-| `redis` | 6379:6379 | Redis cache & session store |
+| `nginx` | 80, 443 | Reverse proxy gateway routing `/api/*` and serving static frontend |
+| `frontend` | 5005, 5006 | Vite React development server (`customer` / `employee`) |
+| `customer-service` | 8001:8000 | Customer identity, authentication, client profiles |
+| `ticket-service` | 8002:8000 | Core ticket lifecycle, SLA engine |
+| `notification-service`| 8003:8000 | Reverb WebSockets & email dispatch worker |
+| `analytics-service` | 8004:8000 | CSAT ratings and analytics reporting |
+| `ai-service` | 8005:8000 | Google Gemini 2.0 Flash AI assistant |
+| `attachment-service` | 8006:8000 | Uploads & ClamAV scanner client |
+| `messaging-service` | 8007:8000 | Real-time ticket chat messaging (MongoDB 7) |
+| `capstone-db` | 33061:3306 | MySQL 8 per-service database |
+| `capstone-redis` | 6379:6379 | Redis cache & session store |
 | `capstone-clamav` | 3310:3310 | ClamAV antivirus daemon |
 | `reverb` | 6001:6001 | Laravel Reverb WebSocket server |
+| `mongo` | 27017:27017 | MongoDB 7 chat storage |
+
 
 ---
 
