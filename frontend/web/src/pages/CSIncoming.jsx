@@ -5,6 +5,7 @@ import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { ticketBroadcast } from '@/services/ticketBroadcast';
@@ -63,6 +64,7 @@ export default function CSIncoming() {
   // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [assignmentFilter, setAssignmentFilter] = useState('All');
+  const [incomingTab, setIncomingTab] = useState('open'); // 'open' | 'pending_assignment' | 'all'
   const [newTicketId, setNewTicketId] = useState(null);
   const newTicketTimerRef = useRef(null);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -225,9 +227,36 @@ export default function CSIncoming() {
 
   // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached'];
 
+  const counts = useMemo(() => {
+    let open = 0;
+    let pending = 0;
+    let all = 0;
+
+    tickets.forEach((t) => {
+      if (t.reassignmentRequested === true) return;
+      const isAssigned = t.assigned && t.assigned.length > 0 && t.accepted;
+      const isPendingValidation = t.status === 'Pending Evaluation';
+      const isReopened = t.status === 'Reopened' || t.status === 'Reopen';
+
+      if (isAssigned && !isReopened) return;
+      if (isPendingValidation && !isReopened) return;
+
+      all++;
+      const isPending = t.status === 'Pending Assignment' || (t.assigned && t.assigned.length > 0 && !t.accepted);
+      if (isPending) {
+        pending++;
+      } else {
+        open++;
+      }
+    });
+
+    return { open, pending, all };
+  }, [tickets]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
+      if (t.reassignmentRequested === true) return false;
       if (category !== 'All Categories' && t.category !== category) return false;
       // if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
@@ -240,17 +269,20 @@ export default function CSIncoming() {
       }
       
       const isAssigned = t.assigned && t.assigned.length > 0 && t.accepted;
-      const isPendingReassign = t.reassignmentRequested === true;
       const isPendingValidation = t.status === 'Pending Evaluation';
       const isReopened = t.status === 'Reopened' || t.status === 'Reopen';
 
-      // Filter by assignment / reassignment / validation status
-      if (assignmentFilter === 'All') {
-        if (isAssigned && !isPendingReassign && !isReopened) return false;
-        if (isPendingValidation && !isPendingReassign && !isReopened) return false;
-      } else if (assignmentFilter === 'Pending Reassign') {
-        if (!isPendingReassign) return false;
-      } else if (assignmentFilter === 'Pending Evaluation') {
+      // Base incoming filtering: ignore tickets already accepted by employee unless pending reassign/reopened
+      if (isAssigned && !isReopened) return false;
+      if (isPendingValidation && !isReopened) return false;
+
+      // Tab filter
+      const isPending = t.status === 'Pending Assignment' || (t.assigned && t.assigned.length > 0 && !t.accepted);
+      if (incomingTab === 'open' && isPending) return false;
+      if (incomingTab === 'pending_assignment' && !isPending) return false;
+
+      // Filter by assignment / validation status
+      if (assignmentFilter === 'Pending Evaluation') {
         if (!isPendingValidation) return false;
       }
 
@@ -262,7 +294,7 @@ export default function CSIncoming() {
         (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, machineFilter, assignmentFilter, typeFilter]);
+  }, [tickets, search, category, machineFilter, assignmentFilter, typeFilter, incomingTab]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -313,14 +345,15 @@ export default function CSIncoming() {
       };
       ticketBroadcast.emit('assigned', refreshed);
       setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID || t.id === updated.id ? refreshed : t)));
-      window.alert('Ticket assigned successfully.');
-      navigate('/cs/assigned');
+      setModal(null);
+      setIncomingTab('pending_assignment');
       return true;
     }
 
     try {
+      const targetTicketId = updated.ticket_ID || Number(String(updated.id || '').replace(/\D/g, ''));
       await acceptTicket({
-        ticketId: updated.ticket_ID,
+        ticketId: targetTicketId,
         employeeIds: updated.assigned,
         assignedByEmail: user?.email,
         priorityId: priorityMap[updated.priority] ?? 1,
@@ -330,7 +363,7 @@ export default function CSIncoming() {
 
       // Soft data refetch
       try {
-        const incoming = await getCSIncomingTickets({ limit: 100 });
+        const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         setTickets(incoming);
         
         // Find the newly updated ticket
@@ -341,8 +374,6 @@ export default function CSIncoming() {
         
         // Broadcast the assignment to all listening pages
         ticketBroadcast.emit('assigned', refreshedTicket);
-        
-        navigate('/cs/assigned');
       } catch (e) {
         // Fallback to local state if refetch fails
         const refreshed = {
@@ -351,8 +382,9 @@ export default function CSIncoming() {
         };
         ticketBroadcast.emit('assigned', refreshed);
         setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
-        navigate('/cs/assigned');
       }
+      setModal(null);
+      setIncomingTab('pending_assignment');
       return true;
     } catch (err) {
       setError('Failed to assign ticket. Please try again.');
@@ -467,7 +499,6 @@ export default function CSIncoming() {
             className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
           >
             <option value="All">All Assignments</option>
-            <option value="Pending Reassign">Pending Reassign</option>
             <option value="Pending Evaluation">Pending Evaluation</option>
           </select>
 
@@ -497,8 +528,62 @@ export default function CSIncoming() {
       {/* Table */}
       <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
 
+        {/* Incoming Tabs */}
+        <div className="flex border-b border-gray-100 mb-6 gap-2">
+          <button
+            type="button"
+            onClick={() => { setIncomingTab('open'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+              incomingTab === 'open'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Open / Unassigned
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              incomingTab === 'open' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.open}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIncomingTab('pending_assignment'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+              incomingTab === 'pending_assignment'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Pending Assignment
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              incomingTab === 'pending_assignment' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.pending}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIncomingTab('all'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+              incomingTab === 'all'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            All Incoming
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              incomingTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.all}
+            </span>
+          </button>
+        </div>
+
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-semibold text-[#252578]">Incoming Tickets</h2>
+          <h2 className="text-xl font-semibold text-[#252578]">
+            {incomingTab === 'open' ? 'Open Tickets' : incomingTab === 'pending_assignment' ? 'Pending Assignment Tickets' : 'All Incoming Tickets'}
+          </h2>
           <div className="text-sm text-gray-500">{filtered.length} tickets</div>
         </div>
 
@@ -540,7 +625,7 @@ export default function CSIncoming() {
                         </div>
                         {t.reassignmentRequested && (
                           <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
-                            Pending Reassign
+                            Pending Reassignment
                           </span>
                         )}
                       </div>
@@ -590,7 +675,7 @@ export default function CSIncoming() {
                       'bg-green-100 text-green-700'
                     }`}>{t.sla}</span>
                   </td> */}
-                  <td className="py-4 px-4 text-gray-500">{t.date}</td>
+                  <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date || t.created_at)}</td>
                   <td className="py-4 px-4 text-center">
                     <button
                       onClick={() => handleRowAction(t)}
@@ -650,6 +735,7 @@ export default function CSIncoming() {
                 await respondReassignment({
                   ticketId: numericId,
                   action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
+                  reason: updatedFields.reassignmentDenyReason ?? '',
                 });
               } else {
                 const statusMap = {

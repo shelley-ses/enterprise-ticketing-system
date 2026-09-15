@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Inbox, Clock, CheckCircle, AlertTriangle, Bot } from 'lucide-react';
+import { Inbox, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { getCSDashboard } from '@/services/ticketService';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 const MOCK_STATS = {
   unassigned: 7,
@@ -49,7 +50,7 @@ export default function CSDashboard() {
       const payload = await getCSDashboard({ limit: 10, forceRefresh: forceRefresh || refreshKey > 0 });
       const recentTickets = (payload.recent_tickets || MOCK_TICKETS).map((t) => ({
         ...t,
-        updated: t.updated_at ? new Date(t.updated_at).toLocaleString() : t.updated || 'Just now',
+        updated: t.updated_at ? formatDisplayDate(t.updated_at) : t.updated || 'Just now',
         priority: t.priority || 'Unassigned',
       }));
       const slaBreachedCount = recentTickets.filter((t) => t.status === 'Escalated').length;
@@ -89,7 +90,7 @@ export default function CSDashboard() {
           
           const formatted = {
             ...ticket,
-            updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : 'Just now',
+            updated: ticket.updated_at ? formatDisplayDate(ticket.updated_at) : 'Just now',
             priority: ticket.priority || 'Unassigned',
           };
           return [formatted, ...prev].slice(0, 10);
@@ -124,7 +125,7 @@ export default function CSDashboard() {
               return {
                 ...t,
                 ...ticket,
-                updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : t.updated,
+                updated: ticket.updated_at ? formatDisplayDate(ticket.updated_at) : t.updated,
                 priority: ticket.priority || 'Unassigned',
               };
             }
@@ -155,7 +156,7 @@ export default function CSDashboard() {
               return {
                 ...t,
                 ...ticket,
-                updated: ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : t.updated,
+                updated: ticket.updated_at ? formatDisplayDate(ticket.updated_at) : t.updated,
                 priority: ticket.priority || 'Unassigned',
               };
             }
@@ -231,16 +232,6 @@ export default function CSDashboard() {
             </span>
           </h1>
           <p className="text-white/70 text-sm">Monitor incoming tickets, assignments, and service queue status.</p>
-        </div>
-        <div className="relative z-10 flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigate('/ai-support')}
-            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
-          >
-            <Bot size={20} />
-            AI Support Assistant
-          </button>
         </div>
       </div>
 

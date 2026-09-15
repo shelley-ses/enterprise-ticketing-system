@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
-import { getTicketDetails, updateEmployeeTicket } from '@/services/ticketService';
+import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/ticketService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -32,6 +32,15 @@ export default function EmployeeTicketUpdate() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+
+  // Work Log state
+  const [workLogTask, setWorkLogTask] = useState('');
+  const [workLogHours, setWorkLogHours] = useState('');
+  const [workLogDate, setWorkLogDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [isSavingLog, setIsSavingLog] = useState(false);
+  const [workLogError, setWorkLogError] = useState('');
+  const [workLogSuccess, setWorkLogSuccess] = useState('');
+  const [savedWorkLogs, setSavedWorkLogs] = useState([]);
 
   const numericId = useMemo(() => {
     if (!ticket) return null;
@@ -270,11 +279,6 @@ export default function EmployeeTicketUpdate() {
                   Escalated
                 </span>
               )}
-              {ticket.reassignmentRequested && (
-                <span className="text-xs font-bold px-3 py-1 bg-amber-100 text-amber-800 rounded-full animate-pulse border border-amber-200">
-                  Pending Reassign
-                </span>
-              )}
             </div>
 
             <h1 className="text-2xl font-bold text-gray-900 mb-1">{ticket.title}</h1>
@@ -308,7 +312,7 @@ export default function EmployeeTicketUpdate() {
               </div>
               <div className="bg-gray-50 rounded-xl p-3">
                 <p className="text-[10px] text-gray-400 mb-0.5">Last Update</p>
-                <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate ?? '—'}</p>
+                <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</p>
               </div>
             </div>
 
@@ -354,6 +358,7 @@ export default function EmployeeTicketUpdate() {
                 <div className="text-sm text-amber-800">
                   <span className="font-bold">Reassignment Request Pending:</span>
                   {ticket.reassignmentReason && ` "${ticket.reassignmentReason}"`}
+                  <p className="text-xs text-amber-700 mt-1">You cannot modify this ticket while a reassignment request is pending.</p>
                 </div>
               </div>
             )}
@@ -378,25 +383,31 @@ export default function EmployeeTicketUpdate() {
                     verified before the ticket can be resolved.
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowProofModal(true)}
-                  disabled={isSaving}
-                  className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
-                </button>
+                {ticket.reassignmentRequested ? (
+                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl font-medium">
+                    Proof upload disabled while reassignment is pending
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setShowProofModal(true)}
+                    disabled={isSaving}
+                    className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
+                  </button>
+                )}
 
                 {/* List of uploaded proofs */}
-                {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
+                {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
                   <div className="w-full mt-4 border-t border-gray-100 pt-3 text-left">
                     <p className="text-xs font-bold text-gray-600 mb-2">Uploaded Proof Documents:</p>
                     <div className="flex flex-col gap-2">
-                      {ticket.proofAttachments.map((file) => (
+                      {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => (
                         <a
-                          key={file.id}
+                          key={file.id || idx}
                           href={file.url}
                           onClick={(e) => {
                             e.preventDefault();
@@ -416,8 +427,8 @@ export default function EmployeeTicketUpdate() {
               </div>
             )}
 
-            {/* Status Update */}
-            {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
+            {/* Status Update — hidden when reassignment is pending */}
+            {!ticket.reassignmentRequested && ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
               <div className="bg-white rounded-xl shadow-md p-6">
                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
                   Update Ticket Status
@@ -552,7 +563,7 @@ export default function EmployeeTicketUpdate() {
               </div>
             )}
 
-            {/* Request Reassignment */}
+            {/* Request Reassignment — hidden when reassignment is already pending */}
             {!ticket.reassignmentRequested && (
               <div className="bg-white rounded-xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4">
                 <div>
@@ -627,23 +638,136 @@ export default function EmployeeTicketUpdate() {
                 )}
               </div>
 
-              <form onSubmit={handleAddInternalNote} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Write an internal note..."
-                  value={newInternalNote}
-                  disabled={isAddingNote}
-                  onChange={(e) => setNewInternalNote(e.target.value)}
-                  className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
-                />
-                <button
-                  type="submit"
-                  disabled={isAddingNote}
-                  className="px-4 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl shrink-0 transition-colors disabled:opacity-50"
+              {!ticket.reassignmentRequested ? (
+                <form onSubmit={handleAddInternalNote} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Write an internal note..."
+                    value={newInternalNote}
+                    disabled={isAddingNote}
+                    onChange={(e) => setNewInternalNote(e.target.value)}
+                    className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isAddingNote}
+                    className="px-4 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl shrink-0 transition-colors disabled:opacity-50"
+                  >
+                    {isAddingNote ? 'Adding...' : 'Add Note'}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-xl font-medium">
+                  Internal notes cannot be added while a reassignment request is pending.
+                </p>
+              )}
+            </div>
+
+            {/* Work Logs */}
+            <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4 flex items-center gap-2">
+                Work Log
+                <span className="text-[9px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold uppercase border border-blue-200">Staff Only</span>
+              </h3>
+
+              {/* Existing logs */}
+              {savedWorkLogs.length > 0 && (
+                <div className="space-y-2 mb-4 max-h-44 overflow-y-auto">
+                  {savedWorkLogs.map((log, i) => (
+                    <div key={i} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                      <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
+                        <span className="font-bold text-[#252578]">{log.log_date}</span>
+                        <span>{log.hours_spent}h</span>
+                      </div>
+                      <p className="text-sm text-gray-700">{log.task_description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add work log form */}
+              {!ticket.reassignmentRequested ? (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!workLogTask.trim() || !workLogHours || !workLogDate) {
+                      setWorkLogError('Please fill in all fields.');
+                      return;
+                    }
+                    setIsSavingLog(true);
+                    setWorkLogError('');
+                    setWorkLogSuccess('');
+                    try {
+                      const payload = {
+                        ticket_id: numericId,
+                        task_description: workLogTask.trim(),
+                        hours_spent: parseFloat(workLogHours),
+                        log_date: workLogDate,
+                      };
+                      await saveWorkLog(payload);
+                      setSavedWorkLogs(prev => [...prev, payload]);
+                      setWorkLogTask('');
+                      setWorkLogHours('');
+                      setWorkLogDate(new Date().toISOString().split('T')[0]);
+                      setWorkLogSuccess('Work log saved successfully.');
+                      setTimeout(() => setWorkLogSuccess(''), 3000);
+                    } catch (err) {
+                      setWorkLogError(err?.response?.data?.message || 'Failed to save work log.');
+                    } finally {
+                      setIsSavingLog(false);
+                    }
+                  }}
+                  className="space-y-3"
                 >
-                  {isAddingNote ? 'Adding...' : 'Add Note'}
-                </button>
-              </form>
+                  <textarea
+                    placeholder="What did you work on? (e.g., Replaced faulty capacitor, ran diagnostics)"
+                    value={workLogTask}
+                    onChange={(e) => setWorkLogTask(e.target.value)}
+                    rows={2}
+                    disabled={isSavingLog}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50 resize-none"
+                  />
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide block mb-1">Hours Spent</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0.1"
+                        max="24"
+                        placeholder="e.g. 2.5"
+                        value={workLogHours}
+                        onChange={(e) => setWorkLogHours(e.target.value)}
+                        disabled={isSavingLog}
+                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide block mb-1">Date</label>
+                      <input
+                        type="date"
+                        value={workLogDate}
+                        onChange={(e) => setWorkLogDate(e.target.value)}
+                        disabled={isSavingLog}
+                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+                  {workLogError && <p className="text-xs text-red-600 font-semibold">{workLogError}</p>}
+                  {workLogSuccess && <p className="text-xs text-green-600 font-semibold">{workLogSuccess}</p>}
+                  <button
+                    type="submit"
+                    disabled={isSavingLog}
+                    className="px-4 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 w-full"
+                  >
+                    {isSavingLog ? 'Saving...' : 'Save Work Log'}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-xl font-medium">
+                  Work logs cannot be submitted while a reassignment request is pending.
+                </p>
+              )}
             </div>
 
             {/* Ticket Timeline */}

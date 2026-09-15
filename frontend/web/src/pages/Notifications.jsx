@@ -147,8 +147,13 @@ export default function Notifications() {
         </div>
         {notifications.filter(n => !n.is_read).length > 0 && (
           <button
-            onClick={handleMarkAllRead}
-            className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors shrink-0 mb-1"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              handleMarkAllRead();
+            }}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors shrink-0 mb-1 cursor-pointer"
           >
             Mark all as read
           </button>

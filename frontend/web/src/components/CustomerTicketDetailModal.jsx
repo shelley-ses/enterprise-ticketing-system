@@ -22,7 +22,7 @@ export default function CustomerTicketDetailModal({
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
-  const isExternalClosed = ticket?.status === 'Closed' && ticket?.id?.startsWith?.('EXT-');
+  const isExternalClosed = ticket?.status === 'Closed' && !ticket?.is_internal && ticket?.ticket_type !== 'Internal';
   const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function CustomerTicketDetailModal({
     if (!ticket) return [];
     const events = [];
     if (ticket.timeline && Array.isArray(ticket.timeline)) {
-      events.push(...ticket.timeline);
+      events.push(...ticket.timeline.filter(evt => evt.type !== 'internal_note'));
     } else {
       events.push({
         id: 'creation',
@@ -99,16 +99,20 @@ export default function CustomerTicketDetailModal({
               <p className="mt-1 text-sm text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
             </div>
             <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Equipment / Machine</p>
+              <p className="mt-1 text-sm text-gray-800">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
+            </div>
+            <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.date_created || ticket.date)}</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
-              <p className="mt-1 text-sm text-gray-800">{ticket.category}</p>
+              <p className="mt-1 text-sm text-gray-800">{ticket.category || '—'}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
+              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
             </div>
 
             {ticket.attachments && ticket.attachments.length > 0 && (
@@ -135,13 +139,13 @@ export default function CustomerTicketDetailModal({
               </div>
             )}
 
-            {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
+            {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
               <div className="md:col-span-2">
                 <p className="text-xs font-semibold uppercase text-gray-400">Proof of Completion Files</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {ticket.proofAttachments.map((file) => (
+                  {(ticket.proofAttachments || ticket.proofFiles).map((file, pIdx) => (
                     <a
-                      key={file.id}
+                      key={file.id || file.attachment_id || pIdx}
                       href={file.url}
                       onClick={(e) => {
                         e.preventDefault();

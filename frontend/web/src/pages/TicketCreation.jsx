@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NotificationModal from '@/components/NotificationModal';
+import TitleCasingModal from '@/components/TitleCasingModal';
 import { getTicketFormOptions, createTicket } from '@/services/ticketService';
+import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
@@ -26,6 +28,8 @@ export default function TicketCreation() {
   const [successModal, setSuccessModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState(null);
+  const [titleCasingData, setTitleCasingData] = useState(null);
+  const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -77,12 +81,36 @@ export default function TicketCreation() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+
+    const titleTrimmed = (formData.title || '').trim();
+    if (needsProperCasing(titleTrimmed)) {
+      const proper = formatProperTitleCase(titleTrimmed);
+      setTitleCasingData({
+        original: titleTrimmed,
+        formatted: proper,
+      });
+      setShowTitleCasingModal(true);
+      return;
+    }
+
+    await submitTicketWithTitle(titleTrimmed);
+  };
+
+  const handleConfirmTitleCasing = async () => {
+    if (!titleCasingData) return;
+    const formatted = titleCasingData.formatted;
+    setFormData((prev) => ({ ...prev, title: formatted }));
+    setShowTitleCasingModal(false);
+    await submitTicketWithTitle(formatted);
+  };
+
+  const submitTicketWithTitle = async (finalTitle) => {
     setError('');
     setSubmitting(true);
 
     try {
       const payload = new FormData();
-      payload.append('title', formData.title);
+      payload.append('title', finalTitle);
       payload.append('machine_ID', formData.machine_ID);
       payload.append('problem_category_ID', formData.problem_category_ID);
       payload.append('description', formData.description);
@@ -174,6 +202,17 @@ export default function TicketCreation() {
                 required 
                 value={formData.title}
                 onChange={handleChange}
+                onBlur={() => {
+                  const trimmed = (formData.title || '').trim();
+                  if (needsProperCasing(trimmed)) {
+                    const proper = formatProperTitleCase(trimmed);
+                    setTitleCasingData({
+                      original: trimmed,
+                      formatted: proper,
+                    });
+                    setShowTitleCasingModal(true);
+                  }
+                }}
                 placeholder="Brief description of the issue" 
                 className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all" 
               />
@@ -293,6 +332,14 @@ export default function TicketCreation() {
         </form>
       </div>
     </div>
+
+      <TitleCasingModal
+        isOpen={showTitleCasingModal}
+        originalTitle={titleCasingData?.original}
+        formattedTitle={titleCasingData?.formatted}
+        onConfirm={handleConfirmTitleCasing}
+        onCancel={() => setShowTitleCasingModal(false)}
+      />
 
       <NotificationModal
         isOpen={successModal}

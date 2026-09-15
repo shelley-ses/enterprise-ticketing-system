@@ -10,7 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 
-const HISTORY_STATUSES = ['Closed', 'Resolved'];
+const HISTORY_STATUSES = ['Closed', 'Resolved', 'Discarded', 'Discarded by Customer'];
 
 const getDisplayStatus = (ticket) => ticket.status;
 
@@ -249,8 +249,8 @@ export default function EmployeeProgress() {
                               {t.id}
                             </span>
                             {t.reassignmentRequested && (
-                              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 mt-0.5 w-fit">
-                                REASSIGNED
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 mt-0.5 w-fit">
+                                Reassigned
                               </span>
                             )}
                           </div>

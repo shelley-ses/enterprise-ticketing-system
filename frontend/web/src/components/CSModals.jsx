@@ -1,8 +1,26 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import FilePreviewModal from './FilePreviewModal';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 
+/* Helper functions for robust file attachment handling */
+const getFileUrl = (file) => {
+  if (!file) return '';
+  if (typeof file === 'string') return file;
+  if (file.url) return file.url;
+  if (file.file_path) {
+    return file.file_path.startsWith('/') ? file.file_path : `/storage/${file.file_path}`;
+  }
+  if (file.path) return file.path;
+  return '';
+};
+
+const getFileName = (file) => {
+  if (!file) return 'Attachment';
+  if (typeof file === 'string') return file.split('/').pop() || 'Attachment';
+  return file.name || file.file_name || 'Attachment';
+};
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
@@ -56,6 +74,21 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [reassignDenyReason, setReassignDenyReason] = useState('');
   const [showReassignApprove, setShowReassignApprove] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+  // Track whether CS has opened the proof documents (required for external ticket resolution)
+  const [proofOpened, setProofOpened] = useState(false);
+  // Track whether CS has accepted the proof documents (required before resolving external tickets)
+  const [proofAccepted, setProofAccepted] = useState(false);
+  const [showTimelineDropdown, setShowTimelineDropdown] = useState(false);
+
+  const isExternal = !ticket.is_internal && ticket.ticket_type !== 'Internal' && ticket.type !== 'Internal';
+  const hasProof = (ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0);
+
+  const openProofPreview = (file) => {
+    const fileName = getFileName(file);
+    const fileUrl = getFileUrl(file);
+    setPreviewFile({ name: fileName, url: fileUrl });
+    setProofOpened(true);
+  };
 
   const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
@@ -63,8 +96,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
   const getRequestingEmployeeName = () => {
     if (ticket.reassignmentRequestedBy) {
-        const emp = employees.find(e => e.id === ticket.reassignmentRequestedBy);
-        return emp ? emp.name : `Employee ID: ${ticket.reassignmentRequestedBy}`;
+      const emp = employees.find(e => e.id === ticket.reassignmentRequestedBy);
+      return emp ? emp.name : `Employee ID: ${ticket.reassignmentRequestedBy}`;
     }
     return 'Assigned Employee';
   };
@@ -73,7 +106,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
         <div className="bg-white rounded-xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative">
-          
+
           {/* Scrollable content */}
           <div className="overflow-y-auto flex-1 p-6">
             <button
@@ -100,8 +133,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Status</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {ticket.status || 'Pending'}
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-100 text-amber-800 border border-amber-200' : (statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700')}`}>
+                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
                     </span>
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -117,6 +150,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Category</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.category || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
@@ -142,15 +179,73 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-medium text-gray-500">Last Updated</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
                   </div>
+
+                  {ticket.attachments && ticket.attachments.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl px-4 py-3">
+                      <div className="text-xs font-medium text-gray-500 mb-2">Attachments</div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {ticket.attachments.map((file, idx) => {
+                          const fileName = getFileName(file);
+                          const fileUrl = getFileUrl(file);
+                          return (
+                            <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <p onClick={() => setPreviewFile({ name: fileName, url: fileUrl })} className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline">
+                                  {fileName}
+                                </p>
+                              </div>
+                              {fileUrl && (
+                                <a href={fileUrl} onClick={(e) => { e.preventDefault(); setPreviewFile({ name: fileName, url: fileUrl }); }} className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer">
+                                  View
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
+                    <div className="bg-gray-50 rounded-xl px-4 py-3">
+                      <div className="text-xs font-medium text-green-700 font-semibold mb-2">Proof of Completion Documents</div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
+                          const fileName = getFileName(file);
+                          const fileUrl = getFileUrl(file);
+                          return (
+                            <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <p onClick={() => openProofPreview(file)} className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline">
+                                  {fileName}
+                                </p>
+                              </div>
+                              {fileUrl && (
+                                <a href={fileUrl} onClick={(e) => { e.preventDefault(); openProofPreview(file); }} className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer">
+                                  View
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
               <>
                 {/* Header badge */}
                 <div className="flex items-center gap-2 mb-5">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">
-                    {ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'}
+                  <div className={`w-2 h-2 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-500' : 'bg-green-500'}`} />
+                  <span className={`text-xs font-semibold uppercase tracking-wide ${ticket.reassignmentRequested ? 'text-amber-600' : 'text-green-600'}`}>
+                    {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned')}
                   </span>
                 </div>
 
@@ -160,14 +255,15 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
                 {/* Ticket card */}
                 <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
                       <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
                       <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
-                      <div className="text-xs opacity-60 mt-1">{ticket.category}</div>
+                      <div className="text-xs opacity-60 mt-0.5">{ticket.category}</div>
                     </div>
                     <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">{ticket.sla}</span>
                   </div>
+                  <p className="text-xs opacity-80 leading-relaxed pt-2 border-t border-white/10">{ticket.description || 'No description available.'}</p>
                 </div>
 
                 {/* Summary rows */}
@@ -178,8 +274,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Status</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {ticket.status || 'Pending'}
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-100 text-amber-800 border border-amber-200' : (statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700')}`}>
+                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
                     </span>
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -191,6 +287,14 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
                       {ticket.priority || '—'}
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Category</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.category || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
@@ -215,7 +319,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-xs text-amber-800 space-y-3">
                     <div className="border-b border-amber-200/50 pb-3 mb-3">
                       <h4 className="font-bold uppercase tracking-wider text-[11px] text-amber-900 mb-2 flex items-center gap-1.5">
-                        <span className="text-amber-600">⚠️</span> Immediate Action Required: Reassignment Request
+                        Immediate Action Required: Reassignment Request
                       </h4>
                       <div className="bg-white rounded-lg p-3 border border-amber-100 shadow-sm">
                         <div className="mb-2">
@@ -224,7 +328,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         </div>
                         <div>
                           <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Reason Provided</span>
-                          <p className="text-gray-700 font-medium leading-relaxed italic mt-0.5">&quot;{ticket.reassignmentReason || 'No reason provided'}&quot;</p>
+                          <p className="text-gray-700 font-medium leading-relaxed italic mt-0.5">&quot;{formatProperSentenceCase(ticket.reassignmentReason) || 'No reason provided'}&quot;</p>
                         </div>
                       </div>
                     </div>
@@ -245,8 +349,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           <button
                             onClick={async () => {
                               if (!reassignDenyReason.trim()) return;
-                              const timestamp = new Date().toLocaleString('en-US');
-                              const updated = { id: ticket.id, reassignmentRequested: false, reassignmentStatus: 'Denied', reassignmentDenyReason: reassignDenyReason.trim(), status: 'Open', accepted: false, timeline: [{ id: `reassign-deny-${Date.now()}`, type: 'reassign', text: `Reassignment request denied by CS. Reason: "${reassignDenyReason.trim()}". Ticket status reverted to Open.`, timestamp }] };
+                              const timestamp = new Date().toISOString();
+                              const updated = { id: ticket.id, reassignmentRequested: false, reassignmentStatus: 'Denied', reassignmentDenyReason: reassignDenyReason.trim(), status: 'In Progress', accepted: false, timeline: [{ id: `reassign-deny-${Date.now()}`, type: 'reassign', text: `Reassignment request denied by CS. Reason: "${reassignDenyReason.trim()}". Ticket status returned to In Progress.`, timestamp }] };
                               await onStatusUpdate(updated);
                               onClose();
                             }}
@@ -270,17 +374,21 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-xs text-blue-800 space-y-3">
                     <div>
                       <p className="font-bold uppercase tracking-wider text-[10px] text-blue-900 mb-1.5">Review Proof of Completion Documentation</p>
-                      {ticket.proofAttachments && ticket.proofAttachments.length > 0 ? (
+                      {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) ? (
                         <div className="bg-white border border-gray-100 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-2">
-                          {ticket.proofAttachments.map((f, i) => (
-                            <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
-                              <a href={f.url} onClick={(e) => { e.preventDefault(); setPreviewFile({ name: f.name, url: f.url }); }} className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0 cursor-pointer">
-                                <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                                <span className="truncate">{f.name}</span>
-                              </a>
-                              <span className="text-[10px] text-gray-400 font-medium shrink-0">{f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}</span>
-                            </div>
-                          ))}
+                          {(ticket.proofAttachments || ticket.proofFiles).map((f, i) => {
+                            const fileName = getFileName(f);
+                            const fileUrl = getFileUrl(f);
+                            return (
+                              <div key={i} className="text-gray-600 font-medium truncate flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-colors">
+                                <a href={fileUrl} onClick={(e) => { e.preventDefault(); openProofPreview(f); }} className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 min-w-0 cursor-pointer">
+                                  <svg className="w-3.5 h-3.5 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                                  <span className="truncate">{fileName}</span>
+                                </a>
+                                <span className="text-[10px] text-gray-400 font-medium shrink-0">{f.size ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : ''}</span>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="text-gray-400 italic">No files uploaded.</p>
@@ -343,117 +451,220 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   Attachments
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {ticket.attachments.map((file, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <div className="min-w-0 flex-1">
-                          <p 
-                            onClick={() => setPreviewFile({ name: file.name, url: file.url })}
-                            className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
-                          >
-                            {file.name}
-                          </p>
-                          <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                  {ticket.attachments.map((file, idx) => {
+                    const fileName = getFileName(file);
+                    const fileUrl = getFileUrl(file);
+                    return (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
+                            >
+                              {fileName}
+                            </p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                          </div>
                         </div>
+                        {fileUrl && (
+                          <a
+                            href={fileUrl}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: fileName, url: fileUrl });
+                            }}
+                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                          >
+                            View
+                          </a>
+                        )}
                       </div>
-                      {file.url && (
-                        <a
-                          href={file.url}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPreviewFile({ name: file.name, url: file.url });
-                          }}
-                          className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
-                        >
-                          View
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {/* Proof of Completion Attachments */}
-            {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
+            {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
               <div className="bg-gray-50 rounded-xl px-4 py-3 mb-3">
                 <div className="text-xs font-medium text-gray-500 mb-2">
                   Proof of Completion Documents
                 </div>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {ticket.proofAttachments.map((file, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <div className="min-w-0 flex-1">
-                          <p 
-                            onClick={() => setPreviewFile({ name: file.name, url: file.url })}
-                            className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline"
-                          >
-                            {file.name}
-                          </p>
-                          {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+                <div className="space-y-2 max-h-40 overflow-y-auto mb-3">
+                  {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
+                    const fileName = getFileName(file);
+                    const fileUrl = getFileUrl(file);
+                    return (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              onClick={() => openProofPreview(file)}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline"
+                            >
+                              {fileName}
+                            </p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+                          </div>
                         </div>
+                        {fileUrl && (
+                          <a
+                            href={fileUrl}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              openProofPreview(file);
+                            }}
+                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                          >
+                            View
+                          </a>
+                        )}
                       </div>
-                      {file.url && (
-                        <a
-                          href={file.url}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPreviewFile({ name: file.name, url: file.url });
-                          }}
-                          className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer"
-                        >
-                          View
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
+                {/* Proof of Completion Acceptance requirement for external tickets */}
+                {isExternal && (
+                  <div className="pt-2 border-t border-gray-200">
+                    {!proofOpened ? (
+                      <div className="text-[11px] text-amber-800 bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 mb-2 leading-relaxed">
+                        Please open and review the proof of completion documents before accepting.
+                      </div>
+                    ) : !proofAccepted ? (
+                      <div className="text-[11px] text-blue-800 bg-blue-50/80 border border-blue-200 rounded-lg p-2.5 mb-2 leading-relaxed">
+                        Please accept the proof of completion to enable ticket resolution.
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-green-800 bg-green-50/80 border border-green-200 rounded-lg p-2.5 mb-2 leading-relaxed font-medium">
+                        Proof of completion accepted. You may now resolve this ticket.
+                      </div>
+                    )}
+                    <label className={`flex items-center gap-2 cursor-pointer select-none text-xs font-medium ${!proofOpened ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-700'}`}>
+                      <input
+                        type="checkbox"
+                        checked={proofAccepted}
+                        disabled={!proofOpened}
+                        onChange={(e) => setProofAccepted(e.target.checked)}
+                        className="w-4 h-4 rounded text-[#252578] focus:ring-[#252578] border-gray-300 disabled:cursor-not-allowed"
+                      />
+                      <span>I have reviewed and accept the proof of completion</span>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Collapsible Timeline Dropdown */}
+            <div className="bg-gray-50 rounded-xl mb-3 border border-gray-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowTimelineDropdown(!showTimelineDropdown)}
+                className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-gray-700 hover:bg-gray-100/70 transition-colors"
+              >
+                <span>Ticket Timeline & History ({ticket.timeline?.length || 0})</span>
+                <svg
+                  className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${showTimelineDropdown ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {showTimelineDropdown && (
+                <div className="px-4 pb-4 pt-1 space-y-2 border-t border-gray-200/50 max-h-52 overflow-y-auto">
+                  {(!ticket.timeline || ticket.timeline.length === 0) ? (
+                    <div className="text-xs text-gray-400 italic py-2">No timeline events recorded.</div>
+                  ) : (
+                    ticket.timeline.map((event, idx) => (
+                      <div key={event.id || idx} className="bg-white border border-gray-100 rounded-lg p-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="font-semibold text-gray-800 uppercase text-[10px] tracking-wide">
+                            {event.type || 'Event'}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            {event.timestamp ? new Date(event.timestamp).toLocaleString() : ''}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 leading-relaxed">{event.text}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="flex flex-wrap justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
-            
-            {ticket.status !== 'Resolved' && ticket.status !== 'Closed' && ticket.assigned && ticket.assigned.length > 0 && (
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsProcessing(true);
-                  try {
-                    const timestamp = new Date().toLocaleString('en-US');
-                    await onStatusUpdate({
-                      id: ticket.id,
-                      status: 'Resolved',
-                      timeline: [
-                        {
-                          id: `status-resolved-${Date.now()}`,
-                          type: 'status',
-                          text: 'Ticket resolved by CS Representative.',
-                          timestamp,
+          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
+
+            {/* Resolve Ticket — only for In Progress / Pending Evaluation (not Pending Assignment) */}
+            {ticket.status !== 'Resolved' && ticket.status !== 'Closed' &&
+              ticket.status !== 'Pending Assignment' &&
+              ticket.assigned && ticket.assigned.length > 0 && (
+                <>
+                  {isExternal && hasProof && !proofOpened && (
+                    <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl font-medium">
+                      Please open the proof of completion documents before accepting.
+                    </span>
+                  )}
+                  {isExternal && hasProof && proofOpened && !proofAccepted && (
+                    <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl font-medium">
+                      Please accept the proof of completion before resolving.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isExternal && hasProof) {
+                        if (!proofOpened) {
+                          window.alert('Please open and review the proof of completion documents before accepting.');
+                          return;
                         }
-                      ]
-                    });
-                    onClose();
-                  } catch (err) {
-                    console.error(err);
-                  } finally {
-                    setIsProcessing(false);
-                  }
-                }}
-                disabled={isProcessing}
-                className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
-              >
-                Resolve Ticket
-              </button>
-            )}
+                        if (!proofAccepted) {
+                          window.alert('Please accept the proof of completion before resolving this ticket.');
+                          return;
+                        }
+                      }
+                      setIsProcessing(true);
+                      try {
+                        const timestamp = new Date().toISOString();
+                        await onStatusUpdate({
+                          id: ticket.id,
+                          status: 'Resolved',
+                          timeline: [
+                            {
+                              id: `status-resolved-${Date.now()}`,
+                              type: 'status',
+                              text: 'Ticket resolved by CS Representative.',
+                              timestamp,
+                            }
+                          ]
+                        });
+                        onClose();
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                    disabled={isProcessing || (isExternal && hasProof && (!proofOpened || !proofAccepted))}
+                    className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Resolve Ticket
+                  </button>
+                </>
+              )}
 
             {ticket.status === 'Resolved' && (
               <button
@@ -490,8 +701,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
             {(() => {
               const resolvedAt = ticket.resolved_at ? new Date(ticket.resolved_at) : null;
-              const isReopenable = ticket.status === 'Closed' && 
-                resolvedAt && !isNaN(resolvedAt.getTime()) && 
+              const isReopenable = ticket.status === 'Closed' &&
+                resolvedAt && !isNaN(resolvedAt.getTime()) &&
                 (new Date() - resolvedAt) < (48 * 60 * 60 * 1000);
 
               if (isReopenable) {
@@ -576,6 +787,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const [title, setTitle] = useState(ticket?.title || '');
   const [priority, setPriority] = useState(ticket?.priority || 'Low');
   const [department, setDepartment] = useState(ticket?.department || '');
+  const [deptAutoNotice, setDeptAutoNotice] = useState('');
   const [selectedEmployees, setSelectedEmployees] = useState(ticket?.assigned || []);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -591,10 +803,21 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
   if (!ticket) return null;
 
-  const employeesInDept = useMemo(() => {
-    const list = employees.filter((e) =>
-      department ? e.department === department : true
+  const filteredDepartments = useMemo(() => {
+    return (departments || []).filter(
+      (d) => !['customer service', 'customer support', 'cs'].includes(d.toLowerCase().trim())
     );
+  }, [departments]);
+
+  const employeesInDept = useMemo(() => {
+    const list = employees.filter((e) => {
+      const empDept = (e.department || '').toLowerCase().trim();
+      const empRole = (e.role || '').toLowerCase().trim();
+      if (['customer service', 'customer support', 'cs'].includes(empDept) || ['customer service', 'customer support', 'cs'].includes(empRole)) {
+        return false;
+      }
+      return department ? e.department === department : true;
+    });
     list.sort((a, b) => {
       if (a.status === 'active' && b.status !== 'active') return -1;
       if (b.status === 'active' && a.status !== 'active') return 1;
@@ -604,9 +827,17 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   }, [department, employees]);
 
   const toggleEmp = (id) => {
+    const isAdding = !selectedEmployees.includes(id);
+    if (isAdding && !department) {
+      const emp = employees.find((e) => e.id === id);
+      if (emp && emp.department) {
+        setDepartment(emp.department);
+        setDeptAutoNotice(`You didn't select a department, so we've automatically selected ${emp.department} for this employee.`);
+      }
+    }
     setSelectedEmployees((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      if (next.length > 0 && department) {
+      if (next.length > 0) {
         setShowValidationError(false);
       }
       return next;
@@ -675,9 +906,9 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
             <div className="bg-[#252578] text-white rounded-2xl p-4 mb-4 flex items-center justify-between">
               <div className="flex-1 mr-4">
                 <div className="text-xs opacity-80">{ticket.id}</div>
-                <input 
-                  type="text" 
-                  value={title} 
+                <input
+                  type="text"
+                  value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full bg-transparent border-b border-white/30 text-sm font-semibold mt-0.5 outline-none focus:border-white transition-colors py-1"
                 />
@@ -697,16 +928,22 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 value={department}
                 onChange={(e) => {
                   setDepartment(e.target.value);
+                  setDeptAutoNotice('');
                   setSelectedEmployees([]);
                   setShowValidationError(false);
                 }}
                 className="w-full px-3 py-2.5 text-sm bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
               >
                 <option value="">Select department...</option>
-                {departments.map((d) => (
+                {filteredDepartments.map((d) => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
+              {deptAutoNotice && (
+                <div className="mt-2 text-xs bg-amber-50 text-amber-900 border border-amber-200 rounded-lg p-2.5 flex items-center gap-2">
+                  <span>{deptAutoNotice}</span>
+                </div>
+              )}
             </div>
 
             {/* Priority */}
@@ -719,11 +956,10 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   <button
                     key={p}
                     onClick={() => setPriority(p)}
-                    className={`px-4 py-1.5 rounded-xl transition-all text-xs font-medium ${
-                      priority === p
+                    className={`px-4 py-1.5 rounded-xl transition-all text-xs font-medium ${priority === p
                         ? 'bg-[#252578] text-white shadow-lg'
                         : 'bg-white hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     {p}
                   </button>
@@ -744,7 +980,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
               {/* Selected employee chips */}
               {selectedEmployees.length > 0 && (
-               <div className="flex flex-wrap gap-1.5 mb-2">
+                <div className="flex flex-wrap gap-1.5 mb-2">
                   {selectedEmployees.map((id) => {
                     const emp = employees.find((e) => e.id === id);
                     if (!emp) return null;
@@ -791,11 +1027,10 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                           <div className="text-[11px] text-gray-500">{emp.department} • {emp.status}</div>
                         </div>
                       </div>
-                      <div className={`text-[11px] px-2 py-0.5 rounded-full ${
-                        emp.status === 'active'
+                      <div className={`text-[11px] px-2 py-0.5 rounded-full ${emp.status === 'active'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-gray-200 text-gray-600'
-                      }`}>
+                        }`}>
                         {emp.status === 'active' ? 'Active' : 'Inactive'}
                       </div>
                     </label>
@@ -821,36 +1056,85 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   Attachments
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {ticket.attachments.map((file, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <div className="min-w-0 flex-1">
-                          <p 
-                            onClick={() => setPreviewFile({ name: file.name, url: file.url })}
-                            className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
-                          >
-                            {file.name}
-                          </p>
-                          {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                  {ticket.attachments.map((file, idx) => {
+                    const fileName = getFileName(file);
+                    const fileUrl = getFileUrl(file);
+                    return (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
+                            >
+                              {fileName}
+                            </p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                          </div>
                         </div>
+                        {fileUrl && (
+                          <a
+                            href={fileUrl}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: fileName, url: fileUrl });
+                            }}
+                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                          >
+                            View
+                          </a>
+                        )}
                       </div>
-                      {file.url && (
-                        <a
-                          href={file.url}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPreviewFile({ name: file.name, url: file.url });
-                          }}
-                          className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
-                        >
-                          View
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Proof of Completion Attachments */}
+            {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
+              <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4">
+                <div className="text-xs font-medium text-green-700 font-semibold mb-2">
+                  Proof of Completion Documents
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
+                    const fileName = getFileName(file);
+                    const fileUrl = getFileUrl(file);
+                    return (
+                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
+                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline"
+                            >
+                              {fileName}
+                            </p>
+                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+                          </div>
+                        </div>
+                        {fileUrl && (
+                          <a
+                            href={fileUrl}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: fileName, url: fileUrl });
+                            }}
+                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                          >
+                            View
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

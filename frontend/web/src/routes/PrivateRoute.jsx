@@ -1,3 +1,4 @@
+import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import tokenStore from '@/auth/tokenStore';
@@ -76,6 +77,38 @@ export default function PrivateRoute({ children, role }) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
+  useEffect(() => {
+    const handlePageShow = (e) => {
+      const token = tokenStore.getToken();
+      if ((e.persisted || !token) && !isLoading) {
+        if (!token) {
+          if (isCustomerSite) {
+            window.location.replace('/customer');
+          } else {
+            window.location.replace('/');
+          }
+        }
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [isLoading]);
+
+  // Trap back navigation so the user cannot bounce back to the login page
+  useEffect(() => {
+    if (isAuthenticated) {
+      const handlePopState = () => {
+        window.history.pushState(null, '', window.location.href);
+      };
+
+      window.history.pushState(null, '', window.location.href);
+      window.addEventListener('popstate', handlePopState);
+
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+      };
+    }
+  }, [isAuthenticated, location.pathname]);
 
   if (isLoading) {
     return (
@@ -98,7 +131,7 @@ export default function PrivateRoute({ children, role }) {
       return <Navigate to="/customer" replace state={{ from: location }} />;
     } else {
       // Employee/CS portal: redirect to auth-module root
-      if (typeof window !== 'undefined') window.location.href = '/';
+      if (typeof window !== 'undefined') window.location.replace('/');
       return null;
     }
   }

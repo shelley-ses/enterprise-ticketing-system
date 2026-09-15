@@ -111,7 +111,7 @@ export default function EmployeeMachine() {
       if (CLOSED_STATUSES.includes(t.status)) return false;
 
       if (statusFilter !== 'All Status') {
-        if (statusFilter === 'Pending Reassign') {
+        if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
         } else if (t.status !== statusFilter) {
           return false;
@@ -258,7 +258,7 @@ export default function EmployeeMachine() {
                   <option value="In Progress">In Progress</option>
                   <option value="Pending">Pending</option>
                   <option value="Pending Evaluation">Pending Evaluation</option>
-                  <option value="Pending Reassign">Pending Reassign</option>
+                  <option value="Pending Reassignment">Pending Reassignment</option>
                   <option value="Resolved">Resolved</option>
                   <option value="Closed">Closed</option>
                   <option value="Reopened">Reopened</option>
@@ -374,7 +374,7 @@ export default function EmployeeMachine() {
                                       : 'bg-blue-50 text-blue-700 border-blue-100'
                             }`}
                           >
-                            {t.reassignmentRequested ? 'Pending Reassign' : getDisplayStatus(t)}
+                            {t.reassignmentRequested ? 'Pending Reassignment' : getDisplayStatus(t)}
                           </span>
                         </td>
                         {/* <td className="py-4 px-4">

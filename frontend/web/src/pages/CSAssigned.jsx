@@ -17,6 +17,8 @@ import {
   respondReassignment,
 } from '@/services/ticketService';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
+import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import SkeletonLoader from '@/components/SkeletonLoader';
 
 export default function CSAssigned() {
@@ -36,6 +38,7 @@ export default function CSAssigned() {
   const [notificationBanner, setNotificationBanner] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [assignedTab, setAssignedTab] = useState('all'); // 'all' | 'in_progress' | 'pending_evaluation' | 'reassigned' | 'resolved_closed'
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -64,14 +67,11 @@ export default function CSAssigned() {
         getAssignableEmployees({ forceRefresh }),
       ]);
 
-      // Assigned page: show accepted tickets + Pending Evaluation (may not have accepted flag)
-      // Reassignment-requested tickets should be handled from the Incoming page
+      // Assigned page: show tickets with assigned / in progress / evaluation / resolved / closed / reassigned
       const assignedTickets = incoming.filter(t =>
-        (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
-         t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
-         t.status === 'Pending' || t.status === 'Closed') &&
-        !t.reassignmentRequested &&
-        (t.accepted || t.status === 'Pending Evaluation')
+        t.reassignmentRequested === true ||
+        ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+        (t.assigned && t.assigned.length > 0)
       );
       
       setTickets(assignedTickets);
@@ -139,6 +139,24 @@ export default function CSAssigned() {
 
   // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached', 'Closed'];
 
+  const counts = useMemo(() => {
+    let all = 0;
+    let inProgress = 0;
+    let pendingEval = 0;
+    let reassigned = 0;
+    let resolvedClosed = 0;
+
+    tickets.forEach((t) => {
+      all++;
+      if (t.reassignmentRequested === true) reassigned++;
+      if (t.status === 'In Progress') inProgress++;
+      if (t.status === 'Pending Evaluation') pendingEval++;
+      if (t.status === 'Resolved' || t.status === 'Closed') resolvedClosed++;
+    });
+
+    return { all, inProgress, pendingEval, reassigned, resolvedClosed };
+  }, [tickets]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
@@ -152,6 +170,12 @@ export default function CSAssigned() {
         const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
         if (isInternal) return false;
       }
+
+      // Tab filter
+      if (assignedTab === 'in_progress' && t.status !== 'In Progress') return false;
+      if (assignedTab === 'pending_evaluation' && t.status !== 'Pending Evaluation') return false;
+      if (assignedTab === 'reassigned' && !t.reassignmentRequested) return false;
+      if (assignedTab === 'resolved_closed' && t.status !== 'Resolved' && t.status !== 'Closed') return false;
       
       if (!q) return true;
       return (
@@ -161,7 +185,7 @@ export default function CSAssigned() {
         (t.equipment && t.equipment.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, machineFilter, typeFilter]);
+  }, [tickets, search, category, machineFilter, typeFilter, assignedTab]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -183,13 +207,13 @@ export default function CSAssigned() {
       return;
     }
 
-    const isSummary = t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed';
+    const isSummary = t.reassignmentRequested || t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed' || t.status === 'Reopened';
     if (isSummary) {
       setModalLoading(true);
       try {
         const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
         const details = await getTicketDetails(ticketId);
-        setModal({ mode: 'summary', ticket: details });
+        setModal({ mode: 'summary', ticket: { ...t, ...details } });
       } catch (err) {
         console.warn('Failed to load full ticket details, fallback to list item:', err);
         setModal({ mode: 'summary', ticket: t });
@@ -232,11 +256,9 @@ export default function CSAssigned() {
       try {
         const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         const assignedTickets = incoming.filter(t =>
-          (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
-           t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
-           t.status === 'Pending' || t.status === 'Closed') &&
-          !t.reassignmentRequested &&
-          t.accepted
+          t.reassignmentRequested === true ||
+          ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+          (t.assigned && t.assigned.length > 0)
         );
         setTickets(assignedTickets);
         
@@ -363,8 +385,94 @@ export default function CSAssigned() {
       {/* Table */}
       <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
 
+        {/* Assigned Tabs */}
+        <div className="flex border-b border-gray-100 mb-6 gap-2 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => { setAssignedTab('all'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'all'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            All Assigned
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.all}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAssignedTab('in_progress'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'in_progress'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            In Progress
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'in_progress' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.inProgress}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAssignedTab('pending_evaluation'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'pending_evaluation'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Pending Evaluation
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'pending_evaluation' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.pendingEval}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAssignedTab('reassigned'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'reassigned'
+                ? 'border-amber-600 text-amber-700'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Reassigned Tickets
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'reassigned' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.reassigned}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAssignedTab('resolved_closed'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'resolved_closed'
+                ? 'border-[#252578] text-[#252578]'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Resolved / Closed
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'resolved_closed' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.resolvedClosed}
+            </span>
+          </button>
+        </div>
+
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-semibold text-[#252578]">Assigned Tickets</h2>
+          <h2 className="text-xl font-semibold text-[#252578]">
+            {assignedTab === 'reassigned' ? 'Reassigned Tickets' : assignedTab === 'pending_evaluation' ? 'Pending Evaluation' : assignedTab === 'in_progress' ? 'In Progress Tickets' : assignedTab === 'resolved_closed' ? 'Resolved / Closed Tickets' : 'Assigned Tickets'}
+          </h2>
           <div className="text-sm text-gray-500">{filtered.length} tickets</div>
         </div>
 
@@ -394,16 +502,16 @@ export default function CSAssigned() {
                     onClick={() => handleRowAction(t)}
                     className={`cursor-pointer transition-all border-b border-gray-50 ${
                       isReassignmentReq 
-                        ? 'bg-red-50 hover:bg-red-100' 
+                        ? 'bg-amber-50/70 hover:bg-amber-100/70' 
                         : (idx === 0 && page === 1 ? 'bg-blue-50/50 hover:bg-gray-50' : 'hover:bg-gray-50')
                     }`}
                   >
                     <td className="py-4 px-4 font-medium">
                       <div className="flex flex-col gap-0.5">
-                        <span className={isReassignmentReq ? 'text-red-700 font-bold' : ''}>{t.id}</span>
+                        <span className={isReassignmentReq ? 'text-amber-800 font-bold' : ''}>{t.id}</span>
                         {isReassignmentReq && (
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-600 text-white shrink-0 w-max mt-1 animate-pulse shadow-sm">
-                            Immediate Action Required
+                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-600 text-white shrink-0 w-max mt-1 animate-pulse shadow-sm">
+                            Reassignment Requested
                           </span>
                         )}
                       </div>
@@ -423,6 +531,16 @@ export default function CSAssigned() {
                     <td className="py-4 px-4 text-gray-700">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-semibold">{t.title}</span>
+                        {isReassignmentReq && (
+                          <div className="text-[11px] text-amber-900 mt-1 bg-white/80 p-1.5 rounded border border-amber-200">
+                            <p className="font-semibold">
+                              Req: {t.reassignmentRequestedBy || 'Employee'} {t.reassignmentDepartment ? `• ${t.reassignmentDepartment}` : ''}
+                            </p>
+                            {t.reassignmentReason && (
+                              <p className="text-gray-600 italic truncate max-w-xs">&quot;{formatProperSentenceCase(t.reassignmentReason)}&quot;</p>
+                            )}
+                          </div>
+                        )}
                         {t.status === 'Pending Evaluation' && !isReassignmentReq && (
                           <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
                             Pending Evaluation
@@ -435,6 +553,7 @@ export default function CSAssigned() {
                     </td>
                     <td className="py-4 px-4">
                       <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
+                        isReassignmentReq ? 'bg-amber-100 text-amber-800 border border-amber-200 font-bold' :
                         t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
                         t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
@@ -444,7 +563,7 @@ export default function CSAssigned() {
                         t.status === 'Escalated' ? 'bg-red-100 text-red-700' :
                         (t.status === 'Reopened' || t.status === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
                         'bg-gray-100 text-gray-700'
-                      }`}>{t.status === 'Reopen' ? 'Reopened' : t.status}</span>
+                      }`}>{isReassignmentReq ? 'Pending Reassignment' : (t.status === 'Reopen' ? 'Reopened' : t.status)}</span>
                     </td>
                     {/* <td className="py-4 px-4">
                       <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
@@ -453,7 +572,7 @@ export default function CSAssigned() {
                         'bg-green-100 text-green-700'
                       }`}>{t.sla}</span>
                     </td> */}
-                    <td className="py-4 px-4 text-gray-500">{t.date}</td>
+                    <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date || t.created_at)}</td>
                     <td className="py-4 px-4 text-center">
                       <button
                         onClick={(e) => {
@@ -461,7 +580,7 @@ export default function CSAssigned() {
                           handleRowAction(t);
                         }}
                         className={`p-2 rounded-xl transition-all ${
-                          isReassignmentReq ? 'bg-red-100 hover:bg-red-200' : 'hover:bg-gray-200 bg-gray-50'
+                          isReassignmentReq ? 'bg-amber-100 hover:bg-amber-200' : 'hover:bg-gray-200 bg-gray-50'
                         }`}
                       >
                         <img src={actionIcon} alt="action" className="w-5 h-5 opacity-70" />
@@ -515,6 +634,7 @@ export default function CSAssigned() {
                 await respondReassignment({
                   ticketId: numericId,
                   action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
+                  reason: updatedFields.reassignmentDenyReason ?? '',
                 });
               } else {
                 const statusMap = {

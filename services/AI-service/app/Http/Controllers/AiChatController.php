@@ -35,13 +35,7 @@ class AiChatController extends Controller
         // Retrieve or initialize conversation record
         $conversation = AiConversation::find($convId);
         if (!$conversation) {
-            $title = 'Support Inquiry';
-            foreach ($incomingMessages as $m) {
-                if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
-                    $title = mb_substr(trim($m['content']), 0, 50);
-                    break;
-                }
-            }
+            $title = $this->extractMeaningfulTitle($incomingMessages);
 
             $conversation = new AiConversation([
                 'id' => $convId,
@@ -50,6 +44,11 @@ class AiChatController extends Controller
                 'status' => 'active',
                 'messages' => [],
             ]);
+        } elseif ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title)) {
+            $updatedTitle = $this->extractMeaningfulTitle($incomingMessages);
+            if ($updatedTitle !== 'Support Inquiry') {
+                $conversation->title = $updatedTitle;
+            }
         }
 
         // Call Gemini Service
@@ -70,6 +69,9 @@ class AiChatController extends Controller
         if ($result['escalate']) {
             $conversation->status = 'escalated';
             $conversation->escalation_data = $result['ticket_data'];
+            if (!empty($result['ticket_data']['title']) && ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title))) {
+                $conversation->title = $result['ticket_data']['title'];
+            }
         }
 
         $conversation->save();
@@ -99,7 +101,16 @@ class AiChatController extends Controller
 
         $conversations = $query->orderBy('updated_at', 'desc')
             ->select(['id', 'user_id', 'title', 'status', 'created_at', 'updated_at'])
-            ->get();
+            ->get()
+            ->map(function ($c) {
+                $cleaned = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $c->title ?? '');
+                $cleaned = trim($cleaned);
+                if (!empty($cleaned) && $cleaned !== $c->title) {
+                    $c->title = ucfirst($cleaned);
+                    $c->save();
+                }
+                return $c;
+            });
 
         return response()->json([
             'success' => true,
@@ -148,12 +159,11 @@ class AiChatController extends Controller
 
     /**
      * POST /api/tickets
-     * Marks conversation as ticket_created when submitted.
+     * Updates conversation status to ticket_created.
      */
-    public function markTicketCreated(Request $request)
+    public function createTicket(Request $request)
     {
         $convId = $request->input('conversation_id');
-
         if ($convId) {
             $conversation = AiConversation::find($convId);
             if ($conversation) {
@@ -166,5 +176,60 @@ class AiChatController extends Controller
             'success' => true,
             'message' => 'Ticket created link confirmed',
         ]);
+    }
+
+    /**
+     * Extract a meaningful title from user messages, ignoring pure greetings.
+     */
+    protected function extractMeaningfulTitle(array $messages): string
+    {
+        $greetings = [
+            'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+            'good day', 'greetings', 'help', 'test', 'support', 'hi there', 'hello there',
+            'ok', 'okay', 'yes', 'no', 'thanks', 'thank you', 'please help'
+        ];
+
+        foreach ($messages as $m) {
+            if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
+                $trimmed = trim($m['content']);
+                $lower = strtolower($trimmed);
+                $cleaned = trim(preg_replace('/[^\w\s]/', '', $lower));
+
+                if (in_array($cleaned, $greetings, true)) {
+                    continue;
+                }
+
+                foreach ($greetings as $g) {
+                    if (str_starts_with($cleaned, $g . ' ')) {
+                        $trimmed = trim(substr($trimmed, strlen($g)));
+                        $trimmed = ltrim($trimmed, " ,.!?-");
+                        break;
+                    }
+                }
+
+                // Strip question numbers like "1.", "1)", "1 -", "Q1:", "Machine:"
+                $trimmed = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $trimmed);
+                $trimmed = trim($trimmed);
+
+                if (!empty($trimmed) && mb_strlen($trimmed) >= 3) {
+                    return ucfirst(mb_substr($trimmed, 0, 55)) . (mb_strlen($trimmed) > 55 ? '...' : '');
+                }
+            }
+        }
+
+        return 'Support Inquiry';
+    }
+
+    /**
+     * Check if a given title consists purely of greetings.
+     */
+    protected function isGreetingOnly(string $title): bool
+    {
+        $greetings = [
+            'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+            'good day', 'greetings', 'help', 'test', 'support', 'hi there', 'hello there'
+        ];
+        $cleaned = trim(preg_replace('/[^\w\s]/', '', strtolower($title)));
+        return in_array($cleaned, $greetings, true);
     }
 }

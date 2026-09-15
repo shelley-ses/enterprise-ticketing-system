@@ -25,11 +25,13 @@ export default function ReassignmentModal({
     setErrorMessage('');
     try {
       const numericId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
-      await requestReassignment({ ticketId: numericId, reason: reason.trim() });
+      const rawReason = reason.trim();
+      const formattedReason = rawReason.charAt(0).toUpperCase() + rawReason.slice(1);
+      await requestReassignment({ ticketId: numericId, reason: formattedReason });
       
       // Optimistically update local ticket properties
       ticket.reassignmentRequested = true;
-      ticket.reassignmentReason = reason.trim();
+      ticket.reassignmentReason = formattedReason;
       ticket.reassignmentStatus = 'Pending';
 
       if (typeof onReassignSuccess === 'function') {
@@ -64,7 +66,7 @@ export default function ReassignmentModal({
 
         {!isSubmitted ? (
           <>
-            <p className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full uppercase tracking-wider w-max mb-3">Reassign Request</p>
+            <p className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full uppercase tracking-wider w-max mb-3">Reassignment Request</p>
             <h2 className="text-xl font-bold text-gray-900 leading-snug">Request Ticket Reassignment</h2>
             <p className="text-xs text-gray-505 mt-1 mb-6">Ticket ID: {ticket.id} · {ticket.title}</p>
 
@@ -111,7 +113,7 @@ export default function ReassignmentModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-bold text-gray-900 leading-snug">Pending Reassign</h3>
+            <h3 className="text-lg font-bold text-gray-900 leading-snug">Pending Reassignment</h3>
             <p className="text-xs text-gray-500 mt-1 mb-6">
               Your request has been filed. The ticket is now awaiting coordinator approval.
             </p>

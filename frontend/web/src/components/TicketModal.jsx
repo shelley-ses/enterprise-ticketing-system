@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/ticketService';
+import TitleCasingModal from '@/components/TitleCasingModal';
+import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 
 const initialFormData = {
   title: '',
@@ -36,12 +38,21 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
   const [attachments, setAttachments] = useState([]);
   const [fileError, setFileError] = useState('');
   const [touched, setTouched] = useState({});
+  const [titleCasingData, setTitleCasingData] = useState(null);
+  const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
 
   const touch = (field) => setTouched((prev) => ({ ...prev, [field]: true }));
 
   const titleChars = formData.title?.length || 0;
   const descriptionChars = formData.description?.length || 0;
-  const titleError = !formData.title?.trim() ? 'Title is required.' : titleChars > MAX_TITLE_CHARS ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).` : '';
+  const titleTrimmed = (formData.title || '').trim();
+
+  let titleError = '';
+  if (!titleTrimmed) {
+    titleError = 'Title is required.';
+  } else if (titleChars > MAX_TITLE_CHARS) {
+    titleError = `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).`;
+  }
   const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
   const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
   const descriptionError = !formData.description?.trim() ? 'Description is required.' : descriptionChars > MAX_DESCRIPTION_CHARS ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).` : '';
@@ -52,6 +63,8 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     setFileError('');
     setSubmitError('');
     setTouched({});
+    setTitleCasingData(null);
+    setShowTitleCasingModal(false);
   };
 
   useEffect(() => {
@@ -127,12 +140,47 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       return;
     }
 
+    const titleTrimmed = (formData.title || '').trim();
+    if (needsProperCasing(titleTrimmed)) {
+      const proper = formatProperTitleCase(titleTrimmed);
+      setTitleCasingData({
+        original: titleTrimmed,
+        formatted: proper,
+      });
+      setShowTitleCasingModal(true);
+      return;
+    }
+
     setSubmitError('');
     setIsSubmitting(true);
 
     try {
       await onSubmit?.({
         ...formData,
+        title: titleTrimmed,
+        attachments,
+      });
+      resetFormState();
+    } catch (error) {
+      setSubmitError(error?.response?.data?.message || 'Failed to create ticket. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmTitleCasing = async () => {
+    if (!titleCasingData) return;
+    const formatted = titleCasingData.formatted;
+    setFormData((prev) => ({ ...prev, title: formatted }));
+    setShowTitleCasingModal(false);
+
+    setSubmitError('');
+    setIsSubmitting(true);
+
+    try {
+      await onSubmit?.({
+        ...formData,
+        title: formatted,
         attachments,
       });
       resetFormState();
@@ -168,6 +216,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const isFormValid = Boolean(
     formData.title?.trim() &&
+    !titleError &&
     titleChars <= MAX_TITLE_CHARS &&
     formData.problem_category_ID &&
     formData.machine_ID &&
@@ -209,7 +258,18 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                 placeholder="Brief description of the issue"
                 value={formData.title}
                 onChange={handleChange}
-                onBlur={() => touch('title')}
+                onBlur={() => {
+                  touch('title');
+                  const trimmed = (formData.title || '').trim();
+                  if (needsProperCasing(trimmed)) {
+                    const proper = formatProperTitleCase(trimmed);
+                    setTitleCasingData({
+                      original: trimmed,
+                      formatted: proper,
+                    });
+                    setShowTitleCasingModal(true);
+                  }
+                }}
                 disabled={isSubmitting}
                 className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
               />
@@ -355,6 +415,14 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
           </div>
         </form>
       </div>
+
+      <TitleCasingModal
+        isOpen={showTitleCasingModal}
+        originalTitle={titleCasingData?.original}
+        formattedTitle={titleCasingData?.formatted}
+        onConfirm={handleConfirmTitleCasing}
+        onCancel={() => setShowTitleCasingModal(false)}
+      />
     </div>
   );
 }

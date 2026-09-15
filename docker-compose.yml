@@ -138,6 +138,23 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  ticketing-gateway:
+    image: nginx:alpine
+    container_name: ticketing-gateway
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.gateway.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - default
+      - shared-capstone-network
+    depends_on:
+      - customer-service
+      - ticket-service
+      - employee-service
+
+
   ticket-service:
     build:
       context: ./services/ticket-service
@@ -214,6 +231,46 @@ services:
       reverb:
         condition: service_started
     restart: unless-stopped
+
+  employee-service:
+    build:
+      context: ./services/employee-service
+    container_name: employee-service
+    volumes:
+      - ./services/employee-service:/var/www
+      - employee-service-vendor:/var/www/vendor
+    ports:
+      - "8008:8000"
+    networks:
+      - default
+      - shared-capstone-network
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      BROADCAST_DRIVER: reverb
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REVERB_APP_ID: local
+      REVERB_APP_KEY: local
+      REVERB_APP_SECRET: local
+      REVERB_HOST: reverb
+      REVERB_PORT: 6001
+    command: >
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && rm -f bootstrap/cache/*.php && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      reverb:
+        condition: service_started
 
   notification-service:
     build:
@@ -318,7 +375,7 @@ services:
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
     command: >
-      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan storage:link --force && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000"
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ -f uploads.ini ]; then cp uploads.ini /usr/local/etc/php/conf.d/uploads.ini; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && php artisan storage:link --force && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php -d upload_max_filesize=50M -d post_max_size=50M artisan serve --host=0.0.0.0 --port=8000"
     depends_on:
       db:
         condition: service_healthy
@@ -471,6 +528,7 @@ volumes:
   auth-service-vendor:
   attachment-service-vendor:
   messaging-service-vendor:
+  employee-service-vendor:
 
 networks:
   default:

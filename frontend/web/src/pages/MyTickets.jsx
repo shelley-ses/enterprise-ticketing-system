@@ -21,7 +21,11 @@ import {
 } from '@/services/ticketService';
 import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 
-const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded', 'On Hold'];
+import { parseUTCDate, formatDisplayDate } from '@/utils/dateUtils';
+import TitleCasingModal from '@/components/TitleCasingModal';
+import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
+
+const ACTIVE_STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'On Hold'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
 
 const getStoredUser = () => {
@@ -33,12 +37,7 @@ const getStoredUser = () => {
 };
 
 const formatDate = (value) => {
-  if (!value) return '-';
-  let dateStr = String(value);
-  if (typeof value === 'string' && !value.includes('T') && !value.includes('Z')) {
-    dateStr = value.replace(' ', 'T') + 'Z';
-  }
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(dateStr));
+  return formatDisplayDate(value);
 };
 
 const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
@@ -61,6 +60,8 @@ export default function MyTickets({ mode = 'all' }) {
   const [loadingText, setLoadingText] = useState('Loading...');
   const [editingTicket, setEditingTicket] = useState(null);
   const [editTitle, setEditTitle] = useState('');
+  const [titleCasingData, setTitleCasingData] = useState(null);
+  const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [editDescription, setEditDescription] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editEquipment, setEditEquipment] = useState('');
@@ -144,7 +145,7 @@ export default function MyTickets({ mode = 'all' }) {
     return tickets.filter((ticket) => {
       const normalizedStatus = ticket.status === 'Discarded by Customer' ? 'Discarded' : ticket.status;
       if (isHistory && !HISTORY_STATUSES.includes(ticket.status)) return false;
-      if (!isHistory && ['Closed', 'Resolved'].includes(ticket.status)) return false;
+      if (!isHistory && (HISTORY_STATUSES.includes(ticket.status) || ['Closed', 'Resolved', 'Discarded', 'Discarded by Customer'].includes(ticket.status))) return false;
       if (filters.status && normalizedStatus !== filters.status) return false;
       if (filters.category && ticket.category !== filters.category) return false;
       if (filters.dateFrom && new Date(ticket.date_created) < new Date(filters.dateFrom)) return false;
@@ -375,7 +376,19 @@ export default function MyTickets({ mode = 'all' }) {
     }
   };
 
+  const canEditTicket = (t) => {
+    if (!t) return false;
+    const s = (t.status || '').trim();
+    const hasAssignee = !!(t.assigned_to || t.assigned_employee || t.assigned_to_emp_id);
+    return s === 'Open' && !hasAssignee;
+  };
+
   const handleEditTicket = async (ticket) => {
+    if (!canEditTicket(ticket)) {
+      showError('Cannot Edit Ticket', 'Tickets can only be edited while Open and not yet assigned to an employee.');
+      return;
+    }
+
     setEditTitle(ticket.title || '');
     setEditDescription(ticket.description || '');
     setEditCategory(ticket.problem_category_ID || '');
@@ -383,25 +396,63 @@ export default function MyTickets({ mode = 'all' }) {
     setEditingTicket(ticket);
     setOpenMenuId(null);
 
-    if (!ticket.assigned_to) {
-      let opts = getCachedTicketFormOptions();
-      if (!opts) {
-        try { opts = await getTicketFormOptions(); } catch { /* ignore */ }
-      }
-      setEditOptions(opts);
+    let opts = getCachedTicketFormOptions();
+    if (!opts) {
+      try { opts = await getTicketFormOptions(); } catch { /* ignore */ }
     }
+    setEditOptions(opts);
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
+    if (!editingTicket) return;
+    const titleTrimmed = (editTitle || '').trim();
+    if (!titleTrimmed) {
+      showError('Validation Error', 'Ticket title is required.');
+      return;
+    }
+
+    if (needsProperCasing(titleTrimmed)) {
+      const proper = formatProperTitleCase(titleTrimmed);
+      setTitleCasingData({
+        original: titleTrimmed,
+        formatted: proper,
+      });
+      setShowTitleCasingModal(true);
+      return;
+    }
+
+    showConfirm(
+      'Update this ticket?',
+      'Are you sure you want to save the changes to this ticket?',
+      () => executeSaveEdit(titleTrimmed),
+      { confirmText: 'Update Ticket', confirmClassName: 'bg-[#252578] hover:bg-[#1f1f66]' }
+    );
+  };
+
+  const handleConfirmTitleCasing = () => {
+    if (!titleCasingData) return;
+    const formatted = titleCasingData.formatted;
+    setEditTitle(formatted);
+    setShowTitleCasingModal(false);
+    showConfirm(
+      'Update this ticket?',
+      `Are you sure you want to save the changes with formatted title "${formatted}"?`,
+      () => executeSaveEdit(formatted),
+      { confirmText: 'Update Ticket', confirmClassName: 'bg-[#252578] hover:bg-[#1f1f66]' }
+    );
+  };
+
+  const executeSaveEdit = async (overrideTitle) => {
     if (!editingTicket) return;
     const ticket = editingTicket;
     const isMock = !!ticket.isMock;
+    const finalTitle = overrideTitle || editTitle;
 
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
       const updatedList = stored.map(t => {
         if (t.id === ticket.id) {
-          return { ...t, title: editTitle, description: editDescription };
+          return { ...t, title: finalTitle, description: editDescription };
         }
         return t;
       });
@@ -418,13 +469,12 @@ export default function MyTickets({ mode = 'all' }) {
       const numericId = ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10);
       const payload = {
         ticketId: numericId,
-        title: editTitle,
+        title: finalTitle,
         description: editDescription,
       };
-      if (!ticket.assigned_to) {
-        if (editCategory) payload.problem_category_ID = editCategory;
-        if (editEquipment) payload.machine_ID = editEquipment;
-      }
+      if (editCategory) payload.problem_category_ID = editCategory;
+      if (editEquipment) payload.machine_ID = editEquipment;
+
       await updateTicket(payload);
       setEditingTicket(null);
       showSuccess('Ticket updated', 'Ticket updated successfully.');
@@ -506,8 +556,8 @@ export default function MyTickets({ mode = 'all' }) {
         </div>
         {!isHistory && (
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
+            onClick={() => navigate('/ai-support')}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -540,7 +590,7 @@ export default function MyTickets({ mode = 'all' }) {
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm justify-end">
           <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All statuses</option>
-            {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            {(isHistory ? HISTORY_STATUSES : ACTIVE_STATUSES).map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
           <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All categories</option>
@@ -559,7 +609,7 @@ export default function MyTickets({ mode = 'all' }) {
               <tr>
                 <th className="px-5 py-4">ID</th>
                 <th className="px-5 py-4">Title</th>
-                <th className="px-5 py-4">Category</th>
+                <th className="px-5 py-4">Equipment</th>
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Date Created</th>
                 <th className="px-5 py-4">Last Updated</th>
@@ -595,7 +645,7 @@ export default function MyTickets({ mode = 'all' }) {
                 <tr key={ticket.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleViewTicket(ticket)}>
                   <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{ticket.id}</td>
                   <td className="px-5 py-4 text-sm font-medium text-gray-800">{ticket.title}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{ticket.category}</td>
+                  <td className="px-5 py-4 text-sm text-gray-600">{ticket.equipment || ticket.machine_name || '—'}</td>
                   <td className="px-5 py-4">
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClass(ticket.status)}`}>
                       <span className="h-1.5 w-1.5 rounded-full bg-current" />
@@ -633,16 +683,19 @@ export default function MyTickets({ mode = 'all' }) {
       {openMenuId && menuPos && createPortal(
         (() => {
           const t = visibleTickets.find(x => x.id === openMenuId);
+          const canEdit = canEditTicket(t);
           return t ? (
             <div data-menu-id={t.id}
               style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, zIndex: 9999 }}
-              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg">
-              <button onClick={() => { handleEditTicket(t); setMenuPos(null); }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl">
-                Edit
-              </button>
+              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
+              {canEdit && (
+                <button onClick={() => { handleEditTicket(t); setMenuPos(null); }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100">
+                  Edit
+                </button>
+              )}
               <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
                 Delete
               </button>
             </div>
@@ -734,6 +787,18 @@ export default function MyTickets({ mode = 'all' }) {
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = (editTitle || '').trim();
+                    if (needsProperCasing(trimmed)) {
+                      const proper = formatProperTitleCase(trimmed);
+                      setTitleCasingData({
+                        original: trimmed,
+                        formatted: proper,
+                      });
+                      setShowTitleCasingModal(true);
+                    }
+                  }}
+                  placeholder="e.g. Conveyor Motor Overheating"
                   className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
                 />
               </div>
@@ -759,6 +824,14 @@ export default function MyTickets({ mode = 'all' }) {
           </div>
         </div>
       )}
+
+      <TitleCasingModal
+        isOpen={showTitleCasingModal}
+        originalTitle={titleCasingData?.original}
+        formattedTitle={titleCasingData?.formatted}
+        onConfirm={handleConfirmTitleCasing}
+        onCancel={() => setShowTitleCasingModal(false)}
+      />
 
       <NotificationModal
         isOpen={!!notification}

@@ -437,10 +437,15 @@ export function AuthProvider({ children }) {
       setError(null);
       setIsFirstLogin(false);
       setIsLoading(false);
+
+      if (typeof window !== 'undefined') {
+        const isCustomerSite = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
+        window.history.replaceState(null, '', isCustomerSite ? '/customer' : '/');
+      }
     }
 
     return { success: true };
-  }, []);
+  }, [user]);
 
   // Clear error messages
   const clearError = useCallback(() => {

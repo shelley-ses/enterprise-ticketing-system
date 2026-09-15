@@ -72,21 +72,22 @@ export default function GuestRoute({ children }) {
   }
 
   if (isAuthenticated && !isFirstLogin) {
+    const isSuperAdmin = (user?.role || '').toLowerCase() === 'superadmin' || (user?.profile?.role?.name || '').toLowerCase() === 'superadmin';
     const isCS       = checkIsCS(user);
     const isEmployee = checkIsEmployee(user);
-    const isCustomer = !isCS && !isEmployee;
+    const isCustomer = !isCS && !isEmployee && !isSuperAdmin;
 
+    if (isSuperAdmin) {
+      return <Navigate to="/superadmin/ticket-config" replace />;
+    }
     if (isCustomerSite) {
-      // On the customer portal: if customer already logged in → send to their dashboard.
-      // If we are logged in as employee/CS, let the guest route render the login form so they can log in.
       if (isCustomer) {
         return <Navigate to="/customer-dashboard" replace />;
       }
     } else {
-      // On the ticketing (employee/CS) portal: if employee/CS logged in → send to their dashboard.
-      // If we are logged in as customer, let the guest route render the login form.
       if (isCS)       return <Navigate to="/cs/dashboard" replace />;
       if (isEmployee) return <Navigate to="/employee/dashboard" replace />;
+      if (isCustomer) return <Navigate to="/customer-dashboard" replace />;
     }
   }
 
