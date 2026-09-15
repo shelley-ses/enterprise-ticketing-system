@@ -3,10 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from '@/components/FilePreviewModal';
+import InternalNotesSection from '@/components/InternalNotesSection';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function TicketInfoModal({ ticket, onClose }) {
   const navigate = useNavigate();
   const [previewFile, setPreviewFile] = useState(null);
+
+  useLockBodyScroll(!!ticket);
 
   if (!ticket) return null;
 
@@ -17,11 +21,11 @@ export default function TicketInfoModal({ ticket, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 py-10"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4 backdrop-blur-[1.5px]"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 relative flex flex-col max-h-[85vh]"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 relative flex flex-col max-h-[85vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -128,6 +132,14 @@ export default function TicketInfoModal({ ticket, onClose }) {
                 ))}
               </div>
             </div>
+          )}
+
+          {ticket.internalNotes && ticket.internalNotes.length > 0 && (
+            <InternalNotesSection
+              notes={ticket.internalNotes}
+              readOnly={true}
+              maxListHeight="max-h-36"
+            />
           )}
 
           {ticket.reassignmentRequested && (

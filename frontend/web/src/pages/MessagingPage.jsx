@@ -15,6 +15,7 @@ import {
   getEmployeeInternalTickets,
   updateTicket,
 } from '@/services/ticketService';
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 // ─── Badge Styling Helpers ──────────────────────────────────────────────────
 const statusBadges = {
@@ -826,7 +827,7 @@ export default function MessagingPage() {
                                 {msg.edit_history.map((hist, idx) => (
                                   <div key={idx} className="border-b border-gray-100/50 pb-1 last:border-0 last:pb-0">
                                     <p className="font-medium text-gray-800 break-words">{hist.message}</p>
-                                    <p className="text-[9px] text-gray-400 mt-0.5">{new Date(hist.edited_at).toLocaleString()}</p>
+                                    <p className="text-[9px] text-gray-400 mt-0.5">{formatDisplayDate(hist.edited_at)}</p>
                                   </div>
                                 ))}
                               </div>

@@ -4,10 +4,16 @@ import {
   getNotifications,
   markNotificationsRead,
   markNotificationRead,
+  getTicketDetails,
+  getAssignableEmployees,
 } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import SkeletonLoader from '@/components/SkeletonLoader';
+import { formatDisplayDate } from '@/utils/dateUtils';
+import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import { TicketSummary } from '@/components/CSModals';
+import { respondReassignment } from '@/services/ticketService';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -17,6 +23,10 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [activeNotificationId, setActiveNotificationId] = useState(null);
+  const [activeEmployees, setActiveEmployees] = useState([]);
+  const [activeTicketLoading, setActiveTicketLoading] = useState(false);
 
 
 
@@ -111,28 +121,55 @@ export default function Notifications() {
     return null;
   };
 
-  const handleNotificationClick = (n) => {
-    if (!n.is_read) {
-      handleMarkOneRead(n.id);
+  const handleCloseActiveTicket = useCallback(async () => {
+    if (activeNotificationId) {
+      const nid = activeNotificationId;
+      setActiveNotificationId(null);
+      setActiveTicket(null);
+      try {
+        await markNotificationRead(nid);
+        window.dispatchEvent(new Event('notifications:updated'));
+        await loadData();
+      } catch (err) {
+        console.warn('Failed to mark notification as read on close:', err);
+      }
+    } else {
+      setActiveTicket(null);
     }
-    const path = getNotificationPath(n);
-    if (path) {
-      navigate(path, { state: { focusTicketId: n.ticket_id, openNotificationType: true } });
+  }, [activeNotificationId, loadData]);
+
+  const handleNotificationClick = async (n) => {
+    const ticketId = n.ticket_id;
+    if (!ticketId) {
+      const path = getNotificationPath(n);
+      if (path) navigate(path);
+      return;
+    }
+    setActiveTicketLoading(true);
+    setActiveNotificationId(n.id);
+    try {
+      const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
+      const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
+      const full = await getTicketDetails(ticketNum).catch(() => null);
+      const base = full || { id: `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: ticketId, title: n.title, description: n.message, status: 'Open', priority: 'Medium', customer: '—', timeline: [{ id: 'creation', type: 'system', text: n.message, timestamp: n.created_at }] };
+      const merged = { ...base, id: base.id || `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: base.ticket_ID || ticketId, reassignmentReason: base.reassignmentReason || parsed.reason || parsed.reassignmentReason || '', reassignmentRequested: base.reassignmentRequested ?? (parsed.type === 'reassignment_request'), reassignmentRequestedBy: base.reassignmentRequestedBy ?? parsed.requested_by };
+      if (merged.reassignmentRequested) {
+        try {
+          const emps = await getAssignableEmployees({ forceRefresh: false }).catch(() => []);
+          setActiveEmployees(emps.map((row) => ({ id: Number(row.id ?? row.emp_id), name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email, status: row.is_active ? 'active' : 'inactive', department: row.department?.trim() || 'Unassigned' })));
+        } catch {}
+      }
+      setActiveTicket(merged);
+    } catch (err) {
+      console.warn('Failed to load ticket for notification:', err);
+      const path = getNotificationPath(n);
+      if (path) navigate(path, { state: { focusTicketId: ticketId } });
+      setActiveNotificationId(null);
+    } finally {
+      setActiveTicketLoading(false);
     }
   };
 
-  const formatTimeAgo = (dateStr) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -222,7 +259,7 @@ export default function Notifications() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start mb-1 gap-4">
                         <h3 className="text-sm font-bold text-gray-900 leading-snug">{n.title}</h3>
-                        <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatTimeAgo(n.created_at)}</span>
+                        <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
                       </div>
                       <p className="text-xs text-gray-600 leading-relaxed font-medium">{n.message}</p>
                       {n.ticket_id && (
@@ -235,6 +272,21 @@ export default function Notifications() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {activeTicket && (() => { const role = (()=>{ try{ return JSON.parse(localStorage.getItem('user')||'{}')?.role||'';}catch{return ''}})(); const isCSReassign = activeTicket.reassignmentRequested && role==='cs'; return isCSReassign ? (
+        <TicketSummary ticket={activeTicket} employees={activeEmployees} onClose={handleCloseActiveTicket} onEdit={()=>{}} onStatusUpdate={async (upd)=>{ try{ if(upd.reassignmentStatus){ const nid=Number(String(activeTicket.ticket_ID||activeTicket.id).replace(/\D/g,'')); const act=upd.reassignmentStatus==='Approved'?'approve':'deny'; await respondReassignment({ticketId:nid, action:act}); } }catch(e){ console.warn(e);} }} />
+      ) : (
+        <CustomerTicketDetailModal ticket={activeTicket} onClose={handleCloseActiveTicket} onDiscard={null} onReopen={null} onResolve={null} allowReopen={false} customerName={activeTicket.customer} />
+      );})()}
+
+      {activeTicketLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-[#252578]">Loading ticket...</p>
           </div>
         </div>
       )}

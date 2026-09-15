@@ -70,6 +70,17 @@ export default function CustomerDashboard() {
     : (effectiveUser?.name || 'Customer');
   const customerId = effectiveUser?.id || 1;
 
+  useEffect(() => {
+    if (!effectiveUser) return;
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+      navigate('/customer-dashboard', { replace: true });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [effectiveUser, navigate]);
+
 
   const buildDashboardSignature = useCallback((payload) => {
     const summary = payload?.summary || {};
@@ -454,10 +465,10 @@ export default function CustomerDashboard() {
                 )}
                 {recentTickets.map((t, idx) => (
                   <tr key={idx} className="bg-white shadow-sm hover:shadow-md transition-shadow rounded-xl group">
-                    <td className="px-4 py-4 rounded-l-2xl text-sm font-medium text-gray-800 border-y border-l border-gray-100">{t.id}</td>
-                    <td className="px-4 py-4 border-y border-gray-100">
-                      <div className="text-sm font-semibold text-gray-800">{t.title}</div>
-                      <div className="text-xs text-gray-500 mt-1">{t.equipment}</div>
+                    <td className="px-4 py-4 rounded-l-2xl text-sm font-medium text-gray-800 border-y border-l border-gray-100 whitespace-nowrap">{t.id}</td>
+                    <td className="px-4 py-4 border-y border-gray-100 max-w-[280px]">
+                      <div className="text-sm font-semibold text-gray-800 truncate whitespace-nowrap overflow-hidden text-ellipsis" title={t.title}>{t.title}</div>
+                      <div className="text-xs text-gray-500 mt-1 truncate whitespace-nowrap overflow-hidden text-ellipsis" title={t.equipment}>{t.equipment}</div>
                     </td>
                     <td className="px-4 py-4 border-y border-gray-100">
                       <span className={`px-3 py-1 text-xs font-semibold rounded-full flex w-fit items-center gap-1.5 ${t.statusColor}`}>

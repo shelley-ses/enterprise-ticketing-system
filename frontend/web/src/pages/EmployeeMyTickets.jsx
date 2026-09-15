@@ -47,7 +47,6 @@ export default function EmployeeMyTickets({ roleContext }) {
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [error, setError] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const isHistory = false;
   // CS delegation state
@@ -316,7 +315,9 @@ export default function EmployeeMyTickets({ roleContext }) {
 
   const handleViewTicket = (t) => {
     const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
-    navigate(`/employee/history/${ticketId}`, { state: { ticket: t, backPath: '/employee/my-tickets' } });
+    const basePath = roleContext === 'cs' ? '/cs' : '/employee';
+    const backPath = roleContext === 'cs' ? '/cs/my-tickets' : '/employee/my-tickets';
+    navigate(`${basePath}/history/${ticketId}`, { state: { ticket: t, backPath } });
   };
 
   const handleResolveTicket = async (ticketId) => {
@@ -433,39 +434,20 @@ export default function EmployeeMyTickets({ roleContext }) {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-        <input
-          type="text"
-          placeholder="Search ID or title"
-          value={filters.search}
-          onChange={(event) => updateFilter('search', event.target.value)}
-          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-        />
-        <button
-          onClick={() => setShowFilters((prev) => !prev)}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-            showFilters ? 'bg-[#252578] text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          <Filter size={16} />
-          Filters
-        </button>
-      </div>
-
-      {showFilters && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm justify-end">
-          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+        <input type="text" placeholder="Search ID or title" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} className="w-full md:w-[680px] max-w-[680px] shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        <div className="flex flex-wrap items-center gap-3 ml-auto shrink-0">
+          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All statuses</option>
-            {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            {(roleContext === 'cs' ? STATUSES.filter(s => s !== 'Pending Assignment') : STATUSES).map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
-          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All categories</option>
             {categories.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
-          <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
-          <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+          <input type="date" value={filters.dateFrom} onChange={(event) => { const v = event.target.value; setFilters((c) => ({ ...c, dateFrom: v, dateTo: v })); }} className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
         </div>
-      )}
+      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
