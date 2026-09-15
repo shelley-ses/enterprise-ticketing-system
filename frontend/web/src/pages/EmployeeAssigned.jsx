@@ -115,7 +115,7 @@ export default function EmployeeAssigned() {
       if (t.accepted) return false;
 
       if (statusFilter !== 'All Status') {
-        if (statusFilter === 'Pending Reassign') {
+        if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
         } else if (t.status !== statusFilter) {
           return false;
@@ -153,8 +153,6 @@ export default function EmployeeAssigned() {
     try {
       await acceptTicket({
         ticketId: numericId,
-        employeeIds: [Number(user?.emp_id ?? user?.id)],
-        assignedByEmail: user?.email,
       });
       setIsAccepting(false);
       setPendingTicket(null);
@@ -164,8 +162,9 @@ export default function EmployeeAssigned() {
     } catch (err) {
       console.error('Failed to accept assignment on backend:', err);
       setIsAccepting(false);
+      window.alert(err?.response?.data?.message || 'Failed to accept assignment. Please try again.');
     }
-  }, [tickets, user, navigate]);
+  }, [tickets, navigate]);
 
   const handleRejectAssignment = useCallback((id) => {
     setTickets((prev) =>

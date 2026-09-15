@@ -31,6 +31,12 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/ticket/, '/api')
       },
+      '/api/ticketing/employee': {
+        target: process.env.VITE_EMPLOYEE_SERVICE_URL || 'http://127.0.0.1:8008',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ticketing\/employee/, '/api')
+      },
       '/api/ticketing/attachment': {
         target: process.env.VITE_ATTACHMENT_SERVICE_URL || 'http://127.0.0.1:8006',
         changeOrigin: true,

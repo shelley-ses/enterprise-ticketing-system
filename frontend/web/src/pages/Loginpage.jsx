@@ -398,7 +398,7 @@ const checkIsSuperAdmin = (user) => {
 // ─── Main Login Page ─────────────────────────────────────────────────────────
 function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
-  const { login, clearError, isAuthenticated } = useAuth();
+  const { login, clearError, isAuthenticated, user } = useAuth();
   const isEmployeeLogin = mode === 'employee';
 
   const [showPassword, setShowPassword] = useState(false);
@@ -417,6 +417,36 @@ function Loginpage({ mode = 'customer' }) {
 
   // First-login: force the user to change their password before entering the app
   const [showForceChangePassword, setShowForceChangePassword] = useState(false);
+
+  // Prevent browsing back to login if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const isCS = checkIsCS(user);
+      const isEmployee = checkIsEmployee(user);
+      const isSuperAdmin = checkIsSuperAdmin(user);
+      const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
+
+      if (isSuperAdmin) {
+        navigate('/superadmin/ticket-config', { replace: true });
+      } else if (isCustomerSite) {
+        if (isCS) {
+          window.location.replace('/ticketing/cs/dashboard');
+        } else if (isEmployee) {
+          window.location.replace('/ticketing/employee/dashboard');
+        } else {
+          navigate('/customer-dashboard', { replace: true });
+        }
+      } else {
+        if (isCS) {
+          navigate('/cs/dashboard', { replace: true });
+        } else if (isEmployee) {
+          navigate('/employee/dashboard', { replace: true });
+        } else {
+          navigate('/customer-dashboard', { replace: true });
+        }
+      }
+    }
+  }, [isAuthenticated, user, navigate]);
 
   // When the ForceChangePasswordModal calls logout() on success, isAuthenticated
   // flips to false — use that as the signal to hide the modal so the login
@@ -503,9 +533,9 @@ function Loginpage({ mode = 'customer' }) {
           navigate('/superadmin/ticket-config', { replace: true });
         } else if (isCustomerSite) {
           if (isCS) {
-            window.location.href = '/ticketing/cs/dashboard';
+            window.location.replace('/ticketing/cs/dashboard');
           } else if (isEmployee) {
-            window.location.href = '/ticketing/employee/dashboard';
+            window.location.replace('/ticketing/employee/dashboard');
           } else {
             navigate('/customer-dashboard', { replace: true });
           }

@@ -216,7 +216,7 @@ export default function TicketDetailModal({
               </span>
               {ticket.reassignmentRequested && (
                 <span className="text-badge px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-200">
-                  Pending Reassign
+                  Pending Reassignment
                 </span>
               )}
             </div>

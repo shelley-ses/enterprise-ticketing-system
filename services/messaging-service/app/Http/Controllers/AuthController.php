@@ -155,7 +155,10 @@ class AuthController extends Controller
 
         $query = Employee::query()
             ->where('role', '!=', 'customer service')
-            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?)', ['superadmin', 'super admin']);
+            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?, ?, ?, ?)', ['superadmin', 'super admin', 'admin', 'system administrator', 'system admin'])
+            ->whereRaw('LOWER(COALESCE(department, "")) NOT IN (?, ?)', ['admin', 'super admin'])
+            ->whereRaw('LOWER(COALESCE(email, "")) NOT LIKE ?', ['%admin%'])
+            ->whereRaw('LOWER(CONCAT(COALESCE(first_name, ""), " ", COALESCE(last_name, ""))) NOT LIKE ?', ['%administrator%']);
 
         if ($request->has('department') && !empty($request->query('department'))) {
             $query->where('department', $request->query('department'));

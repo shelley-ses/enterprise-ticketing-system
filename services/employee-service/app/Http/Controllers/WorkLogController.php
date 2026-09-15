@@ -37,6 +37,33 @@ class WorkLogController extends Controller
         return response()->json($workLogs);
     }
 
+    public function store(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user || $user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $validated = $request->validate([
+            'ticket_id'        => 'nullable|integer|exists:tickets,ticket_ID',
+            'task_description' => 'required|string|max:1000',
+            'hours_spent'      => 'required|numeric|min:0.1|max:24',
+            'log_date'         => 'required|date|before_or_equal:today',
+        ]);
+
+        $log = \App\Models\WorkLog::create([
+            'employee_id'      => $user->emp_id,
+            'ticket_id'        => $validated['ticket_id'] ?? null,
+            'task_description' => $validated['task_description'],
+            'hours_spent'      => $validated['hours_spent'],
+            'log_date'         => $validated['log_date'],
+            'status'           => 'pending',
+        ]);
+
+        return response()->json(['message' => 'Work log saved successfully.', 'work_log' => $log], 201);
+    }
+
     public function export(Request $request)
     {
         $user = $request->user();

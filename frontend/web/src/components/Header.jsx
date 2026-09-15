@@ -187,8 +187,10 @@ export default function Header({ sidebarHovered }) {
   const confirmLogout = async () => {
     setLoggingOut(true);
     try {
+      const isCustomer = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
       await logout();
-      window.location.href = '/';
+      const redirectUrl = isCustomer ? '/customer' : '/';
+      window.location.replace(redirectUrl);
     } catch (err) {
       console.error('Logout failed:', err);
       setLoggingOut(false);
@@ -206,6 +208,7 @@ export default function Header({ sidebarHovered }) {
         <div className="flex items-center gap-6">
           <div className="relative flex items-center gap-3">
             <button
+              data-notification-trigger="true"
               onClick={handleBellClick}
               className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors"
               aria-label={`Notifications${notificationCount > 0 ? ` (${notificationCount} unread)` : ''}`}
@@ -220,18 +223,15 @@ export default function Header({ sidebarHovered }) {
             </button>
 
             {notificationDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setNotificationDropdownOpen(false)} />
-                <NotificationDropdown
-                  notifications={notifications}
-                  loading={notificationLoading}
-                  unreadCount={notificationCount}
-                  basePath={basePath}
-                  onNotificationClick={handleNotificationClick}
-                  onMarkAllRead={notificationCount > 0 ? handleMarkAllRead : null}
-                  onClose={() => setNotificationDropdownOpen(false)}
-                />
-              </>
+              <NotificationDropdown
+                notifications={notifications}
+                loading={notificationLoading}
+                unreadCount={notificationCount}
+                basePath={basePath}
+                onNotificationClick={handleNotificationClick}
+                onMarkAllRead={notificationCount > 0 ? handleMarkAllRead : null}
+                onClose={() => setNotificationDropdownOpen(false)}
+              />
             )}
 
             <button

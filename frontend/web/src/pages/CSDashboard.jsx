@@ -315,16 +315,6 @@ export default function CSDashboard() {
           </h1>
           <p className="text-white/70 text-sm">Monitor incoming tickets, assignments, and service queue status.</p>
         </div>
-        <div className="relative z-10 flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigate('/ai-support')}
-            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
-          >
-            <Bot size={20} />
-            AI Support Assistant
-          </button>
-        </div>
       </div>
 
 

@@ -44,7 +44,7 @@ class GeminiService
                 "```json\n" .
                 "{\n" .
                 '  "escalate": true,' . "\n" .
-                '  "ticket_title": "Concise summary of the issue",' . "\n" .
+                '  "ticket_title": "Concise natural summary of the problem (e.g. CGI Machine Paper Jam Error, NEVER include numbers or bullets like 1. or 2.)",' . "\n" .
                 '  "ticket_description": "Detailed summary of the problem and troubleshooting attempted"' . "\n" .
                 "}\n" .
                 "```";
@@ -131,8 +131,11 @@ class GeminiService
 
             $parsed = json_decode($jsonStr, true);
             if (json_last_error() === JSON_ERROR_NONE && !empty($parsed)) {
+                $rawTitle = $parsed['ticket_title'] ?? '';
+                $cleanTitle = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $rawTitle);
+                $cleanTitle = trim($cleanTitle);
                 $ticketData = [
-                    'title' => $parsed['ticket_title'] ?? $this->deriveTitleFromMessages($messages),
+                    'title' => !empty($cleanTitle) ? ucfirst($cleanTitle) : $this->deriveTitleFromMessages($messages),
                     'description' => $parsed['ticket_description'] ?? 'Submitted via AI Support Assistant.',
                 ];
             }
@@ -173,7 +176,8 @@ class GeminiService
             }
         }
 
-        $title = !empty($lastUserMsg) ? mb_substr($lastUserMsg, 0, 60) : 'Technical Support Request';
+        $cleanedMsg = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $lastUserMsg);
+        $title = !empty($cleanedMsg) ? ucfirst(mb_substr(trim($cleanedMsg), 0, 60)) : 'Technical Support Request';
 
         return [
             'content' => "Our automated AI support assistant is temporarily unavailable. " .
@@ -189,14 +193,41 @@ class GeminiService
     }
 
     /**
-     * Derive a concise title from the initial user messages.
+     * Derive a concise title from the user messages, ignoring pure greetings.
      */
     protected function deriveTitleFromMessages(array $messages): string
     {
+        $greetings = [
+            'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+            'good day', 'greetings', 'help', 'test', 'support', 'hi there', 'hello there',
+            'ok', 'okay', 'yes', 'no', 'thanks', 'thank you', 'please help'
+        ];
+
         foreach ($messages as $m) {
             if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
                 $content = trim($m['content']);
-                return mb_substr($content, 0, 60) . (mb_strlen($content) > 60 ? '...' : '');
+                $cleaned = trim(preg_replace('/[^\w\s]/', '', strtolower($content)));
+
+                if (in_array($cleaned, $greetings, true)) {
+                    continue;
+                }
+
+                foreach ($greetings as $g) {
+                    if (str_starts_with($cleaned, $g . ' ')) {
+                        $content = trim(substr($content, strlen($g)));
+                        $content = ltrim($content, " ,.!?-");
+                        break;
+                    }
+                }
+
+                // Strip question numbers like "1.", "1)", "1 -", "Q1:", "Machine:"
+                $content = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $content);
+                $content = trim($content);
+
+                if (!empty($content) && mb_strlen($content) >= 3) {
+                    $cleanedTitle = mb_substr($content, 0, 60);
+                    return ucfirst($cleanedTitle);
+                }
             }
         }
         return 'Equipment Technical Support Request';

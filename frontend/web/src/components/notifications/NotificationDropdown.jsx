@@ -22,8 +22,19 @@ export default function NotificationDropdown({
         onClose();
       }
     };
+    const handleOutsideClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        if (!e.target.closest('[data-notification-trigger]')) {
+          onClose();
+        }
+      }
+    };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
   }, [onClose]);
 
   const handleViewAll = () => {
@@ -53,8 +64,13 @@ export default function NotificationDropdown({
         </div>
         {unreadCount > 0 && onMarkAllRead && (
           <button
-            onClick={onMarkAllRead}
-            className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onMarkAllRead(e);
+            }}
+            className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
           >
             Mark all read
           </button>

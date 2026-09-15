@@ -5,7 +5,7 @@ import pendingIcon from '@/assets/cs-pending.png';
 import unassignedIcon from '@/assets/cs-unassigned.png';
 import prioIcon from '@/assets/cs-prio.png';
 import warnIcon from '@/assets/cs-warning.png';
-import { Search, Filter, Bot, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Search, Filter, AlertTriangle, ShieldAlert } from 'lucide-react';
 import {
   recentProgress,
   statusColors,
@@ -394,7 +394,13 @@ export default function EmployeeDashboard() {
     const q = search.trim().toLowerCase();
     return visible.filter((t) => {
       if (q && !t.id?.toLowerCase().includes(q) && !t.title?.toLowerCase().includes(q) && !t.customer?.toLowerCase().includes(q)) return false;
-      if (statusFilter !== 'All Status' && t.status !== statusFilter) return false;
+      if (statusFilter !== 'All Status') {
+        if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
+          if (!t.reassignmentRequested && t.status !== 'Pending Reassignment') return false;
+        } else if (t.status !== statusFilter) {
+          return false;
+        }
+      }
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       return true;
@@ -410,8 +416,6 @@ export default function EmployeeDashboard() {
   const escalatedTicket = visible.find((t) => t.priority === 'Critical' && t.status !== 'Resolved');
 
   const goMachine = () => navigate('/employee/machine');
-  const goAISupport = () => navigate('/ai-support');
-
 
   return (
     <div className="p-6">
@@ -430,16 +434,6 @@ export default function EmployeeDashboard() {
   </span>
 </h1>
           <p className="text-white/70 text-sm">Here&apos;s a summary of your equipment support tickets.</p>
-        </div>
-        <div className="relative z-10 flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={goAISupport}
-            className="px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl text-white text-sm font-semibold transition-all flex items-center gap-2"
-          >
-            <Bot size={20} />
-            AI Support Assistant
-          </button>
         </div>
       </div>
 

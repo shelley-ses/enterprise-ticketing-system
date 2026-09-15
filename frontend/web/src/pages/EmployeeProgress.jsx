@@ -11,7 +11,7 @@ import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { formatDisplayDate } from '@/utils/dateUtils';
 
-const HISTORY_STATUSES = ['Closed', 'Resolved'];
+const HISTORY_STATUSES = ['Closed', 'Resolved', 'Discarded', 'Discarded by Customer'];
 
 const getDisplayStatus = (ticket) => ticket.status;
 
@@ -207,7 +207,14 @@ export default function EmployeeProgress() {
                         className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
                       >
                         <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap align-middle">
-                          <span>{t.id}</span>
+                          <div className="flex flex-col min-w-0">
+                            <span>{t.id}</span>
+                            {t.reassignmentRequested && (
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 mt-0.5 w-fit">
+                                Reassigned
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-4 align-middle min-w-0">
                           <p className="font-semibold text-gray-900 text-sm truncate">{t.customer}</p>

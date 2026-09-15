@@ -110,7 +110,7 @@ export default function EmployeeMachine() {
       if (CLOSED_STATUSES.includes(t.status)) return false;
 
       if (statusFilter !== 'All Status') {
-        if (statusFilter === 'Pending Reassign') {
+        if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
           if (!t.reassignmentRequested) return false;
         } else if (t.status !== statusFilter) {
           return false;
@@ -290,7 +290,19 @@ export default function EmployeeMachine() {
                           <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
                         </td>
                         <td className="px-5 py-4">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${getDisplayStatus(t) === 'Proof Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : t.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' : t.status === 'Pending Evaluation' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{getDisplayStatus(t)}</span>
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                            getDisplayStatus(t) === 'Proof Rejected'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : t.reassignmentRequested
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : t.status === 'Pending'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : t.status === 'Pending Evaluation'
+                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                    : 'bg-blue-50 text-blue-700 border-blue-100'
+                          }`}>
+                            {t.reassignmentRequested ? 'Pending Reassignment' : getDisplayStatus(t)}
+                          </span>
                         </td>
                         <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(t.lastUpdate)}</td>
                       </tr>

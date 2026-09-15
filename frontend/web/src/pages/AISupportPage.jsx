@@ -5,6 +5,9 @@ import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTria
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
 import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
+import TitleCasingModal from '@/components/TitleCasingModal';
+import DuplicateTicketModal from '@/components/DuplicateTicketModal';
+import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 
 const formatTime = (iso) => {
   if (!iso) return '';
@@ -191,14 +194,20 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
   );
 }
 
-function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
+function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
   const [form, setForm] = useState(data || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [titleCasingData, setTitleCasingData] = useState(null);
+  const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
+  const [isTitleManuallyEdited, setIsTitleManuallyEdited] = useState(false);
 
   useEffect(() => {
     if (data) {
       setForm(data);
       setIsSubmitting(false);
+      setTitleCasingData(null);
+      setShowTitleCasingModal(false);
+      setIsTitleManuallyEdited(false);
     }
   }, [data, isOpen]);
 
@@ -206,9 +215,37 @@ function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
+
+    const summaryTrimmed = (form.problemSummary || '').trim();
+    // Only prompt for proper casing if the user manually edited the title
+    if (isTitleManuallyEdited && needsProperCasing(summaryTrimmed)) {
+      const proper = formatProperTitleCase(summaryTrimmed);
+      setTitleCasingData({
+        original: summaryTrimmed,
+        formatted: proper,
+      });
+      setShowTitleCasingModal(true);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await onSubmit(form);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmTitleCasing = async () => {
+    if (!titleCasingData) return;
+    const formatted = titleCasingData.formatted;
+    const updatedForm = { ...form, problemSummary: formatted };
+    setForm(updatedForm);
+    setShowTitleCasingModal(false);
+
+    setIsSubmitting(true);
+    try {
+      await onSubmit(updatedForm);
     } finally {
       setIsSubmitting(false);
     }
@@ -226,13 +263,38 @@ function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
         <div className="overflow-y-auto px-6 py-4 space-y-4 flex-1">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Machine Model</label>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                Machine / Equipment <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
+                list="review-machines-list"
                 value={form.machineModel || ''}
-                onChange={(e) => setForm({ ...form, machineModel: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const matched = machines.find(m => 
+                    m.machine_name?.toLowerCase() === val.toLowerCase() || 
+                    m.model?.toLowerCase() === val.toLowerCase()
+                  );
+                  setForm({ 
+                    ...form, 
+                    machineModel: val,
+                    machine_ID: matched ? matched.machine_ID : form.machine_ID 
+                  });
+                }}
+                placeholder="Select or enter machine..."
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
               />
+              <datalist id="review-machines-list">
+                {machines.map((m) => (
+                  <option key={m.machine_ID} value={m.machine_name}>
+                    {m.serial_number ? `${m.machine_name} (${m.serial_number})` : m.machine_name}
+                  </option>
+                ))}
+              </datalist>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Select the specific machine experiencing the problem. Tickets are tracked per machine.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Company Name</label>
@@ -289,7 +351,21 @@ function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
             <textarea
               rows={3}
               value={form.problemSummary || ''}
-              onChange={(e) => setForm({ ...form, problemSummary: e.target.value })}
+              onChange={(e) => {
+                setIsTitleManuallyEdited(true);
+                setForm({ ...form, problemSummary: e.target.value });
+              }}
+              onBlur={() => {
+                const trimmed = (form.problemSummary || '').trim();
+                if (isTitleManuallyEdited && needsProperCasing(trimmed)) {
+                  const proper = formatProperTitleCase(trimmed);
+                  setTitleCasingData({
+                    original: trimmed,
+                    formatted: proper,
+                  });
+                  setShowTitleCasingModal(true);
+                }
+              }}
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none"
             />
           </div>
@@ -329,6 +405,14 @@ function TicketReviewModal({ isOpen, data, onClose, onSubmit }) {
           </button>
         </div>
       </div>
+
+      <TitleCasingModal
+        isOpen={showTitleCasingModal}
+        originalTitle={titleCasingData?.original}
+        formattedTitle={titleCasingData?.formatted}
+        onConfirm={handleConfirmTitleCasing}
+        onCancel={() => setShowTitleCasingModal(false)}
+      />
     </div>
   );
 }
@@ -403,50 +487,20 @@ function AISupportPage() {
       .catch(err => console.warn("Failed to load ticket form options:", err));
   }, []);
 
+  useEffect(() => {
+    if (effectiveUser?.role && effectiveUser.role !== 'customer') {
+      if (effectiveUser.role === 'employee') {
+        navigate('/employee/dashboard', { replace: true });
+      } else if (effectiveUser.role === 'cs') {
+        navigate('/cs/dashboard', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [effectiveUser, navigate]);
+
   // Store per-conversation state
   const conversationStateRef = useRef({});
-
-  // Load all conversations from MongoDB
-  const fetchConversationsListOnly = useCallback(() => {
-    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
-      .then(res => {
-        if (res.data.success && res.data.conversations) {
-          setConversations(res.data.conversations);
-        }
-      })
-      .catch(err => {
-        console.error("Failed to refresh conversations list:", err);
-      });
-  }, [currentUserId]);
-
-  const fetchConversations = useCallback(() => {
-    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
-      .then(res => {
-        if (res.data.success && res.data.conversations) {
-          const fetched = res.data.conversations;
-          setConversations(fetched);
-          if (fetched.length > 0 && fetched[0].id) {
-            loadConversation(fetched[0].id);
-          } else {
-            handleNewChat();
-          }
-        } else {
-          handleNewChat();
-        }
-      })
-      .catch(err => {
-        console.error("Failed to load conversations:", err);
-        handleNewChat();
-      });
-  }, [currentUserId]);
-
-  useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
 
   // Load conversation state
   const loadConversation = useCallback((convId) => {
@@ -541,6 +595,80 @@ function AISupportPage() {
         setActiveConversationId(convId);
       });
   }, []);
+
+  const handleNewChat = useCallback(() => {
+    // Prevent creating multiple duplicate "New Conversation" entries in sidebar
+    const existingUnused = conversations.find(c => (c.title === 'New Conversation' || c.title === 'New Chat') && c.messageCount <= 2);
+    if (existingUnused && existingUnused.id) {
+      loadConversation(existingUnused.id);
+      return;
+    }
+
+    const id = `conv-${Date.now()}`;
+    setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 2 }, ...prev]);
+    setActiveConversationId(id);
+    setMessages([welcomeMessage, gatherDetailsMessage]);
+    setShowSuggestionChips(true);
+    setShowTicketCard(false);
+    setConversationPhase(0);
+    setEscalationTicketData(null);
+    conversationStateRef.current[id] = {
+      messages: [welcomeMessage, gatherDetailsMessage],
+      conversationPhase: 0,
+      showSuggestionChips: true,
+      showTicketCard: false,
+      escalationTicketData: null,
+    };
+  }, [conversations, loadConversation]);
+
+  // Load all conversations from MongoDB
+  const fetchConversationsListOnly = useCallback(() => {
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
+      .then(res => {
+        if (res.data.success && res.data.conversations) {
+          const cleanConvs = res.data.conversations.map(c => ({
+            ...c,
+            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : c.title
+          }));
+          setConversations(cleanConvs);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to refresh conversations list:", err);
+      });
+  }, [currentUserId]);
+
+  const fetchConversations = useCallback(() => {
+    axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
+      .then(res => {
+        if (res.data.success && res.data.conversations) {
+          const fetched = res.data.conversations.map(c => ({
+            ...c,
+            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : c.title
+          }));
+          setConversations(fetched);
+          if (fetched.length > 0 && fetched[0].id) {
+            loadConversation(fetched[0].id);
+          } else {
+            handleNewChat();
+          }
+        } else {
+          handleNewChat();
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load conversations:", err);
+        handleNewChat();
+      });
+  }, [currentUserId, loadConversation, handleNewChat]);
+
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
 
   // Save conversation state
   const saveConversationState = useCallback((convId, msgs, phase, showSugg, showCard, escData) => {
@@ -702,31 +830,6 @@ function AISupportPage() {
     }
   }, [handleSend]);
 
-  const handleNewChat = useCallback(() => {
-    // Prevent creating multiple duplicate "New Conversation" entries in sidebar
-    const existingUnused = conversations.find(c => (c.title === 'New Conversation' || c.title === 'New Chat') && c.messageCount <= 2);
-    if (existingUnused && existingUnused.id) {
-      loadConversation(existingUnused.id);
-      return;
-    }
-
-    const id = `conv-${Date.now()}`;
-    setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 2 }, ...prev]);
-    setActiveConversationId(id);
-    setMessages([welcomeMessage, gatherDetailsMessage]);
-    setShowSuggestionChips(true);
-    setShowTicketCard(false);
-    setConversationPhase(0);
-    setEscalationTicketData(null);
-    conversationStateRef.current[id] = {
-      messages: [welcomeMessage, gatherDetailsMessage],
-      conversationPhase: 0,
-      showSuggestionChips: true,
-      showTicketCard: false,
-      escalationTicketData: null,
-    };
-  }, [conversations, loadConversation]);
-
   const handleDeleteConversation = useCallback((e, convId) => {
     e.stopPropagation();
     axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
@@ -758,26 +861,89 @@ function AISupportPage() {
       });
   }, [activeConversationId, loadConversation, handleNewChat, currentUserId]);
 
+  const [duplicateModal, setDuplicateModal] = useState({
+    isOpen: false,
+    machineName: '',
+    ticketNo: '',
+    ticketStatus: '',
+    existingTicket: null,
+  });
+
   const generateRealReviewData = useCallback((escData) => {
     const activeConv = conversations.find(c => c.id === activeConversationId);
+
+    const greetingsList = [
+      'hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening',
+      'good day', 'greetings', 'yes', 'no', 'ok', 'okay', 'not working', 'help',
+      'please help', 'test', 'support', 'hi there', 'hello there'
+    ];
+
+    const isPureGreeting = (str) => {
+      if (!str) return true;
+      const clean = str.trim().toLowerCase().replace(/[^\w\s]/g, '');
+      return greetingsList.includes(clean);
+    };
+
+    const cleanProblemText = (str) => {
+      if (!str) return '';
+      let res = str.trim();
+      const lower = res.toLowerCase();
+      for (const g of greetingsList) {
+        if (lower.startsWith(g + ' ') || lower.startsWith(g + ',')) {
+          res = res.slice(g.length).replace(/^[\s,.\-!]+/, '');
+        }
+      }
+      // Strip leading question numbers, bullets, list markers e.g. "1.", "1)", "1 -", "Q1:", "Machine:"
+      res = res.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '');
+      return res.trim();
+    };
 
     const userMsgs = messages
       .filter(m => m.role === 'user' && typeof m.content === 'string')
       .map(m => m.content.trim())
-      .filter(txt => txt.length > 0 && !['hi', 'hello', 'hey', 'yes', 'no', 'ok', 'okay', 'not working'].includes(txt.toLowerCase()));
+      .filter(txt => txt.length > 0 && !isPureGreeting(txt));
 
-    const firstUserMsg = userMsgs.length > 0 ? userMsgs[0] : '';
-    const convoTitle = (activeConv?.title && activeConv.title !== 'New Conversation' && activeConv.title !== 'New Chat')
-      ? activeConv.title
-      : (firstUserMsg ? (firstUserMsg.length > 60 ? firstUserMsg.slice(0, 60) + '...' : firstUserMsg) : 'Support Request');
+    let resolvedTitle = escData?.title || escData?.problemSummary || '';
+    if (resolvedTitle) {
+      resolvedTitle = cleanProblemText(resolvedTitle);
+    }
+
+    if (!resolvedTitle || isPureGreeting(resolvedTitle)) {
+      if (activeConv?.title && !['New Conversation', 'New Chat', 'Support Inquiry'].includes(activeConv.title) && !isPureGreeting(activeConv.title)) {
+        resolvedTitle = cleanProblemText(activeConv.title);
+      }
+    }
+    if (!resolvedTitle || isPureGreeting(resolvedTitle)) {
+      const substantive = userMsgs.map(cleanProblemText).filter(txt => txt.length >= 3 && !isPureGreeting(txt));
+      // If substantive[0] is just a machine name and substantive[1] is the problem, combine them
+      if (substantive.length >= 2 && substantive[0].length < 30) {
+        resolvedTitle = `${substantive[0]} - ${substantive[1]}`;
+      } else if (substantive.length > 0) {
+        resolvedTitle = substantive[0];
+      }
+    }
+    if (!resolvedTitle || isPureGreeting(resolvedTitle)) {
+      resolvedTitle = 'Equipment Technical Support Request';
+    }
+
+    // Capitalize & apply proper title casing automatically for AI generated title
+    resolvedTitle = cleanProblemText(resolvedTitle);
+    if (resolvedTitle.length > 0) {
+      resolvedTitle = formatProperTitleCase(resolvedTitle);
+    }
+    const convoTitle = resolvedTitle.length > 70 ? resolvedTitle.slice(0, 70) + '...' : resolvedTitle;
 
     const userOrg = user?.company_name || user?.organization || user?.client_name || user?.company ||
       (user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : '') || 'Customer Organization';
 
     // ─── DYNAMIC MACHINE MODEL RESOLUTION ─────────────────────
     let model = escData?.machineModel;
+    let matchedMachineId = escData?.machine_ID || null;
+    let isExplicitMachine = false;
+
     if (model && model.trim() !== '' && model.toLowerCase() !== 'unknown machine' && model.toLowerCase() !== 'general equipment') {
-      model = model.trim();
+      model = cleanProblemText(model.trim());
+      isExplicitMachine = true;
     } else {
       model = null;
     }
@@ -793,23 +959,30 @@ function AISupportPage() {
       });
 
       if (matchedMachine) {
+        matchedMachineId = matchedMachine.machine_ID;
         const brandStr = matchedMachine.brand ? `${matchedMachine.brand} ` : '';
         const modelStr = matchedMachine.model ? `${matchedMachine.model} ` : '';
         model = `${brandStr}${modelStr}(${matchedMachine.machine_name})`.trim();
+        isExplicitMachine = true;
       }
     }
 
     // Fallback to user's chat message answers if no database match
     if (!model) {
       if (userMsgs.length >= 2 && userMsgs[1].length < 80) {
-        model = `${userMsgs[1]} ${userMsgs[0]}`.trim();
+        model = cleanProblemText(`${userMsgs[1]} ${userMsgs[0]}`);
+        isExplicitMachine = true;
       } else if (userMsgs.length >= 1 && userMsgs[0].length < 80) {
-        model = userMsgs[0];
+        model = cleanProblemText(userMsgs[0]);
+        isExplicitMachine = true;
       } else if (ticketOptions?.machines && ticketOptions.machines.length > 0) {
         const first = ticketOptions.machines[0];
+        matchedMachineId = first.machine_ID;
         model = `${first.brand || ''} ${first.model || ''} (${first.machine_name})`.trim();
+        isExplicitMachine = false;
       } else {
         model = 'Equipment Support Request';
+        isExplicitMachine = false;
       }
     }
 
@@ -828,6 +1001,8 @@ function AISupportPage() {
 
     return {
       machineModel: model,
+      machine_ID: matchedMachineId,
+      isExplicitMachine,
       companyName: userOrg,
       purchaseDate: new Date().toISOString().split('T')[0],
       problemSummary: convoTitle,
@@ -838,58 +1013,112 @@ function AISupportPage() {
   }, [conversations, activeConversationId, messages, user, ticketOptions]);
 
   const handleCreateTicket = useCallback(async () => {
-    try {
-      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
-      const ongoing = (existingTickets || []).find(t => {
-        const s = (t.status || '').toLowerCase();
-        return s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled';
-      });
+    const review = generateRealReviewData(escalationTicketData);
+    let targetMachineId = review.machine_ID || null;
+    const targetModel = (review.machineModel || '').trim().toLowerCase();
 
-      if (ongoing) {
-        const ticketNo = ongoing.ticket_ID ? (String(ongoing.ticket_ID).startsWith('TKT-') ? String(ongoing.ticket_ID) : `TKT-${String(ongoing.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
-        addMessage({
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: `Notice: You already have an active ongoing support ticket (**${ticketNo}** - Status: *${ongoing.status || 'Open'}*). To prevent duplicate entries, additional ticket creation is restricted until your current ticket is resolved.\n\nYou can view and track your ticket details under My Tickets.`,
-          timestamp: new Date().toISOString(),
-        });
-        setShowTicketCard(false);
-        return;
-      }
-    } catch (err) {
-      console.warn("Failed to check ongoing customer tickets:", err);
+    if (!targetMachineId && ticketOptions?.machines && targetModel) {
+      const found = ticketOptions.machines.find(m =>
+        m.machine_name?.toLowerCase().includes(targetModel) ||
+        m.model?.toLowerCase().includes(targetModel) ||
+        targetModel.includes(m.machine_name?.toLowerCase())
+      );
+      if (found) targetMachineId = found.machine_ID;
     }
 
-    setReviewData(generateRealReviewData(escalationTicketData));
+    // Duplicate check: only block pre-emptively if this machine was explicitly identified
+    if (review.isExplicitMachine) {
+      try {
+        const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+        
+        // Duplicate protection: only block if active ongoing ticket is for the SAME machine
+        const ongoingSameMachine = (existingTickets || []).find(t => {
+          const s = (t.status || '').toLowerCase();
+          const isActive = s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled' && s !== 'discarded';
+          if (!isActive) return false;
+
+          const isSameId = targetMachineId && t.machine_ID && Number(t.machine_ID) === Number(targetMachineId);
+          const tEquip = (t.equipment || t.machine_name || '').toLowerCase();
+          const isSameName = targetModel && tEquip && (tEquip.includes(targetModel) || targetModel.includes(tEquip));
+
+          return isSameId || isSameName;
+        });
+
+        if (ongoingSameMachine) {
+          const ticketNo = ongoingSameMachine.ticket_ID ? (String(ongoingSameMachine.ticket_ID).startsWith('TKT-') ? String(ongoingSameMachine.ticket_ID) : `TKT-${String(ongoingSameMachine.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+          const machineLabel = ongoingSameMachine.equipment || ongoingSameMachine.machine_name || review.machineModel || 'this machine';
+          addMessage({
+            id: `ai-${Date.now()}`,
+            role: 'ai',
+            content: `Notice: You already have an active ongoing support ticket for **${machineLabel}** (**${ticketNo}** - Status: *${ongoingSameMachine.status || 'Open'}*). Duplicate ticket creation for the same machine is restricted until resolved.\n\nOpening review form: If you have an issue with a **different machine**, please select that machine in the form.`,
+            timestamp: new Date().toISOString(),
+          });
+          setReviewData({
+            ...review,
+            machineModel: '',
+            machine_ID: null,
+          });
+          setShowReviewModal(true);
+          setShowTicketCard(false);
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed to check ongoing customer tickets:", err);
+      }
+    }
+
+    setReviewData(review);
     setShowReviewModal(true);
-  }, [currentUserId, escalationTicketData, generateRealReviewData, addMessage]);
+  }, [currentUserId, escalationTicketData, generateRealReviewData, ticketOptions, addMessage]);
 
   const handleSubmitTicket = useCallback(async (formData) => {
     try {
-      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
-      const ongoing = (existingTickets || []).find(t => {
-        const s = (t.status || '').toLowerCase();
-        return s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled';
-      });
-
-      if (ongoing) {
-        const ticketNo = ongoing.ticket_ID ? (String(ongoing.ticket_ID).startsWith('TKT-') ? String(ongoing.ticket_ID) : `TKT-${String(ongoing.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
-        setShowReviewModal(false);
-        alert(`Ongoing Ticket Protection: You already have an active ticket (${ticketNo} - Status: ${ongoing.status || 'Open'}). Duplicate ticket creation is blocked until your current ticket is resolved.`);
-        return;
-      }
-
       const options = await getTicketFormOptions().catch(() => null);
 
+      let matchedMachine = null;
       let machineId = 1;
       if (options?.machines && options.machines.length > 0) {
-        const found = options.machines.find(m =>
-          m.machine_name?.toLowerCase().includes((formData.machineModel || '').toLowerCase()) ||
-          m.model?.toLowerCase().includes((formData.machineModel || '').toLowerCase()) ||
-          ((formData.machineModel || '').toLowerCase().includes(m.machine_name?.toLowerCase()))
+        matchedMachine = options.machines.find(m =>
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().trim() === formData.machineModel.toLowerCase().trim()) ||
+          (m.machine_name && formData.machineModel && formData.machineModel.toLowerCase().includes(m.machine_name.toLowerCase())) ||
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().includes(formData.machineModel.toLowerCase())) ||
+          (m.model && formData.machineModel && formData.machineModel.toLowerCase().includes(m.model.toLowerCase()))
         );
-        if (found) machineId = found.machine_ID;
-        else machineId = options.machines[0].machine_ID;
+        if (matchedMachine) {
+          machineId = matchedMachine.machine_ID;
+        } else {
+          machineId = formData.machine_ID || options.machines[0].machine_ID;
+        }
+      }
+
+      // Check ongoing tickets for this user
+      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+      
+      // Duplicate protection: only block if active ticket is for the SAME machine
+      const ongoingSameMachine = (existingTickets || []).find(t => {
+        const s = (t.status || '').toLowerCase();
+        const isActive = s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled' && s !== 'discarded';
+        if (!isActive) return false;
+
+        const isSameId = matchedMachine && t.machine_ID && Number(t.machine_ID) === Number(matchedMachine.machine_ID);
+        const tEquip = (t.equipment || t.machine_name || '').trim().toLowerCase();
+        const cand = (formData.machineModel || '').trim().toLowerCase();
+        const isSameName = Boolean(cand && tEquip && (tEquip.includes(cand) || cand.includes(tEquip)));
+
+        return isSameId || isSameName;
+      });
+
+      if (ongoingSameMachine) {
+        const ticketNo = ongoingSameMachine.ticket_ID ? (String(ongoingSameMachine.ticket_ID).startsWith('TKT-') ? String(ongoingSameMachine.ticket_ID) : `TKT-${String(ongoingSameMachine.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+        const machineLabel = ongoingSameMachine.equipment || ongoingSameMachine.machine_name || formData.machineModel || 'this machine';
+        setDuplicateModal({
+          isOpen: true,
+          machineName: machineLabel,
+          ticketNo,
+          ticketStatus: ongoingSameMachine.status || 'Open',
+          existingTicket: ongoingSameMachine,
+        });
+        return;
       }
 
       let categoryId = 1;
@@ -911,9 +1140,13 @@ function AISupportPage() {
       }
 
       const activeConv = conversations.find(c => c.id === activeConversationId);
-      const ticketTitle = (activeConv?.title && activeConv.title !== 'New Conversation' && activeConv.title !== 'New Chat')
-        ? activeConv.title
-        : (formData.problemSummary || 'Support Ticket');
+      let ticketTitle = (formData.problemSummary || activeConv?.title || 'Support Ticket').trim();
+      ticketTitle = ticketTitle.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim();
+      if (ticketTitle.length > 0) {
+        ticketTitle = formatProperTitleCase(ticketTitle);
+      } else {
+        ticketTitle = 'Equipment Support Request';
+      }
 
       const payload = new FormData();
       payload.append('title', ticketTitle);
@@ -960,9 +1193,15 @@ function AISupportPage() {
       });
     } catch (err) {
       console.error('Failed to submit support ticket to enterprise ticketing system:', err);
-      alert(err?.response?.data?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.');
+      const errorMsg = err?.response?.data?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.';
+      addMessage({
+        id: `ai-${Date.now()}`,
+        role: 'ai',
+        content: `Ticket Submission Error: ${errorMsg}`,
+        timestamp: new Date().toISOString(),
+      });
     }
-  }, [addMessage, conversations, activeConversationId]);
+  }, [addMessage, conversations, activeConversationId, currentUserId]);
 
   const handleViewTicket = useCallback(() => {
     setShowSuccess(false);
@@ -1186,6 +1425,7 @@ function AISupportPage() {
       <TicketReviewModal
         isOpen={showReviewModal}
         data={reviewData}
+        machines={ticketOptions?.machines || []}
         onClose={() => setShowReviewModal(false)}
         onSubmit={handleSubmitTicket}
       />
@@ -1195,6 +1435,24 @@ function AISupportPage() {
         ticketNumber={ticketNumber}
         onViewTicket={handleViewTicket}
         onClose={handleCloseSuccess}
+      />
+
+      <DuplicateTicketModal
+        isOpen={duplicateModal.isOpen}
+        machineName={duplicateModal.machineName}
+        ticketNo={duplicateModal.ticketNo}
+        ticketStatus={duplicateModal.ticketStatus}
+        onClose={() => setDuplicateModal(prev => ({ ...prev, isOpen: false }))}
+        onSelectDifferentMachine={() => {
+          setDuplicateModal(prev => ({ ...prev, isOpen: false }));
+          setReviewData(prev => ({ ...prev, machineModel: '', machine_ID: null }));
+          setShowReviewModal(true);
+        }}
+        onViewTicket={() => {
+          setDuplicateModal(prev => ({ ...prev, isOpen: false }));
+          const targetId = duplicateModal.existingTicket?.ticket_ID || duplicateModal.ticketNo;
+          navigate('/messages', { state: { selectedTicketId: targetId } });
+        }}
       />
     </div>
   );

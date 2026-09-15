@@ -19,6 +19,7 @@ import { statusColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
+import { parseUTCDate } from '@/utils/dateUtils';
 
 const getStoredUser = () => {
   try {
@@ -28,6 +29,19 @@ const getStoredUser = () => {
   }
 };
 
+const formatTimeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const date = parseUTCDate(dateStr);
+  if (!date || isNaN(date.getTime())) return dateStr;
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
 
 export default function CustomerDashboard() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
@@ -104,12 +118,17 @@ export default function CustomerDashboard() {
         ...t,
         statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
       }));
-      setRecentTickets([...externalTickets, ...apiTickets]);
+      const combined = [...externalTickets, ...apiTickets].filter(
+        t => t.status !== 'Discarded' && t.status !== 'Discarded by Customer'
+      );
+      setRecentTickets(combined);
 
     } catch (error) {
       const external = getExternalTicketsFromStorage();
       if (external.length > 0) {
-        setRecentTickets(external.map(t => ({
+        setRecentTickets(external.filter(
+          t => t.status !== 'Discarded' && t.status !== 'Discarded by Customer'
+        ).map(t => ({
           ...t,
           statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
         })));

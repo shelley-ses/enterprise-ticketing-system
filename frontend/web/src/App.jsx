@@ -250,8 +250,15 @@ function App() {
               <Route path="/employee-progress" element={<Navigate to="/employee/progress" replace />} />
               <Route path="/employee-registration" element={<Navigate to="/employee/registration" replace />} />
 
-              {/* /ai-support — accessible by all authenticated roles */}
-              <Route path="/ai-support" element={<AISupportPage />} />
+              {/* /ai-support — accessible ONLY by customers */}
+              <Route
+                path="/ai-support"
+                element={
+                  <PrivateRoute role="customer">
+                    <AISupportPage />
+                  </PrivateRoute>
+                }
+              />
 
               {/* Customer Service (CS) Routes */}
               <Route

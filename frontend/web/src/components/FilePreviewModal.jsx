@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function FilePreviewModal({ file, onClose }) {
@@ -85,7 +86,7 @@ export default function FilePreviewModal({ file, onClose }) {
     return `https://docs.google.com/viewer?url=${encodeURIComponent(fullUrl)}&embedded=true`;
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-[1.5px] p-4 transition-all duration-300"
       onClick={onClose}
@@ -187,6 +188,7 @@ export default function FilePreviewModal({ file, onClose }) {
           </a>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
