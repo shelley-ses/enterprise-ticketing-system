@@ -338,8 +338,8 @@ export default function TicketDetailModal({
                   </div>
                 )}
 
-                {/* 3. Proof of Completion triggering button (all tickets) */}
-                {ticket.status !== 'Resolved' && ticket.status !== 'Pending Evaluation' && (
+                {/* 3. Proof of Completion card — only visible when resolving/resolved */}
+                {(statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
                   <div className="border border-gray-150 rounded-2xl p-5 bg-green-50/30 border-green-100 flex items-center justify-between flex-wrap gap-4">
                     <div className="max-w-md text-left">
                       {isProofRejected && (
@@ -349,10 +349,16 @@ export default function TicketDetailModal({
                         </div>
                       )}
                       <h4 className="text-field-label uppercase text-gray-800">
-                        {isProofRejected ? 'Re-upload Proof of Completion' : 'Proof of Completion Required'}
+                        {isProofRejected
+                          ? 'Re-upload Proof of Completion'
+                          : isInternal
+                          ? 'Proof of Completion (Optional for Internal Tickets)'
+                          : 'Proof of Completion Required'}
                       </h4>
                       <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                        Supporting documentation (PDF, DOC, or images up to 15MB each) must be verified before the ticket can be resolved.
+                        {isInternal
+                          ? 'Supporting documentation (PDF, PNG, DOCX up to 15MB each) is optional for internal tickets and can be attached if desired.'
+                          : 'Supporting documentation (PDF, DOC, or images up to 15MB each) must be verified before the ticket can be resolved.'}
                       </p>
                     </div>
                     <button
@@ -361,7 +367,7 @@ export default function TicketDetailModal({
                       className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-button rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-1.5 shrink-0"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                      {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
+                      {isProofRejected ? 'Re-upload Proof' : (isInternal ? 'Attach Proof Documents' : 'Upload Proof Documents')}
                     </button>
                   </div>
                 )}
@@ -389,7 +395,7 @@ export default function TicketDetailModal({
 
                         {statusDraft !== ticket.status && (
                           <div className="space-y-4">
-                            {statusDraft !== 'Resolved' && (
+                            {(statusDraft !== 'Resolved' || isInternal) && (
                               <>
                                 <div>
                                   <label htmlFor="status-remarks" className="block text-field-label uppercase text-gray-500 mb-1">Remarks/Notes * (Required on status change)</label>
@@ -424,20 +430,26 @@ export default function TicketDetailModal({
                               </>
                             )}
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (statusDraft !== 'Resolved' && !remarks.trim()) {
-                                  setErrorMessage('Remarks are required to change ticket status.');
-                                  return;
-                                }
-                                setErrorMessage('');
-                                setShowStatusConfirm(true);
-                              }}
-                              className="w-full py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-button rounded-xl transition-all shadow-md shadow-[#252578]/20"
-                            >
-                              Save Status Change
-                            </button>
+                            {statusDraft === 'Resolved' && !isInternal ? (
+                              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-field-value text-center">
+                                You must submit a Proof of Completion to resolve external tickets. Please click &quot;Upload Proof Documents&quot; in the card above.
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (statusDraft !== 'Resolved' && !remarks.trim()) {
+                                    setErrorMessage('Remarks are required to change ticket status.');
+                                    return;
+                                  }
+                                  setErrorMessage('');
+                                  setShowStatusConfirm(true);
+                                }}
+                                className="w-full py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-button rounded-xl transition-all shadow-md shadow-[#252578]/20"
+                              >
+                                {statusDraft === 'Resolved' ? 'Resolve Internal Ticket' : 'Save Status Change'}
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

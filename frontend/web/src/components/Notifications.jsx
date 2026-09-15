@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDisplayDate } from '@/utils/dateUtils';
-
 export default function Notifications({ notifications = [] }) {
   const navigate = useNavigate();
   const unreadCount = notifications.filter(n => {

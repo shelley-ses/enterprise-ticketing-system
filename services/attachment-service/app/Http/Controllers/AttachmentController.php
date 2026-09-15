@@ -267,4 +267,41 @@ class AttachmentController extends Controller
 
         return response()->json(['message' => 'Attachment not found.'], 404);
     }
+
+    /**
+     * Serve an attachment directly with correct Content-Type for preview.
+     */
+    public function serve(Request $request, $path)
+    {
+        $cleanPath = ltrim($path, '/');
+        if (!Storage::disk('public')->exists($cleanPath)) {
+            return response()->json(['message' => 'File not found'], 404);
+        }
+
+        $fullPath = Storage::disk('public')->path($cleanPath);
+        $mime = Storage::disk('public')->mimeType($cleanPath) ?: 'application/octet-stream';
+
+        return response()->file($fullPath, [
+            'Content-Type' => $mime,
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => 'GET, HEAD, OPTIONS',
+            'Cache-Control' => 'public, max-age=86400',
+        ]);
+    }
+
+    /**
+     * Download an attachment with proper Content-Disposition header.
+     */
+    public function download(Request $request, $path)
+    {
+        $cleanPath = ltrim($path, '/');
+        if (!Storage::disk('public')->exists($cleanPath)) {
+            return response()->json(['message' => 'File not found'], 404);
+        }
+
+        $filename = basename($cleanPath);
+        return Storage::disk('public')->download($cleanPath, $filename, [
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
 }

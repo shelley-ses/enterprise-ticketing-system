@@ -71,20 +71,11 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const requestUrl = originalRequest?.url ?? '';
 
-    if (error.response?.status === 403) {
-      console.error('Access forbidden:', error.response.data);
-    }
-
     if (error.response?.status === 429) {
       const retryAfter = error.response.headers?.['retry-after'];
-      console.warn('Too many requests, retry after:', retryAfter);
       error.isTooManyRequests = true;
       error.retryAfter = retryAfter;
       return Promise.reject(error);
-    }
-
-    if (error.response?.status === 422) {
-      console.error('Validation errors:', error.response.data.errors);
     }
 
     // Auto refresh token system
