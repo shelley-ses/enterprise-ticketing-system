@@ -1,63 +1,61 @@
 ---
 name: github-pr
-description: Formats, generates, and prepares GitHub Pull Requests following the repository's pull request template, coding invariants, and microservice guidelines.
+description: Commit completed repository work, create or reuse a governed Git branch, push it, and open the correctly based GitHub pull request. Use when the user asks to commit changes, prepare/open a PR, or promote staging to main; do not use to merge or bypass checks.
 ---
 
-# GitHub Pull Request Generator & Assistant
+# GitHub Pull Request
 
-Use this skill when preparing or creating GitHub pull requests (`/github-pr`) for this repository.
+Prepare a reviewable PR without bypassing repository governance. Root `AGENTS.md` and `.agents/rules/70-commits-pull-requests.md` remain authoritative.
 
-## Instructions for Creating PRs
+> **Repository Branch Mapping Note**: In this repository, `dev` is the active development/staging branch, and `main` is the protected production release branch. References to `staging` below apply directly to `dev`.
 
-1. **Check Git Status & Modified Files**:
-   Inspect the list of modified, added, or deleted files to identify the affected microservices and components:
-   - `frontend/web` (React 19 / Tailwind v4)
-   - `customer-service` (Port 8001 / Auth & Clients)
-   - `ticket-service` (Port 8002 / Core Tickets & SLAs)
-   - `employee-service` (Port 8008 / Employee Management)
-   - `attachment-service` (Port 8006 / ClamAV Uploads)
-   - `messaging-service` (Port 8007 / MongoDB & Reverb)
-   - `analytics-service` (Port 8004 / CSAT & Reports)
-   - `notification-service` (Port 8003 / Email & Push)
-   - `AI-service` (Port 8005 / Gemini AI Support)
-   - `docker-compose` / `nginx.conf` / Environment configs
+## Inspect before mutating
 
-2. **Template Compliance**:
-   Structure the PR description to match `.github/pull_request_template.md`:
-   - **Description**: Clear motivation, problem statement, and solution.
-   - **Type of Change**: `[x]` Bug fix, `[x]` New feature, `[x]` Refactoring, etc.
-   - **Microservices & Components Affected**: Check all relevant boxes.
-   - **Database & Environment Changes**: Specify if migrations or `.env` changes are required.
-   - **How Has This Been Tested?**: Step-by-step reproduction and verification steps.
-   - **Pre-Merge Checklist**: Ensure code adheres to standards in `.agents/rules/coding-standards.md`.
+1. Read the repository rules, then inspect `git status --short`, the current branch, `git diff`, `git diff --cached`, remotes, and recent commits.
+2. Confirm `gh auth status` and that `origin` points to the intended GitHub repository. Never create a repository, fork, or remote unless the user explicitly requests it.
+3. Detect an empty repository. Do not improvise the bootstrap exception: report that `main` needs its one-time initial commit and `staging` (`dev`) branch, and obtain explicit authorization for those remote mutations.
 
-3. **PR Formatting Example**:
-   ```markdown
-   ## Description
-   Fixed AI conversation title prefixes and enabled discarded ticket visibility in ticket history.
+## Choose the branch and base
 
-   Closes #
+- Normal work: branch from current `staging` (`dev`) as `feature/<slug>` or `feat/<slug>`; use `fix/`, `chore/`, `docs/`, `refactor/`, `test/`, or `ci/` when that type is more accurate. Target `staging` (`dev`).
+- Urgent production work: branch from current `main` using the same typed prefixes and target `main` directly. Preserve the required checks and pull-request review; direct pushes remain prohibited.
+- If working changes are already present on `main` or `staging` (`dev`), create the work branch before committing so the protected branch stays unchanged.
+- If already on an allowed work branch, reuse it unless it is unrelated to the change.
+- Promotion: a clean `staging` (`dev`) branch targets `main`; do not add a promotion-only commit. An allowed typed branch based on current `main` may also target `main` for an urgent direct release.
+- Refuse a PR from `main`, an untyped branch into `main`, detached HEAD, or a branch with unrelated history.
 
-   ---
+Fetch before branching and ensure the chosen base exists on `origin`. Use explicit base/head flags throughout; never infer `main` from GitHub's default branch.
 
-   ## Type of Change
-   - [x] 🐛 Bug fix (non-breaking change fixing an issue)
-   - [ ] ✨ New feature (non-breaking change adding functionality)
-   - [ ] 💥 Breaking change (fix or feature causing existing functionality to change)
-   - [x] ♻️ Refactoring / Technical Debt (code reorganization with no behavioral change)
-   - [ ] 📝 Documentation update (changes to `docs/` or README)
-   - [ ] ⚙️ DevOps / Infrastructure (`docker-compose`, Nginx, CI/CD)
+## Commit if needed
 
-   ---
+If the branch has uncommitted intended work:
 
-   ## Microservices & Components Affected
-   - [x] `frontend/web` (React 19 / Tailwind v4)
-   - [ ] `customer-service` (Port 8001 / Auth & Clients)
-   - [x] `ticket-service` (Port 8002 / Core Tickets & SLAs)
-   - [ ] `attachment-service` (Port 8006 / ClamAV Uploads)
-   - [ ] `messaging-service` (Port 8007 / MongoDB & Reverb)
-   - [ ] `analytics-service` (Port 8004 / CSAT & Reports)
-   - [ ] `notification-service` (Port 8003 / Email & Push)
-   - [x] `AI-service` (Port 8005 / Gemini AI Support)
-   - [ ] `docker-compose` / `nginx.conf` / Environment configs
+1. Run applicable tests and verification commands (`php artisan test` or linting for modified microservices).
+2. Review for credentials and sensitive output. Inspect generated files and lockfile changes. Never stage `.env` files.
+3. Stage only intended paths. Preserve unrelated changes and never use destructive cleanup.
+4. Review `git diff --cached --check` and `git diff --cached`.
+5. Commit with `type(scope): imperative summary`. Always wrap commit messages in single quotes `'...'` or use `git commit -F <file>` to prevent PowerShell/Bash variable expansion of `$` (e.g. `$100,000`) or stripping of backticks. Do not amend or rewrite existing commits unless explicitly authorized.
+
+If there is no uncommitted work, require at least one commit ahead of the base. Stop rather than create an empty commit.
+
+## Safe PR body & title formatting
+
+To prevent shells (especially Windows PowerShell) from stripping variables (`$100` -> empty), mangling markdown backticks, or truncating content:
+- **Mandatory `--body-file`**: NEVER pass inline multi-line markdown using `--body "..."`. Always write the formatted markdown body into a temporary scratch file (e.g., in `.gemini/scratch/pr_body.md` or a local temp file) and pass `--body-file <path-to-file>`.
+- **Single-quoted titles**: Wrap titles in single quotes (e.g., `--title 'feat(core): support $100,000 baseline'`) so dollar signs and special characters are preserved verbatim.
+
+## Push and open the PR
+
+Pushing and opening a PR are external writes. The user's explicit request to create/open a PR authorizes both; otherwise pause for authorization immediately before pushing.
+
+1. Push without force: `git push --set-upstream origin <head>`.
+2. Check for an existing open PR with `gh pr list --head <head> --state open --json url,baseRefName`. Reuse and report it instead of creating a duplicate; do not silently retarget an existing PR.
+3. Create with explicit branches:
+   ```bash
+   gh pr create --base <base> --head <head> --title '<title>' --body-file <temp-body-file>
    ```
+4. The body follows `.github/pull_request_template.md` and records summary, safety impact, verification, generated artifacts/docs, and TBDs.
+5. Clean up any temporary scratch files.
+6. Return the PR URL, head/base, commit SHA, and checks performed. Do not merge, enable auto-merge, delete branches, or bypass checks.
+
+Official command behavior: https://cli.github.com/manual/gh_pr_create

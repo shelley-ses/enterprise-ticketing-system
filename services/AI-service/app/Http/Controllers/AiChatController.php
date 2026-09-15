@@ -32,49 +32,53 @@ class AiChatController extends Controller
         $userId = $validated['user_id'] ?? null;
         $incomingMessages = $validated['messages'];
 
-        // Retrieve or initialize conversation record
-        $conversation = AiConversation::find($convId);
-        if (!$conversation) {
-            $title = $this->extractMeaningfulTitle($incomingMessages);
-
-            $conversation = new AiConversation([
-                'id' => $convId,
-                'user_id' => $userId,
-                'title' => $title,
-                'status' => 'active',
-                'messages' => [],
-            ]);
-        } elseif ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title)) {
-            $updatedTitle = $this->extractMeaningfulTitle($incomingMessages);
-            if ($updatedTitle !== 'Support Inquiry') {
-                $conversation->title = $updatedTitle;
-            }
-        }
-
         // Call Gemini Service
         $result = $this->geminiService->generateResponse($incomingMessages, $convId);
 
-        // Append latest exchange
-        $aiTimestamp = now()->toIso8601String();
-        $aiMsgRecord = [
-            'id' => 'ai-' . round(microtime(true) * 1000),
-            'role' => 'ai',
-            'content' => $result['content'],
-            'timestamp' => $aiTimestamp,
-        ];
+        // Retrieve or initialize conversation record and persist
+        try {
+            $conversation = AiConversation::find($convId);
+            if (!$conversation) {
+                $title = $this->extractMeaningfulTitle($incomingMessages);
 
-        $allMessages = array_merge($incomingMessages, [$aiMsgRecord]);
-        $conversation->messages = $allMessages;
-
-        if ($result['escalate']) {
-            $conversation->status = 'escalated';
-            $conversation->escalation_data = $result['ticket_data'];
-            if (!empty($result['ticket_data']['title']) && ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title))) {
-                $conversation->title = $result['ticket_data']['title'];
+                $conversation = new AiConversation([
+                    'id' => $convId,
+                    'user_id' => $userId,
+                    'title' => $title,
+                    'status' => 'active',
+                    'messages' => [],
+                ]);
+            } elseif ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title)) {
+                $updatedTitle = $this->extractMeaningfulTitle($incomingMessages);
+                if ($updatedTitle !== 'Support Inquiry') {
+                    $conversation->title = $updatedTitle;
+                }
             }
-        }
 
-        $conversation->save();
+            // Append latest exchange
+            $aiTimestamp = now()->toIso8601String();
+            $aiMsgRecord = [
+                'id' => 'ai-' . round(microtime(true) * 1000),
+                'role' => 'ai',
+                'content' => $result['content'],
+                'timestamp' => $aiTimestamp,
+            ];
+
+            $allMessages = array_merge($incomingMessages, [$aiMsgRecord]);
+            $conversation->messages = $allMessages;
+
+            if ($result['escalate']) {
+                $conversation->status = 'escalated';
+                $conversation->escalation_data = $result['ticket_data'];
+                if (!empty($result['ticket_data']['title']) && ($conversation->title === 'Support Inquiry' || $this->isGreetingOnly($conversation->title))) {
+                    $conversation->title = $result['ticket_data']['title'];
+                }
+            }
+
+            $conversation->save();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to save AI conversation: ' . $e->getMessage());
+        }
 
         return response()->json([
             'success' => true,
