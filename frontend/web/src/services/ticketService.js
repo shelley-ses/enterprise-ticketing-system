@@ -801,13 +801,23 @@ export const getEmployeeProfile = async () => {
 };
 
 export const getWorklogs = async (params = {}) => {
-  const response = await ticketClient.get('/employee/worklogs', { params });
-  return response.data;
+  try {
+    const response = await employeeClient.get('/employee/worklogs', { params });
+    return response.data;
+  } catch (err) {
+    const response = await ticketClient.get('/employee/worklogs', { params });
+    return response.data;
+  }
 };
 
 export const saveWorkLog = async (payload) => {
-  const response = await ticketClient.post('/employee/worklogs', payload);
-  return response.data;
+  try {
+    const response = await employeeClient.post('/employee/worklogs', payload);
+    return response.data;
+  } catch (err) {
+    const response = await ticketClient.post('/employee/worklogs', payload);
+    return response.data;
+  }
 };
 
 export const getNotifications = async () => {
@@ -940,4 +950,4 @@ export const toggleEscalationRule = async (id) => {
 export const deleteEscalationRule = async (id) => {
   const response = await ticketClient.delete(`/superadmin/escalation-rules/${id}`);
   return response.data;
-};
+};

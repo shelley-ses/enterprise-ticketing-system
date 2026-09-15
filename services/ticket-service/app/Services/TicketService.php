@@ -874,6 +874,7 @@ class TicketService
             'ticket_type' => $ticket->ticket_type ?? 'External',
             'is_internal' => (bool)$ticket->is_internal,
             'requested_by' => $ticket->requested_by,
+            'worklogs' => DB::table('work_logs')->where('ticket_id', $ticketId)->orderBy('log_date', 'desc')->orderBy('created_at', 'desc')->get(),
         ];
     }
 

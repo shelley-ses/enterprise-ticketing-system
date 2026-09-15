@@ -8,6 +8,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import SkeletonLoader from '@/components/SkeletonLoader';
+import { formatDisplayDate, formatRelativeTime } from '@/utils/dateUtils';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -123,15 +124,7 @@ export default function Notifications() {
 
   const formatTimeAgo = (dateStr) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatDisplayDate(dateStr);
   };
 
   return (

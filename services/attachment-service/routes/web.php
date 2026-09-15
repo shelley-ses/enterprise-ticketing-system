@@ -16,3 +16,6 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::get('/storage/{path}', [\App\Http\Controllers\AttachmentController::class, 'serve'])->where('path', '.*');
+Route::get('/download/{path}', [\App\Http\Controllers\AttachmentController::class, 'download'])->where('path', '.*');

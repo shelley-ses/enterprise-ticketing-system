@@ -235,8 +235,7 @@ export function AuthProvider({ children }) {
       setIsLoading(true);
       try {
         await revalidateSession();
-      } catch (err) {
-        console.error('Auth initialization error:', err);
+      } catch {
         applyUnauthenticated(setUser, setIsAuthenticated);
       } finally {
         setIsLoading(false);
@@ -424,8 +423,8 @@ export function AuthProvider({ children }) {
         {},
         { withCredentials: true, headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {} }
       );
-    } catch (err) {
-      console.warn('Backend logout cleanup failed:', err);
+    } catch {
+      // Background logout cleanup failed silently
     } finally {
       localStorage.removeItem('user');
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
@@ -523,8 +522,8 @@ export function AuthProvider({ children }) {
     const sendHeartbeat = async () => {
       try {
         await axiosInstance.post('/heartbeat');
-      } catch (err) {
-        console.warn('Failed to send heartbeat presence ping:', err);
+      } catch {
+        // Silent failure for heartbeat presence ping
       }
     };
 

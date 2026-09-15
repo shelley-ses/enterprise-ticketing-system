@@ -29,7 +29,16 @@ class TicketNotificationController extends Controller
             ->where('recipient_id', $recipientId)
             ->where('recipient_type', $recipientType)
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->get()
+            ->map(function ($n) {
+                if (!empty($n->created_at)) {
+                    $n->created_at = \Carbon\Carbon::parse($n->created_at)->toISOString();
+                }
+                if (!empty($n->updated_at)) {
+                    $n->updated_at = \Carbon\Carbon::parse($n->updated_at)->toISOString();
+                }
+                return $n;
+            });
 
         $unreadCount = DB::table('notifications')
             ->where('recipient_id', $recipientId)

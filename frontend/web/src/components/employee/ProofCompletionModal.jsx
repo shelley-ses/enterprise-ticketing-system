@@ -66,6 +66,7 @@ export default function ProofCompletionModal({
 
   if (!ticket) return null;
 
+  const isInternal = Boolean(ticket?.title?.startsWith('[Internal]') || ticket?.is_internal || ticket?.ticket_type === 'Internal' || ticket?.type === 'Internal');
   const isProofRejected = ticket.proofRejected === true && ticket.status === 'In Progress';
 
   // Handle file validation (max 15MB each, allowed image/pdf/doc)
@@ -111,8 +112,10 @@ export default function ProofCompletionModal({
     setSuccessMessage('');
 
     const numericId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+    const targetStatus = isInternal ? 'Resolved' : 'Pending Evaluation';
     const formData = new FormData();
     formData.append('is_proof', 'true');
+    formData.append('status', targetStatus);
     formData.append('remarks', remarks.trim());
     proofFiles.forEach((file) => {
       formData.append('attachments[]', file);
@@ -122,10 +125,10 @@ export default function ProofCompletionModal({
       await updateEmployeeTicket(numericId, formData);
       
       if (typeof onStatusChange === 'function') {
-        onStatusChange(ticket.id, 'Pending Evaluation');
+        onStatusChange(ticket.id, targetStatus);
       }
 
-      setSuccessMessage('Proof of completion submitted successfully! Status updated to Pending Evaluation.');
+      setSuccessMessage(`Proof of completion submitted successfully! Status updated to ${targetStatus}.`);
       setErrorMessage('');
       setProofFiles([]);
       
@@ -176,7 +179,7 @@ export default function ProofCompletionModal({
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
           <h2 className="text-xl font-bold text-gray-900 leading-snug">
-            {isProofRejected ? 'Re-upload Proof of Completion' : 'Upload Proof of Completion'}
+            {isProofRejected ? 'Re-upload Proof of Completion' : (isInternal ? 'Upload Proof of Completion (Optional)' : 'Upload Proof of Completion')}
           </h2>
           <p className="text-xs text-gray-500 mt-1">Ticket ID: {ticket.id} · {ticket.title}</p>
         </div>

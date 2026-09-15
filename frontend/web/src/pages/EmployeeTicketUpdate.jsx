@@ -53,6 +53,9 @@ export default function EmployeeTicketUpdate() {
     try {
       const details = await getTicketDetails(numericId);
       setTicket(details);
+      if (Array.isArray(details?.worklogs)) {
+        setSavedWorkLogs(details.worklogs);
+      }
       // Only reset draft status if user hasn't modified it
       if (!statusDraft) {
         setStatusDraft(details.status);
@@ -376,11 +379,14 @@ export default function EmployeeTicketUpdate() {
                   <h3 className="text-sm font-bold text-gray-800">
                     {isProofRejected
                       ? 'Re-upload Proof of Completion'
+                      : isInternal
+                      ? 'Proof of Completion (Optional for Internal Tickets)'
                       : 'Proof of Completion Required'}
                   </h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    Supporting documentation (PDF, DOC, or images up to 15MB each) must be
-                    verified before the ticket can be resolved.
+                    {isInternal
+                      ? 'Supporting documentation (PDF, PNG, DOCX up to 15MB each) is optional for internal tickets and can be attached if desired.'
+                      : 'Supporting documentation (PDF, DOC, or images up to 15MB each) must be verified before the ticket can be resolved.'}
                   </p>
                 </div>
                 {ticket.reassignmentRequested ? (
@@ -396,7 +402,7 @@ export default function EmployeeTicketUpdate() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
-                    {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
+                    {isProofRejected ? 'Re-upload Proof' : (isInternal ? 'Attach Proof Documents' : 'Upload Proof Documents')}
                   </button>
                 )}
 
@@ -454,7 +460,7 @@ export default function EmployeeTicketUpdate() {
 
                      {statusDraft !== ticket.status && (
                       <div className="space-y-4">
-                        {statusDraft !== 'Resolved' && (
+                        {(statusDraft !== 'Resolved' || isInternal) && (
                           <>
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 mb-1.5">
@@ -508,16 +514,16 @@ export default function EmployeeTicketUpdate() {
                           </>
                         )}
 
-                        {statusDraft === 'Resolved' ? (
+                        {statusDraft === 'Resolved' && !isInternal ? (
                           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-xs font-semibold text-center">
-                            You must submit a Proof of Completion to resolve. Please click &quot;Upload Proof Documents&quot; in the card above.
+                            You must submit a Proof of Completion to resolve external tickets. Please click &quot;Upload Proof Documents&quot; in the card above.
                           </div>
                         ) : (
                           <button
                             type="button"
                             disabled={isSaving}
                             onClick={() => {
-                              if (statusDraft !== 'Resolved' && !remarks.trim()) {
+                              if (!remarks.trim()) {
                                 setErrorMessage('Remarks are required to change ticket status.');
                                 return;
                               }
@@ -526,7 +532,7 @@ export default function EmployeeTicketUpdate() {
                             }}
                             className="w-full py-3 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isSaving ? 'Saving...' : 'Save Status Change'}
+                            {isSaving ? 'Saving...' : (statusDraft === 'Resolved' ? 'Resolve Internal Ticket' : 'Save Status Change')}
                           </button>
                         )}
                       </div>
@@ -705,12 +711,12 @@ export default function EmployeeTicketUpdate() {
                         log_date: workLogDate,
                       };
                       await saveWorkLog(payload);
-                      setSavedWorkLogs(prev => [...prev, payload]);
                       setWorkLogTask('');
                       setWorkLogHours('');
                       setWorkLogDate(new Date().toISOString().split('T')[0]);
                       setWorkLogSuccess('Work log saved successfully.');
                       setTimeout(() => setWorkLogSuccess(''), 3000);
+                      await loadTicketData();
                     } catch (err) {
                       setWorkLogError(err?.response?.data?.message || 'Failed to save work log.');
                     } finally {
