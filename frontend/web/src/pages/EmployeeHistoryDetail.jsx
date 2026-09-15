@@ -327,7 +327,10 @@ export default function EmployeeHistoryDetail() {
                     </span>
                     <span>{formatDisplayDate(evt.timestamp)}</span>
                   </div>
-                  <p className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2.5 rounded-lg border border-gray-100/50">
+                  <p
+                    className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2.5 rounded-lg border border-gray-100/50 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                    style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                  >
                     {evt.text}
                   </p>
                 </div>

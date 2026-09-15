@@ -8,6 +8,7 @@ import {
   getCSIncomingTickets,
   getDepartments,
 } from '@/services/ticketService';
+import { formatDisplayDate } from '@/utils/dateUtils';
 const HISTORY_STATUSES = ['Closed', 'Resolved'];
 
 const getDisplayStatus = (ticket) => ticket.status;
@@ -23,7 +24,6 @@ export default function CSHistory() {
   const [category, setCategory] = useState('All Categories');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   const loadStaticData = useCallback(async () => {
     try {
@@ -164,9 +164,8 @@ export default function CSHistory() {
   };
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-2">
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h1 className="text-3xl font-bold text-[#252578]">Ticket History</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
@@ -190,11 +189,11 @@ export default function CSHistory() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8">
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
           <table className="w-full">
             <tbody>
               <SkeletonLoader variant="table-row" />
@@ -207,73 +206,43 @@ export default function CSHistory() {
         </div>
       ) : (
         <>
-          {/* Search & Filter Toggle */}
-          <div className="flex items-center gap-3 mb-4 w-full">
-            <div className="relative flex-1">
-              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search history by ID, customer, title..."
-                className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-              />
-            </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-            >
-              <Filter size={16} />
-              Filters
-            </button>
-          </div>
-
-          {/* Collapsible Filters */}
-          {showFilters && (
-            <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-              >
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search history by ID, customer, title..." className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
                 <option value="All Status">All Statuses</option>
                 <option value="Resolved">Resolved</option>
                 <option value="Closed">Closed</option>
               </select>
-
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-              >
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
                 {categories.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
-          )}
+          </div>
 
-          {/* Table */}
-          <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
-            <div className="flex items-center justify-between mb-5">
+          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
               <h2 className="text-xl font-semibold text-[#252578]">Completed Logs</h2>
               <div className="text-sm text-gray-500">{filtered.length} tickets</div>
             </div>
 
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm text-left">
-                <thead>
-                  <tr className="text-gray-500 border-b border-gray-100">
-                    <th className="py-4 px-4 font-semibold">Ticket ID</th>
-                    <th className="py-4 px-4 font-semibold">Customer</th>
-                    <th className="py-4 px-4 font-semibold">Type</th>
-                    <th className="py-4 px-4 font-semibold">Title</th>
-                    <th className="py-4 px-4 font-semibold">Category</th>
-                    <th className="py-4 px-4 font-semibold">Status</th>
-                    <th className="py-4 px-4 font-semibold">Date Submitted</th>
+                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-5 py-4">Ticket ID</th>
+                    <th className="px-5 py-4">Customer</th>
+                    <th className="px-5 py-4">Type</th>
+                    <th className="px-5 py-4">Title</th>
+                    <th className="px-5 py-4">Category</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Date Submitted</th>
                   </tr>
                 </thead>
 
-                <tbody className="text-gray-700">
+                <tbody className="divide-y divide-gray-100 text-gray-700">
                   {paginated.map((t) => (
                     <tr key={t.id} className="hover:bg-gray-50 transition-all cursor-pointer" onClick={() => handleRowAction(t)}>
                       <td className="py-4 px-4 font-medium">{t.id}</td>
@@ -294,7 +263,7 @@ export default function CSHistory() {
                            'bg-gray-100 text-gray-700'
                         }`}>{getDisplayStatus(t)}</span>
                       </td>
-                      <td className="py-4 px-4 text-gray-500">{t.date}</td>
+                      <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date)}</td>
                     </tr>
                   ))}
                 </tbody>

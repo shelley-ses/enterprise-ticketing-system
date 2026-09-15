@@ -1,6 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --text-modal-title: 1.25rem;
+  --text-modal-title--line-height: 1.75rem;
+  --text-modal-title--font-weight: 700;
+  --text-field-label: 0.75rem;
+  --text-field-label--line-height: 1rem;
+  --text-field-label--font-weight: 600;
+  --text-field-label--letter-spacing: 0.05em;
+  --text-field-value: 0.875rem;
+  --text-field-value--line-height: 1.25rem;
+  --text-field-value--font-weight: 600;
+  --text-timestamp: 0.75rem;
+  --text-timestamp--line-height: 1rem;
+  --text-timestamp--font-weight: 500;
+  --text-badge: 0.75rem;
+  --text-badge--line-height: 1rem;
+  --text-badge--font-weight: 600;
+  --text-button: 0.875rem;
+  --text-button--line-height: 1.25rem;
+  --text-button--font-weight: 600;
+}
+
 /* Glassmorphism highlight for active sidebar items */
 .glass-highlight {
   background: rgba(255, 255, 255, 0.1);

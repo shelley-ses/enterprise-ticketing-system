@@ -10,6 +10,7 @@ import {
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -47,10 +48,8 @@ export default function EmployeeMachine() {
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
-  const [sortPriority, setSortPriority] = useState('Priority');
 
   const [typeFilter, setTypeFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   // Modal states
   const [infoTicket, setInfoTicket] = useState(null);
@@ -135,11 +134,9 @@ export default function EmployeeMachine() {
       return true;
     });
 
-    if (sortPriority === 'Priority') {
-      list = sortTicketsByPriority(list, 'desc');
-    }
+    list = sortTicketsByPriority(list, 'desc');
     return list;
-  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority, typeFilter]);
+  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, typeFilter]);
 
   const openTicketFlow = (t) => {
     setInfoTicket(t);
@@ -181,11 +178,10 @@ export default function EmployeeMachine() {
   };
 
   return (
-    <div className="p-6">
-      {/* Page Header */}
-      <div className="mb-6 flex flex-col gap-2">
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-[#252578]">Assigned Ticket</h1>
+          <h1 className="text-3xl font-bold text-[#252578]">Assigned Ticket</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
             {['all', 'external', 'internal'].map((type) => (
               <button
@@ -209,114 +205,67 @@ export default function EmployeeMachine() {
       </div>
 
       {loadError && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
           {loadError}
         </div>
       )}
 
-
-
-      <div className="bg-white rounded-xl shadow-md p-6">
-        {loading ? (
+      {loading ? (
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
           <div className="space-y-4">
             <SkeletonLoader variant="ticket-card" />
             <SkeletonLoader variant="ticket-card" />
             <SkeletonLoader variant="ticket-card" />
           </div>
-        ) : (
-          <>
-            {/* Search & Filter Toggle */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  placeholder="Search ID, title, customer..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-                />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+              <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+              <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                <option value="All Status">All Status</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Pending">Pending</option>
+                <option value="Pending Evaluation">Pending Evaluation</option>
+                <option value="Pending Reassign">Pending Reassign</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Closed">Closed</option>
+                <option value="Reopened">Reopened</option>
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                <option value="All Category">All Category</option>
+                <option value="MRI">MRI</option>
+                <option value="CT Scan">CT Scan</option>
+                <option value="Ultrasound">Ultrasound</option>
+                <option value="X-Ray">X-Ray</option>
+                <option value="Ventilator">Ventilator</option>
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                <option value="All Priority">All Priority</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Filter size={16} />
-                Filters
-              </button>
             </div>
-
-            {/* Collapsible Filters */}
-            {showFilters && (
-              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-                <select
-                  className={selectClass}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="All Status">All Status</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Pending Evaluation">Pending Evaluation</option>
-                  <option value="Pending Reassign">Pending Reassign</option>
-                  <option value="Resolved">Resolved</option>
-                  <option value="Closed">Closed</option>
-                  <option value="Reopened">Reopened</option>
-                </select>
-
-                <select
-                  className={selectClass}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  <option value="All Category">All Category</option>
-                  <option value="MRI">MRI</option>
-                  <option value="CT Scan">CT Scan</option>
-                  <option value="Ultrasound">Ultrasound</option>
-                  <option value="X-Ray">X-Ray</option>
-                  <option value="Ventilator">Ventilator</option>
-                </select>
-
-                <select
-                  className={selectClass}
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  <option value="All Priority">All Priority</option>
-                  <option value="Critical">Critical</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                </select>
-
-                <select
-                  className={selectClass}
-                  value={sortPriority}
-                  onChange={(e) => setSortPriority(e.target.value)}
-                >
-                  <option value="Priority">Sort: Default</option>
-                  <option value="Standard">Sort: Standard</option>
-                </select>
-              </div>
-            )}
-
-            {/* List */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-gray-100 text-gray-400 text-xs font-bold uppercase tracking-wider">
-                    <th className="pb-3 pl-4">Ticket ID</th>
-                    <th className="pb-3 px-4">Customer</th>
-                    <th className="pb-3 px-4">Type</th>
-                    <th className="pb-3 px-4">Subject / Title</th>
-                    <th className="pb-3 px-4">Category</th>
-                    <th className="pb-3 px-4">Priority</th>
-                    <th className="pb-3 px-4">Status</th>
-                    {/* <th className="pb-3 px-4">SLA Status</th> */}
-                    <th className="pb-3 px-4">Last Updated</th>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left" style={{ minWidth: '900px' }}>
+                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-5 py-4">Ticket ID</th>
+                    <th className="px-5 py-4">Customer</th>
+                    <th className="px-5 py-4">Type</th>
+                    <th className="px-5 py-4">Title</th>
+                    <th className="px-5 py-4">Category</th>
+                    <th className="px-5 py-4">Priority</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Last Updated</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50 text-gray-700 text-sm">
+                <tbody className="divide-y divide-gray-100">
                   {filtered.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-12 text-gray-400 italic">
@@ -330,71 +279,34 @@ export default function EmployeeMachine() {
                         onClick={() => openTicketFlow(t)}
                         className="hover:bg-gray-55/60 cursor-pointer transition-colors"
                       >
-                        <td className="py-4 pl-4 font-normal text-[#252578] text-sm whitespace-nowrap">
-                          {t.id}
+                        <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap">{t.id}</td>
+                        <td className="px-5 py-4 text-sm text-gray-600 truncate max-w-[12rem]">{t.customer}</td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${isInternalTicket(t) ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{getTicketTypeLabel(t)}</span>
                         </td>
-                        <td className="py-4 px-4 text-gray-600 text-sm truncate max-w-[12rem]">
-                          {t.customer}
+                        <td className="px-5 py-4 text-sm font-medium text-gray-800 truncate max-w-[16rem]">{t.title}</td>
+                        <td className="px-5 py-4 text-sm text-gray-600">{t.category}</td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
                         </td>
-                        <td className="py-4 px-4">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                              isInternalTicket(t)
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-blue-100 text-blue-700'
-                            }`}
-                          >
-                            {getTicketTypeLabel(t)}
-                          </span>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${getDisplayStatus(t) === 'Proof Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : t.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' : t.status === 'Pending Evaluation' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{getDisplayStatus(t)}</span>
                         </td>
-                        <td className="py-4 px-4 font-normal text-gray-700 text-sm truncate max-w-[16rem]">
-                          {t.title}
-                        </td>
-                        <td className="py-4 px-4 text-gray-600 text-sm">{t.category}</td>
-                        <td className="py-4 px-4">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                              priorityColors[t.priority]
-                            }`}
-                          >
-                            {t.priority}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold border ${
-                              getDisplayStatus(t) === 'Proof Rejected'
-                                ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                : t.reassignmentRequested
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                  : t.status === 'Pending'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : t.status === 'Pending Evaluation'
-                                      ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                      : 'bg-blue-50 text-blue-700 border-blue-100'
-                            }`}
-                          >
-                            {t.reassignmentRequested ? 'Pending Reassign' : getDisplayStatus(t)}
-                          </span>
-                        </td>
-                        {/* <td className="py-4 px-4">
-                        </td> */}
-                        <td className="py-4 px-4 text-gray-500 text-sm whitespace-nowrap">
-                          {t.lastUpdate}
-                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(t.lastUpdate)}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
+              <div className="px-4 py-3 border-t border-gray-100">
+                <p className="text-sm text-gray-500">
+                  Showing {filtered.length} of {tickets.length} accepted tickets in progress
+                </p>
+              </div>
             </div>
-
-            <p className="text-sm text-gray-500 mt-4">
-              Showing {filtered.length} of {tickets.length} accepted tickets in progress
-            </p>
           </>
         )}
-      </div>
 
       {/* Detail management modal */}
       {infoTicket && (infoTicket.status === 'Closed' || infoTicket.status === 'Resolved' || infoTicket.status === 'Reopened') ? (

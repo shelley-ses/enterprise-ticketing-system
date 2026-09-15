@@ -9,6 +9,7 @@ import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 const HISTORY_STATUSES = ['Closed', 'Resolved'];
 
@@ -35,7 +36,6 @@ export default function EmployeeProgress() {
   const [loadError, setLoadError] = useState('');
 
   const [search, setSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
@@ -90,123 +90,86 @@ export default function EmployeeProgress() {
   };
 
   return (
-    <div className="p-6">
-      {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#252578]">Ticket History</h1>
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-bold text-[#252578]">Ticket History</h1>
         <p className="text-sm text-gray-500 mt-1">
           Closed, resolved, and reassigned tickets you have handled.
         </p>
       </div>
 
       {loadError && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
           {loadError}
         </div>
       )}
 
-
-
-      <div className="bg-white rounded-xl shadow-md p-6">
-        {loading ? (
-          <div className="rounded-xl bg-white p-8">
-            <table className="w-full">
-              <tbody>
-                <SkeletonLoader variant="table-row" />
-                <SkeletonLoader variant="table-row" />
-                <SkeletonLoader variant="table-row" />
-                <SkeletonLoader variant="table-row" />
-                <SkeletonLoader variant="table-row" />
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <>
-            {/* Search & Filter Toggle */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  placeholder="Search ID, title, customer..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
-                />
+      {loading ? (
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
+          <table className="w-full">
+            <tbody>
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+              <SkeletonLoader variant="table-row" />
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Status', 'Closed', 'Resolved'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {[
+                  'All Category',
+                  'MRI',
+                  'CT Scan',
+                  'Ultrasound',
+                  'X-Ray',
+                  'Ventilator',
+                  'Defibrillator',
+                ].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Filter size={16} />
-                Filters
-              </button>
             </div>
 
-            {/* Collapsible Filters */}
-            {showFilters && (
-              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-                <select
-                  className={selectClass}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  {['All Status', 'Closed', 'Resolved'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <select
-                  className={selectClass}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  {[
-                    'All Category',
-                    'MRI',
-                    'CT Scan',
-                    'Ultrasound',
-                    'X-Ray',
-                    'Ventilator',
-                    'Defibrillator',
-                  ].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select
-                  className={selectClass}
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Table or empty state */}
-            {filtered.length === 0 ? (
-              <div className="text-center text-gray-400 py-16">
-                <svg
-                  className="w-14 h-14 mx-auto mb-3 text-gray-200"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                <p className="text-sm font-medium">No history tickets found.</p>
-                <p className="text-xs mt-1">
-                  Closed, resolved, and reassigned tickets will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              {filtered.length === 0 ? (
+                <div className="text-center text-gray-400 py-16">
+                  <svg
+                    className="w-14 h-14 mx-auto mb-3 text-gray-200"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  <p className="text-sm font-medium">No history tickets found.</p>
+                  <p className="text-xs mt-1">
+                    Closed, resolved, and reassigned tickets will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
                 <table className="w-full table-fixed text-sm text-left border-collapse">
                   <colgroup>
                     <col className="w-[12%]" />
@@ -217,18 +180,18 @@ export default function EmployeeProgress() {
                     <col className="w-[14%]" />
                     <col className="w-[16%]" />
                   </colgroup>
-                  <thead>
-                    <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                      <th className="py-3 px-2 font-medium">Ticket ID</th>
-                      <th className="py-3 px-2 font-medium">Customer</th>
-                      <th className="py-3 px-2 font-medium">Title</th>
-                      <th className="py-3 px-2 font-medium">Category</th>
-                      <th className="py-3 px-2 font-medium">Priority</th>
-                      <th className="py-3 px-2 font-medium">Status</th>
-                      <th className="py-3 px-2 font-medium">Last Update</th>
+                  <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-5 py-4">Ticket ID</th>
+                      <th className="px-5 py-4">Customer</th>
+                      <th className="px-5 py-4">Title</th>
+                      <th className="px-5 py-4">Category</th>
+                      <th className="px-5 py-4">Priority</th>
+                      <th className="px-5 py-4">Status</th>
+                      <th className="px-5 py-4">Last Update</th>
                     </tr>
                   </thead>
-                  <tbody className="text-gray-800">
+                  <tbody className="divide-y divide-gray-100 text-gray-700">
                     {filtered.map((t) => (
                       <tr
                         key={t.id}
@@ -243,70 +206,39 @@ export default function EmployeeProgress() {
                         }}
                         className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
                       >
-                        <td className="py-2.5 px-2 align-middle">
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-semibold text-[#252578] text-xs">
-                              {t.id}
-                            </span>
-                            {t.reassignmentRequested && (
-                              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 mt-0.5 w-fit">
-                                REASSIGNED
-                              </span>
-                            )}
-                          </div>
+                        <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap align-middle">
+                          <span>{t.id}</span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle min-w-0">
-                          <p className="font-semibold text-gray-900 text-xs truncate">
-                            {t.customer}
-                          </p>
-                          <p className="text-[11px] text-gray-500 truncate">
-                            {t.facility}
-                          </p>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{t.customer}</p>
+                          <p className="text-xs text-gray-500 truncate">{t.facility}</p>
                         </td>
-                        <td className="py-2.5 px-2 align-middle min-w-0">
-                          <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">
-                            {t.title}
-                          </p>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm line-clamp-2 leading-snug">{t.title}</p>
                         </td>
-                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs truncate">
-                          {t.category}
+                        <td className="px-5 py-4 text-sm text-gray-600 align-middle truncate">{t.category}</td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority] ?? 'bg-gray-100 text-gray-700'}`}>{t.priority}</span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              priorityColors[t.priority] ?? 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {t.priority}
-                          </span>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${statusColors[getDisplayStatus(t)] ?? 'bg-gray-100 text-gray-700'}`}>{getDisplayStatus(t)}</span>
                         </td>
-                        <td className="py-2.5 px-2 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              statusColors[getDisplayStatus(t)] ?? 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {getDisplayStatus(t)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-2 align-middle text-gray-600 text-xs whitespace-nowrap">
-                          {t.lastUpdate}
-                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap align-middle">{formatDisplayDate(t.lastUpdate)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
+              )}
+              <div className="px-4 py-3 border-t border-gray-100">
+                <p className="text-sm text-gray-500">
+                  Showing {filtered.length} of {tickets.length} history records
+                </p>
               </div>
-            )}
-
-            <p className="text-sm text-gray-500 mt-4">
-              Showing {filtered.length} of {tickets.length} history records
-            </p>
+            </div>
           </>
         )}
-      </div>
     </div>
   );
 }
-
 

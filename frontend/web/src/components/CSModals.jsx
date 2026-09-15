@@ -2,12 +2,17 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from './FilePreviewModal';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
+import { useAuth } from '@/context/AuthContext';
+import { updateEmployeeTicketOverride } from '@/services/ticketService';
+import InternalNotesSection, { NoteList } from './InternalNotesSection';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 
 /* ─────────────────────────────────────────────
    CONFIRMATION DIALOG
 ───────────────────────────────────────────── */
 export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "Update this ticket?", message = "Are you sure you want to save the changes to this ticket?", confirmText = "Yes, Update" }) {
+  useLockBodyScroll(true);
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl w-105 max-w-full shadow-2xl p-7 flex flex-col items-center text-center">
@@ -49,6 +54,7 @@ export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
 export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, readOnly = false }) {
+  useLockBodyScroll(!!ticket);
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -56,6 +62,44 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [reassignDenyReason, setReassignDenyReason] = useState('');
   const [showReassignApprove, setShowReassignApprove] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+  const { user } = useAuth();
+  const [internalNotesList, setInternalNotesList] = useState(ticket?.internalNotes || []);
+
+  useEffect(() => {
+    setInternalNotesList(ticket?.internalNotes || []);
+  }, [ticket?.internalNotes]);
+
+  const handleAddInternalNote = (noteText) => {
+    const trimmed = (noteText || '').trim();
+    if (!trimmed || !ticket?.id) return;
+
+    const timestamp = new Date().toISOString();
+    const authorName = user?.name || (user?.first_name ? `${user.first_name}${user.last_name ? ' ' + user.last_name : ''}` : 'CSR');
+    const newNote = {
+      id: `note-${Date.now()}`,
+      text: trimmed,
+      author: authorName,
+      timestamp,
+    };
+
+    const update = {
+      internalNotes: [newNote],
+      timeline: [
+        {
+          id: `note-timeline-${Date.now()}`,
+          type: 'internal_note',
+          text: `Added staff internal note: "${trimmed}"`,
+          timestamp,
+        }
+      ]
+    };
+
+    updateEmployeeTicketOverride(ticket.id, update);
+
+    if (!ticket.internalNotes) ticket.internalNotes = [];
+    ticket.internalNotes.push(newNote);
+    setInternalNotesList([...ticket.internalNotes]);
+  };
 
   const assignedEmployees = employees.filter((e) =>
     (ticket.assigned || []).includes(e.id)
@@ -315,26 +359,30 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             {/* Remarks History Log */}
             {ticket.remarks && ticket.remarks.length > 0 && (
               <div className="bg-gray-50 rounded-xl px-4 py-3 mb-3">
-                <div className="text-xs font-medium text-gray-500 mb-2">
+                <div className="text-field-label uppercase text-gray-500 mb-2">
                   Remarks History
                 </div>
-                <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
-                  {ticket.remarks.map((rem) => (
-                    <div key={rem.id} className="bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
-                      <div className="flex justify-between items-start mb-1 text-[10px]">
-                        <span className="font-bold text-[#252578]">{rem.author}</span>
-                        <span className="text-gray-400">
-                          {formatDisplayDate(rem.timestamp)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-700 leading-relaxed font-semibold italic">
-                        &quot;{rem.remark}&quot;
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                <NoteList
+                  notes={ticket.remarks.map((rem) => ({
+                    id: rem.id,
+                    author: rem.author,
+                    timestamp: rem.timestamp,
+                    text: rem.remark,
+                  }))}
+                  maxHeightClass="max-h-40"
+                />
               </div>
             )}
+
+            {/* Staff-Only Internal Notes */}
+            <div className="mb-3">
+              <InternalNotesSection
+                notes={internalNotesList}
+                onAddNote={readOnly ? null : handleAddInternalNote}
+                readOnly={readOnly}
+                maxListHeight="max-h-40"
+              />
+            </div>
 
             {/* Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (
@@ -583,11 +631,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const [showValidationError, setShowValidationError] = useState(false);
 
 
-  // Lock background scroll
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+  useLockBodyScroll(!!ticket);
 
   if (!ticket) return null;
 

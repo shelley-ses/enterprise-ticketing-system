@@ -5,6 +5,7 @@ import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { ticketBroadcast } from '@/services/ticketBroadcast';
@@ -66,7 +67,6 @@ export default function CSIncoming() {
   const [newTicketId, setNewTicketId] = useState(null);
   const newTicketTimerRef = useRef(null);
   const [typeFilter, setTypeFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -248,10 +248,10 @@ export default function CSIncoming() {
       if (assignmentFilter === 'All') {
         if (isAssigned && !isPendingReassign && !isReopened) return false;
         if (isPendingValidation && !isPendingReassign && !isReopened) return false;
+      } else if (assignmentFilter === 'Pending Assignment') {
+        if (t.status !== 'Pending Assignment') return false;
       } else if (assignmentFilter === 'Pending Reassign') {
         if (!isPendingReassign) return false;
-      } else if (assignmentFilter === 'Pending Evaluation') {
-        if (!isPendingValidation) return false;
       }
 
       if (!q) return true;
@@ -278,7 +278,6 @@ export default function CSIncoming() {
   }, [filtered, page]);
 
   const handleRowAction = async (t) => {
-    // If already assigned / pending validation / resolved -> show summary first
     const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Pending Evaluation';
     if (isSummary) {
       setModalLoading(true);
@@ -293,7 +292,17 @@ export default function CSIncoming() {
         setModalLoading(false);
       }
     } else {
-      setModal({ mode: 'assign', ticket: t });
+      setModalLoading(true);
+      try {
+        const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+        const details = await getTicketDetails(ticketId);
+        setModal({ mode: 'assign', ticket: { ...t, ...details, description: details.description || t.description, attachments: details.attachments || t.attachments || [], proofAttachments: details.proofAttachments || [] } });
+      } catch (err) {
+        console.warn('Failed to load full ticket details for assign, fallback to list item:', err);
+        setModal({ mode: 'assign', ticket: t });
+      } finally {
+        setModalLoading(false);
+      }
     }
   };
 
@@ -392,9 +401,8 @@ export default function CSIncoming() {
   };
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-2">
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h1 className="text-3xl font-bold text-[#252578]">Incoming Tickets</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
@@ -418,13 +426,13 @@ export default function CSIncoming() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
       )}
 
 
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8">
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
           <table className="w-full">
             <tbody>
               <SkeletonLoader variant="table-row" />
@@ -437,88 +445,49 @@ export default function CSIncoming() {
         </div>
       ) : (
         <>
-
-      {/* Search & Filter Toggle */}
-      <div className="flex items-center gap-3 mb-4 w-full">
-        <div className="relative flex-1">
-          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tickets, customers..."
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-          />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-        >
-          <Filter size={16} />
-          Filters
-        </button>
-      </div>
-
-      {/* Collapsible Filters */}
-      {showFilters && (
-        <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-          <select
-            value={assignmentFilter}
-            onChange={(e) => setAssignmentFilter(e.target.value)}
-            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-          >
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets, customers..." className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+          <select value={assignmentFilter} onChange={(e) => setAssignmentFilter(e.target.value)} className="w-full sm:w-[180px] md:w-[190px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="All">All Assignments</option>
+            <option value="Pending Assignment">Pending Assignment</option>
             <option value="Pending Reassign">Pending Reassign</option>
-            <option value="Pending Evaluation">Pending Evaluation</option>
           </select>
-
-          <select
-            value={machineFilter}
-            onChange={(e) => setMachineFilter(e.target.value)}
-            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-          >
+          <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             {machines.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-          >
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-
         </div>
-      )}
+      </div>
 
-      {/* Table */}
-      <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
-
-        <div className="flex items-center justify-between mb-5">
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
           <h2 className="text-xl font-semibold text-[#252578]">Incoming Tickets</h2>
           <div className="text-sm text-gray-500">{filtered.length} tickets</div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-left">
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-100">
-                <th className="py-4 px-4 font-semibold">Ticket ID</th>
-                <th className="py-4 px-4 font-semibold">Customer</th>
-                <th className="py-4 px-4 font-semibold">Type</th>
-                <th className="py-4 px-4 font-semibold">Title</th>
-                <th className="py-4 px-4 font-semibold">Category</th>
-                <th className="py-4 px-4 font-semibold">Status</th>
-                {/* <th className="py-4 px-4 font-semibold">SLA Status</th> */}
-                <th className="py-4 px-4 font-semibold">Date Submitted</th>
-                <th className="py-4 px-4 font-semibold text-center">Action</th>
+            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-5 py-4">Ticket ID</th>
+                <th className="px-5 py-4">Customer</th>
+                <th className="px-5 py-4">Type</th>
+                <th className="px-5 py-4">Title</th>
+                <th className="px-5 py-4">Category</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">Date Submitted</th>
+                <th className="px-5 py-4 text-center">Action</th>
               </tr>
             </thead>
 
-            <tbody className="text-gray-700">
+            <tbody className="divide-y divide-gray-100 text-gray-700">
               {paginated.map((t, idx) => {
                 const isNew = t.id === newTicketId || t.ticket_ID === newTicketId;
                 return (
@@ -528,23 +497,7 @@ export default function CSIncoming() {
                       isNew ? 'animate-new-pulse' : (idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50')
                     } transition-all`}
                   >
-                    <td className="py-4 px-4 font-medium">
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span>{t.id}</span>
-                          {isNew && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-green-100 text-green-800 text-xs font-semibold animate-bounce shrink-0">
-                              New
-                            </span>
-                          )}
-                        </div>
-                        {t.reassignmentRequested && (
-                          <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
-                            Pending Reassign
-                          </span>
-                        )}
-                      </div>
-                    </td>
+                    <td className="px-5 py-4 font-semibold text-[#252578] text-sm">{t.id}</td>
                   <td className="py-4 px-4 text-gray-600">{t.customer}</td>
                   <td className="py-4 px-4">
                     <span
@@ -558,14 +511,7 @@ export default function CSIncoming() {
                     </span>
                   </td>
                   <td className="py-4 px-4 text-gray-700">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-semibold">{t.title}</span>
-                      {t.status === 'Pending Evaluation' && (
-                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
-                          Pending Evaluation
-                        </span>
-                      )}
-                    </div>
+                    <span className="font-semibold break-words whitespace-normal">{t.title}</span>
                   </td>
                   <td className="py-4 px-4">
                     <span className="inline-flex whitespace-nowrap px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
@@ -590,7 +536,7 @@ export default function CSIncoming() {
                       'bg-green-100 text-green-700'
                     }`}>{t.sla}</span>
                   </td> */}
-                  <td className="py-4 px-4 text-gray-500">{t.date}</td>
+                  <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date)}</td>
                   <td className="py-4 px-4 text-center">
                     <button
                       onClick={() => handleRowAction(t)}

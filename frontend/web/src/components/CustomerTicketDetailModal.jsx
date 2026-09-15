@@ -5,6 +5,7 @@ import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function CustomerTicketDetailModal({
   ticket,
@@ -14,10 +15,13 @@ export default function CustomerTicketDetailModal({
   onResolve,
   allowReopen = true,
   customerName,
+  isHistoryView = false,
 }) {
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
   const [reopenReason, setReopenReason] = useState('');
   const [showReopenForm, setShowReopenForm] = useState(false);
+  const [showReopenConfirm, setShowReopenConfirm] = useState(false);
+  const [pendingReason, setPendingReason] = useState('');
   const [previewFile, setPreviewFile] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
@@ -54,25 +58,29 @@ export default function CustomerTicketDetailModal({
     return sorted;
   }, [ticket, timelineSortOrder]);
 
+  useLockBodyScroll(!!ticket);
+
   if (!ticket) return null;
 
   const resolvedAt = ticket.resolved_at ? new Date(ticket.resolved_at) : null;
-  const isReopenable = ticket.status === 'Closed'
+  const isReopenableStandard = ticket.status === 'Closed'
     && resolvedAt
     && !Number.isNaN(resolvedAt.getTime())
     && (new Date() - resolvedAt) < (48 * 60 * 60 * 1000);
+  const isReopenableHistory = isHistoryView && ticket.status === 'Closed';
+  const isReopenable = isReopenableHistory || isReopenableStandard;
   const canShowReopenAction = allowReopen && isReopenable && typeof onReopen === 'function';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">{ticket.title}</h2>
+          <div className="min-w-0 flex-1 pr-3">
+            <h2 className="text-modal-title text-gray-900 break-words whitespace-normal line-clamp-2 overflow-hidden" title={ticket.title}>{ticket.title}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-[#252578]">{ticket.id}</span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.status}</span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.priority}</span>
+              <span className="text-field-value text-[#252578] truncate">{ticket.id}</span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-badge whitespace-nowrap shrink-0 ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.status}</span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-badge whitespace-nowrap shrink-0 ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.priority}</span>
             </div>
           </div>
           <button
@@ -88,32 +96,32 @@ export default function CustomerTicketDetailModal({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <p className="text-xs font-semibold uppercase text-gray-400">Description</p>
-              <p className="mt-1 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700">
+            <div className="md:col-span-2 min-w-0">
+              <p className="text-field-label uppercase text-gray-400">Description</p>
+              <p className="mt-1 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
                 {ticket.description || 'No description available.'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Requestor</p>
-              <p className="mt-1 text-sm text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
+              <p className="text-field-label uppercase text-gray-400">Requestor</p>
+              <p className="mt-1 text-field-value text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.date_created || ticket.date)}</p>
+              <p className="text-field-label uppercase text-gray-400">Date Filed</p>
+              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.date_created || ticket.date)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
-              <p className="mt-1 text-sm text-gray-800">{ticket.category}</p>
+              <p className="text-field-label uppercase text-gray-400">Category</p>
+              <p className="mt-1 text-field-value text-gray-800">{ticket.category}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-sm text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
+              <p className="text-field-label uppercase text-gray-400">Last Updated</p>
+              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.lastUpdate || ticket.updated_at)}</p>
             </div>
 
             {ticket.attachments && ticket.attachments.length > 0 && (
               <div className="md:col-span-2">
-                <p className="text-xs font-semibold uppercase text-gray-400">Attachments</p>
+                <p className="text-field-label uppercase text-gray-400">Attachments</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {ticket.attachments.map((file) => (
                     <a
@@ -123,7 +131,7 @@ export default function CustomerTicketDetailModal({
                         e.preventDefault();
                         setPreviewFile({ name: file.name, url: file.url });
                       }}
-                      className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-badge text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                     >
                       <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -137,7 +145,7 @@ export default function CustomerTicketDetailModal({
 
             {ticket.proofAttachments && ticket.proofAttachments.length > 0 && (
               <div className="md:col-span-2">
-                <p className="text-xs font-semibold uppercase text-gray-400">Proof of Completion Files</p>
+                <p className="text-field-label uppercase text-gray-400">Proof of Completion Files</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {ticket.proofAttachments.map((file) => (
                     <a
@@ -147,7 +155,7 @@ export default function CustomerTicketDetailModal({
                         e.preventDefault();
                         setPreviewFile({ name: file.name, url: file.url });
                       }}
-                      className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 hover:text-green-900 hover:underline cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-badge text-green-700 hover:text-green-900 hover:underline cursor-pointer"
                     >
                       <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -161,13 +169,13 @@ export default function CustomerTicketDetailModal({
 
             <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                <h3 className="text-field-label uppercase text-gray-400">
                   Ticket Timeline &amp; History
                 </h3>
                 <button
                   type="button"
                   onClick={() => setTimelineSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-                  className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-bold text-gray-600 transition-colors hover:bg-gray-100"
+                  className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-button text-gray-600 transition-colors hover:bg-gray-100"
                 >
                   <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
@@ -197,8 +205,8 @@ export default function CustomerTicketDetailModal({
                     return (
                       <div key={evt.id || idx} className="relative text-xs">
                         <div className={`absolute top-1 h-3 w-3 rounded-full border-2 border-white shadow ${dotColor}`} style={{ left: '-31px' }} />
-                        <div className="mb-0.5 flex items-center justify-between text-[10px] text-gray-400">
-                          <span className="text-[9px] font-bold uppercase tracking-wide text-[#252578]">
+                        <div className="mb-0.5 flex items-center justify-between text-timestamp text-gray-400">
+                          <span className="text-timestamp uppercase tracking-wide text-[#252578]">
                             {evt.type === 'system'
                               ? 'System'
                               : evt.type === 'status'
@@ -213,7 +221,10 @@ export default function CustomerTicketDetailModal({
                           </span>
                           <span>{formatDisplayDate(evt.timestamp)}</span>
                         </div>
-                        <p className="rounded-lg border border-gray-100/50 bg-gray-50/50 p-2.5 font-semibold leading-relaxed text-gray-700">
+                        <p
+                          className="rounded-lg border border-gray-100/50 bg-gray-50/50 p-2.5 font-semibold leading-relaxed text-gray-700 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                          style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                        >
                           {evt.text}
                         </p>
                       </div>
@@ -238,7 +249,7 @@ export default function CustomerTicketDetailModal({
         <div className="border-t border-gray-100 bg-gray-50 px-6 py-4 shrink-0">
           {showReopenForm ? (
             <div className="w-full text-left flex flex-col gap-2">
-              <label htmlFor="reopen-reason-input" className="text-xs font-bold uppercase tracking-wide text-gray-600">
+              <label htmlFor="reopen-reason-input" className="text-field-label uppercase text-gray-600">
                 Reason for Reopening * (Required)
               </label>
               <textarea
@@ -255,7 +266,7 @@ export default function CustomerTicketDetailModal({
                     setShowReopenForm(false);
                     setReopenReason('');
                   }}
-                  className="rounded-xl px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
+                  className="rounded-xl px-3 py-1.5 text-button text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   Close
                 </button>
@@ -263,11 +274,10 @@ export default function CustomerTicketDetailModal({
                   type="button"
                   disabled={!reopenReason.trim()}
                   onClick={() => {
-                    onReopen?.(ticket.ticket_ID || ticket.id, reopenReason.trim());
-                    setShowReopenForm(false);
-                    setReopenReason('');
+                    setPendingReason(reopenReason.trim());
+                    setShowReopenConfirm(true);
                   }}
-                  className="rounded-xl bg-[#252578] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl bg-[#252578] px-3 py-1.5 text-button text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirm Reopen
                 </button>
@@ -279,7 +289,7 @@ export default function CustomerTicketDetailModal({
                 <button
                   type="button"
                   onClick={() => setShowReopenForm(true)}
-                  className="rounded-xl bg-[#252578] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#1f1f66]"
+                  className="rounded-xl bg-[#252578] px-4 py-2 text-button text-white transition-colors hover:bg-[#1f1f66]"
                 >
                   Re-open Ticket
                 </button>
@@ -293,7 +303,7 @@ export default function CustomerTicketDetailModal({
                 <button
                   type="button"
                   onClick={() => onDiscard?.(ticket)}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700"
+                  className="rounded-xl bg-red-600 px-4 py-2 text-button text-white transition-colors hover:bg-red-700"
                 >
                   Discard Ticket
                 </button>
@@ -310,6 +320,19 @@ export default function CustomerTicketDetailModal({
             setFeedbackSubmitted(true);
           }}
         />
+      )}
+      {showReopenConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-bold text-gray-900">Reopen Ticket?</h2>
+            <p className="mt-2 text-sm text-gray-600 break-words whitespace-normal">Are you sure you want to reopen <span className="font-semibold text-[#252578]">{ticket.id}</span>? This will change its status to Reopened.</p>
+            {pendingReason && <p className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 break-words whitespace-normal"><span className="font-semibold">Reason:</span> {pendingReason}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => { setShowReopenConfirm(false); setPendingReason(''); }} className="rounded-xl px-4 py-2 text-button text-gray-600 hover:bg-gray-100">Cancel</button>
+              <button onClick={() => { onReopen?.(ticket.ticket_ID || ticket.id, pendingReason); setShowReopenConfirm(false); setShowReopenForm(false); setReopenReason(''); setPendingReason(''); }} className="rounded-xl bg-[#252578] px-4 py-2 text-button text-white hover:bg-[#1f1f66]">Confirm Reopen</button>
+            </div>
+          </div>
+        </div>
       )}
       {previewFile && (
         <FilePreviewModal

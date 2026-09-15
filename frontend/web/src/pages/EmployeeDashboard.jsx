@@ -58,7 +58,6 @@ export default function EmployeeDashboard() {
   const [loadingTickets, setLoadingTickets] = useState(true);
 
   const [search, setSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
@@ -69,6 +68,8 @@ export default function EmployeeDashboard() {
   const [selectedMyTicket, setSelectedMyTicket] = useState(null);
   const [myTicketsModalLoading, setMyTicketsModalLoading] = useState(false);
   const [myTicketsLoadingText, setMyTicketsLoadingText] = useState('Loading...');
+  const [selectedDashboardTicket, setSelectedDashboardTicket] = useState(null);
+  const [dashboardModalLoading, setDashboardModalLoading] = useState(false);
 
   const visible = useMemo(() => tickets.filter((t) => !t.rejected), [tickets]);
 
@@ -354,6 +355,24 @@ export default function EmployeeDashboard() {
     }
   }, [navigate]);
 
+  const handleViewDashboardTicket = useCallback(async (t) => {
+    const isMock = !!t.isMock;
+    if (isMock) {
+      setSelectedDashboardTicket({ ...t, description: t.description || '', resolved_at: t.resolved_at || null, proofAttachments: t.proofAttachments || [], proofFiles: t.proofFiles || [] });
+      return;
+    }
+    setDashboardModalLoading(true);
+    try {
+      const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
+      const full = await getTicketDetails(ticketId);
+      setSelectedDashboardTicket({ ...t, ...full, description: full.description || t.description || '', resolved_at: full.resolved_at || null, proofAttachments: full.proofAttachments || [], proofFiles: full.proofFiles || [], timeline: full.timeline || t.timeline });
+    } catch {
+      setSelectedDashboardTicket(t);
+    } finally {
+      setDashboardModalLoading(false);
+    }
+  }, []);
+
   const stats = useMemo(() => {
     const CLOSED_STATUSES = ['Closed', 'Resolved'];
     const incomingCount = visible.filter((t) => !t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
@@ -441,8 +460,8 @@ export default function EmployeeDashboard() {
               )}
             </div>
             <div>
-              <div className="text-2xl font-semibold text-gray-800">{s.value}</div>
-              <div className="text-sm text-gray-500">{s.label}</div>
+              <div className="text-4xl font-bold text-gray-800">{s.value}</div>
+              <div className="text-sm font-medium text-gray-500">{s.label}</div>
               <div className="text-xs text-gray-400 mt-0.5">{s.sub}</div>
             </div>
           </div>
@@ -511,8 +530,8 @@ export default function EmployeeDashboard() {
       </div>
 
       <div className="flex flex-col gap-6">
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <div className="flex items-center justify-between mb-2">
+          <div className="bg-white rounded-xl shadow-md p-6 flex flex-col gap-6 overflow-hidden">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">Active Assigned Tickets</h2>
                 <p className="text-sm text-gray-500">{activeTickets.length} tickets need attention</p>
@@ -520,80 +539,44 @@ export default function EmployeeDashboard() {
               <button
                 type="button"
                 onClick={goMachine}
-                className="flex items-center gap-1 text-sm font-semibold text-[#252578] hover:underline"
+                className="flex items-center gap-1 text-sm font-semibold text-[#252578] hover:underline shrink-0"
               >
                 View All <ArrowRight />
               </button>
             </div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  placeholder="Search ID, title, customer..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
-                />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+              <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+              <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Category', 'MRI', 'CT Scan', 'Ultrasound', 'X-Ray', 'Ventilator', 'Defibrillator'].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Filter size={16} />
-                Filters
-              </button>
             </div>
-            {showFilters && (
-              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-                <select
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <select
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  {['All Category', 'MRI', 'CT Scan', 'Ultrasound', 'X-Ray', 'Ventilator', 'Defibrillator'].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer"
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-sm text-left">
-                <colgroup>
-                  <col className="w-[13%]" />
-                  <col className="w-[32%]" />
-                  <col className="w-[25%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[12%]" />
-                </colgroup>
-                <thead>
-                  <tr className="text-gray-500 border-b">
-                    <th className="py-3 px-3">Ticket ID</th>
-                    <th className="py-3 px-3">Title</th>
-                    <th className="py-3 px-3">Customer</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Priority</th>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left" style={{ minWidth: '900px' }}>
+                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-5 py-4">Ticket ID</th>
+                    <th className="px-5 py-4">Title</th>
+                    <th className="px-5 py-4">Customer</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Priority</th>
                   </tr>
                 </thead>
-                <tbody className="text-gray-700">
+                <tbody className="divide-y divide-gray-100 text-gray-700">
                   {filtered.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-8 px-4 text-center text-gray-400">
@@ -606,46 +589,44 @@ export default function EmployeeDashboard() {
                         key={t.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => openTicketFlow(t)}
+                        onClick={() => handleViewDashboardTicket(t)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            openTicketFlow(t);
+                            handleViewDashboardTicket(t);
                           }
                         }}
                         className={`border-b hover:bg-gray-50 cursor-pointer ${idx === 0 ? 'bg-blue-50/50' : ''}`}
                       >
-                        <td className="py-3 px-3 font-medium text-[#252578] align-middle">
+                        <td className="px-5 py-4 font-semibold text-[#252578] text-sm align-middle">
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-xs">{t.id}</span>
+                            <span className="text-sm">{t.id}</span>
                             {!t.accepted && (
-                              <span className="text-[10px] text-amber-700 font-medium">Tap to review</span>
+                              <span className="text-xs text-amber-700 font-medium">Tap to review</span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-gray-800 align-middle min-w-0">
+                        <td className="px-5 py-4 text-sm font-medium text-gray-800 align-middle min-w-0">
                           <span className="line-clamp-2">{t.title}</span>
                         </td>
-                        <td className="py-3 px-3 text-gray-600 align-middle min-w-0 truncate">{t.customer}</td>
-                        <td className="py-3 px-3 align-middle">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${
-                            t.proofRejected
-                              ? 'bg-rose-100 text-rose-700'
-                              : statusColors[t.status]
-                          }`}>
-                            {t.proofRejected ? 'Proof Rejected' : t.status}
-                          </span>
+                        <td className="px-5 py-4 text-sm text-gray-600 align-middle min-w-0 truncate">{t.customer}</td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${t.proofRejected ? 'bg-rose-100 text-rose-700' : statusColors[t.status]}`}>{t.proofRejected ? 'Proof Rejected' : t.status}</span>
                         </td>
-                        <td className="py-3 px-3 align-middle">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${priorityColors[t.priority]}`}>
-                            {t.priority}
-                          </span>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
                         </td>
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
+              </div>
+              <div className="px-4 py-3 border-t border-gray-100">
+                <p className="text-sm text-gray-500">
+                  Showing {filtered.length} of {activeTickets.length} tickets
+                </p>
+              </div>
             </div>
           </div>
 
@@ -718,6 +699,18 @@ export default function EmployeeDashboard() {
 
 
 
+      {selectedDashboardTicket && (
+        <CustomerTicketDetailModal
+          ticket={selectedDashboardTicket}
+          onClose={() => setSelectedDashboardTicket(null)}
+          onDiscard={null}
+          onReopen={null}
+          onResolve={null}
+          allowReopen={false}
+          customerName={selectedDashboardTicket.customer}
+        />
+      )}
+
       {selectedMyTicket && (
         <CustomerTicketDetailModal
           ticket={selectedMyTicket}
@@ -728,7 +721,7 @@ export default function EmployeeDashboard() {
         />
       )}
 
-      {myTicketsModalLoading && (
+      {(myTicketsModalLoading || dashboardModalLoading) && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />

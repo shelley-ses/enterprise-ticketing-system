@@ -3,6 +3,8 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride } from '@/services/ticketService';
 import ProofCompletionModal from './ProofCompletionModal';
+import InternalNotesSection from '@/components/InternalNotesSection';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved'];
 
@@ -23,8 +25,7 @@ export default function TicketDetailModal({
   // Status change confirmation prompt
   const [showStatusConfirm, setShowStatusConfirm] = useState(false);
   
-  // Internal Notes State
-  const [newInternalNote, setNewInternalNote] = useState('');
+
 
   // Sub-modal state for Proof of Completion (Modal 2)
   const [showProofModal, setShowProofModal] = useState(false);
@@ -36,10 +37,11 @@ export default function TicketDetailModal({
     setErrorMessage('');
     setSuccessMessage('');
     setShowStatusConfirm(false);
-    setNewInternalNote('');
     setShowProofModal(false);
     setTimelineSortOrder('asc');
   }, [ticket]);
+
+  useLockBodyScroll(!!ticket);
 
   if (!ticket) return null;
 
@@ -119,7 +121,7 @@ export default function TicketDetailModal({
       return;
     }
 
-    const timestamp = new Date().toLocaleString('en-US');
+    const timestamp = new Date().toISOString();
     const fileNames = attachedFiles.map(f => f.name);
     
     const update = {
@@ -151,16 +153,16 @@ export default function TicketDetailModal({
   };
 
   // Add Staff-Only Internal Note
-  const handleAddInternalNote = (e) => {
-    e.preventDefault();
-    if (!newInternalNote.trim()) return;
+  const handleAddInternalNote = (noteText) => {
+    const trimmed = (noteText || '').trim();
+    if (!trimmed) return;
 
-    const timestamp = new Date().toLocaleString('en-US');
+    const timestamp = new Date().toISOString();
     const update = {
       internalNotes: [
         {
           id: `note-${Date.now()}`,
-          text: newInternalNote.trim(),
+          text: trimmed,
           author: 'Staff Member',
           timestamp,
         }
@@ -169,7 +171,7 @@ export default function TicketDetailModal({
         {
           id: `note-timeline-${Date.now()}`,
           type: 'internal_note',
-          text: `Added staff internal note: "${newInternalNote.trim()}"`,
+          text: `Added staff internal note: "${trimmed}"`,
           timestamp,
         }
       ]
@@ -181,21 +183,20 @@ export default function TicketDetailModal({
     if (!ticket.internalNotes) ticket.internalNotes = [];
     ticket.internalNotes.push({
       id: `note-${Date.now()}`,
-      text: newInternalNote.trim(),
+      text: trimmed,
       author: 'Staff Member',
       timestamp,
     });
 
-    setNewInternalNote('');
     setSuccessMessage('Internal note added successfully!');
     setErrorMessage('');
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] overflow-y-auto py-10" onClick={onClose}>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] p-4" onClick={onClose}>
         <div
-          className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 my-auto relative flex flex-col max-h-[85vh]"
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 relative flex flex-col max-h-[85vh] overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -204,17 +205,17 @@ export default function TicketDetailModal({
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             
-            <h2 className="text-2xl font-bold text-gray-900 leading-snug pr-8">{ticket.title}</h2>
+            <h2 className="text-modal-title text-gray-900 leading-snug pr-8">{ticket.title}</h2>
             <div className="flex flex-wrap items-center gap-2 mt-2 pr-8">
-              <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
-              <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status]}`}>
+              <span className="text-badge text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
+              <span className={`text-badge px-3 py-1 rounded-full ${statusColors[ticket.status]}`}>
                 {ticket.status}
               </span>
-              <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority]}`}>
+              <span className={`text-badge px-3 py-1 rounded-full ${priorityColors[ticket.priority]}`}>
                 {ticket.priority}
               </span>
               {ticket.reassignmentRequested && (
-                <span className="text-xs font-bold px-3 py-1 bg-amber-100 text-amber-800 rounded-full animate-pulse border border-amber-200">
+                <span className="text-badge px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-200">
                   Pending Reassign
                 </span>
               )}
@@ -247,13 +248,13 @@ export default function TicketDetailModal({
             {/* Ticket Information Details */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <p className="text-xs text-gray-400 mb-0.5">Requestor</p>
-                <p className="font-semibold text-gray-800">{ticket.customer || 'Unknown Customer'}</p>
-                {ticket.facility && <p className="text-xs text-gray-500 mt-0.5">{ticket.facility}</p>}
+                <p className="text-field-label uppercase text-gray-400 mb-0.5">Requestor</p>
+                <p className="text-field-value text-gray-800">{ticket.customer || 'Unknown Customer'}</p>
+                {ticket.facility && <p className="text-timestamp text-gray-500 mt-0.5">{ticket.facility}</p>}
               </div>
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <p className="text-xs text-gray-400 mb-0.5">Date Filed</p>
-                <p className="font-semibold text-gray-800">{formatDisplayDate(ticket.date)}</p>
+                <p className="text-field-label uppercase text-gray-400 mb-0.5">Date Filed</p>
+                <p className="text-field-value text-gray-800">{formatDisplayDate(ticket.date)}</p>
               </div>
             </div>
 
@@ -292,7 +293,7 @@ export default function TicketDetailModal({
                           onRequestReassign(ticket);
                         }
                       }}
-                      className="px-6 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-xs font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-button rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Request Reassignment
                     </button>
@@ -304,7 +305,7 @@ export default function TicketDetailModal({
                           onAccept(ticket.id);
                         }
                       }}
-                      className="px-8 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-8 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-button rounded-xl transition-all shadow-md shadow-[#252578]/25 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isAccepting ? 'Accepting...' : 'Accept'}
                     </button>
@@ -342,12 +343,12 @@ export default function TicketDetailModal({
                   <div className="border border-gray-150 rounded-2xl p-5 bg-green-50/30 border-green-100 flex items-center justify-between flex-wrap gap-4">
                     <div className="max-w-md text-left">
                       {isProofRejected && (
-                        <div className="mb-2.5 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 px-3 py-1.5 rounded-xl text-[11px] font-semibold">
+                        <div className="mb-2.5 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 px-3 py-1.5 rounded-xl text-badge">
                           <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0 animate-pulse" />
                           <span>Proof Rejected: &quot;{ticket.rejectionReason}&quot;</span>
                         </div>
                       )}
-                      <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
+                      <h4 className="text-field-label uppercase text-gray-800">
                         {isProofRejected ? 'Re-upload Proof of Completion' : 'Proof of Completion Required'}
                       </h4>
                       <p className="text-xs text-gray-500 mt-1 leading-relaxed">
@@ -357,7 +358,7 @@ export default function TicketDetailModal({
                     <button
                       type="button"
                       onClick={() => setShowProofModal(true)}
-                      className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-1.5 shrink-0"
+                      className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-button rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-1.5 shrink-0"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                       {isProofRejected ? 'Re-upload Proof' : 'Upload Proof Documents'}
@@ -368,12 +369,12 @@ export default function TicketDetailModal({
                 {/* 4. Ticket Status updates (In Progress, Pending, Resolved) */}
                 {ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
                   <div className="border border-gray-100 rounded-2xl p-5 bg-gray-50/70 text-left">
-                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-3">Update Ticket Status</h4>
+                    <h4 className="text-field-label uppercase text-gray-700 mb-3">Update Ticket Status</h4>
                     
                     {!showStatusConfirm ? (
                       <div className="space-y-4">
                         <div>
-                          <label htmlFor="modal-status-select" className="block text-[11px] font-semibold text-gray-500 mb-1">Select new status</label>
+                          <label htmlFor="modal-status-select" className="block text-field-label uppercase text-gray-500 mb-1">Select new status</label>
                           <select
                             id="modal-status-select"
                             value={statusDraft}
@@ -391,7 +392,7 @@ export default function TicketDetailModal({
                             {statusDraft !== 'Resolved' && (
                               <>
                                 <div>
-                                  <label htmlFor="status-remarks" className="block text-[11px] font-semibold text-gray-500 mb-1">Remarks/Notes * (Required on status change)</label>
+                                  <label htmlFor="status-remarks" className="block text-field-label uppercase text-gray-500 mb-1">Remarks/Notes * (Required on status change)</label>
                                   <textarea
                                     id="status-remarks"
                                     placeholder="Provide detailed notes regarding the status change..."
@@ -403,7 +404,7 @@ export default function TicketDetailModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-[11px] font-semibold text-gray-500 mb-1">Supporting Documentation (Optional file upload)</label>
+                                  <label className="block text-field-label uppercase text-gray-500 mb-1">Supporting Documentation (Optional file upload)</label>
                                   <input
                                     type="file"
                                     multiple
@@ -413,7 +414,7 @@ export default function TicketDetailModal({
                                   {attachedFiles.length > 0 && (
                                     <div className="mt-1.5 flex flex-wrap gap-1">
                                       {attachedFiles.map((file, idx) => (
-                                        <span key={idx} className="inline-flex items-center text-[9px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600">
+                                        <span key={idx} className="inline-flex items-center text-badge bg-white border border-gray-200 rounded-full px-2.5 py-0.5 text-gray-600">
                                           {file.name}
                                         </span>
                                       ))}
@@ -433,7 +434,7 @@ export default function TicketDetailModal({
                                 setErrorMessage('');
                                 setShowStatusConfirm(true);
                               }}
-                              className="w-full py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/20"
+                              className="w-full py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-button rounded-xl transition-all shadow-md shadow-[#252578]/20"
                             >
                               Save Status Change
                             </button>
@@ -442,22 +443,22 @@ export default function TicketDetailModal({
                       </div>
                     ) : (
                       <div className="bg-white border border-blue-100 rounded-xl p-4 text-center">
-                        <h5 className="text-xs font-bold text-gray-800 mb-1.5">Confirm Status Change</h5>
-                        <p className="text-[11px] text-gray-500 mb-4">
+                        <h5 className="text-field-label uppercase text-gray-800 mb-1.5">Confirm Status Change</h5>
+                        <p className="text-timestamp text-gray-500 mb-4">
                           Are you sure you want to change the ticket status from <strong className="text-gray-700">&quot;{ticket.status}&quot;</strong> to <strong className="text-gray-700">&quot;{statusDraft}&quot;</strong>?
                         </p>
                         <div className="flex gap-2">
                           <button
                             type="button"
                             onClick={() => setShowStatusConfirm(false)}
-                            className="flex-1 py-2 text-xs font-semibold border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
+                            className="flex-1 py-2 text-button border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
                             onClick={handleStatusSave}
-                            className="flex-1 py-2 text-xs font-semibold bg-[#252578] hover:bg-[#1a1a5c] text-white rounded-lg shadow"
+                            className="flex-1 py-2 text-button bg-[#252578] hover:bg-[#1a1a5c] text-white rounded-lg shadow"
                           >
                             Yes, Save Changes
                           </button>
@@ -468,61 +469,19 @@ export default function TicketDetailModal({
                 )}
 
                 {/* 4. Staff-Only Internal Notes */}
-                <div className="border border-gray-100 rounded-2xl p-5 bg-gray-50/50 space-y-4 text-left">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide flex items-center gap-1.5">
-                      <span>Internal Notes</span>
-                      <span className="text-[9px] bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase border border-red-200">
-                        Staff-Only
-                      </span>
-                    </h4>
-                    <span className="text-[10px] text-gray-400 italic">Hidden from customer</span>
-                  </div>
-
-                  {/* Notes List */}
-                  <div className="space-y-2 max-h-36 overflow-y-auto">
-                    {!ticket.internalNotes || ticket.internalNotes.length === 0 ? (
-                      <p className="text-xs text-gray-400 italic p-1">No internal notes added yet.</p>
-                    ) : (
-                      ticket.internalNotes.map((note) => (
-                        <div key={note.id} className="bg-white border border-gray-100 rounded-xl p-3 text-xs leading-relaxed">
-                          <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
-                            <span className="font-bold text-[#252578]">{note.author}</span>
-                            <span>{formatDisplayDate(note.timestamp)}</span>
-                          </div>
-                          <p className="text-gray-700 font-medium">{note.text}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* Note Input */}
-                  <form onSubmit={handleAddInternalNote} className="flex gap-2">
-                    <input
-                      id="internal-note-input"
-                      type="text"
-                      placeholder="Write an internal note..."
-                      value={newInternalNote}
-                      onChange={(e) => setNewInternalNote(e.target.value)}
-                      className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20"
-                    />
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-[#252578] hover:bg-[#1a1a5c] text-white text-xs font-semibold rounded-xl shrink-0 transition-colors"
-                    >
-                      Add Note
-                    </button>
-                  </form>
-                </div>
+                <InternalNotesSection
+                  notes={ticket.internalNotes}
+                  onAddNote={handleAddInternalNote}
+                />
 
                 {/* 5. Chronological History Timeline */}
                 <div className="space-y-3 text-left">
                   <div className="flex justify-between items-center">
-                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Ticket Timeline & History</h4>
+                    <h4 className="text-field-label uppercase text-gray-800">Ticket Timeline & History</h4>
                     <button
                       type="button"
                       onClick={() => setTimelineSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-[#252578]/5 hover:bg-[#252578]/10 border border-[#252578]/10 rounded-xl text-[10px] font-bold text-[#252578] transition-colors"
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-[#252578]/5 hover:bg-[#252578]/10 border border-[#252578]/10 rounded-xl text-badge text-[#252578] transition-colors"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
@@ -532,16 +491,19 @@ export default function TicketDetailModal({
                   </div>
                   <div className="relative pl-6 space-y-4 border-l border-gray-200 ml-3 py-1.5">
                     {sortedTimelineEvents.map((evt, idx) => (
-                      <div key={evt.id || idx} className="relative text-xs">
+                      <div key={evt.id || idx} className="relative text-field-value">
                         {/* Circle dot marker */}
                         <div className="absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#252578] shadow" />
-                        <div className="flex justify-between items-center text-[10px] text-gray-400 mb-0.5">
-                          <span className="font-bold text-[#252578] uppercase text-[9px] tracking-wide">
+                        <div className="flex justify-between items-center text-timestamp text-gray-400 mb-0.5">
+                          <span className="text-timestamp uppercase tracking-wide text-[#252578]">
                             {evt.type === 'system' ? 'System' : evt.type || 'Update'}
                           </span>
-                          <span>{formatDisplayDate(evt.timestamp)}</span>
+                          <span className="text-timestamp">{formatDisplayDate(evt.timestamp)}</span>
                         </div>
-                        <p className="text-gray-700 leading-relaxed font-semibold bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
+                        <p
+                          className="text-field-value text-gray-700 bg-gray-50/50 p-2 rounded-lg border border-gray-100/50 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                          style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                        >
                           {evt.text}
                         </p>
                       </div>

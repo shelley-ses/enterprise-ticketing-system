@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'customer_feedback';
 const EXTERNAL_TICKETS_KEY = 'demo_external_tickets';
+const PENDING_EVAL_KEY = 'demo_pending_evaluation_tickets';
 
 const mockEmployees = [
   { id: 1, name: 'Juan Dela Cruz', jobTitle: 'Technical Support Engineer', department: 'Technical Support' },
@@ -44,6 +45,71 @@ const demoExternalTicket = {
   ],
 };
 
+const demoPendingEvaluationTicket = {
+  id: 'TKT-2026-00901',
+  ticket_ID: 9091,
+  title: 'Air Conditioning Unit - Proof of Completion Pending Review',
+  subject: 'AC Unit Repair - Pending Evaluation',
+  description: 'Employee Juan Dela Cruz has completed the AC unit repair in Building A, 2nd Floor. The unit was showing error E4 and has been recalibrated. Proof of completion has been uploaded for CS review. The ticket must be reviewed and approved before it can be resolved.',
+  status: 'Pending Evaluation',
+  priority: 'High',
+  category: 'HVAC',
+  equipment: 'AC Unit - SN-AC-2026-001',
+  customer: 'Acme Corporation',
+  requestor: 'John Smith',
+  created_by_name: 'John Smith',
+  assigned: [1],
+  assignedEmployees: [1],
+  assigned_to: 1,
+  facility: 'Building A, 2nd Floor',
+  date_created: '2026-09-10T08:00:00Z',
+  date: '2026-09-10',
+  created_at: '2026-09-10T08:00:00Z',
+  last_updated: '2026-09-12T14:30:00Z',
+  lastUpdate: '2026-09-12T14:30:00Z',
+  updated_at: '2026-09-12T14:30:00Z',
+  resolved_at: null,
+  closed_at: null,
+  can_discard: false,
+  isMock: true,
+  sla: 'On Track',
+  department: 'Service',
+  ticket_type: 'External',
+  type: 'External',
+  accepted: true,
+  reassignmentRequested: false,
+  reassignmentReason: null,
+  proofRejected: false,
+  rejectionReason: null,
+  attachments: [
+    { id: 901, name: 'ac_error_E4_photo.jpg', url: '/storage/ticket-attachments/9091/ac_error_E4_photo.jpg', file_type: 'image/jpeg', size: 2457600, uploaded_at: '2026-09-10T08:15:00Z' },
+    { id: 902, name: 'ac_maintenance_log.pdf', url: '/storage/ticket-attachments/9091/ac_maintenance_log.pdf', file_type: 'application/pdf', size: 512000, uploaded_at: '2026-09-10T08:20:00Z' },
+  ],
+  proofAttachments: [
+    { id: 9011, proof_ID: 9011, name: 'proof_completion_report.pdf', url: '/storage/ticket-attachments/proofs/101/proof_completion_report.pdf', file_type: 'application/pdf', size: 1048576, uploaded_at: '2026-09-12T14:30:00Z' },
+    { id: 9012, proof_ID: 9012, name: 'ac_final_test_results.jpg', url: '/storage/ticket-attachments/proofs/101/ac_final_test_results.jpg', file_type: 'image/jpeg', size: 1850000, uploaded_at: '2026-09-12T14:31:00Z' },
+  ],
+  proofFiles: [
+    { id: 9011, proof_ID: 9011, name: 'proof_completion_report.pdf', url: '/storage/ticket-attachments/proofs/101/proof_completion_report.pdf', file_type: 'application/pdf', size: 1048576, uploaded_at: '2026-09-12T14:30:00Z' },
+    { id: 9012, proof_ID: 9012, name: 'ac_final_test_results.jpg', url: '/storage/ticket-attachments/proofs/101/ac_final_test_results.jpg', file_type: 'image/jpeg', size: 1850000, uploaded_at: '2026-09-12T14:31:00Z' },
+  ],
+  timeline: [
+    { id: 'creation', type: 'system', text: 'Ticket created by customer John Smith.', timestamp: '2026-09-10T08:00:00Z' },
+    { id: 'assigned', type: 'system', text: 'Ticket assigned to Juan Dela Cruz (Service).', timestamp: '2026-09-10T09:00:00Z' },
+    { id: 'accepted', type: 'system', text: 'Assignment accepted by Juan Dela Cruz.', timestamp: '2026-09-10T09:15:00Z' },
+    { id: 'progress', type: 'status', text: 'Status updated to "In Progress" by Juan Dela Cruz.', timestamp: '2026-09-10T10:00:00Z' },
+    { id: 'proof', type: 'system', text: 'Proof of completion uploaded by Juan Dela Cruz.', timestamp: '2026-09-12T14:30:00Z' },
+    { id: 'pending_eval', type: 'status', text: 'Status updated to "Pending Evaluation" - Awaiting CS review of proof of completion.', timestamp: '2026-09-12T14:30:00Z' },
+  ],
+  internalNotes: [],
+  remarks: [],
+  status_history: [
+    { status: 'Open', timestamp: '2026-09-10T08:00:00Z', actor: 'System' },
+    { status: 'In Progress', timestamp: '2026-09-10T10:00:00Z', actor: 'Juan Dela Cruz' },
+    { status: 'Pending Evaluation', timestamp: '2026-09-12T14:30:00Z', actor: 'Juan Dela Cruz' },
+  ],
+};
+
 export function getMockEmployees() {
   return mockEmployees;
 }
@@ -72,6 +138,44 @@ export function getExternalTicketsFromStorage() {
   } catch {
     return [];
   }
+}
+
+export function getDemoPendingEvaluationTicket() {
+  return { ...demoPendingEvaluationTicket, proofAttachments: [...demoPendingEvaluationTicket.proofAttachments], proofFiles: [...demoPendingEvaluationTicket.proofFiles], attachments: [...demoPendingEvaluationTicket.attachments], timeline: [...demoPendingEvaluationTicket.timeline] };
+}
+
+export function seedDemoPendingEvaluationTicket() {
+  try {
+    const stored = localStorage.getItem(PENDING_EVAL_KEY);
+    if (!stored) {
+      localStorage.setItem(PENDING_EVAL_KEY, JSON.stringify([demoPendingEvaluationTicket]));
+      return true;
+    }
+    const parsed = JSON.parse(stored);
+    const exists = parsed.some((t) => t.id === demoPendingEvaluationTicket.id || t.ticket_ID === demoPendingEvaluationTicket.ticket_ID);
+    if (!exists) {
+      parsed.push(demoPendingEvaluationTicket);
+      localStorage.setItem(PENDING_EVAL_KEY, JSON.stringify(parsed));
+      return true;
+    }
+    return false;
+  } catch {
+    localStorage.setItem(PENDING_EVAL_KEY, JSON.stringify([demoPendingEvaluationTicket]));
+    return true;
+  }
+}
+
+export function getPendingEvaluationTicketsFromStorage() {
+  try {
+    const stored = localStorage.getItem(PENDING_EVAL_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearPendingEvaluationMocks() {
+  localStorage.removeItem(PENDING_EVAL_KEY);
 }
 
 export function getAllFeedback() {

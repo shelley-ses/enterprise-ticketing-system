@@ -8,6 +8,7 @@ import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
 import AuthGate from '@/routes/AuthGate';
 import SkeletonLoader from '@/components/SkeletonLoader.jsx';
+import PageTitleUpdater from '@/components/PageTitleUpdater.jsx';
 
 // Lazy loaded page and layout components
 const Loginpage = React.lazy(() => import('./pages/Loginpage.jsx'));
@@ -125,6 +126,7 @@ function App() {
   return (
     <AuthProvider>
       <Router basename={routerBasename}>
+        <PageTitleUpdater />
         <AuthGate>
           <Suspense fallback={
             <div className="min-h-screen flex flex-col justify-start p-8 bg-gray-50/50 space-y-6">

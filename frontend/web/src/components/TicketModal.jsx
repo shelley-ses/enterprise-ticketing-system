@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/ticketService';
+import { normalizeCasing } from '@/utils/normalizeCasing';
 
 const initialFormData = {
   title: '',
@@ -18,10 +19,10 @@ const allowedFileTypes = [
 
 const MAX_TITLE_CHARS = 250;
 const MAX_DESCRIPTION_CHARS = 500;
+const MIN_TITLE_CHARS = 5;
+const MIN_DESCRIPTION_CHARS = 20;
 
 export default function TicketModal({ isOpen, onClose, onSubmit }) {
-  if (!isOpen) return null;
-
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -41,10 +42,12 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const titleChars = formData.title?.length || 0;
   const descriptionChars = formData.description?.length || 0;
-  const titleError = !formData.title?.trim() ? 'Title is required.' : titleChars > MAX_TITLE_CHARS ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).` : '';
+  const titleTrimmed = formData.title?.trim() || '';
+  const descTrimmed = formData.description?.trim() || '';
+  const titleError = !titleTrimmed ? 'Title is required.' : titleTrimmed.length < MIN_TITLE_CHARS ? `Title must be at least ${MIN_TITLE_CHARS} characters.` : titleChars > MAX_TITLE_CHARS ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).` : '';
   const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
   const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
-  const descriptionError = !formData.description?.trim() ? 'Description is required.' : descriptionChars > MAX_DESCRIPTION_CHARS ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).` : '';
+  const descriptionError = !descTrimmed ? 'Description is required.' : descTrimmed.length < MIN_DESCRIPTION_CHARS ? `Description must be at least ${MIN_DESCRIPTION_CHARS} characters.` : descriptionChars > MAX_DESCRIPTION_CHARS ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).` : '';
 
   const resetFormState = () => {
     setFormData(initialFormData);
@@ -91,6 +94,16 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     setFormData((current) => ({ ...current, [name]: value }));
   };
 
+  const handleCasingBlur = (field) => (event) => {
+    const raw = event.target.value;
+    const normalized = normalizeCasing(raw);
+    if (normalized !== raw) {
+      setFormData((current) => ({ ...current, [field]: normalized }));
+      event.target.value = normalized;
+    }
+    touch(field === 'title' ? 'title' : field === 'description' ? 'description' : field);
+  };
+
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(event.target.files || []);
     setFileError('');
@@ -114,7 +127,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const handleRemoveAttachment = (index) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
-    const fileInput = document.getElementById('file-upload');
+    const fileInput = document.getElementById('ticket-modal-file-upload');
     if (fileInput) {
       fileInput.value = '';
     }
@@ -127,12 +140,31 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       return;
     }
 
+    const normalizedTitle = normalizeCasing(formData.title);
+    const normalizedDesc = normalizeCasing(formData.description);
+    if (!normalizedTitle.trim() || normalizedTitle.trim().length < MIN_TITLE_CHARS) {
+      setSubmitError(`Title must be at least ${MIN_TITLE_CHARS} characters.`);
+      setTouched((p) => ({ ...p, title: true }));
+      return;
+    }
+    if (!normalizedDesc.trim() || normalizedDesc.trim().length < MIN_DESCRIPTION_CHARS) {
+      setSubmitError(`Description must be at least ${MIN_DESCRIPTION_CHARS} characters.`);
+      setTouched((p) => ({ ...p, description: true }));
+      return;
+    }
+    if (!formData.problem_category_ID || !formData.machine_ID) {
+      setSubmitError('Please complete all required fields.');
+      return;
+    }
+
     setSubmitError('');
     setIsSubmitting(true);
 
     try {
       await onSubmit?.({
         ...formData,
+        title: normalizedTitle,
+        description: normalizedDesc,
         attachments,
       });
       resetFormState();
@@ -167,18 +199,20 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     }));
 
   const isFormValid = Boolean(
-    formData.title?.trim() &&
+    titleTrimmed.length >= MIN_TITLE_CHARS &&
     titleChars <= MAX_TITLE_CHARS &&
     formData.problem_category_ID &&
     formData.machine_ID &&
-    formData.description?.trim() &&
+    descTrimmed.length >= MIN_DESCRIPTION_CHARS &&
     descriptionChars <= MAX_DESCRIPTION_CHARS
   );
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6">
+        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6 shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-[#252578]">Create New Ticket</h2>
             <p className="mt-1 text-sm text-gray-500">Submit a new support request for your equipment</p>
@@ -201,19 +235,19 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Ticket Title</label>
-            <div className="relative">
-              <input
-                name="title"
-                type="text"
-                required
-                placeholder="Brief description of the issue"
-                value={formData.title}
-                onChange={handleChange}
-                onBlur={() => touch('title')}
-                disabled={isSubmitting}
-                className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-              />
-              <span className={`absolute bottom-3 right-3 text-[10px] ${titleChars > MAX_TITLE_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+            <input
+              name="title"
+              type="text"
+              required
+              placeholder="Brief description of the issue"
+              value={formData.title}
+              onChange={handleChange}
+              onBlur={handleCasingBlur('title')}
+              disabled={isSubmitting}
+              className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.title && titleError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+            />
+            <div className="mt-1 flex justify-end">
+              <span className={`text-[10px] ${titleChars > MAX_TITLE_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
                 {titleChars}/{MAX_TITLE_CHARS}
               </span>
             </div>
@@ -266,19 +300,19 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Detailed Description</label>
-            <div className="relative">
-              <textarea
-                name="description"
-                required
-                rows="4"
-                placeholder="Please provide as much detail as possible..."
-                value={formData.description}
-                onChange={handleChange}
-                onBlur={() => touch('description')}
-                disabled={isSubmitting}
-                className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-              />
-              <span className={`absolute bottom-2 right-3 text-[10px] ${descriptionChars > MAX_DESCRIPTION_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+            <textarea
+              name="description"
+              required
+              rows="4"
+              placeholder="Please provide as much detail as possible..."
+              value={formData.description}
+              onChange={handleChange}
+              onBlur={handleCasingBlur('description')}
+              disabled={isSubmitting}
+              className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+            />
+            <div className="mt-1 flex justify-end">
+              <span className={`text-[10px] ${descriptionChars > MAX_DESCRIPTION_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
                 {descriptionChars}/{MAX_DESCRIPTION_CHARS}
               </span>
             </div>
@@ -290,14 +324,14 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
             <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
               <input
                 type="file"
-                id="file-upload"
+                id="ticket-modal-file-upload"
                 className="hidden"
                 onChange={handleFileChange}
                 accept=".pdf,.jpg,.png,.docx"
                 disabled={isSubmitting}
                 multiple
               />
-              <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
+              <label htmlFor="ticket-modal-file-upload" className="flex cursor-pointer flex-col items-center">
                 <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"

@@ -9,6 +9,7 @@ import {
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -37,7 +38,6 @@ export default function EmployeeAssigned() {
 
   const [isAccepting, setIsAccepting] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   // Compute pending counts for display
   const pendingCount = useMemo(() => {
@@ -261,10 +261,10 @@ export default function EmployeeAssigned() {
   ).length;
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex flex-col gap-2">
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-[#252578]">Incoming Ticket</h1>
+          <h1 className="text-3xl font-bold text-[#252578]">Incoming Ticket</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
             {['all', 'external', 'internal'].map((type) => (
               <button
@@ -288,111 +288,65 @@ export default function EmployeeAssigned() {
       </div>
 
       {loadError && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
           {loadError}
         </div>
       )}
 
-
-
-      <div className="bg-white rounded-2xl shadow-md p-6">
-        {loading ? (
+      {loading ? (
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
           <div className="space-y-4">
             <SkeletonLoader variant="ticket-card" />
             <SkeletonLoader variant="ticket-card" />
             <SkeletonLoader variant="ticket-card" />
           </div>
-        ) : (
-          <>
-            {/* Search & Filter Toggle */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  placeholder="Search ID, title, customer..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]/25"
-                />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {[
+                  'All Category',
+                  'MRI',
+                  'CT Scan',
+                  'Ultrasound',
+                  'X-Ray',
+                  'Ventilator',
+                  'Defibrillator',
+                ].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Filter size={16} />
-                Filters
-              </button>
             </div>
-
-            {/* Collapsible Filters */}
-            {showFilters && (
-              <div className="flex flex-row flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-                <select
-                  className={selectClass}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map(
-                    (s) => (
-                      <option key={s} value={s}>{s}</option>
-                    )
-                  )}
-                </select>
-                <select
-                  className={selectClass}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  {[
-                    'All Category',
-                    'MRI',
-                    'CT Scan',
-                    'Ultrasound',
-                    'X-Ray',
-                    'Ventilator',
-                    'Defibrillator',
-                  ].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select
-                  className={selectClass}
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {/* Table */}
-            <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full table-fixed text-sm text-left border-collapse">
-                <colgroup>
-                  <col className="w-[12%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[20%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[10%]" />
-                </colgroup>
-                <thead>
-                  <tr className="text-gray-500 border-b border-gray-200 bg-gray-50/80">
-                    <th className="py-4 px-4 font-semibold">Ticket ID</th>
-                    <th className="py-4 px-4 font-semibold">Customer</th>
-                    <th className="py-4 px-4 font-semibold">Type</th>
-                    <th className="py-4 px-4 font-semibold">Title</th>
-                    <th className="py-4 px-4 font-semibold">Category</th>
-                    <th className="py-4 px-4 font-semibold">Priority</th>
-                    <th className="py-4 px-4 font-semibold">Status</th>
-                    <th className="py-4 px-4 font-semibold">Last Update</th>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left" style={{ minWidth: '900px' }}>
+                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-5 py-4">Ticket ID</th>
+                    <th className="px-5 py-4">Customer</th>
+                    <th className="px-5 py-4">Type</th>
+                    <th className="px-5 py-4">Title</th>
+                    <th className="px-5 py-4">Category</th>
+                    <th className="px-5 py-4">Priority</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Last Update</th>
                   </tr>
                 </thead>
-                <tbody className="text-gray-800">
+                <tbody className="divide-y divide-gray-100 text-gray-700">
                   {filtered.length === 0 ? (
                     <tr>
                       <td
@@ -417,109 +371,40 @@ export default function EmployeeAssigned() {
                         }}
                         className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
                       >
-                        <td className="py-4 px-4 align-middle">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                t.reassignmentRequested ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
-                              }`}
-                              title="Attention"
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="font-semibold text-[#252578] text-xs leading-tight">
-                                  {t.id}
-                                </span>
-                                {t.escalated && (
-                                  <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-orange-100 text-orange-800 shrink-0">
-                                    ESC
-                                  </span>
-                                )}
-                              </div>
-                              {!t.accepted && t.status === 'Open' && (
-                                <span className="text-[10px] text-amber-700 font-medium">
-                                  {t.reassignmentRequested ? 'Reassignment requested' : 'Pending acceptance'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                        <td className="px-5 py-4 align-middle">
+                          <span className="font-semibold text-[#252578] text-sm leading-tight">{t.id}</span>
                         </td>
-                        <td className="py-4 px-4 align-middle min-w-0">
-                          <p className="font-semibold text-gray-900 text-xs truncate">
-                            {t.customer}
-                          </p>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{t.customer}</p>
                         </td>
-                        <td className="py-4 px-4 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-blue-100 text-blue-700'
-                            }`}
-                          >
-                            {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
-                          </span>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}</span>
                         </td>
-                        <td className="py-4 px-4 align-middle min-w-0">
-                          <p className="font-semibold text-gray-900 text-xs line-clamp-2 leading-snug">
-                            {t.title}
-                          </p>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm line-clamp-2 leading-snug">{t.title}</p>
                         </td>
-                        <td className="py-4 px-4 align-middle text-gray-600 text-xs truncate">
-                          {t.category}
+                        <td className="px-5 py-4 align-middle text-gray-600 text-sm truncate">{t.category}</td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
                         </td>
-                        <td className="py-4 px-4 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              priorityColors[t.priority]
-                            }`}
-                          >
-                            {t.priority}
-                          </span>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[t.status] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>{t.status}</span>
                         </td>
-                        <td className="py-4 px-4 align-middle">
-                          <span
-                            className={`inline-flex max-w-full whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                              t.reassignmentRequested
-                                ? 'bg-amber-55 text-amber-700 border-amber-200'
-                                : t.rejected
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : t.status === 'In Progress'
-                                    ? 'bg-blue-50 text-blue-700 border-blue-100'
-                                    : t.status === 'Pending Assignment'
-                                      ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                      : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                            }`}
-                          >
-                            {t.reassignmentRequested ? 'reassignment' : (t.rejected ? 'rejected' : t.status.toLowerCase())}
-                          </span>
-                        </td>
-                        {/* <td className="py-4 px-4 align-middle">
-                          <span
-                            className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                              slaStatusColors[t.slaStatus] ?? 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {t.slaStatus}
-                          </span>
-                        </td> */}
-                        <td className="py-4 px-4 align-middle text-gray-600 text-xs whitespace-nowrap">
-                          {t.lastUpdate}
-                        </td>
+                        <td className="px-5 py-4 align-middle text-gray-600 text-sm whitespace-nowrap">{formatDisplayDate(t.lastUpdate)}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
+              <div className="px-4 py-3 border-t border-gray-100">
+                <p className="text-sm text-gray-500">
+                  Showing {filtered.length} of {pendingCount} incoming tickets
+                </p>
+              </div>
             </div>
-
-            <p className="text-sm text-gray-500 mt-4">
-              Showing {filtered.length} of {pendingCount} incoming tickets
-            </p>
           </>
-
         )}
-      </div>
 
       {/* Modal: Not-yet-accepted ticket (Accept / Request Reassignment) */}
       {pendingTicket && (

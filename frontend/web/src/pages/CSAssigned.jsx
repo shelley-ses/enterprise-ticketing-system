@@ -16,8 +16,10 @@ import {
   updateTicket,
   respondReassignment,
 } from '@/services/ticketService';
+import { seedDemoPendingEvaluationTicket, getPendingEvaluationTicketsFromStorage } from '@/data/mockFeedbackData';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import SkeletonLoader from '@/components/SkeletonLoader';
+import { formatDisplayDate } from '@/utils/dateUtils';
 
 export default function CSAssigned() {
   const { user } = useAuth();
@@ -35,7 +37,6 @@ export default function CSAssigned() {
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [notificationBanner, setNotificationBanner] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
@@ -74,12 +75,18 @@ export default function CSAssigned() {
         (t.accepted || t.status === 'Pending Evaluation')
       );
       
-      setTickets(assignedTickets);
+      const pendingMocks = getPendingEvaluationTicketsFromStorage();
+      const merged = [
+        ...pendingMocks.filter((m) => !assignedTickets.some((t) => t.id === m.id || t.ticket_ID === m.ticket_ID)),
+        ...assignedTickets,
+      ];
+      setTickets(merged);
       
       setEmployees(
         assignees.map((row) => ({
-          id: Number(row.id),
-          name: row.name,
+          id: Number(row.id ?? row.emp_id),
+          name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email || `Employee #${row.id ?? row.emp_id}`,
+          role: row.role || '',
           status: row.is_active ? 'active' : 'inactive',
           department: row.department || 'Unassigned',
         }))
@@ -94,6 +101,7 @@ export default function CSAssigned() {
   }, []);
 
   useEffect(() => {
+    seedDemoPendingEvaluationTicket();
     loadStaticData();
     loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
@@ -259,10 +267,8 @@ export default function CSAssigned() {
   };
 
   return (
-    <div className="p-6">
-
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-2">
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h1 className="text-3xl font-bold text-[#252578]">Assigned Tickets</h1>
           <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
@@ -286,7 +292,7 @@ export default function CSAssigned() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
       )}
 
       {notificationBanner && (
@@ -300,7 +306,7 @@ export default function CSAssigned() {
       )}
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8">
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
           <table className="w-full">
             <tbody>
               <SkeletonLoader variant="table-row" />
@@ -313,78 +319,44 @@ export default function CSAssigned() {
         </div>
       ) : (
         <>
-
-      {/* Search & Filter Toggle */}
-      <div className="flex items-center gap-3 mb-4 w-full">
-        <div className="relative flex-1">
-          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tickets, customers..."
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-          />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all shrink-0 ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-        >
-          <Filter size={16} />
-          Filters
-        </button>
-      </div>
-
-      {/* Collapsible Filters */}
-      {showFilters && (
-        <div className="mb-6 flex flex-row flex-wrap items-center gap-3 p-4 rounded-xl border border-gray-100 bg-white shadow-sm justify-end">
-          <select
-            value={machineFilter}
-            onChange={(e) => setMachineFilter(e.target.value)}
-            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-          >
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets, customers..." className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+          <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             {machines.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="px-4 py-2.5 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#252578] outline-none text-sm text-gray-700 cursor-pointer"
-          >
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-
         </div>
-      )}
+      </div>
 
-      {/* Table */}
-      <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
-
-        <div className="flex items-center justify-between mb-5">
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
           <h2 className="text-xl font-semibold text-[#252578]">Assigned Tickets</h2>
           <div className="text-sm text-gray-500">{filtered.length} tickets</div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-left">
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-100">
-                <th className="py-4 px-4 font-semibold">Ticket ID</th>
-                <th className="py-4 px-4 font-semibold">Customer</th>
-                <th className="py-4 px-4 font-semibold">Type</th>
-                <th className="py-4 px-4 font-semibold">Title</th>
-                <th className="py-4 px-4 font-semibold">Category</th>
-                <th className="py-4 px-4 font-semibold">Status</th>
-                {/* <th className="py-4 px-4 font-semibold">SLA Status</th> */}
-                <th className="py-4 px-4 font-semibold">Date Submitted</th>
-                <th className="py-4 px-4 font-semibold text-center">Action</th>
+            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-5 py-4">Ticket ID</th>
+                <th className="px-5 py-4">Customer</th>
+                <th className="px-5 py-4">Type</th>
+                <th className="px-5 py-4">Title</th>
+                <th className="px-5 py-4">Category</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">Date Submitted</th>
+                <th className="px-5 py-4 text-center">Action</th>
               </tr>
             </thead>
 
-            <tbody className="text-gray-700">
+            <tbody className="divide-y divide-gray-100 text-gray-700">
               {paginated.map((t, idx) => {
                 const isReassignmentReq = t.reassignmentRequested;
                 
@@ -392,22 +364,9 @@ export default function CSAssigned() {
                   <tr
                     key={t.id}
                     onClick={() => handleRowAction(t)}
-                    className={`cursor-pointer transition-all border-b border-gray-50 ${
-                      isReassignmentReq 
-                        ? 'bg-red-50 hover:bg-red-100' 
-                        : (idx === 0 && page === 1 ? 'bg-blue-50/50 hover:bg-gray-50' : 'hover:bg-gray-50')
-                    }`}
+                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-all"
                   >
-                    <td className="py-4 px-4 font-medium">
-                      <div className="flex flex-col gap-0.5">
-                        <span className={isReassignmentReq ? 'text-red-700 font-bold' : ''}>{t.id}</span>
-                        {isReassignmentReq && (
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-600 text-white shrink-0 w-max mt-1 animate-pulse shadow-sm">
-                            Immediate Action Required
-                          </span>
-                        )}
-                      </div>
-                    </td>
+                    <td className="px-5 py-4 font-semibold text-[#252578] text-sm">{t.id}</td>
                     <td className="py-4 px-4 text-gray-600">{t.customer}</td>
                     <td className="py-4 px-4">
                       <span
@@ -421,14 +380,7 @@ export default function CSAssigned() {
                       </span>
                     </td>
                     <td className="py-4 px-4 text-gray-700">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold">{t.title}</span>
-                        {t.status === 'Pending Evaluation' && !isReassignmentReq && (
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
-                            Pending Evaluation
-                          </span>
-                        )}
-                      </div>
+                      <span className="font-semibold break-words whitespace-normal">{t.title}</span>
                     </td>
                      <td className="py-4 px-4">
                       <span className="inline-flex whitespace-nowrap px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
@@ -453,7 +405,7 @@ export default function CSAssigned() {
                         'bg-green-100 text-green-700'
                       }`}>{t.sla}</span>
                     </td> */}
-                    <td className="py-4 px-4 text-gray-500">{t.date}</td>
+                    <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date)}</td>
                     <td className="py-4 px-4 text-center">
                       <button
                         onClick={(e) => {

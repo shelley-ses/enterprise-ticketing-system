@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, LogOut, User, Bell } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { getNotifications, markNotificationRead, markNotificationsRead } from '@/services/ticketService';
+import { getNotifications, markNotificationRead, markNotificationsRead, getTicketDetails, getAssignableEmployees, getDepartments, respondReassignment } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
+import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import { TicketSummary } from '@/components/CSModals';
 
 export default function Header({ sidebarHovered }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -15,6 +17,10 @@ export default function Header({ sidebarHovered }) {
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [activeNotificationId, setActiveNotificationId] = useState(null);
+  const [activeEmployees, setActiveEmployees] = useState([]);
+  const [activeTicketLoading, setActiveTicketLoading] = useState(false);
 
   const basePath = location.pathname.startsWith('/cs')
     ? '/cs'
@@ -108,24 +114,54 @@ export default function Header({ sidebarHovered }) {
     return `${basePath}/notifications`;
   };
 
-  const handleNotificationClick = async (n) => {
-    const isUnread = n.unread !== undefined ? n.unread : !n.is_read;
-    if (isUnread) {
+  const handleCloseActiveTicket = useCallback(async () => {
+    if (activeNotificationId) {
+      const nid = activeNotificationId;
+      setActiveNotificationId(null);
+      setActiveTicket(null);
       try {
-        await markNotificationRead(n.id);
+        await markNotificationRead(nid);
         setNotificationCount((prev) => Math.max(0, prev - 1));
-        setNotifications((prev) =>
-          prev.map((item) => (item.id === n.id ? { ...item, is_read: true, unread: false } : item))
-        );
+        setNotifications((prev) => prev.map((item) => (item.id === nid ? { ...item, is_read: true, unread: false } : item)));
         window.dispatchEvent(new Event('notifications:updated'));
       } catch (err) {
-        console.warn('Failed to mark notification as read:', err);
+        console.warn('Failed to mark notification as read on close:', err);
       }
+    } else {
+      setActiveTicket(null);
     }
+  }, [activeNotificationId]);
+
+  const handleNotificationClick = async (n) => {
     setNotificationDropdownOpen(false);
-    const path = getNotificationPath(n);
-    if (path) {
-      navigate(path, { state: { focusTicketId: n.ticket_id, openNotificationType: true } });
+    const ticketId = n.ticket_id;
+    if (!ticketId) {
+      const path = getNotificationPath(n);
+      if (path) navigate(path);
+      return;
+    }
+    setActiveTicketLoading(true);
+    setActiveNotificationId(n.id);
+    try {
+      const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
+      const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
+      const full = await getTicketDetails(ticketNum).catch(() => null);
+      const base = full || { id: `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: ticketId, title: n.title, description: n.message, status: 'Open', priority: 'Medium', customer: '—', timeline: [{ id: 'creation', type: 'system', text: n.message, timestamp: n.created_at }] };
+      const merged = { ...base, id: base.id || `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: base.ticket_ID || ticketId, reassignmentReason: base.reassignmentReason || parsed.reason || parsed.reassignmentReason || '', reassignmentRequested: base.reassignmentRequested ?? (parsed.type === 'reassignment_request'), reassignmentRequestedBy: base.reassignmentRequestedBy ?? parsed.requested_by };
+      if (merged.reassignmentRequested) {
+        try {
+          const emps = await getAssignableEmployees({ forceRefresh: false }).catch(() => []);
+          setActiveEmployees(emps.map((row) => ({ id: Number(row.id ?? row.emp_id), name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email, status: row.is_active ? 'active' : 'inactive', department: row.department?.trim() || 'Unassigned' })));
+        } catch {}
+      }
+      setActiveTicket(merged);
+    } catch (err) {
+      console.warn('Failed to load ticket for notification:', err);
+      const path = getNotificationPath(n);
+      if (path) navigate(path, { state: { focusTicketId: ticketId } });
+      setActiveNotificationId(null);
+    } finally {
+      setActiveTicketLoading(false);
     }
   };
 
@@ -162,10 +198,10 @@ export default function Header({ sidebarHovered }) {
 
   const userInitial = user?.name?.charAt(0)?.toUpperCase() || 'U';
 
-  return (
+    return (
     <>
-      <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-50 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className={`transition-all duration-300 ${sidebarHovered ? 'ml-60' : 'ml-20'}`} />
+      <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-30 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="hidden sm:block w-20 shrink-0" aria-hidden="true" />
 
         <div className="flex items-center gap-6">
           <div className="relative flex items-center gap-3">
@@ -245,6 +281,43 @@ export default function Header({ sidebarHovered }) {
           </div>
         </div>
       </header>
+
+      {activeTicket && activeTicket.reassignmentRequested && (user?.role === 'cs' || (() => { try { return JSON.parse(localStorage.getItem('user')||'{}')?.role === 'cs'; } catch { return false; } })()) ? (
+        <TicketSummary
+          ticket={activeTicket}
+          employees={activeEmployees}
+          onClose={handleCloseActiveTicket}
+          onEdit={() => {}}
+          onStatusUpdate={async (updatedFields) => {
+            try {
+              if (updatedFields.reassignmentStatus) {
+                const numericId = Number(String(activeTicket.ticket_ID || activeTicket.id).replace(/\D/g, ''));
+                const action = updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny';
+                await respondReassignment({ ticketId: numericId, action });
+              }
+            } catch (e) { console.warn(e); }
+          }}
+        />
+      ) : activeTicket ? (
+        <CustomerTicketDetailModal
+          ticket={activeTicket}
+          onClose={handleCloseActiveTicket}
+          onDiscard={null}
+          onReopen={null}
+          onResolve={null}
+          allowReopen={false}
+          customerName={activeTicket.customer}
+        />
+      ) : null}
+
+      {activeTicketLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
+            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-[#252578]">Loading ticket...</p>
+          </div>
+        </div>
+      )}
 
       {/* Logout Confirmation Modal */}
       {showLogoutModal && (

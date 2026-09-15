@@ -9,6 +9,8 @@ import SkeletonLoader from '@/components/SkeletonLoader';
 import { statusColors } from '@/constants/employeeTickets';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { normalizeCasing } from '@/utils/normalizeCasing';
+import { formatDisplayDate } from '@/utils/dateUtils';
 import {
   createTicket,
   discardCustomerTicket,
@@ -32,14 +34,7 @@ const getStoredUser = () => {
   }
 };
 
-const formatDate = (value) => {
-  if (!value) return '-';
-  let dateStr = String(value);
-  if (typeof value === 'string' && !value.includes('T') && !value.includes('Z')) {
-    dateStr = value.replace(' ', 'T') + 'Z';
-  }
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(dateStr));
-};
+const formatDate = (value) => formatDisplayDate(value);
 
 const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
 
@@ -146,9 +141,17 @@ export default function MyTickets({ mode = 'all' }) {
       if (isHistory && !HISTORY_STATUSES.includes(ticket.status)) return false;
       if (!isHistory && ['Closed', 'Resolved'].includes(ticket.status)) return false;
       if (filters.status && normalizedStatus !== filters.status) return false;
-      if (filters.category && ticket.category !== filters.category) return false;
-      if (filters.dateFrom && new Date(ticket.date_created) < new Date(filters.dateFrom)) return false;
-      if (filters.dateTo && new Date(ticket.date_created) > new Date(`${filters.dateTo}T23:59:59`)) return false;
+      if (filters.category && (ticket.category || '').trim() !== filters.category.trim()) return false;
+      const ticketDate = ticket.date_created ? new Date(String(ticket.date_created).replace(' ', 'T')) : null;
+      const isValidTicketDate = ticketDate && !isNaN(ticketDate.getTime());
+      if (filters.dateFrom && isValidTicketDate) {
+        const from = new Date(`${filters.dateFrom}T00:00:00`);
+        if (ticketDate < from) return false;
+      }
+      if (filters.dateTo && isValidTicketDate) {
+        const to = new Date(`${filters.dateTo}T23:59:59`);
+        if (ticketDate > to) return false;
+      }
 
       const search = filters.search.trim().toLowerCase();
       if (!search) return true;
@@ -250,10 +253,26 @@ export default function MyTickets({ mode = 'all' }) {
     try {
       const ticketId = t.ticket_ID || parseInt(String(t.id || '').replace(/\D/g, ''), 10);
       const fullTicket = await getTicketDetails(ticketId);
+      let localDetails = {};
+      try { localDetails = JSON.parse(localStorage.getItem('customer_ticket_details') || '{}')[t.id] || {}; } catch { localDetails = {}; }
+      const mergedTimeline = (() => {
+        const base = fullTicket.timeline && Array.isArray(fullTicket.timeline) ? [...fullTicket.timeline] : (localDetails.timeline ? [...localDetails.timeline] : []);
+        if (localDetails.timeline && fullTicket.timeline) {
+          const existingIds = new Set(base.map(x => x.id));
+          localDetails.timeline.forEach(evt => { if (!existingIds.has(evt.id)) base.push(evt); });
+        } else if (localDetails.timeline && !fullTicket.timeline) {
+          return localDetails.timeline;
+        }
+        return base.length ? base : undefined;
+      })();
       setSelectedTicket({
         ...t,
         ...fullTicket,
-        description: fullTicket.description || t.description || '',
+        ...localDetails,
+        description: localDetails.description || fullTicket.description || t.description || '',
+        last_updated: localDetails.last_updated || fullTicket.updated_at || fullTicket.last_updated || t.last_updated,
+        updated_at: localDetails.last_updated || fullTicket.updated_at,
+        timeline: mergedTimeline || fullTicket.timeline || localDetails.timeline,
         resolved_at: fullTicket.resolved_at || null,
         proofAttachments: fullTicket.proofAttachments || [],
         proofFiles: fullTicket.proofFiles || [],
@@ -378,37 +397,104 @@ export default function MyTickets({ mode = 'all' }) {
   const handleEditTicket = async (ticket) => {
     setEditTitle(ticket.title || '');
     setEditDescription(ticket.description || '');
-    setEditCategory(ticket.problem_category_ID || '');
-    setEditEquipment(ticket.machine_ID || '');
+    setEditCategory(ticket.problem_category_ID || ticket.problemCategoryId || '');
+    setEditEquipment(ticket.machine_ID || ticket.machineId || '');
     setEditingTicket(ticket);
     setOpenMenuId(null);
 
-    if (!ticket.assigned_to) {
-      let opts = getCachedTicketFormOptions();
-      if (!opts) {
-        try { opts = await getTicketFormOptions(); } catch { /* ignore */ }
+    let opts = getCachedTicketFormOptions();
+    if (!opts) {
+      try { opts = await getTicketFormOptions(); } catch { /* ignore */ }
+    }
+    setEditOptions(opts);
+
+    const inferIds = (options) => {
+      if (!options) return;
+      const catList = options.problem_categories || options.category_options || [];
+      const eqList = options.machines || options.equipment_options || [];
+      if (!ticket.problem_category_ID && !ticket.problemCategoryId && ticket.category) {
+        const found = catList.find(c => (c.category_name || c.label || c.name) === ticket.category);
+        if (found) setEditCategory(String(found.problem_category_ID || found.value));
       }
-      setEditOptions(opts);
+      if (!ticket.machine_ID && !ticket.machineId && ticket.equipment) {
+        const found = eqList.find(m => {
+          const label = m.machine_name ? `${m.machine_name} - ${m.serial_number}` : (m.label || '');
+          return label === ticket.equipment || m.machine_name === ticket.equipment;
+        });
+        if (found) setEditEquipment(String(found.machine_ID || found.value));
+      }
+    };
+
+    inferIds(opts);
+
+    if (!editOptions && opts) {
+      // ensure state is set before rendering
+    }
+
+    if (!ticket.problem_category_ID && !ticket.machine_ID && ticket.ticket_ID) {
+      try {
+        const details = await getTicketDetails(ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10));
+        if (details?.problem_category_ID) setEditCategory(String(details.problem_category_ID));
+        if (details?.machine_ID) setEditEquipment(String(details.machine_ID));
+        if (details?.title) setEditTitle(details.title);
+        if (details?.description) setEditDescription(details.description);
+        if (details?.problem_category_ID || details?.machine_ID) {
+          let freshOpts = opts;
+          if (!freshOpts) {
+            try { freshOpts = await getTicketFormOptions(); setEditOptions(freshOpts); } catch { /* ignore */ }
+          }
+          inferIds(freshOpts);
+        }
+      } catch { /* ignore */ }
     }
   };
 
   const handleSaveEdit = async () => {
     if (!editingTicket) return;
     const ticket = editingTicket;
+    const normalizedTitle = normalizeCasing(editTitle);
+    const normalizedDesc = normalizeCasing(editDescription);
+    if (!normalizedTitle.trim() || normalizedTitle.trim().length < 5) {
+      showError('Validation error', 'Title must be at least 5 characters.');
+      return;
+    }
+    if (!normalizedDesc.trim() || normalizedDesc.trim().length < 20) {
+      showError('Validation error', 'Description must be at least 20 characters.');
+      return;
+    }
     const isMock = !!ticket.isMock;
 
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const timestamp = new Date().toISOString();
+      const categoryLabel = (() => {
+        if (!editCategory) return ticket.category;
+        const list = editOptions?.problem_categories || editOptions?.category_options || [];
+        const found = list.find(c => String(c.problem_category_ID || c.value) === String(editCategory));
+        return found ? (found.category_name || found.label || found.name) : ticket.category;
+      })();
+      const equipmentLabel = (() => {
+        if (!editEquipment) return ticket.equipment;
+        const list = editOptions?.machines || editOptions?.equipment_options || [];
+        const found = list.find(m => String(m.machine_ID || m.value) === String(editEquipment));
+        return found ? (found.machine_name ? `${found.machine_name} - ${found.serial_number}` : found.label) : ticket.equipment;
+      })();
+      const changes = [];
+      if (normalizedTitle !== ticket.title) changes.push('title');
+      if (normalizedDesc !== ticket.description) changes.push('description');
+      if (editCategory && String(editCategory) !== String(ticket.problem_category_ID || '')) changes.push('category');
+      if (editEquipment && String(editEquipment) !== String(ticket.machine_ID || '')) changes.push('equipment');
       const updatedList = stored.map(t => {
         if (t.id === ticket.id) {
-          return { ...t, title: editTitle, description: editDescription };
+          const timeline = t.timeline || [{ id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }];
+          return { ...t, title: normalizedTitle, description: normalizedDesc, category: categoryLabel, equipment: equipmentLabel, problem_category_ID: editCategory || t.problem_category_ID, machine_ID: editEquipment || t.machine_ID, last_updated: timestamp, updated_at: timestamp, timeline: [...timeline, { id: `update-${Date.now()}`, type: 'status', text: `Ticket details updated${changes.length ? `: ${changes.join(', ')}` : ''}.`, timestamp }] };
         }
         return t;
       });
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
       setEditingTicket(null);
-      showSuccess('Ticket updated', 'Ticket updated successfully.');
+      showSuccess('Ticket updated', 'Ticket details updated successfully. Last updated: ' + formatDisplayDate(timestamp));
       return;
     }
 
@@ -418,16 +504,41 @@ export default function MyTickets({ mode = 'all' }) {
       const numericId = ticket.ticket_ID || parseInt(String(ticket.id || '').replace(/\D/g, ''), 10);
       const payload = {
         ticketId: numericId,
-        title: editTitle,
-        description: editDescription,
+        title: normalizedTitle,
+        description: normalizedDesc,
       };
-      if (!ticket.assigned_to) {
-        if (editCategory) payload.problem_category_ID = editCategory;
-        if (editEquipment) payload.machine_ID = editEquipment;
-      }
+      if (editCategory) payload.problem_category_ID = editCategory;
+      if (editEquipment) payload.machine_ID = editEquipment;
       await updateTicket(payload);
+      const timestamp = new Date().toISOString();
+      try {
+        const existing = JSON.parse(localStorage.getItem('customer_ticket_details') || '{}');
+        const key = ticket.id;
+        const prev = existing[key] || {};
+        const categoryLabel = (() => {
+          if (!editCategory) return prev.category || ticket.category;
+          const list = editOptions?.problem_categories || editOptions?.category_options || [];
+          const found = list.find(c => String(c.problem_category_ID || c.value) === String(editCategory));
+          return found ? (found.category_name || found.label || found.name) : ticket.category;
+        })();
+        const equipmentLabel = (() => {
+          if (!editEquipment) return prev.equipment || ticket.equipment;
+          const list = editOptions?.machines || editOptions?.equipment_options || [];
+          const found = list.find(m => String(m.machine_ID || m.value) === String(editEquipment));
+          return found ? (found.machine_name ? `${found.machine_name} - ${found.serial_number}` : found.label) : ticket.equipment;
+        })();
+        const changes = [];
+        if (normalizedTitle !== ticket.title) changes.push('title');
+        if (normalizedDesc !== ticket.description) changes.push('description');
+        if (editCategory && String(editCategory) !== String(ticket.problem_category_ID || '')) changes.push('category');
+        if (editEquipment && String(editEquipment) !== String(ticket.machine_ID || '')) changes.push('equipment');
+        const newEvent = { id: `update-${Date.now()}`, type: 'status', text: `Ticket details updated${changes.length ? `: ${changes.join(', ')}` : ''}.`, timestamp };
+        const priorTimeline = prev.timeline || [];
+        existing[key] = { ...prev, title: normalizedTitle, description: normalizedDesc, category: categoryLabel, equipment: equipmentLabel, last_updated: timestamp, timeline: [...priorTimeline, newEvent] };
+        localStorage.setItem('customer_ticket_details', JSON.stringify(existing));
+      } catch { /* ignore */ }
       setEditingTicket(null);
-      showSuccess('Ticket updated', 'Ticket updated successfully.');
+      showSuccess('Ticket updated', 'Ticket details updated successfully.');
       loadTickets({ forceRefresh: true });
     } catch (err) {
       console.error('Failed to update ticket:', err);
@@ -517,39 +628,26 @@ export default function MyTickets({ mode = 'all' }) {
         )}
       </div>
 
-      <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
         <input
           type="text"
           placeholder="Search ID or title"
           value={filters.search}
           onChange={(event) => updateFilter('search', event.target.value)}
-          className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+          className="w-full md:w-[725px] max-w-[725px] shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
         />
-        <button
-          onClick={() => setShowFilters((prev) => !prev)}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-            showFilters ? 'bg-[#252578] text-white' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          <Filter size={16} />
-          Filters
-        </button>
-      </div>
-
-      {showFilters && (
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm justify-end">
-          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+        <div className="flex flex-wrap items-center gap-3 ml-auto shrink-0">
+          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All statuses</option>
             {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
-          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
             <option value="">All categories</option>
             {categories.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
-          <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
-          <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+          <input type="date" value={filters.dateFrom} onChange={(event) => { const v = event.target.value; setFilters((c) => ({ ...c, dateFrom: v, dateTo: v })); }} className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
         </div>
-      )}
+      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -563,13 +661,13 @@ export default function MyTickets({ mode = 'all' }) {
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Date Created</th>
                 <th className="px-5 py-4">Last Updated</th>
-                {!isHistory && <th className="px-5 py-4 text-center"></th>}
+                <th className="px-5 py-4 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {visibleTickets.length === 0 && loading && (
                 <tr>
-                  <td colSpan={isHistory ? 6 : 7}>
+                  <td colSpan={7}>
                     <div className="rounded-xl bg-white p-8">
                       <table className="w-full">
                         <tbody>
@@ -586,44 +684,42 @@ export default function MyTickets({ mode = 'all' }) {
               )}
               {visibleTickets.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={isHistory ? 6 : 7} className="px-5 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-gray-500">
                     No tickets match the current filters.
                   </td>
                 </tr>
               )}
               {visibleTickets.map((ticket) => (
                 <tr key={ticket.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleViewTicket(ticket)}>
-                  <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{ticket.id}</td>
-                  <td className="px-5 py-4 text-sm font-medium text-gray-800">{ticket.title}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{ticket.category}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap">{ticket.id}</td>
+                  <td className="px-5 py-4 text-sm font-medium text-gray-800 max-w-[280px]"><div className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={ticket.title}>{ticket.title}</div><div className="truncate max-w-[260px] text-xs text-gray-500 font-normal whitespace-nowrap overflow-hidden text-ellipsis md:hidden" title={ticket.description}>{ticket.description}</div></td>
+                  <td className="px-5 py-4 text-sm text-gray-600 max-w-[160px] truncate whitespace-nowrap overflow-hidden text-ellipsis" title={ticket.category}>{ticket.category}</td>
                   <td className="px-5 py-4">
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClass(ticket.status)}`}>
                       <span className="h-1.5 w-1.5 rounded-full bg-current" />
                       {ticket.status}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.date_created)}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.last_updated)}</td>
-                  {!isHistory && (
-                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={(e) => {
-                          if (openMenuId === ticket.id) {
-                            setOpenMenuId(null);
-                            setMenuPos(null);
-                            return;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
-                          setOpenMenuId(ticket.id);
-                        }}
-                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
-                        aria-label="Actions"
-                      >
-                        <MoreVertical size={18} />
-                      </button>
-                    </td>
-                  )}
+                  <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(ticket.date_created)}</td>
+                  <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(ticket.last_updated)}</td>
+                  <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => {
+                        if (openMenuId === ticket.id) {
+                          setOpenMenuId(null);
+                          setMenuPos(null);
+                          return;
+                        }
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
+                        setOpenMenuId(ticket.id);
+                      }}
+                      className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                      aria-label="Actions"
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -633,30 +729,43 @@ export default function MyTickets({ mode = 'all' }) {
       {openMenuId && menuPos && createPortal(
         (() => {
           const t = visibleTickets.find(x => x.id === openMenuId);
-          return t ? (
+          if (!t) return null;
+          const isHist = isHistory;
+          return (
             <div data-menu-id={t.id}
               style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, zIndex: 9999 }}
-              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg">
-              <button onClick={() => { handleEditTicket(t); setMenuPos(null); }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl">
-                Edit
-              </button>
-              <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
-                Delete
-              </button>
+              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
+              {isHist ? (
+                <>
+                  <button onClick={() => { handleViewTicket(t); setMenuPos(null); setOpenMenuId(null); }} disabled={t.status !== 'Closed'} className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm ${t.status === 'Closed' ? 'text-[#252578] hover:bg-indigo-50' : 'text-gray-400 cursor-not-allowed'} `}>
+                    Reopen
+                  </button>
+                  <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { handleEditTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl">
+                    Edit
+                  </button>
+                  <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
-          ) : null;
+          );
         })(),
         document.body
       )}
 
       <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'} allowReopen={true} />
+      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'} allowReopen={true} isHistoryView={isHistory} />
 
       {editingTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
               <div>
                 {!editingTicket.assigned_to ? (
@@ -678,24 +787,36 @@ export default function MyTickets({ mode = 'all' }) {
               </button>
             </div>
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onBlur={(e) => { const n = normalizeCasing(e.target.value); if (n !== e.target.value) { setEditTitle(n); e.target.value = n; } }}
+                  placeholder={editingTicket.title || 'Enter title'}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] placeholder:text-gray-400"
+                />
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="min-w-0 md:col-span-2">
                   <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
-                  {!editingTicket.assigned_to && editOptions ? (
+                  {editOptions ? (
                     <select
                       value={editCategory}
                       onChange={(e) => setEditCategory(e.target.value)}
+                      title={editingTicket.category || ''}
                       className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
                     >
-                      <option value="">Select category</option>
-                      {(editOptions.problem_categories || []).map((cat) => (
-                        <option key={cat.problem_category_ID} value={cat.problem_category_ID}>
-                          {cat.name}
+                      <option value="">{editingTicket.category ? `Current: ${editingTicket.category}` : 'Select category'}</option>
+                      {(editOptions.problem_categories || editOptions.category_options || []).map((cat) => (
+                        <option key={cat.problem_category_ID || cat.value} value={cat.problem_category_ID || cat.value} title={cat.category_name || cat.label || cat.name}>
+                          {cat.category_name || cat.label || cat.name}
                         </option>
                       ))}
                     </select>
                   ) : (
-                    <p className="mt-1 text-sm text-gray-800">{editingTicket.category}</p>
+                    <p className="mt-1 text-sm text-gray-800 break-words">{editingTicket.category}</p>
                   )}
                 </div>
                 <div>
@@ -704,23 +825,24 @@ export default function MyTickets({ mode = 'all' }) {
                     {!editingTicket.assigned_to && editingTicket.status === 'In Progress' ? 'Open' : editingTicket.status}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0 md:col-span-2">
                   <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
-                  {!editingTicket.assigned_to && editOptions ? (
+                  {editOptions ? (
                     <select
                       value={editEquipment}
                       onChange={(e) => setEditEquipment(e.target.value)}
+                      title={editingTicket.equipment || ''}
                       className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
                     >
-                      <option value="">Select equipment</option>
+                      <option value="">{editingTicket.equipment ? `Current: ${editingTicket.equipment}` : 'Select equipment'}</option>
                       {(editOptions.equipment_options || editOptions.machines || []).map((m) => (
-                        <option key={m.machine_ID || m.value} value={m.machine_ID || m.value}>
+                        <option key={m.machine_ID || m.value} value={m.machine_ID || m.value} title={m.machine_name ? `${m.machine_name} - ${m.serial_number}` : m.label}>
                           {m.machine_name ? `${m.machine_name} - ${m.serial_number}` : m.label}
                         </option>
                       ))}
                     </select>
                   ) : (
-                    <p className="mt-1 text-sm text-gray-800">{editingTicket.equipment}</p>
+                    <p className="mt-1 text-sm text-gray-800 break-words">{editingTicket.equipment}</p>
                   )}
                 </div>
                 <div>
@@ -729,21 +851,14 @@ export default function MyTickets({ mode = 'all' }) {
                 </div>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Title</label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
-                />
-              </div>
-              <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">Description</label>
                 <textarea
                   rows="4"
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
-                  className="w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                  onBlur={(e) => { const n = normalizeCasing(e.target.value); if (n !== e.target.value) { setEditDescription(n); e.target.value = n; } }}
+                  placeholder={editingTicket.description || 'Enter description'}
+                  className="w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] placeholder:text-gray-400"
                 />
               </div>
             </div>
