@@ -20,10 +20,10 @@ const allowedFileTypes = [
 
 const MAX_TITLE_CHARS = 250;
 const MAX_DESCRIPTION_CHARS = 500;
+const MIN_TITLE_CHARS = 5;
+const MIN_DESCRIPTION_CHARS = 20;
 
 export default function TicketModal({ isOpen, onClose, onSubmit }) {
-  if (!isOpen) return null;
-
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -46,16 +46,23 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
   const titleChars = formData.title?.length || 0;
   const descriptionChars = formData.description?.length || 0;
   const titleTrimmed = (formData.title || '').trim();
-
-  let titleError = '';
-  if (!titleTrimmed) {
-    titleError = 'Title is required.';
-  } else if (titleChars > MAX_TITLE_CHARS) {
-    titleError = `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).`;
-  }
+  const descTrimmed = (formData.description || '').trim();
+  const titleError = !titleTrimmed
+    ? 'Title is required.'
+    : titleTrimmed.length < MIN_TITLE_CHARS
+    ? `Title must be at least ${MIN_TITLE_CHARS} characters.`
+    : titleChars > MAX_TITLE_CHARS
+    ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).`
+    : '';
   const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
   const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
-  const descriptionError = !formData.description?.trim() ? 'Description is required.' : descriptionChars > MAX_DESCRIPTION_CHARS ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).` : '';
+  const descriptionError = !descTrimmed
+    ? 'Description is required.'
+    : descTrimmed.length < MIN_DESCRIPTION_CHARS
+    ? `Description must be at least ${MIN_DESCRIPTION_CHARS} characters.`
+    : descriptionChars > MAX_DESCRIPTION_CHARS
+    ? `Description exceeds ${MAX_DESCRIPTION_CHARS} characters (${descriptionChars}).`
+    : '';
 
   const resetFormState = () => {
     setFormData(initialFormData);
@@ -89,7 +96,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
         if (status === 401) {
           setOptionsError('Session expired (401). Please log in again, then reopen this form.');
         } else {
-          setOptionsError(error?.response?.data?.message || 'Failed to load ticket options.');
+          setOptionsError(error?.response?.data?.message || 'Failed to load options.');
         }
       } finally {
         setLoadingOptions(false);
@@ -101,33 +108,37 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const handleChange = (event) => {
     const { name, value } = event.target;
-    setFormData((current) => ({ ...current, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleFileChange = (event) => {
-    const selectedFiles = Array.from(event.target.files || []);
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
     setFileError('');
 
-    if (selectedFiles.length > 0) {
-      const invalidFile = selectedFiles.find((selected) => !allowedFileTypes.includes(selected.type));
-      if (invalidFile) {
-        setFileError('Invalid file type. Allowed: PDF, JPG, PNG, DOCX.');
+    const validFiles = [];
+    for (const file of files) {
+      if (!allowedFileTypes.includes(file.type)) {
+        setFileError(`Invalid file type: ${file.name}. Allowed: PDF, JPG, PNG, DOCX.`);
         return;
       }
 
-      const oversizedFile = selectedFiles.find((selected) => selected.size > 15 * 1024 * 1024);
-      if (oversizedFile) {
-        setFileError('File size must be under 15MB.');
+      if (file.size > 10 * 1024 * 1024) {
+        setFileError(`File too large: ${file.name}. Max size is 10MB.`);
         return;
       }
 
-      setAttachments((prev) => [...prev, ...selectedFiles]);
+      validFiles.push(file);
     }
+
+    setAttachments((prev) => [...prev, ...validFiles]);
+    event.target.value = '';
   };
 
-  const handleRemoveAttachment = (index) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-    const fileInput = document.getElementById('file-upload');
+  const handleRemoveAttachment = (indexToRemove) => {
+    setAttachments((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    const fileInput = document.getElementById('ticket-modal-file-upload');
     if (fileInput) {
       fileInput.value = '';
     }
@@ -140,11 +151,27 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       return;
     }
 
-    const titleTrimmed = (formData.title || '').trim();
-    if (needsProperCasing(titleTrimmed)) {
-      const proper = formatProperTitleCase(titleTrimmed);
+    const titleTrim = (formData.title || '').trim();
+    const descTrim = (formData.description || '').trim();
+    if (!titleTrim || titleTrim.length < MIN_TITLE_CHARS) {
+      setSubmitError(`Title must be at least ${MIN_TITLE_CHARS} characters.`);
+      setTouched((p) => ({ ...p, title: true }));
+      return;
+    }
+    if (!descTrim || descTrim.length < MIN_DESCRIPTION_CHARS) {
+      setSubmitError(`Description must be at least ${MIN_DESCRIPTION_CHARS} characters.`);
+      setTouched((p) => ({ ...p, description: true }));
+      return;
+    }
+    if (!formData.problem_category_ID || !formData.machine_ID) {
+      setSubmitError('Please complete all required fields.');
+      return;
+    }
+
+    if (needsProperCasing(titleTrim)) {
+      const proper = formatProperTitleCase(titleTrim);
       setTitleCasingData({
-        original: titleTrimmed,
+        original: titleTrim,
         formatted: proper,
       });
       setShowTitleCasingModal(true);
@@ -157,7 +184,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     try {
       await onSubmit?.({
         ...formData,
-        title: titleTrimmed,
+        title: titleTrim,
         attachments,
       });
       resetFormState();
@@ -215,19 +242,20 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
     }));
 
   const isFormValid = Boolean(
-    formData.title?.trim() &&
-    !titleError &&
+    titleTrimmed.length >= MIN_TITLE_CHARS &&
     titleChars <= MAX_TITLE_CHARS &&
     formData.problem_category_ID &&
     formData.machine_ID &&
-    formData.description?.trim() &&
+    descTrimmed.length >= MIN_DESCRIPTION_CHARS &&
     descriptionChars <= MAX_DESCRIPTION_CHARS
   );
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6">
+        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6 shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-[#252578]">Create New Ticket</h2>
             <p className="mt-1 text-sm text-gray-500">Submit a new support request for your equipment</p>
@@ -326,19 +354,19 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Detailed Description</label>
-            <div className="relative">
-              <textarea
-                name="description"
-                required
-                rows="4"
-                placeholder="Please provide as much detail as possible..."
-                value={formData.description}
-                onChange={handleChange}
-                onBlur={() => touch('description')}
-                disabled={isSubmitting}
-                className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-              />
-              <span className={`absolute bottom-2 right-3 text-[10px] ${descriptionChars > MAX_DESCRIPTION_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+            <textarea
+              name="description"
+              required
+              rows="4"
+              placeholder="Please provide as much detail as possible..."
+              value={formData.description}
+              onChange={handleChange}
+              onBlur={handleCasingBlur('description')}
+              disabled={isSubmitting}
+              className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+            />
+            <div className="mt-1 flex justify-end">
+              <span className={`text-[10px] ${descriptionChars > MAX_DESCRIPTION_CHARS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
                 {descriptionChars}/{MAX_DESCRIPTION_CHARS}
               </span>
             </div>
@@ -350,14 +378,14 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
             <div className="rounded-xl border-2 border-dashed border-gray-300 p-8 text-center transition-colors hover:bg-gray-50">
               <input
                 type="file"
-                id="file-upload"
+                id="ticket-modal-file-upload"
                 className="hidden"
                 onChange={handleFileChange}
                 accept=".pdf,.jpg,.png,.docx"
                 disabled={isSubmitting}
                 multiple
               />
-              <label htmlFor="file-upload" className="flex cursor-pointer flex-col items-center">
+              <label htmlFor="ticket-modal-file-upload" className="flex cursor-pointer flex-col items-center">
                 <svg className="mb-3 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"

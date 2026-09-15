@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import NotificationModal from '@/components/NotificationModal';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import { getTicketFormOptions, createTicket } from '@/services/ticketService';
+import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 
 export default function TicketCreation() {
@@ -59,6 +60,15 @@ export default function TicketCreation() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleCasingBlur = (field) => (e) => {
+    const raw = e.target.value;
+    const normalized = normalizeCasing(raw);
+    if (normalized !== raw) {
+      setFormData((prev) => ({ ...prev, [field]: normalized }));
+      e.target.value = normalized;
+    }
+  };
+
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files || []);
     setFileError('');
@@ -81,19 +91,32 @@ export default function TicketCreation() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+    const titleTrim = (formData.title || '').trim();
+    const descTrim = (formData.description || '').trim();
+    if (!titleTrim || !formData.machine_ID || !formData.problem_category_ID || !descTrim) {
+      setError('Please complete all required fields.');
+      return;
+    }
+    if (titleTrim.length < 5) {
+      setError('Title must be at least 5 characters.');
+      return;
+    }
+    if (descTrim.length < 20) {
+      setError('Description must be at least 20 characters.');
+      return;
+    }
 
-    const titleTrimmed = (formData.title || '').trim();
-    if (needsProperCasing(titleTrimmed)) {
-      const proper = formatProperTitleCase(titleTrimmed);
+    if (needsProperCasing(titleTrim)) {
+      const proper = formatProperTitleCase(titleTrim);
       setTitleCasingData({
-        original: titleTrimmed,
+        original: titleTrim,
         formatted: proper,
       });
       setShowTitleCasingModal(true);
       return;
     }
 
-    await submitTicketWithTitle(titleTrimmed);
+    await submitTicketWithTitle(titleTrim);
   };
 
   const handleConfirmTitleCasing = async () => {
@@ -109,11 +132,13 @@ export default function TicketCreation() {
     setSubmitting(true);
 
     try {
+      const normalizedDesc = normalizeCasing(formData.description);
+      setFormData((prev) => ({ ...prev, title: finalTitle, description: normalizedDesc }));
       const payload = new FormData();
       payload.append('title', finalTitle);
       payload.append('machine_ID', formData.machine_ID);
       payload.append('problem_category_ID', formData.problem_category_ID);
-      payload.append('description', formData.description);
+      payload.append('description', normalizedDesc);
       payload.append('priority_ID', formData.priority_ID);
       if (files && files.length > 0) {
         files.forEach((f) => {
@@ -277,6 +302,7 @@ export default function TicketCreation() {
               rows="5" 
               value={formData.description}
               onChange={handleChange}
+              onBlur={handleCasingBlur('description')}
               placeholder="Please provide as much detail as possible..." 
               className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all resize-y"
             ></textarea>
@@ -285,8 +311,8 @@ export default function TicketCreation() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Attachments (Optional)</label>
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
-              <input type="file" id="file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" multiple />
-              <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
+              <input type="file" id="ticket-creation-file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" multiple />
+              <label htmlFor="ticket-creation-file-upload" className="cursor-pointer flex flex-col items-center">
                 <svg className="w-10 h-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                 <span className="text-sm font-medium text-[#252578]">Click to upload</span>
                 <span className="text-xs text-gray-500 mt-1">PDF, JPG, PNG or DOCX (max. 15MB)</span>

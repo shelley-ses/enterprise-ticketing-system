@@ -9,6 +9,7 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import FilePreviewModal from '@/components/FilePreviewModal';
+import InternalNotesSection from '@/components/InternalNotesSection';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
 
@@ -24,7 +25,7 @@ export default function EmployeeTicketUpdate() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [showStatusConfirm, setShowStatusConfirm] = useState(false);
-  const [newInternalNote, setNewInternalNote] = useState('');
+
   const [showProofModal, setShowProofModal] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
 
@@ -196,20 +197,19 @@ export default function EmployeeTicketUpdate() {
     }
   };
 
-  const handleAddInternalNote = async (e) => {
-    e.preventDefault();
-    if (!newInternalNote.trim()) return;
+  const handleAddInternalNote = async (noteText) => {
+    const trimmed = (noteText || '').trim();
+    if (!trimmed) return;
 
     setErrorMessage('');
     setSuccessMessage('');
     setIsAddingNote(true);
 
     const formData = new FormData();
-    formData.append('internal_note', newInternalNote.trim());
+    formData.append('internal_note', trimmed);
 
     try {
       await updateEmployeeTicket(numericId, formData);
-      setNewInternalNote('');
       setSuccessMessage('Internal note added!');
       await loadTicketData();
     } catch (err) {
@@ -617,57 +617,12 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Staff-Only Internal Notes */}
-            <div className="bg-white rounded-xl shadow-md p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide flex items-center gap-2">
-                  Internal Notes
-                  <span className="text-[9px] bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold uppercase border border-red-200">
-                    Staff-Only
-                  </span>
-                </h3>
-                <span className="text-xs text-gray-400 italic">Hidden from customer</span>
-              </div>
-
-              <div className="space-y-2 max-h-52 overflow-y-auto">
-                {!ticket.internalNotes || ticket.internalNotes.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic py-2">No internal notes added yet.</p>
-                ) : (
-                  ticket.internalNotes.map((note) => (
-                    <div key={note.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                      <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
-                        <span className="font-bold text-[#252578]">{note.author}</span>
-                        <span>{formatDisplayDate(note.timestamp)}</span>
-                      </div>
-                      <p className="text-sm text-gray-700 font-medium">{note.text}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {!ticket.reassignmentRequested ? (
-                <form onSubmit={handleAddInternalNote} className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Write an internal note..."
-                    value={newInternalNote}
-                    disabled={isAddingNote}
-                    onChange={(e) => setNewInternalNote(e.target.value)}
-                    className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isAddingNote}
-                    className="px-4 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl shrink-0 transition-colors disabled:opacity-50"
-                  >
-                    {isAddingNote ? 'Adding...' : 'Add Note'}
-                  </button>
-                </form>
-              ) : (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-xl font-medium">
-                  Internal notes cannot be added while a reassignment request is pending.
-                </p>
-              )}
-            </div>
+            <InternalNotesSection
+              notes={ticket.internalNotes}
+              onAddNote={handleAddInternalNote}
+              isAdding={isAddingNote}
+              disabledReason={ticket.reassignmentRequested ? 'Internal notes cannot be added while a reassignment request is pending.' : null}
+            />
 
             {/* Work Logs */}
             <div className="bg-white rounded-xl shadow-md p-6">
@@ -803,7 +758,10 @@ export default function EmployeeTicketUpdate() {
                       </span>
                       <span>{formatDisplayDate(evt.timestamp)}</span>
                     </div>
-                    <p className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2 rounded-lg border border-gray-100/50">
+                    <p
+                      className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2 rounded-lg border border-gray-100/50 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                      style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                    >
                       {evt.text}
                     </p>
                   </div>

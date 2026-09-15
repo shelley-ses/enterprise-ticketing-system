@@ -7,7 +7,6 @@ export default function SuperAdminAuditLogs() {
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterModule, setFilterModule] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,44 +60,17 @@ export default function SuperAdminAuditLogs() {
         <p className="mt-1 text-sm text-gray-500">Track who did what, when, and to what.</p>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search audit logs..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
-          />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all ${showFilters ? 'bg-[#252578] text-white border-[#252578]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-        >
-          <Filter size={16} />
-          Filters
-        </button>
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+        <input type="text" placeholder="Search audit logs..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full md:w-[725px] max-w-[725px] shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+        <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+          <option value="">All actions</option>
+          {actionOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+          <option value="">All modules</option>
+          {moduleOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
       </div>
-
-      {showFilters && (
-        <div className="flex flex-wrap gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500">Action</label>
-            <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-              <option value="">All</option>
-              {actionOptions.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500">Module</label>
-            <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-              <option value="">All</option>
-              {moduleOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
 
       <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
         <table className="w-full text-left">

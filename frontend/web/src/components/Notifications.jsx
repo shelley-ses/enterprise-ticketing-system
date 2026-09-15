@@ -1,12 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDisplayDate } from '@/utils/dateUtils';
-
-const formatTimeAgo = (dateStr) => {
-  if (!dateStr) return '';
-  return formatDisplayDate(dateStr);
-};
-
 export default function Notifications({ notifications = [] }) {
   const navigate = useNavigate();
   const unreadCount = notifications.filter(n => {
@@ -59,7 +53,7 @@ export default function Notifications({ notifications = [] }) {
           notifications.map((notification, idx) => {
             const title = notification.title;
             const description = notification.message || notification.desc;
-            const time = formatTimeAgo(notification.created_at) || notification.time;
+            const time = formatDisplayDate(notification.created_at) || notification.time;
             const isUnread = notification.unread !== undefined ? notification.unread : !notification.is_read;
 
             return (
