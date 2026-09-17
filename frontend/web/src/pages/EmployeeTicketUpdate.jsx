@@ -5,6 +5,8 @@ import { statusColors, priorityColors, slaStatusColors } from '@/constants/emplo
 import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/ticketService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
+import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
+import { isReassignmentDenied } from '@/utils/reassignmentUtils';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -53,7 +55,15 @@ export default function EmployeeTicketUpdate() {
     setLoading(true);
     try {
       const details = await getTicketDetails(numericId);
-      setTicket(details);
+      setTicket((prev) => ({
+        ...details,
+        ...(prev || {}),
+        timeline: details?.timeline || prev?.timeline,
+        reassignmentDenyReason: prev?.reassignmentDenyReason || details?.reassignmentDenyReason,
+        disapprovalReason: prev?.disapprovalReason || details?.disapprovalReason,
+        reassignmentStatus: prev?.reassignmentStatus || details?.reassignmentStatus,
+        deniedReassignment: prev?.deniedReassignment ?? details?.deniedReassignment,
+      }));
       if (Array.isArray(details?.worklogs)) {
         setSavedWorkLogs(details.worklogs);
       }
@@ -136,15 +146,26 @@ export default function EmployeeTicketUpdate() {
   }, [timelineEvents, timelineSortOrder]);
 
   const validateFiles = (files) => {
-    const ALLOWED = ['pdf', 'png', 'docx'];
-    const MAX = 15 * 1024 * 1024;
+    const ALLOWED = ['pdf', 'png', 'docx', 'doc'];
+    const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+    const MAX_TOTAL_SIZE = 45 * 1024 * 1024; // 45MB
+
+    let totalSize = 0;
     for (const file of files) {
       const ext = file.name.split('.').pop().toLowerCase();
-      if (!ALLOWED.includes(ext))
-        return `Invalid file type: ${file.name}. Allowed formats: PDF, PNG, DOCX.`;
-      if (file.size > MAX)
-        return `File too large: ${file.name}. Maximum is 15MB.`;
+      if (!ALLOWED.includes(ext)) {
+        return `Invalid file type: "${file.name}". Allowed formats: PDF, PNG, Word (.docx, .doc).`;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        return `File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maximum allowed is 15MB per file.`;
+      }
+      totalSize += file.size || 0;
     }
+
+    if (totalSize > MAX_TOTAL_SIZE) {
+      return `Total attachments size exceeds 45MB limit (${(totalSize / (1024 * 1024)).toFixed(2)} MB). Please remove some files.`;
+    }
+
     return null;
   };
 
@@ -354,8 +375,11 @@ export default function EmployeeTicketUpdate() {
           )}
 
           <div className="space-y-6">
+            {/* Reassignment disapproved banner */}
+            <ReassignmentDisapprovalBanner ticket={ticket} />
+
             {/* Reassignment pending banner */}
-            {ticket.reassignmentRequested && (
+            {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
               <div className="bg-white rounded-xl shadow-md p-5 flex items-center gap-3 border border-amber-100">
                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
                 <div className="text-sm text-amber-800">
@@ -385,8 +409,8 @@ export default function EmployeeTicketUpdate() {
                   </h3>
                   <p className="text-xs text-gray-500 mt-1">
                     {isInternal
-                      ? 'Supporting documentation (PDF, PNG, DOCX up to 15MB each) is optional for internal tickets and can be attached if desired.'
-                      : 'Supporting documentation (PDF, DOC, or images up to 15MB each) must be verified before the ticket can be resolved.'}
+                      ? 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) is optional for internal tickets and can be attached if desired.'
+                      : 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) must be verified before the ticket can be resolved.'}
                   </p>
                 </div>
                 {ticket.reassignmentRequested ? (
@@ -411,22 +435,26 @@ export default function EmployeeTicketUpdate() {
                   <div className="w-full mt-4 border-t border-gray-100 pt-3 text-left">
                     <p className="text-xs font-bold text-gray-600 mb-2">Uploaded Proof Documents:</p>
                     <div className="flex flex-col gap-2">
-                      {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => (
-                        <a
-                          key={file.id || idx}
-                          href={file.url}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPreviewFile({ name: file.name, url: file.url });
-                          }}
-                          className="flex items-center gap-2 text-xs font-semibold text-blue-600 hover:underline bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 w-fit cursor-pointer"
-                        >
-                          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span>{file.name}</span>
-                        </a>
-                      ))}
+                      {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
+                        const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
+                        const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                        return (
+                          <a
+                            key={file.id || file.proof_ID || idx}
+                            href={fUrl || '#'}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewFile({ name: fName, url: fUrl });
+                            }}
+                            className="flex items-center gap-2 text-xs font-semibold text-blue-600 hover:underline bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 w-fit cursor-pointer"
+                          >
+                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>{fName}</span>
+                          </a>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -480,12 +508,12 @@ export default function EmployeeTicketUpdate() {
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 mb-1.5">
                                 Supporting Documentation{' '}
-                                <span className="text-gray-400 font-normal">(optional)</span>
+                                <span className="text-gray-400 font-normal">(optional · PDF, PNG, Word · max 15MB each, 45MB total)</span>
                               </label>
                               <input
                                 type="file"
                                 multiple
-                                accept=".pdf,.png,.docx"
+                                accept=".pdf,.png,.docx,.doc"
                                 disabled={isSaving}
                                 onChange={handleFileChange}
                                 className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer disabled:opacity-50"
@@ -596,22 +624,26 @@ export default function EmployeeTicketUpdate() {
                   Original Ticket Attachments
                 </h3>
                 <div className="flex flex-wrap gap-3">
-                  {ticket.attachments.map((file) => (
-                    <a
-                      key={file.id}
-                      href={file.url}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setPreviewFile({ name: file.name, url: file.url });
-                      }}
-                      className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-[#252578] bg-gray-50 hover:bg-[#252578]/5 px-3 py-2 rounded-xl border border-gray-100 hover:border-[#252578]/10 transition-all cursor-pointer"
-                    >
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      {file.name}
-                    </a>
-                  ))}
+                  {ticket.attachments.map((file, idx) => {
+                    const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Attachment-${idx + 1}`);
+                    const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                    return (
+                      <a
+                        key={file.id || file.attachment_id || idx}
+                        href={fUrl || '#'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreviewFile({ name: fName, url: fUrl });
+                        }}
+                        className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-[#252578] bg-gray-50 hover:bg-[#252578]/5 px-3 py-2 rounded-xl border border-gray-100 hover:border-[#252578]/10 transition-all cursor-pointer"
+                      >
+                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {fName}
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

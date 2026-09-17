@@ -36,24 +36,24 @@ export default function EmployeeFeedbackCard({
 }) {
   if (readOnly) {
     return (
-      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white ${getAvatarColor(employee.id)}`}>
+      <div className="rounded-2xl border border-gray-150 bg-white p-5 sm:p-6 shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white shadow-xs ${getAvatarColor(employee.id)}`}>
             {getInitials(employee.name)}
           </div>
           <div>
             <p className="text-sm font-bold text-gray-900">{employee.name}</p>
-            <p className="text-xs text-gray-500">{employee.jobTitle}</p>
+            <p className="text-xs text-gray-500 font-medium mt-0.5">{employee.jobTitle}</p>
           </div>
         </div>
-        <div className="mt-3">
+        <div className="mt-3.5">
           <StarRating value={rating} readOnly size="lg" />
         </div>
         {comment && (
-          <p className="mt-2 text-sm leading-relaxed text-gray-700">{comment}</p>
+          <p className="mt-3 text-sm leading-relaxed text-gray-700 bg-gray-50/80 rounded-xl p-3.5 border border-gray-100">{comment}</p>
         )}
         {submissionDate && (
-          <p className="mt-2 text-xs text-gray-400">Submitted on {submissionDate}</p>
+          <p className="mt-2.5 text-xs text-gray-400">Submitted on {submissionDate}</p>
         )}
       </div>
     );
@@ -62,31 +62,31 @@ export default function EmployeeFeedbackCard({
   const remaining = MAX_COMMENT_LENGTH - (comment?.length || 0);
 
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white ${getAvatarColor(employee.id)}`}>
+    <div className="rounded-2xl border border-gray-150 bg-white p-5 sm:p-6 shadow-xs">
+      <div className="flex items-center gap-3.5">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white shadow-xs ${getAvatarColor(employee.id)}`}>
           {getInitials(employee.name)}
         </div>
         <div>
           <p className="text-sm font-bold text-gray-900">{employee.name}</p>
-          <p className="text-xs text-gray-500">{employee.jobTitle}</p>
+          <p className="text-xs text-gray-500 font-medium mt-0.5">{employee.jobTitle}</p>
         </div>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3.5">
         <StarRating value={rating} onChange={onRatingChange} />
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3.5">
         <textarea
           value={comment || ''}
           onChange={(e) => onCommentChange(e.target.value)}
           placeholder="Tell us about this employee's support experience..."
           maxLength={MAX_COMMENT_LENGTH}
           rows={3}
-          className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 outline-none transition-colors focus:border-[#252578]/30 focus:bg-white focus:ring-2 focus:ring-[#252578]/15 placeholder:text-gray-400"
+          className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 p-3.5 text-sm text-gray-800 outline-none transition-colors focus:border-[#252578]/40 focus:bg-white focus:ring-2 focus:ring-[#252578]/15 placeholder:text-gray-400"
         />
-        <div className="mt-1 flex justify-end">
+        <div className="mt-1.5 flex justify-end">
           <span className={`text-xs ${remaining < 50 ? 'font-semibold text-red-500' : 'text-gray-400'}`}>
             {remaining}/{MAX_COMMENT_LENGTH}
           </span>

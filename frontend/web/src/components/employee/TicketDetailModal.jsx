@@ -3,6 +3,8 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride } from '@/services/ticketService';
 import ProofCompletionModal from './ProofCompletionModal';
+import ReassignmentDisapprovalBanner from './ReassignmentDisapprovalBanner';
+import { isReassignmentDenied } from '@/utils/reassignmentUtils';
 import InternalNotesSection from '@/components/InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
@@ -89,22 +91,30 @@ export default function TicketDetailModal({
     return sorted;
   }, [timelineEvents, timelineSortOrder]);
 
-  // Handle file validation (max 15MB each, allowed image/pdf/doc)
+  // Handle file validation (max 15MB each, max 45MB total, allowed PDF, PNG, Word)
   const validateFiles = (files) => {
-    const ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'pdf', 'doc', 'docx'];
+    const ALLOWED_EXTENSIONS = ['pdf', 'png', 'docx', 'doc'];
     const MAX_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
+    const MAX_TOTAL_SIZE = 45 * 1024 * 1024; // 45MB
 
+    let totalSize = 0;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const extension = file.name.split('.').pop().toLowerCase();
       
       if (!ALLOWED_EXTENSIONS.includes(extension)) {
-        return `Invalid file type: ${file.name}. Only images, PDFs, and Word documents are allowed.`;
+        return `Invalid file type: "${file.name}". Supported formats: PDF, PNG, Word (.docx, .doc).`;
       }
       if (file.size > MAX_SIZE_BYTES) {
-        return `File too large: ${file.name}. Maximum size is 15MB.`;
+        return `File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maximum size is 15MB per file.`;
       }
+      totalSize += file.size || 0;
     }
+
+    if (totalSize > MAX_TOTAL_SIZE) {
+      return `Total attachments size exceeds 45MB limit (${(totalSize / (1024 * 1024)).toFixed(2)} MB). Please remove some files.`;
+    }
+
     return null;
   };
 
@@ -262,14 +272,16 @@ export default function TicketDetailModal({
                 UNACCEPTED STATE PANEL (Accept / Request Reassignment)
                ──────────────────────────────────────────────────────── */}
             {!isAccepted ? (
-              ticket.status === 'Pending Evaluation' ? (
+              <div className="space-y-4">
+                <ReassignmentDisapprovalBanner ticket={ticket} />
+                {ticket.status === 'Pending Evaluation' ? (
                 <div className="border border-purple-100 rounded-2xl p-6 bg-purple-50/30 text-center space-y-3">
                   <h4 className="text-sm font-bold text-purple-800">Pending for Evaluation</h4>
                   <p className="text-xs text-purple-700 leading-relaxed max-w-md mx-auto">
                     This ticket is currently awaiting evaluation. No action is required at this time.
                   </p>
                 </div>
-              ) : ticket.reassignmentRequested ? (
+              ) : ticket.reassignmentRequested && !isReassignmentDenied(ticket) ? (
                 <div className="border border-amber-100 rounded-2xl p-6 bg-amber-50/30 text-center space-y-3">
                   <h4 className="text-sm font-bold text-amber-900">Reassignment Request Pending</h4>
                   <p className="text-xs text-amber-800 leading-relaxed max-w-md mx-auto">
@@ -311,15 +323,19 @@ export default function TicketDetailModal({
                     </button>
                   </div>
                 </div>
-              )
+              )}
+              </div>
             ) : (
               // ────────────────────────────────────────────────────────
               // ACCEPTED FULL MANAGEMENT PANEL
               // ────────────────────────────────────────────────────────
               <div className="space-y-6">
                 
+                {/* Reassignment disapproved banner */}
+                <ReassignmentDisapprovalBanner ticket={ticket} />
+
                 {/* 1. Reassignment request pending banner (if reassignment requested post-accept) */}
-                {ticket.reassignmentRequested && (
+                {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
                   <div className="flex items-center gap-3 bg-amber-50/70 border border-amber-100 rounded-xl p-3.5 text-xs text-amber-800">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                     <div>
@@ -357,8 +373,8 @@ export default function TicketDetailModal({
                       </h4>
                       <p className="text-xs text-gray-500 mt-1 leading-relaxed">
                         {isInternal
-                          ? 'Supporting documentation (PDF, PNG, DOCX up to 15MB each) is optional for internal tickets and can be attached if desired.'
-                          : 'Supporting documentation (PDF, DOC, or images up to 15MB each) must be verified before the ticket can be resolved.'}
+                          ? 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) is optional for internal tickets and can be attached if desired.'
+                          : 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) must be verified before the ticket can be resolved.'}
                       </p>
                     </div>
                     <button
@@ -410,10 +426,13 @@ export default function TicketDetailModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-field-label uppercase text-gray-500 mb-1">Supporting Documentation (Optional file upload)</label>
+                                  <label className="block text-field-label uppercase text-gray-500 mb-1">
+                                    Supporting Documentation (Optional · PDF, PNG, Word · max 15MB each, 45MB total)
+                                  </label>
                                   <input
                                     type="file"
                                     multiple
+                                    accept=".pdf,.png,.docx,.doc"
                                     onChange={(e) => setAttachedFiles(Array.from(e.target.files))}
                                     className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer"
                                   />

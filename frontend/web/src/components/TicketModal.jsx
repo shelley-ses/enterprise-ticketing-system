@@ -16,6 +16,7 @@ const allowedFileTypes = [
   'image/jpeg',
   'image/png',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
 ];
 
 const MAX_TITLE_CHARS = 250;
@@ -117,19 +118,28 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
     setFileError('');
 
+    let currentTotal = attachments.reduce((acc, f) => acc + (f.size || 0), 0);
     const validFiles = [];
     for (const file of files) {
-      if (!allowedFileTypes.includes(file.type)) {
-        setFileError(`Invalid file type: ${file.name}. Allowed: PDF, JPG, PNG, DOCX.`);
+      const ext = file.name.split('.').pop().toLowerCase();
+      const isAllowed = allowedFileTypes.includes(file.type) || ['pdf', 'png', 'docx', 'doc', 'jpg', 'jpeg'].includes(ext);
+      if (!isAllowed) {
+        setFileError(`Invalid file type: "${file.name}". Supported formats: PDF, PNG, Word (.docx, .doc).`);
         return;
       }
 
-      if (file.size > 10 * 1024 * 1024) {
-        setFileError(`File too large: ${file.name}. Max size is 10MB.`);
+      if (file.size > 15 * 1024 * 1024) {
+        setFileError(`File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Max size is 15MB per file.`);
         return;
       }
 
+      currentTotal += file.size || 0;
       validFiles.push(file);
+    }
+
+    if (currentTotal > 45 * 1024 * 1024) {
+      setFileError(`Total attachments size exceeds 45MB limit (${(currentTotal / (1024 * 1024)).toFixed(2)} MB). Please remove some files.`);
+      return;
     }
 
     setAttachments((prev) => [...prev, ...validFiles]);
@@ -381,7 +391,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                 id="ticket-modal-file-upload"
                 className="hidden"
                 onChange={handleFileChange}
-                accept=".pdf,.jpg,.png,.docx"
+                accept=".pdf,.png,.docx,.doc,.jpg,.jpeg"
                 disabled={isSubmitting}
                 multiple
               />
@@ -395,7 +405,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
                   />
                 </svg>
                 <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                <span className="mt-1 text-xs text-gray-500">PDF, JPG, PNG or DOCX (max. 15MB)</span>
+                <span className="mt-1 text-xs text-gray-500">Supported formats: PDF, PNG, Word (max. 15MB per file, max. 45MB total)</span>
               </label>
             </div>
             {attachments.length > 0 && (

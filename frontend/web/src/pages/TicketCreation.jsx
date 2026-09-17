@@ -73,18 +73,40 @@ export default function TicketCreation() {
     const selected = Array.from(e.target.files || []);
     setFileError('');
     if (selected.length > 0) {
-      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-      const invalidFile = selected.find((f) => !allowedTypes.includes(f.type));
-      if (invalidFile) {
-         setFileError('Invalid file type. Allowed: PDF, JPG, PNG, DOCX.');
-         return;
+      const allowedTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+      ];
+      const allowedExts = ['pdf', 'png', 'docx', 'doc', 'jpg', 'jpeg'];
+
+      let currentTotal = files.reduce((acc, f) => acc + (f.size || 0), 0);
+      const validFiles = [];
+
+      for (const file of selected) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const isAllowed = allowedTypes.includes(file.type) || allowedExts.includes(ext);
+        if (!isAllowed) {
+          setFileError(`Invalid file type: "${file.name}". Supported formats: PDF, PNG, Word (.docx, .doc).`);
+          return;
+        }
+        if (file.size > 15 * 1024 * 1024) {
+          setFileError(`File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Max size is 15MB per file.`);
+          return;
+        }
+        currentTotal += file.size || 0;
+        validFiles.push(file);
       }
-      const oversizedFile = selected.find((f) => f.size > 15 * 1024 * 1024);
-      if (oversizedFile) {
-         setFileError('File size must be under 15MB.');
-         return;
+
+      if (currentTotal > 45 * 1024 * 1024) {
+        setFileError(`Total attachments size exceeds 45MB limit (${(currentTotal / (1024 * 1024)).toFixed(2)} MB). Please remove some files.`);
+        return;
       }
-      setFiles((prev) => [...prev, ...selected]);
+
+      setFiles((prev) => [...prev, ...validFiles]);
+      e.target.value = '';
     }
   };
 
@@ -311,11 +333,11 @@ export default function TicketCreation() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Attachments (Optional)</label>
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
-              <input type="file" id="ticket-creation-file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.png,.docx" multiple />
+              <input type="file" id="ticket-creation-file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.png,.docx,.doc,.jpg,.jpeg" multiple />
               <label htmlFor="ticket-creation-file-upload" className="cursor-pointer flex flex-col items-center">
                 <svg className="w-10 h-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                 <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                <span className="text-xs text-gray-500 mt-1">PDF, JPG, PNG or DOCX (max. 15MB)</span>
+                <span className="text-xs text-gray-500 mt-1">Supported formats: PDF, PNG, Word (max. 15MB per file, max. 45MB total)</span>
               </label>
             </div>
             {files.length > 0 && (
