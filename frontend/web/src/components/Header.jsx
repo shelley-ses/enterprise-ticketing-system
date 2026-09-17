@@ -146,8 +146,39 @@ export default function Header({ sidebarHovered }) {
       const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
       const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
       const full = await getTicketDetails(ticketNum).catch(() => null);
-      const base = full || { id: `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: ticketId, title: n.title, description: n.message, status: 'Open', priority: 'Medium', customer: '—', timeline: [{ id: 'creation', type: 'system', text: n.message, timestamp: n.created_at }] };
-      const merged = { ...base, id: base.id || `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: base.ticket_ID || ticketId, reassignmentReason: base.reassignmentReason || parsed.reason || parsed.reassignmentReason || '', reassignmentRequested: base.reassignmentRequested ?? (parsed.type === 'reassignment_request'), reassignmentRequestedBy: base.reassignmentRequestedBy ?? parsed.requested_by };
+      const isReassignDenied = parsed.type === 'reassignment_denied' ||
+        parsed.type === 'reassignment_rejected' ||
+        /reassign.*(reject|deni|disapprov)/i.test(n.title || '') ||
+        /reassign.*(reject|deni|disapprov)/i.test(n.message || '');
+
+      const csrDenyReason = (isReassignDenied ? (parsed.reason || parsed.reassignmentDenyReason || parsed.denialReason) : '') ||
+        (() => {
+          if (!isReassignDenied) return '';
+          const match = (n.message || '').match(/Reason:\s*"([^"]+)"/i) || (n.message || '').match(/Reason:\s*([^.]+)/i);
+          return match && match[1] ? match[1].trim() : '';
+        })();
+
+      const merged = {
+        ...base,
+        id: base.id || `TKT-${String(ticketId).padStart(4, '0')}`,
+        ticket_ID: base.ticket_ID || ticketId,
+        reassignmentReason: isReassignDenied
+          ? (base.reassignmentReason || '')
+          : (base.reassignmentReason || parsed.reason || parsed.reassignmentReason || ''),
+        reassignmentRequested: isReassignDenied
+          ? false
+          : (base.reassignmentRequested ?? (parsed.type === 'reassignment_request')),
+        reassignmentRequestedBy: base.reassignmentRequestedBy ?? parsed.requested_by,
+        reassignmentStatus: isReassignDenied ? 'Denied' : base.reassignmentStatus,
+        reassignmentDenied: isReassignDenied || base.reassignmentDenied,
+        reassignmentDisapproved: isReassignDenied || base.reassignmentDisapproved,
+        deniedReassignment: isReassignDenied || base.deniedReassignment,
+        reassignmentDenyReason: csrDenyReason || base.reassignmentDenyReason || base.disapprovalReason || '',
+        disapprovalReason: csrDenyReason || base.disapprovalReason || base.reassignmentDenyReason || '',
+        notificationMessage: n.message,
+        notificationTitle: n.title,
+        notificationData: parsed,
+      };
       if (merged.reassignmentRequested) {
         try {
           const emps = await getAssignableEmployees({ forceRefresh: false }).catch(() => []);

@@ -139,6 +139,29 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     (ticket.assigned || []).includes(e.id)
   );
 
+  const assignedEmployeesList = useMemo(() => {
+    if (assignedEmployees.length > 0) return assignedEmployees;
+    if (ticket.assigned_employees && Array.isArray(ticket.assigned_employees) && ticket.assigned_employees.length > 0) {
+      return ticket.assigned_employees;
+    }
+    const singleName = ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null);
+    if (singleName) {
+      return [{ id: 'assigned-1', name: singleName, department: ticket.department || 'Service Engineer', status: 'active' }];
+    }
+    return [];
+  }, [assignedEmployees, ticket]);
+
+  const equipmentTypeDisplay =
+    ticket.equipment_type ||
+    ticket.equipmentType ||
+    ticket.machine_category ||
+    (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment');
+
+  const summaryRemarksList = useMemo(() => {
+    const raw = ticket.remarks || ticket.remarks_history || [];
+    return Array.isArray(raw) ? raw : [];
+  }, [ticket.remarks, ticket.remarks_history]);
+
   const getRequestingEmployeeName = () => {
     if (ticket.reassignmentRequestedBy) {
       const emp = employees.find(e => e.id === ticket.reassignmentRequestedBy);
@@ -200,13 +223,17 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
+                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                  </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
-                    {assignedEmployees.length === 0 ? (
+                    {assignedEmployeesList.length === 0 ? (
                       <div className="text-xs text-gray-400 italic">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {assignedEmployees.map((emp) => (
+                        {assignedEmployeesList.map((emp) => (
                           <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                             <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
                             <span className="text-xs font-medium text-gray-700">{emp.name}</span>
@@ -220,6 +247,12 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-medium text-gray-500">Date Submitted</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
                   </div>
+                  {(ticket.resolved_at || ticket.closed_at) && (
+                    <div className="flex items-center justify-between bg-green-50/70 border border-green-200/50 rounded-xl px-4 py-3">
+                      <span className="text-xs font-medium text-green-700 font-bold">Date Resolved</span>
+                      <span className="text-xs font-bold text-green-800">{formatDisplayDate(ticket.resolved_at || ticket.closed_at)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <span className="text-xs font-medium text-gray-500">Last Updated</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
@@ -282,6 +315,26 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       </div>
                     </div>
                   )}
+
+                  {summaryRemarksList && summaryRemarksList.length > 0 && (
+                    <div className="bg-gray-50 rounded-xl px-4 py-3">
+                      <div className="text-xs font-medium text-gray-700 font-bold mb-2 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#252578] inline-block" />
+                        Remarks History ({summaryRemarksList.length})
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {summaryRemarksList.map((rem, idx) => (
+                          <div key={rem.id || idx} className="bg-white border border-gray-100 rounded-lg p-2.5 text-xs shadow-xs">
+                            <div className="flex items-center justify-between text-gray-400 mb-1">
+                              <span className="font-bold text-[#252578]">{rem.author || 'Staff Member'}</span>
+                              <span className="text-[10px]">{formatDisplayDate(rem.timestamp)}</span>
+                            </div>
+                            <p className="text-gray-700 break-words whitespace-pre-wrap">{rem.remark || rem.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -341,13 +394,17 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
                     <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
+                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                  </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
-                    {assignedEmployees.length === 0 ? (
+                    {assignedEmployeesList.length === 0 ? (
                       <div className="text-xs text-gray-400 italic">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {assignedEmployees.map((emp) => (
+                        {assignedEmployeesList.map((emp) => (
                           <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                             <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
                             <span className="text-xs font-medium text-gray-700">{emp.name}</span>

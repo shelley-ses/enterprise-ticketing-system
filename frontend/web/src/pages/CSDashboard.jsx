@@ -1,13 +1,22 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { Inbox, Clock, CheckCircle, AlertTriangle, Bot } from 'lucide-react';
-import { getCSDashboard, getTicketDetails, getInternalTickets } from '@/services/ticketService';
+import {
+  getCSDashboard,
+  getTicketDetails,
+  getInternalTickets,
+  getAssignableEmployees,
+  getDepartments,
+  prefetchTicketFormOptions,
+  acceptTicket,
+} from '@/services/ticketService';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
+import { AssignModal } from '@/components/CSModals';
 
 function ArrowRight() {
   return (
@@ -49,6 +58,10 @@ export default function CSDashboard() {
   const [loadingMyTickets, setLoadingMyTickets] = useState(true);
   const [selectedMyTicket, setSelectedMyTicket] = useState(null);
   const [myTicketsModalLoading, setMyTicketsModalLoading] = useState(false);
+  const [assignModalTicket, setAssignModalTicket] = useState(null);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [priorityOptions, setPriorityOptions] = useState(['Low', 'Medium', 'High', 'Critical']);
   const newTicketTimerRef = useRef(null);
 
   const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
@@ -278,6 +291,96 @@ export default function CSDashboard() {
     loadMyTickets();
   }, [loadDashboard, loadMyTickets]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const preloadAssignData = async () => {
+      try {
+        const [empRes, depRes, optRes] = await Promise.allSettled([
+          getAssignableEmployees(),
+          getDepartments(),
+          prefetchTicketFormOptions(),
+        ]);
+        if (!isMounted) return;
+        if (empRes.status === 'fulfilled') setEmployees(empRes.value || []);
+        if (depRes.status === 'fulfilled') setDepartments((depRes.value || []).map((d) => d.name || d));
+        if (optRes.status === 'fulfilled') {
+          const prioList = optRes.value?.ticket_priorities?.map((p) => p.priority_name);
+          if (prioList && prioList.length) setPriorityOptions(prioList);
+        }
+      } catch (err) {
+        console.warn('Failed to preload assign data:', err);
+      }
+    };
+    preloadAssignData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleOpenAssignModal = useCallback(async (ticket) => {
+    setSelectedTicket(null);
+    setSelectedMyTicket(null);
+    if (employees.length === 0) {
+      try {
+        const [empList, deptList] = await Promise.all([
+          getAssignableEmployees(),
+          getDepartments(),
+        ]);
+        if (empList) setEmployees(empList);
+        if (deptList) setDepartments((deptList || []).map((d) => d.name || d));
+      } catch (err) {
+        console.warn('Failed to fetch assign data on demand:', err);
+      }
+    }
+    setAssignModalTicket(ticket);
+  }, [employees.length]);
+
+  const handleNavigateTicketHistory = useCallback((ticket) => {
+    setSelectedTicket(null);
+    setSelectedMyTicket(null);
+    const ticketId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+    navigate(`/cs/history/${ticketId}`, { state: { ticket, backPath: '/cs/dashboard' } });
+  }, [navigate]);
+
+  const handleSaveAssignment = async (updated) => {
+    const priorityMap = {
+      Low: 1,
+      Medium: 2,
+      High: 3,
+      Critical: 4,
+    };
+
+    const isMock = !!updated.isMock;
+    if (isMock) {
+      const refreshed = {
+        ...updated,
+        status: 'Pending Assignment',
+      };
+      setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID || t.id === updated.id ? refreshed : t)));
+      setAssignModalTicket(null);
+      return true;
+    }
+
+    try {
+      const targetTicketId = updated.ticket_ID || Number(String(updated.id || '').replace(/\D/g, ''));
+      await acceptTicket({
+        ticketId: targetTicketId,
+        employeeIds: updated.assigned,
+        assignedByEmail: user?.email,
+        priorityId: priorityMap[updated.priority] ?? 1,
+      });
+
+      window.dispatchEvent(new Event('notifications:updated'));
+      setAssignModalTicket(null);
+      await loadDashboard({ forceRefresh: true });
+      return true;
+    } catch (err) {
+      console.error('Failed to assign ticket:', err);
+      window.alert('Failed to assign ticket. Please try again.');
+      return false;
+    }
+  };
+
   useRealtimeRefresh({
     refresh: handleRealtimeUpdate,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
@@ -477,6 +580,8 @@ export default function CSDashboard() {
           onResolve={null}
           allowReopen={false}
           customerName={selectedTicket.customer}
+          onAssign={handleOpenAssignModal}
+          onViewTicket={handleNavigateTicketHistory}
         />
       )}
 
@@ -489,53 +594,20 @@ export default function CSDashboard() {
           onResolve={null}
           allowReopen={false}
           customerName={selectedMyTicket.customer}
+          onAssign={handleOpenAssignModal}
+          onViewTicket={handleNavigateTicketHistory}
         />
       )}
 
-      {summaryTicket && !selectedTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]" onClick={() => setSummaryTicket(null)}>
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Ticket Summary</h2>
-                <p className="text-sm font-semibold text-[#252578]">{summaryTicket.id}</p>
-              </div>
-              <button type="button" onClick={() => setSummaryTicket(null)} className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-400">Title</p>
-                <p className="mt-1 text-sm font-medium text-gray-800">{summaryTicket.title}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Customer</p>
-                  <p className="mt-1 text-sm text-gray-800">{summaryTicket.customer}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Priority</p>
-                  <span className={`mt-1 inline-block px-3 py-1 rounded-full text-xs font-semibold ${priorityColors[summaryTicket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
-                    {summaryTicket.priority}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
-                  <span className={`mt-1 inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusColors[summaryTicket.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                    {summaryTicket.status}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p>
-                  <p className="mt-1 text-sm text-gray-800">{summaryTicket.updated}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {assignModalTicket && (
+        <AssignModal
+          ticket={assignModalTicket}
+          employees={employees.filter((e) => e.id !== assignModalTicket?.requested_by)}
+          departments={departments}
+          priorityOptions={priorityOptions}
+          onClose={() => setAssignModalTicket(null)}
+          onSave={handleSaveAssignment}
+        />
       )}
 
       {(modalLoading || myTicketsModalLoading) && (

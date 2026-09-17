@@ -506,6 +506,7 @@ class TicketService
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
             ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
             ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
             ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
@@ -521,6 +522,9 @@ class TicketService
                 't.updated_at',
                 'm.machine_name',
                 'm.serial_number',
+                'm.model as machine_model',
+                'm.brand as machine_brand',
+                'mc.category_name as equipment_type',
                 'c.client_name',
                 't.assigned_to',
                 't.proof_rejected',
@@ -744,6 +748,38 @@ class TicketService
             ])
             ->all();
 
+        $auditRemarks = [];
+        foreach ($auditLogs as $log) {
+            if ($log->action_type === 'status_change') {
+                $details = json_decode($log->details, true) ?? [];
+                if (!empty($details['remarks'])) {
+                    $auditRemarks[] = [
+                        'id' => 'audit-remark-' . $log->log_ID,
+                        'remark' => $details['remarks'],
+                        'status' => $details['status'] ?? null,
+                        'author' => $log->employee_name ?: ($log->customer_name ?: 'Staff Member'),
+                        'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
+                    ];
+                }
+            } elseif ($log->action_type === 'reassign_request') {
+                $details = json_decode($log->details, true) ?? [];
+                if (!empty($details['reason'])) {
+                    $auditRemarks[] = [
+                        'id' => 'reassign-remark-' . $log->log_ID,
+                        'remark' => 'Reassignment request reason: ' . $details['reason'],
+                        'status' => 'Pending Reassignment',
+                        'author' => $log->employee_name ?: 'Assigned Employee',
+                        'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
+                    ];
+                }
+            }
+        }
+
+        $allRemarks = array_merge($dbRemarks, $auditRemarks);
+        usort($allRemarks, function($a, $b) {
+            return strcmp($a['timestamp'], $b['timestamp']);
+        });
+
         foreach ($dbRemarks as $rem) {
             $timeline[] = [
                 'id' => 'timeline-remark-' . $rem['id'],
@@ -817,19 +853,39 @@ class TicketService
         $createdAtIso = $ticket->created_at ? Carbon::parse($ticket->created_at)->toIso8601String() : null;
         $updatedAtIso = $ticket->updated_at ? Carbon::parse($ticket->updated_at)->toIso8601String() : $createdAtIso;
         $resolvedAtIso = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at)->toIso8601String() : null;
+        $closedAtIso = $ticket->closed_at ? Carbon::parse($ticket->closed_at)->toIso8601String() : null;
 
-        $assigned = DB::table('ticket_assignments')
-            ->where('ticket_ID', $ticketId)
-            ->pluck('employee_ID')
-            ->map(fn($id) => (int)$id)
-            ->all();
+        $assignedEmployees = DB::table('ticket_assignments as ta')
+            ->join('employees as e', 'e.emp_id', '=', 'ta.employee_ID')
+            ->where('ta.ticket_ID', $ticketId)
+            ->select(
+                'e.emp_id as id',
+                DB::raw("CONCAT(e.first_name, ' ', e.last_name) as name"),
+                'e.email',
+                'e.department',
+                'e.role',
+                'ta.assignment_status'
+            )
+            ->get();
 
-        $department = null;
-        if (!empty($assigned)) {
+        $assigned = $assignedEmployees->pluck('id')->map(fn($id) => (int)$id)->all();
+        $primaryAssignedName = $assignedEmployees->first()?->name;
+
+        if (!$primaryAssignedName && $ticket->assigned_to) {
+            $primaryAssignedName = DB::table('employees')
+                ->where('emp_id', $ticket->assigned_to)
+                ->select(DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+                ->value('name');
+        }
+
+        $department = $assignedEmployees->first()?->department;
+        if (!$department && !empty($assigned)) {
             $department = DB::table('employees')
                 ->whereIn('emp_id', $assigned)
                 ->value('department');
         }
+
+        $equipmentType = $ticket->equipment_type ?: ($ticket->category_name ? ($ticket->category_name . ' Equipment') : 'Medical Equipment');
 
         return [
             'id' => 'TKT-' . str_pad((string) $ticket->ticket_ID, 4, '0', STR_PAD_LEFT),
@@ -841,6 +897,11 @@ class TicketService
             'machine_ID' => $ticket->machine_ID,
             'machine_name' => $ticket->machine_name,
             'serial_number' => $ticket->serial_number,
+            'machine_model' => $ticket->machine_model ?? null,
+            'machine_brand' => $ticket->machine_brand ?? null,
+            'equipment_type' => $equipmentType,
+            'equipmentType' => $equipmentType,
+            'equipment_category' => $equipmentType,
             'status' => $ticket->status_name,
             'priority' => $ticket->priority_name,
             'date' => $createdAtIso,
@@ -853,6 +914,10 @@ class TicketService
             'equipment' => $ticket->machine_name ? ($ticket->machine_name . ($ticket->serial_number ? ' - ' . $ticket->serial_number : '')) : ($ticket->serial_number ?: 'Not specified'),
             'customer' => $ticket->client_name,
             'accepted' => $accepted,
+            'assigned_employee' => $primaryAssignedName,
+            'assigned_employee_name' => $primaryAssignedName,
+            'assigned_to_name' => $primaryAssignedName,
+            'assigned_employees' => $assignedEmployees->toArray(),
             'reassignmentRequested' => !empty($pendingReassign),
             'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
             'reassignmentRequestedBy' => $pendingReassign ? ($pendingReassign->requesting_employee_name ?: 'Assigned Employee') : null,
@@ -862,8 +927,10 @@ class TicketService
             'proofRejected' => (bool)$ticket->proof_rejected,
             'rejectionReason' => $ticket->rejection_reason,
             'resolved_at' => $resolvedAtIso,
+            'closed_at' => $closedAtIso,
             'internalNotes' => $dbNotes,
-            'remarks' => $dbRemarks,
+            'remarks' => $allRemarks,
+            'remarks_history' => $allRemarks,
             'timeline' => $timeline,
             'attachments' => $attachments,
             'proofAttachments' => $proofAttachments,

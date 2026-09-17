@@ -14,6 +14,7 @@ import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { isReassignmentDenied } from '@/utils/reassignmentUtils';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
@@ -75,7 +76,7 @@ export default function EmployeeAssigned() {
       const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
       if (match) {
         // Open the ticket based on its status
-        if (match.deniedReassignment) {
+        if (match.deniedReassignment || isReassignmentDenied(match)) {
           setDeniedReassignTicket(match);
         } else if (!match.accepted) {
           setPendingTicket(match);
@@ -242,6 +243,11 @@ export default function EmployeeAssigned() {
       // Closed / Resolved → redirect to History
       if (CLOSED_STATUSES.includes(t.status)) {
         navigate('/employee/progress');
+        return;
+      }
+      // If reassignment was denied, show info modal with disapproval banner
+      if (t.deniedReassignment || isReassignmentDenied(t)) {
+        setDeniedReassignTicket(t);
         return;
       }
       // Not yet accepted → show full Accept/Reject modal

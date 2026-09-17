@@ -60,6 +60,7 @@ class TicketDashboardService
         $recentTickets = Cache::remember("customer_dashboard_recent_{$createdBy}_{$limit}", 60, function () use ($createdBy, $limit) {
             return DB::table('tickets as t')
                 ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
@@ -70,6 +71,7 @@ class TicketDashboardService
                     't.description',
                     'm.machine_name',
                     'm.serial_number',
+                    'mc.category_name as equipment_type',
                     'ts.status_name',
                     't.created_at',
                     't.updated_at',
@@ -87,6 +89,8 @@ class TicketDashboardService
                     'ticket_ID' => $row->ticket_ID,
                     'machine_ID' => $row->machine_ID,
                     'machine_name' => $row->machine_name,
+                    'equipment_type' => $row->equipment_type ?: 'Medical Equipment',
+                    'equipmentType' => $row->equipment_type ?: 'Medical Equipment',
                     'title' => $row->title,
                     'description' => $row->description,
                     'category' => $row->category_name,
@@ -194,6 +198,7 @@ class TicketDashboardService
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
                 ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
                 ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
@@ -213,6 +218,7 @@ class TicketDashboardService
                     'c.client_name',
                     'm.machine_name',
                     'm.serial_number',
+                    'mc.category_name as equipment_type',
                     'tt.type_name as ticket_type',
                     't.proof_rejected',
                     't.rejection_reason'
@@ -234,8 +240,10 @@ class TicketDashboardService
             $pendingReassigns = collect();
 
             if (!empty($ticketIds)) {
-                $assignments = DB::table('ticket_assignments')
-                    ->whereIn('ticket_ID', $ticketIds)
+                $assignments = DB::table('ticket_assignments as ta')
+                    ->leftJoin('employees as e', 'e.emp_id', '=', 'ta.employee_ID')
+                    ->whereIn('ta.ticket_ID', $ticketIds)
+                    ->select('ta.*', DB::raw("CONCAT(e.first_name, ' ', e.last_name) as employee_name"))
                     ->get()
                     ->groupBy('ticket_ID');
 
@@ -256,6 +264,10 @@ class TicketDashboardService
                 $assignedIds = isset($assignments[$row->ticket_ID])
                     ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
                     : [];
+
+                $assignedNames = isset($assignments[$row->ticket_ID])
+                    ? $assignments[$row->ticket_ID]->pluck('employee_name')->filter()->implode(', ')
+                    : null;
 
                 $accepted = isset($assignments[$row->ticket_ID])
                     ? $assignments[$row->ticket_ID]->contains('assignment_status', 'accepted')
@@ -281,6 +293,8 @@ class TicketDashboardService
                     'priority' => $row->priority_name,
                     'department' => $row->department,
                     'equipment' => $equipment,
+                    'equipment_type' => $row->equipment_type ?: 'Medical Equipment',
+                    'equipmentType' => $row->equipment_type ?: 'Medical Equipment',
                     'machine_name' => $row->machine_name,
                     'serial_number' => $row->serial_number,
                     'sla' => $this->slaLabel($createdAtObj),
@@ -288,6 +302,8 @@ class TicketDashboardService
                     'created_at' => $createdAtObj ? $createdAtObj->toIso8601String() : null,
                     'updated_at' => $updatedAtObj ? $updatedAtObj->toIso8601String() : ($createdAtObj ? $createdAtObj->toIso8601String() : null),
                     'assigned' => $assignedIds,
+                    'assigned_employee' => $assignedNames,
+                    'assigned_employee_name' => $assignedNames,
                     'accepted' => $accepted,
                     'reassignmentRequested' => !empty($pendingReassign),
                     'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,

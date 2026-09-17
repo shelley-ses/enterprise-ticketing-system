@@ -254,6 +254,9 @@ const normalizeCustomerTicket = (ticket = {}) => {
   const now = new Date().toISOString();
   const assigned_to = ticket.assigned_to || details.assigned_to || null;
 
+  const equipment_type = ticket.equipment_type || ticket.equipmentType || details.equipment_type || details.equipmentType || null;
+  const assigned_employee = ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || details.assigned_employee || null;
+
   return {
     ticket_ID: ticket.ticket_ID || details.ticket_ID || Number(String(ticket.id || '').replace(/\D/g, '')) || null,
     id: ticket.id,
@@ -263,11 +266,19 @@ const normalizeCustomerTicket = (ticket = {}) => {
     machine_ID: ticket.machine_ID || details.machine_ID || null,
     machine_name: ticket.machine_name || details.machine_name || null,
     equipment: ticket.equipment || details.equipment || 'Unspecified equipment',
+    equipment_type,
+    equipmentType: equipment_type,
     description: ticket.description || details.description || '',
     date_created: ticket.date_created || details.date_created || now,
     last_updated: overrides.last_updated || ticket.last_updated || details.last_updated || ticket.date_created || now,
     can_discard: status === 'Open' && !assigned_to,
     assigned_to,
+    assigned_employee,
+    assigned_employee_name: assigned_employee,
+    resolved_at: ticket.resolved_at || details.resolved_at || null,
+    closed_at: ticket.closed_at || details.closed_at || null,
+    remarks: ticket.remarks || details.remarks || [],
+    remarks_history: ticket.remarks_history || details.remarks_history || [],
   };
 };
 

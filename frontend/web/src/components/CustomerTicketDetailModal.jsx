@@ -1,11 +1,25 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
+import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
+
+const getFileName = (file, fallback = 'Attachment') => {
+  if (!file) return fallback;
+  if (typeof file === 'string') return file.split('/').pop() || fallback;
+  return file.name || file.file_name || fallback;
+};
+
+const getFileUrl = (file) => {
+  if (!file) return '';
+  if (typeof file === 'string') return file;
+  return file.url || file.file_path || file.path || '';
+};
 
 export default function CustomerTicketDetailModal({
   ticket,
@@ -16,7 +30,10 @@ export default function CustomerTicketDetailModal({
   allowReopen = true,
   customerName,
   isHistoryView = false,
+  onAssign,
+  onViewTicket,
 }) {
+  const navigate = useNavigate();
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
   const [reopenReason, setReopenReason] = useState('');
   const [showReopenForm, setShowReopenForm] = useState(false);
@@ -26,6 +43,53 @@ export default function CustomerTicketDetailModal({
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
+  const isCS = useMemo(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/cs')) return true;
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+      const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+      return (
+        dept.includes('customer service') ||
+        dept.includes('customer support') ||
+        dept === 'cs' ||
+        role.includes('customer service') ||
+        role.includes('customer-service') ||
+        role === 'cs'
+      );
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const isEmployee = useMemo(() => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const role = String(user?.role || '').toLowerCase();
+      return role === 'employee' || role.includes('engineer') || role.includes('technician') || import.meta.env.VITE_APP_MODE === 'employee';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const hasAssignedEmployee = useMemo(() => {
+    if (!ticket) return false;
+    return Boolean(
+      (Array.isArray(ticket.assigned) && ticket.assigned.length > 0) ||
+      (Array.isArray(ticket.assigned_employees) && ticket.assigned_employees.length > 0) ||
+      ticket.assigned_to ||
+      (ticket.assigned_employee && ticket.assigned_employee !== '—' && ticket.assigned_employee !== 'Unassigned')
+    );
+  }, [ticket]);
+
+  const isAlreadyAssigned = useMemo(() => {
+    if (!ticket) return false;
+    return Boolean(
+      hasAssignedEmployee ||
+      (ticket.status && ['In Progress', 'Assigned', 'Pending Assignment', 'Resolved', 'Closed', 'Pending Evaluation', 'On Hold', 'Ongoing'].includes(ticket.status))
+    );
+  }, [ticket, hasAssignedEmployee]);
+
   const isExternalClosed = ticket?.status === 'Closed' && !ticket?.is_internal && ticket?.ticket_type !== 'Internal';
   const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id);
 
@@ -34,6 +98,49 @@ export default function CustomerTicketDetailModal({
       setShowFeedbackModal(true);
     }
   }, [isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id]);
+
+  const remarksList = useMemo(() => {
+    if (!ticket) return [];
+    const list = [];
+    if (Array.isArray(ticket.remarks)) {
+      ticket.remarks.forEach((rem, idx) => {
+        list.push({
+          id: rem.id || `rem-${idx}`,
+          author: rem.author || 'Staff Member',
+          remark: rem.remark || rem.text,
+          timestamp: rem.timestamp || rem.created_at,
+        });
+      });
+    }
+    if (Array.isArray(ticket.remarks_history)) {
+      ticket.remarks_history.forEach((rem, idx) => {
+        if (!list.some(r => r.remark === (rem.remark || rem.text))) {
+          list.push({
+            id: rem.id || `rem-hist-${idx}`,
+            author: rem.author || 'Staff Member',
+            remark: rem.remark || rem.text,
+            timestamp: rem.timestamp || rem.created_at,
+          });
+        }
+      });
+    }
+    if (Array.isArray(ticket.timeline)) {
+      ticket.timeline.forEach((evt, idx) => {
+        if (evt.type === 'remark' && evt.text) {
+          const cleanText = evt.text.replace(/^Remark added by [^:]+:\s*"?/, '').replace(/"?$/, '');
+          if (!list.some(r => r.remark === cleanText || r.remark === evt.text)) {
+            list.push({
+              id: evt.id || `timeline-rem-${idx}`,
+              author: evt.author || 'Staff Member',
+              remark: cleanText || evt.text,
+              timestamp: evt.timestamp,
+            });
+          }
+        }
+      });
+    }
+    return list;
+  }, [ticket]);
 
   const sortedTimelineEvents = useMemo(() => {
     if (!ticket) return [];
@@ -73,20 +180,39 @@ export default function CustomerTicketDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
-          <div className="min-w-0 flex-1 pr-3">
-            <h2 className="text-modal-title text-gray-900 break-words whitespace-normal line-clamp-2 overflow-hidden" title={ticket.title}>{ticket.title}</h2>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-field-value text-[#252578] truncate">{ticket.id}</span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-badge whitespace-nowrap shrink-0 ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.status}</span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-badge whitespace-nowrap shrink-0 ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.priority}</span>
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-start justify-between border-b border-gray-150 px-6 py-5 shrink-0 bg-white">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-[#252578]">{ticket.id}</span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColors[ticket.status] || 'bg-gray-100 text-gray-700'}`}>
+                {ticket.status}
+              </span>
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${priorityColors[ticket.priority] || 'bg-gray-100 text-gray-700'}`}>
+                {ticket.priority}
+              </span>
+              {ticket.is_internal && (
+                <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700">
+                  Internal
+                </span>
+              )}
+              {ticket.slaStatus && (
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  ticket.slaStatus === 'Violated' ? 'bg-red-100 text-red-800' :
+                  ticket.slaStatus === 'Near Violation' ? 'bg-amber-100 text-amber-800' :
+                  ticket.slaStatus === 'Achieved' ? 'bg-green-100 text-green-800' :
+                  'bg-blue-50 text-[#252578]'
+                }`}>
+                  {ticket.slaStatus}
+                </span>
+              )}
             </div>
+            <h2 className="mt-1 text-xl font-bold text-gray-900">{ticket.title}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -95,6 +221,7 @@ export default function CustomerTicketDetailModal({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <ReassignmentDisapprovalBanner ticket={ticket} />
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2 min-w-0">
               <p className="text-field-label uppercase text-gray-400">Description</p>
@@ -111,61 +238,118 @@ export default function CustomerTicketDetailModal({
               <p className="mt-1 text-field-value text-gray-800">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
+              <p className="text-field-label uppercase text-gray-400">Equipment Type</p>
+              <p className="mt-1 text-field-value text-gray-800">
+                {ticket.equipment_type || ticket.equipmentType || ticket.machine_category || ticket.machine?.category_name || (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment')}
+              </p>
+            </div>
+            <div>
+              <p className="text-field-label uppercase text-gray-400">Assigned Employee</p>
+              <p className="mt-1 text-field-value text-gray-800">
+                {ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || (ticket.assigned_employees?.[0]?.name) || (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null) || 'Unassigned'}
+              </p>
             </div>
             <div>
               <p className="text-field-label uppercase text-gray-400">Category</p>
               <p className="mt-1 text-field-value text-gray-800">{ticket.category || '—'}</p>
             </div>
             <div>
+              <p className="text-field-label uppercase text-gray-400">Date Filed</p>
+              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
+            </div>
+            <div>
               <p className="text-field-label uppercase text-gray-400">Last Updated</p>
               <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
             </div>
+            {(ticket.resolved_at || ticket.closed_at) && (
+              <div>
+                <p className="text-field-label uppercase text-gray-400">Date Resolved</p>
+                <p className="mt-1 text-field-value text-green-700 font-semibold">
+                  {formatDisplayDate(ticket.resolved_at || ticket.closed_at)}
+                </p>
+              </div>
+            )}
 
             {ticket.attachments && ticket.attachments.length > 0 && (
               <div className="md:col-span-2">
-                <p className="text-field-label uppercase text-gray-400">Attachments</p>
+                <p className="text-field-label uppercase text-gray-400">Attachments ({ticket.attachments.length})</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {ticket.attachments.map((file) => (
-                    <a
-                      key={file.id || file.attachment_id}
-                      href={file.url}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setPreviewFile({ name: file.name, url: file.url });
-                      }}
-                      className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-badge text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                    >
-                      <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                      {file.name}
-                    </a>
-                  ))}
+                  {ticket.attachments.map((file, idx) => {
+                    const fName = getFileName(file);
+                    const fUrl = getFileUrl(file);
+                    return (
+                      <a
+                        key={file.id || file.attachment_id || idx}
+                        href={fUrl || '#'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreviewFile({ name: fName, url: fUrl });
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-badge text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                      >
+                        <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                        <span className="truncate max-w-[220px]">{fName}</span>
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
               <div className="md:col-span-2">
-                <p className="text-field-label uppercase text-gray-400">Proof of Completion Files</p>
+                <p className="text-field-label uppercase text-green-700 font-bold">Proof of Completion Files</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {(ticket.proofAttachments || ticket.proofFiles).map((file, pIdx) => (
-                    <a
-                      key={file.id || file.attachment_id || pIdx}
-                      href={file.url}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setPreviewFile({ name: file.name, url: file.url });
-                      }}
-                      className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-badge text-green-700 hover:text-green-900 hover:underline cursor-pointer"
-                    >
-                      <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      {file.name}
-                    </a>
+                  {(ticket.proofAttachments || ticket.proofFiles).map((file, pIdx) => {
+                    const fName = getFileName(file);
+                    const fUrl = getFileUrl(file);
+                    return (
+                      <a
+                        key={file.id || file.attachment_id || pIdx}
+                        href={fUrl || '#'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreviewFile({ name: fName, url: fUrl });
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-badge text-green-700 hover:text-green-900 hover:underline cursor-pointer"
+                      >
+                        <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="truncate max-w-[220px]">{fName}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Remarks History */}
+            {remarksList && remarksList.length > 0 && (
+              <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-field-label uppercase text-gray-500 font-bold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#252578] inline-block" />
+                    Remarks History ({remarksList.length})
+                  </h3>
+                </div>
+                <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                  {remarksList.map((rem, idx) => (
+                    <div key={rem.id || idx} className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs shadow-xs">
+                      <div className="flex items-center justify-between text-gray-500 mb-1">
+                        <span className="font-bold text-[#252578] text-[11px] uppercase tracking-wide">
+                          {rem.author || 'Staff Member'}
+                        </span>
+                        <span className="text-timestamp text-gray-400">
+                          {formatDisplayDate(rem.timestamp)}
+                        </span>
+                      </div>
+                      <p className="text-gray-700 leading-relaxed break-words whitespace-pre-wrap font-medium">
+                        {rem.remark || rem.text}
+                      </p>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -289,6 +473,52 @@ export default function CustomerTicketDetailModal({
             </div>
           ) : (
             <div className="flex w-full justify-end gap-3">
+              {(isCS || onAssign || onViewTicket) ? (
+                !isAlreadyAssigned ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onAssign) {
+                        onAssign(ticket);
+                      } else {
+                        onClose();
+                      }
+                    }}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
+                  >
+                    Assign
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onViewTicket) {
+                        onViewTicket(ticket);
+                      } else {
+                        onClose();
+                        const ticketId = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+                        navigate(`/cs/history/${ticketId}`, { state: { ticket, backPath: window.location.pathname } });
+                      }
+                    }}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
+                  >
+                    View Ticket
+                  </button>
+                )
+              ) : (
+                isEmployee && ticket?.status !== 'Closed' && ticket?.status !== 'Resolved' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      navigate('/employee/ticket-update', { state: { ticket } });
+                    }}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
+                  >
+                    Update Ticket
+                  </button>
+                )
+              )}
               {canShowReopenAction && (
                 <button
                   type="button"
@@ -298,7 +528,7 @@ export default function CustomerTicketDetailModal({
                   Re-open Ticket
                 </button>
               )}
-              {!allowReopen && ticket.status === 'Closed' && (
+              {!isCS && !allowReopen && ticket.status === 'Closed' && (
                 <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
                   Pending Evaluation
                 </span>

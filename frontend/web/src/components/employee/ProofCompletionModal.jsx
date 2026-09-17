@@ -69,22 +69,36 @@ export default function ProofCompletionModal({
   const isInternal = Boolean(ticket?.title?.startsWith('[Internal]') || ticket?.is_internal || ticket?.ticket_type === 'Internal' || ticket?.type === 'Internal');
   const isProofRejected = ticket.proofRejected === true && ticket.status === 'In Progress';
 
-  // Handle file validation (max 15MB each, allowed image/pdf/doc)
-  const validateFiles = (files) => {
-    const ALLOWED_EXTENSIONS = ['pdf', 'png', 'docx'];
-    const MAX_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
+  const ALLOWED_EXTENSIONS = ['pdf', 'png', 'docx', 'doc'];
+  const MAX_FILE_SIZE_MB = 15;
+  const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024; // 15MB
+  const MAX_TOTAL_SIZE_MB = 45;
+  const MAX_TOTAL_SIZE_BYTES = MAX_TOTAL_SIZE_MB * 1024 * 1024; // 45MB
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+  const totalSizeBytes = proofFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+  const totalSizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
+
+  // Handle file validation (max 15MB each, max 45MB total, allowed PDF, PNG, Word)
+  const validateFiles = (incomingFiles, currentFiles = []) => {
+    for (let i = 0; i < incomingFiles.length; i++) {
+      const file = incomingFiles[i];
       const extension = file.name.split('.').pop().toLowerCase();
       
       if (!ALLOWED_EXTENSIONS.includes(extension)) {
-        return `Invalid file type: ${file.name}. Only PDF, PNG, and DOCX files are allowed.`;
+        return `Invalid file type: "${file.name}". Supported formats: PDF, PNG, Word (.docx, .doc).`;
       }
-      if (file.size > MAX_SIZE_BYTES) {
-        return `File too large: ${file.name}. Maximum size is 15MB.`;
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        return `File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maximum allowed size is ${MAX_FILE_SIZE_MB}MB per file.`;
       }
     }
+
+    const currentTotal = currentFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+    const incomingTotal = incomingFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+    if (currentTotal + incomingTotal > MAX_TOTAL_SIZE_BYTES) {
+      const attemptedTotalMB = ((currentTotal + incomingTotal) / (1024 * 1024)).toFixed(2);
+      return `Total attachments size exceeds ${MAX_TOTAL_SIZE_MB}MB limit (attempted: ${attemptedTotalMB} MB). Please remove some files.`;
+    }
+
     return null;
   };
 
@@ -100,7 +114,7 @@ export default function ProofCompletionModal({
       return;
     }
 
-    // Re-validate all selected files before submitting (catches any that slipped through)
+    // Re-validate all selected files before submitting
     const fileError = validateFiles(proofFiles);
     if (fileError) {
       setErrorMessage(fileError);
@@ -147,24 +161,28 @@ export default function ProofCompletionModal({
 
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files);
-    // Validate immediately on selection so the user knows right away
-    const fileError = validateFiles(selected);
+    if (!selected.length) return;
+
+    // Filter out files already added
+    const newFiles = selected.filter(
+      (f) => !proofFiles.some((m) => m.name === f.name && m.size === f.size)
+    );
+
+    if (newFiles.length === 0) {
+      setErrorMessage('Selected file(s) are already added.');
+      e.target.value = null;
+      return;
+    }
+
+    const fileError = validateFiles(newFiles, proofFiles);
     if (fileError) {
       setErrorMessage(fileError);
-      // Don't add the invalid files
+      e.target.value = null;
       return;
     }
     setErrorMessage('');
-    setProofFiles((prev) => {
-      // Avoid duplicate files based on name and size
-      const merged = [...prev];
-      selected.forEach((f) => {
-        if (!merged.some((m) => m.name === f.name && m.size === f.size)) {
-          merged.push(f);
-        }
-      });
-      return merged;
-    });
+    setProofFiles((prev) => [...prev, ...newFiles]);
+    e.target.value = null;
   };
 
   return (
@@ -225,19 +243,41 @@ export default function ProofCompletionModal({
           )}
 
           <div className="bg-gray-50/50 rounded-xl p-5 border border-gray-100">
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5 font-sans">File Upload Requirements</h3>
-            <ul className="text-[11px] text-gray-500 list-disc list-inside space-y-1 leading-relaxed font-sans">
-              <li>Supported Formats: <span className="font-semibold text-gray-600">PDF, PNG, DOCX</span></li>
-              <li>Size Limit: Maximum <span className="font-semibold text-gray-600">15MB</span> per file</li>
-              <li>Multiple files are allowed and encouraged for complete proof</li>
-            </ul>
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2.5 font-sans">
+              Proof of Completion Requirements
+            </h3>
 
-            <form onSubmit={handleProofSubmit} className="mt-5 space-y-4">
+            {/* Clear 3-card requirement summary */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-sans mb-3.5">
+              <div className="bg-white border border-gray-150 rounded-xl p-2.5 flex flex-col justify-between">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-gray-400">Supported Formats</span>
+                  <span className="font-semibold text-gray-800 text-xs">PDF, PNG, Word</span>
+                </div>
+                <span className="text-[10px] text-gray-400 mt-1">.pdf, .png, .docx, .doc</span>
+              </div>
+              <div className="bg-white border border-gray-150 rounded-xl p-2.5 flex flex-col justify-between">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-gray-400">Max File Size</span>
+                  <span className="font-semibold text-gray-800 text-xs">{MAX_FILE_SIZE_MB} MB per file</span>
+                </div>
+                <span className="text-[10px] text-gray-400 mt-1">Individual file limit</span>
+              </div>
+              <div className="bg-white border border-gray-150 rounded-xl p-2.5 flex flex-col justify-between">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-gray-400">Max Total Size</span>
+                  <span className="font-semibold text-[#252578] text-xs">{MAX_TOTAL_SIZE_MB} MB total</span>
+                </div>
+                <span className="text-[10px] text-gray-400 mt-1">Combined all attachments</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleProofSubmit} className="mt-4 space-y-4">
               <div className="border-2 border-dashed border-gray-200 hover:border-[#252578] rounded-xl p-6 transition-all bg-white text-center cursor-pointer group relative">
                 <input
                   type="file"
                   multiple
-                  accept=".pdf,.png,.docx"
+                  accept=".pdf,.png,.docx,.doc"
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   required={proofFiles.length === 0}
@@ -247,12 +287,23 @@ export default function ProofCompletionModal({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
                 </svg>
                 <p className="text-xs font-semibold text-[#252578] font-sans">Click to browse files</p>
-                <p className="text-[10px] text-gray-400 mt-0.5 font-sans">Multiple attachments allowed</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 font-sans">PDF, PNG, Word · Up to 15MB each · 45MB total</p>
               </div>
 
               {proofFiles.length > 0 && (
                 <div className="space-y-1.5 bg-white border border-gray-150 rounded-xl p-3 max-h-48 overflow-y-auto">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1 font-sans">Files Selected ({proofFiles.length})</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide font-sans">
+                      Files Selected ({proofFiles.length})
+                    </p>
+                    <span className={`text-[10px] font-semibold font-sans px-2.5 py-0.5 rounded-full ${
+                      totalSizeBytes > MAX_TOTAL_SIZE_BYTES
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-blue-50 text-[#252578] border border-blue-100'
+                    }`}>
+                      {totalSizeMB} MB / {MAX_TOTAL_SIZE_MB} MB Total
+                    </span>
+                  </div>
                   <div className="space-y-1.5">
                     {proofFiles.map((file, idx) => (
                       <ProofFileItem
