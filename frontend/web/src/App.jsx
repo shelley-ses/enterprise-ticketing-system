@@ -293,6 +293,8 @@ function App() {
               >
                 <Route index element={<Navigate to="ticket-config" replace />} />
                 <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
+                <Route path="ticket-config/:group" element={<SuperAdminTicketConfig />} />
+                <Route path="ticket-config/:group/:subtab" element={<SuperAdminTicketConfig />} />
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
                 <Route path="history" element={<SuperAdminHistory />} />
                 <Route path="knowledge-base" element={<AIKnowledgeBase />} />
