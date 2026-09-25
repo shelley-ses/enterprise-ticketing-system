@@ -16,6 +16,10 @@ public_html/storage
 public_html/hot
 
 storage/*.key
+services/*/storage/*.key
+services/*/storage/oauth-*.key
+services/*/storage/auth-module-*.key
+*.key
 .env
 Homestead.yaml
 Homestead.json

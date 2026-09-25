@@ -1,0 +1,463 @@
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Search, Filter } from 'lucide-react';
+import {
+  statusColors,
+  priorityColors,
+  sortTicketsByPriority,
+} from '@/constants/employeeTickets';
+import TicketDetailModal from '@/components/employee/TicketDetailModal';
+import TicketInfoModal from '@/components/employee/TicketInfoModal';
+import ReassignmentModal from '@/components/employee/ReassignmentModal';
+import { formatDisplayDate } from '@/utils/dateUtils';
+import { useAuth } from '@/context/AuthContext';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
+import SkeletonLoader from '@/components/SkeletonLoader';
+import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { isReassignmentDenied } from '@/utils/reassignmentUtils';
+
+const CLOSED_STATUSES = ['Closed', 'Resolved'];
+
+const selectClass =
+  'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
+
+export default function EmployeeAssigned() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+
+
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All Status');
+  const [categoryFilter, setCategoryFilter] = useState('All Category');
+  const [priorityFilter, setPriorityFilter] = useState('All Priority');
+  const [sortPriority, setSortPriority] = useState('Priority');
+
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
+
+  // Compute pending counts for display
+  const pendingCount = useMemo(() => {
+    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && !t.accepted).length;
+  }, [tickets]);
+
+  // Modal state — which modal to show
+  const [pendingTicket, setPendingTicket] = useState(null);   // not-yet-accepted → TicketDetailModal
+  const [infoTicket, setInfoTicket] = useState(null);         // accepted & active → TicketInfoModal
+  const [reassignTicket, setReassignTicket] = useState(null); // reassign flow
+  const [deniedReassignTicket, setDeniedReassignTicket] = useState(null); // denied reassign → skip accept, show update
+
+  const loadTickets = useCallback(async ({ forceRefresh = false } = {}) => {
+    const email = user?.email || 'frontend@example.com';
+    setLoading(true);
+    setLoadError('');
+    try {
+      const list = await getEmployeeAssignedTickets({ employeeEmail: email, forceRefresh });
+      setTickets(list.map((t) => ({ ...t, rejected: false })));
+    } catch {
+      setLoadError('Unable to load assigned tickets from ticket-service.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.email]);
+
+  useEffect(() => {
+    loadTickets({ forceRefresh: true });
+  }, [loadTickets]);
+
+  // Handle notification-triggered ticket opens
+  useEffect(() => {
+    const focusId = location.state?.focusTicketId;
+    if (focusId && tickets.length > 0) {
+      const match = tickets.find(t => t.id === focusId || t.ticket_ID === focusId);
+      if (match) {
+        // Open the ticket based on its status
+        if (match.deniedReassignment || isReassignmentDenied(match)) {
+          setDeniedReassignTicket(match);
+        } else if (!match.accepted) {
+          setPendingTicket(match);
+        } else {
+          setInfoTicket(match);
+        }
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, tickets]);
+
+
+
+  useRealtimeRefresh({
+    refresh: loadTickets,
+    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    intervalMs: 30000,
+    shouldRefresh: ({ source, payload }) => {
+      if (source === 'websocket') {
+        const myEmpId = Number(user?.emp_id ?? user?.id);
+        const isRelevant =
+          payload && (
+            Number(payload.assigned_to) === myEmpId ||
+            (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
+          );
+        return !!isRelevant;
+      }
+      return true;
+    },
+  });
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = tickets.filter((t) => {
+      if (t.rejected) return false;
+      if (CLOSED_STATUSES.includes(t.status)) return false;
+      if (t.accepted) return false;
+
+      if (statusFilter !== 'All Status') {
+        if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
+          if (!t.reassignmentRequested) return false;
+        } else if (t.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      if (typeFilter === 'internal') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (!isInternal) return false;
+      } else if (typeFilter === 'external') {
+        const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
+        if (isInternal) return false;
+      }
+
+      if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
+      if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
+      if (q) {
+        const blob = `${t.id} ${t.title} ${t.customer} ${t.facility ?? ''}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
+    if (sortPriority === 'Priority') {
+      list = sortTicketsByPriority(list, 'desc');
+    }
+    return list;
+  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, sortPriority, typeFilter]);
+
+  const handleAcceptAssignment = useCallback(async (id) => {
+    const ticketObj = tickets.find((t) => t.id === id);
+    if (!ticketObj) return;
+
+    const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
+    setIsAccepting(true);
+    try {
+      await acceptTicket({
+        ticketId: numericId,
+      });
+      setIsAccepting(false);
+      setPendingTicket(null);
+      setTickets((prev) => prev.filter((t) => t.id !== id));
+      window.dispatchEvent(new Event('notifications:updated'));
+      navigate('/employee/machine');
+    } catch (err) {
+      console.error('Failed to accept assignment on backend:', err);
+      setIsAccepting(false);
+      window.alert(err?.response?.data?.message || 'Failed to accept assignment. Please try again.');
+    }
+  }, [tickets, navigate]);
+
+  const handleRejectAssignment = useCallback((id) => {
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, rejected: true } : t))
+    );
+    setPendingTicket(null);
+  }, []);
+
+
+  const handleStatusChange = useCallback(async (id, newStatus) => {
+    // If status is 'Pending Evaluation', it has already been submitted to the backend via proof upload.
+    // We only need to update the local ticket status and clear any proof rejection flags.
+    if (newStatus === 'Pending Evaluation') {
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, status: newStatus, proofRejected: false, rejectionReason: null }
+            : t
+        )
+      );
+      return;
+    }
+
+    const statusMap = {
+      'Open': 1,
+      'In Progress': 2,
+      'Resolved': 3,
+      'Closed': 4,
+      'Escalated': 5,
+      'Pending Evaluation': 6,
+      'Pending': 7,
+      'Reopened': 8,
+      'On Hold': 11,
+    };
+    const ticketObj = tickets.find((t) => t.id === id);
+    if (!ticketObj) return;
+
+    const numericId = ticketObj.ticket_ID || Number(String(id).replace(/\D/g, ''));
+    try {
+      await updateTicket({
+        ticketId: numericId,
+        statusId: statusMap[newStatus] ?? 2,
+        assignedByEmail: user?.email,
+      });
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+      );
+    } catch (err) {
+      console.error('Failed to update ticket status on backend:', err);
+      // fallback
+      updateEmployeeTicketOverride(id, {
+        status: newStatus,
+        proofRejected: false,
+        rejectionReason: null,
+      });
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+      );
+    }
+  }, [tickets, user]);
+
+  /** Decide what to do when a row is clicked */
+  const openTicketFlow = useCallback(
+    (t) => {
+      // Closed / Resolved → redirect to History
+      if (CLOSED_STATUSES.includes(t.status)) {
+        navigate('/employee/progress');
+        return;
+      }
+      // If reassignment was denied, show info modal with disapproval banner
+      if (t.deniedReassignment || isReassignmentDenied(t)) {
+        setDeniedReassignTicket(t);
+        return;
+      }
+      // Not yet accepted → show full Accept/Reject modal
+      if (!t.accepted) {
+        setPendingTicket(t);
+        return;
+      }
+      // Accepted & active → show lightweight info modal with Update button
+      setInfoTicket(t);
+    },
+    [navigate]
+  );
+
+  const activeCount = tickets.filter(
+    (t) => !t.rejected && !CLOSED_STATUSES.includes(t.status)
+  ).length;
+
+  return (
+    <div className="p-6 flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-3xl font-bold text-[#252578]">Incoming Ticket</h1>
+          <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
+            {['all', 'external', 'internal'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  typeFilter === type
+                    ? 'bg-[#252578] text-white'
+                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-sm text-gray-500 mt-1">
+          Pending tickets awaiting your acceptance.
+        </p>
+      </div>
+
+      {loadError && (
+        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+          {loadError}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
+          <div className="space-y-4">
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
+            <SkeletonLoader variant="ticket-card" />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
+            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {[
+                  'All Category',
+                  'MRI',
+                  'CT Scan',
+                  'Ultrasound',
+                  'X-Ray',
+                  'Ventilator',
+                  'Defibrillator',
+                ].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+                {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left" style={{ minWidth: '900px' }}>
+                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-5 py-4">Ticket ID</th>
+                    <th className="px-5 py-4">Customer</th>
+                    <th className="px-5 py-4">Type</th>
+                    <th className="px-5 py-4">Title</th>
+                    <th className="px-5 py-4">Category</th>
+                    <th className="px-5 py-4">Priority</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Last Update</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-gray-700">
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-gray-400 text-sm"
+                      >
+                        No incoming tickets pending acceptance.
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map((t) => (
+                      <tr
+                        key={t.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openTicketFlow(t)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openTicketFlow(t);
+                          }
+                        }}
+                        className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                      >
+                        <td className="px-5 py-4 align-middle">
+                          <span className="font-semibold text-[#252578] text-sm leading-tight">{t.id}</span>
+                        </td>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{t.customer}</p>
+                        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}</span>
+                        </td>
+                        <td className="px-5 py-4 align-middle min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm line-clamp-2 leading-snug">{t.title}</p>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-gray-600 text-sm truncate">{t.category}</td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
+                        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[t.status] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>{t.status}</span>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-gray-600 text-sm whitespace-nowrap">{formatDisplayDate(t.lastUpdate)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                </table>
+              </div>
+              <div className="px-4 py-3 border-t border-gray-100">
+                <p className="text-sm text-gray-500">
+                  Showing {filtered.length} of {pendingCount} incoming tickets
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
+      {/* Modal: Not-yet-accepted ticket (Accept / Request Reassignment) */}
+      {pendingTicket && (
+        <TicketDetailModal
+          ticket={pendingTicket}
+          onClose={() => setPendingTicket(null)}
+          onStatusChange={handleStatusChange}
+          onAccept={handleAcceptAssignment}
+          onRequestReassign={(t) => {
+            setPendingTicket(null);
+            setReassignTicket(t);
+          }}
+          isAccepting={isAccepting}
+        />
+      )}
+
+      {/* Modal: Accepted active ticket — lightweight info + Update button */}
+      {infoTicket && (
+        <TicketInfoModal
+          ticket={infoTicket}
+          onClose={() => setInfoTicket(null)}
+        />
+      )}
+
+      {/* Modal: Denied reassignment — skip accept, show update modal directly */}
+      {deniedReassignTicket && (
+        <TicketInfoModal
+          ticket={deniedReassignTicket}
+          onClose={() => setDeniedReassignTicket(null)}
+        />
+      )}
+
+      {/* Modal: Reassignment request */}
+      {reassignTicket && (
+        <ReassignmentModal
+          ticket={reassignTicket}
+          onClose={() => setReassignTicket(null)}
+          onReassignSuccess={(id) => {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === id
+                  ? { ...t, reassignmentRequested: true, reassignmentStatus: 'Pending' }
+                  : t
+              )
+            );
+          }}
+        />
+      )}
+    </div>
+  );
+}
