@@ -22,6 +22,7 @@ import {
   updateTicket,
 } from '@/services/ticketService';
 import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
+import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 import { parseUTCDate } from '@/utils/dateUtils';
 import TitleCasingModal from '@/components/TitleCasingModal';
@@ -174,7 +175,16 @@ export default function MyTickets({ mode = 'all' }) {
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
+  const customerOpenCount = useMemo(() => {
+    return (tickets || []).filter((t) => !t.is_internal && OPEN_STATUS_SET.includes(t.status)).length;
+  }, [tickets]);
+
   const handleCreateTicket = async (payload) => {
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && customerOpenCount >= limitConfig.limit) {
+      throw new Error(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+    }
+
     setLoadingText('Submitting ticket...');
     setModalLoading(true);
     try {
@@ -817,7 +827,12 @@ export default function MyTickets({ mode = 'all' }) {
         document.body
       )}
 
-      <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
+      <TicketModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleCreateTicket}
+        openTicketsCount={customerOpenCount}
+      />
       <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'} allowReopen={true} isHistoryView={isHistory} />
 
       {editingTicket && (

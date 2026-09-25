@@ -6,7 +6,7 @@ import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
+import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const getFileName = (file, fallback = 'Attachment') => {
@@ -42,6 +42,19 @@ export default function CustomerTicketDetailModal({
   const [previewFile, setPreviewFile] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackEnabled, setFeedbackEnabled] = useState(() => isFeedbackFormEnabled());
+
+  useEffect(() => {
+    const handleToggleChange = () => {
+      setFeedbackEnabled(isFeedbackFormEnabled());
+    };
+    window.addEventListener('storage', handleToggleChange);
+    window.addEventListener('feedback_master_toggle_changed', handleToggleChange);
+    return () => {
+      window.removeEventListener('storage', handleToggleChange);
+      window.removeEventListener('feedback_master_toggle_changed', handleToggleChange);
+    };
+  }, []);
 
   const isCS = useMemo(() => {
     try {
@@ -94,10 +107,10 @@ export default function CustomerTicketDetailModal({
   const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id);
 
   useEffect(() => {
-    if (isExternalClosed && !feedbackAlreadySubmitted && !feedbackSubmitted) {
+    if (feedbackEnabled && isExternalClosed && !feedbackAlreadySubmitted && !feedbackSubmitted) {
       setShowFeedbackModal(true);
     }
-  }, [isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id]);
+  }, [feedbackEnabled, isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id]);
 
   const remarksList = useMemo(() => {
     if (!ticket) return [];
@@ -422,7 +435,7 @@ export default function CustomerTicketDetailModal({
               )}
             </div>
 
-            {isExternalClosed && (
+            {isExternalClosed && (feedbackAlreadySubmitted || feedbackSubmitted || feedbackEnabled) && (
               <div className="md:col-span-2">
                 <TicketFeedbackSection
                   key={feedbackSubmitted ? 'submitted' : 'pending'}

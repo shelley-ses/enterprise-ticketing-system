@@ -19,6 +19,7 @@ import {
 } from '@/services/ticketService';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { statusColors } from '@/constants/employeeTickets';
+import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded', 'On Hold'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
@@ -203,7 +204,26 @@ export default function EmployeeMyTickets({ roleContext }) {
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
+  const currentEmployeeId = user?.id ?? user?.emp_id;
+
+  const openInternalTicketsCount = useMemo(() => {
+    return (tickets || []).filter((t) => {
+      const isInternal = t.is_internal === true || t.ticket_type === 'Internal';
+      const matchesEmp = !currentEmployeeId ||
+        String(t.requested_by) === String(currentEmployeeId) ||
+        String(t.created_by) === String(currentEmployeeId) ||
+        (!t.requested_by && !t.created_by);
+      return isInternal && matchesEmp && OPEN_STATUS_SET.includes(t.status);
+    }).length;
+  }, [tickets, currentEmployeeId]);
+
   const handleCreateTicket = async (payload) => {
+    // TS096: Enforce max open internal tickets limit for Employee-as-Requestor
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && openInternalTicketsCount >= limitConfig.limit) {
+      throw new Error(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+    }
+
     setLoadingText('Submitting internal ticket...');
     setModalLoading(true);
 
@@ -519,7 +539,12 @@ export default function EmployeeMyTickets({ roleContext }) {
         </div>
       </div>
 
-      <TicketModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleCreateTicket} />
+      <TicketModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleCreateTicket}
+        openTicketsCount={openInternalTicketsCount}
+      />
       
       {roleContext === 'cs' && assignModalTicket && (
         <AssignModal

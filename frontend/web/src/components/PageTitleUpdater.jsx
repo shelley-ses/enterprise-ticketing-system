@@ -56,6 +56,7 @@ const ROUTE_MAP = [
   { pattern: /^\/superadmin\/audit-logs\/?$/, title: 'Audit Logs' },
   { pattern: /^\/superadmin\/history\/?$/, title: 'System History' },
   { pattern: /^\/superadmin\/knowledge-base\/?$/, title: 'Knowledge Base' },
+  { pattern: /^\/superadmin\/settings\/?$/, title: 'System Settings' },
   { pattern: /^\/superadmin\/dev-login\/?$/, title: 'Dev Login' },
   { pattern: /^\/superadmin\/profile\/?$/, title: 'Profile' },
   { pattern: /^\/superadmin\/notifications\/?$/, title: 'Notifications' },

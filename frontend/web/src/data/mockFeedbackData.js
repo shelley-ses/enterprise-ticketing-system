@@ -234,3 +234,26 @@ export async function saveFeedback(ticketId, ratings, comments, overallComment, 
   return all[ticketId];
 }
 
+export const FEEDBACK_MASTER_ENABLED_KEY = 'feedback_form_master_enabled';
+
+// TEMPORARY: localStorage is used here only as a same-session demo bridge between Super Admin and Customer portals for this sprint's frontend-only scope. This must be replaced with a real backend-persisted setting, read by both portals via API, before this is production-ready — localStorage does not sync across different users/devices/browsers.
+export function isFeedbackFormEnabled() {
+  try {
+    const val = localStorage.getItem(FEEDBACK_MASTER_ENABLED_KEY);
+    if (val === null) return true; // Default: ON
+    return JSON.parse(val);
+  } catch {
+    return true;
+  }
+}
+
+// TEMPORARY: localStorage is used here only as a same-session demo bridge between Super Admin and Customer portals for this sprint's frontend-only scope. This must be replaced with a real backend-persisted setting, read by both portals via API, before this is production-ready — localStorage does not sync across different users/devices/browsers.
+export function setFeedbackFormEnabled(enabled) {
+  try {
+    localStorage.setItem(FEEDBACK_MASTER_ENABLED_KEY, JSON.stringify(Boolean(enabled)));
+    window.dispatchEvent(new Event('feedback_master_toggle_changed'));
+  } catch (err) {
+    console.error('Failed to save feedback master toggle to localStorage:', err);
+  }
+}
+
