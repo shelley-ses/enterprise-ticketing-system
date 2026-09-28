@@ -88,6 +88,17 @@ export async function saveEmailConfiguration({ apiKey, fromName, fromEmail }) {
 }
 
 /**
+ * Update sender identity (fromName, fromEmail) on the active configuration.
+ */
+export async function updateEmailConfiguration({ fromName, fromEmail }) {
+  const response = await configClient.put('/email', {
+    fromName: fromName.trim(),
+    fromEmail: fromEmail.trim(),
+  });
+  return response.data;
+}
+
+/**
  * Update the API key for the active configuration with RSA encryption.
  */
 export async function updateEmailApiKey(apiKey) {

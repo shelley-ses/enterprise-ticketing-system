@@ -17,6 +17,8 @@ $registerRoutes = function () {
     Route::get('/encryption-key', [EmailConfigurationController::class, 'getEncryptionKey']);
     Route::get('/email', [EmailConfigurationController::class, 'getConfiguration']);
     Route::post('/email', [EmailConfigurationController::class, 'saveConfiguration'])->middleware('decrypt.rsa:apiKey');
+    Route::put('/email', [EmailConfigurationController::class, 'updateConfiguration']);
+    Route::patch('/email', [EmailConfigurationController::class, 'updateConfiguration']);
     Route::put('/email/api-key', [EmailConfigurationController::class, 'updateApiKey'])->middleware('decrypt.rsa:apiKey');
     Route::delete('/email', [EmailConfigurationController::class, 'removeConfiguration']);
     Route::post('/email/test', [EmailConfigurationController::class, 'sendTestEmail'])->middleware('decrypt.rsa:apiKey');

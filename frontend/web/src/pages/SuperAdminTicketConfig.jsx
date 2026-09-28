@@ -30,6 +30,7 @@ import {
 import {
   getEmailConfiguration,
   saveEmailConfiguration,
+  updateEmailConfiguration,
   updateEmailApiKey,
   removeEmailConfiguration,
   sendTestEmail,
@@ -780,6 +781,7 @@ export default function SuperAdminTicketConfig() {
 
   // Email Delivery Configuration state
   const [emailConfig, setEmailConfig] = useState(null);
+  const isEmailConfigured = Boolean(emailConfig && (emailConfig.isConfigured || emailConfig.is_configured));
   const [isAddingEmailConfig, setIsAddingEmailConfig] = useState(false);
   const [newEmailConfig, setNewEmailConfig] = useState({
     provider: 'Resend',
@@ -863,8 +865,21 @@ export default function SuperAdminTicketConfig() {
 
       try {
         const emailRes = await getEmailConfiguration();
-        if (emailRes?.is_configured && emailRes?.data) {
-          setEmailConfig(emailRes.data);
+        const data = emailRes?.data;
+        if ((emailRes?.is_configured || emailRes?.isConfigured) && data) {
+          setEmailConfig({
+            ...data,
+            isConfigured: true,
+            is_configured: true,
+            fromName: data.fromName || data.from_name || '',
+            from_name: data.fromName || data.from_name || '',
+            fromEmail: data.fromEmail || data.from_email || '',
+            from_email: data.fromEmail || data.from_email || '',
+            apiKey: data.apiKey || data.api_key || 're_•••••••••',
+            api_key: data.apiKey || data.api_key || 're_•••••••••',
+            lastTested: data.lastTested || data.last_tested || null,
+            last_tested: data.lastTested || data.last_tested || null,
+          });
         } else {
           setEmailConfig(null);
         }
@@ -2159,7 +2174,20 @@ export default function SuperAdminTicketConfig() {
             fromName: newEmailConfig.fromName.trim(),
             fromEmail: newEmailConfig.fromEmail.trim(),
           });
-          setEmailConfig(res.data);
+          const configData = res?.data || res;
+          setEmailConfig({
+            ...configData,
+            isConfigured: true,
+            is_configured: true,
+            fromName: configData.fromName || configData.from_name || newEmailConfig.fromName.trim(),
+            from_name: configData.fromName || configData.from_name || newEmailConfig.fromName.trim(),
+            fromEmail: configData.fromEmail || configData.from_email || newEmailConfig.fromEmail.trim(),
+            from_email: configData.fromEmail || configData.from_email || newEmailConfig.fromEmail.trim(),
+            apiKey: configData.apiKey || configData.api_key || 're_•••••••••',
+            api_key: configData.apiKey || configData.api_key || 're_•••••••••',
+            lastTested: configData.lastTested || configData.last_tested || null,
+            last_tested: configData.lastTested || configData.last_tested || null,
+          });
           setIsAddingEmailConfig(false);
           setNewEmailConfig({ provider: 'Resend', apiKey: '', fromName: '', fromEmail: '' });
           showSuccess(
@@ -2223,7 +2251,15 @@ export default function SuperAdminTicketConfig() {
         closeNotif();
         try {
           const res = await updateEmailApiKey(changeApiKeyInput.trim());
-          setEmailConfig(res.data);
+          const configData = res?.data || res;
+          setEmailConfig((prev) => ({
+            ...(prev || {}),
+            ...configData,
+            isConfigured: true,
+            is_configured: true,
+            apiKey: 're_•••••••••',
+            api_key: 're_•••••••••',
+          }));
           setShowChangeApiKeyModal(false);
           setChangeApiKeyInput('');
           setChangeApiKeyError(null);
@@ -2241,16 +2277,19 @@ export default function SuperAdminTicketConfig() {
     );
   };
 
-  const handleSaveEmailConfig = () => {
+  const handleSaveEmailConfig = async () => {
     if (!emailConfig) return;
     const errors = {};
-    if (!emailConfig.fromName || !emailConfig.fromName.trim()) {
+    const currentFromName = emailConfig.fromName || emailConfig.from_name || '';
+    const currentFromEmail = emailConfig.fromEmail || emailConfig.from_email || '';
+
+    if (!currentFromName.trim()) {
       errors.fromName = 'From Name is required and cannot be null or empty.';
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailConfig.fromEmail || !emailConfig.fromEmail.trim()) {
+    if (!currentFromEmail.trim()) {
       errors.fromEmail = 'From Email is required and cannot be null or empty.';
-    } else if (!emailRegex.test(emailConfig.fromEmail.trim())) {
+    } else if (!emailRegex.test(currentFromEmail.trim())) {
       errors.fromEmail = 'Please provide a valid sender email address.';
     }
 
@@ -2260,10 +2299,31 @@ export default function SuperAdminTicketConfig() {
     }
 
     setEmailConfigErrors({});
-    showSuccess(
-      'Email Configuration Saved',
-      'Transactional email settings for Resend are actively configured.'
-    );
+    try {
+      const res = await updateEmailConfiguration({
+        fromName: currentFromName.trim(),
+        fromEmail: currentFromEmail.trim(),
+      });
+      const configData = res?.data || res;
+      setEmailConfig({
+        ...configData,
+        isConfigured: true,
+        is_configured: true,
+        fromName: configData.fromName || configData.from_name || currentFromName.trim(),
+        from_name: configData.fromName || configData.from_name || currentFromName.trim(),
+        fromEmail: configData.fromEmail || configData.from_email || currentFromEmail.trim(),
+        from_email: configData.fromEmail || configData.from_email || currentFromEmail.trim(),
+        apiKey: configData.apiKey || configData.api_key || 're_•••••••••',
+        api_key: configData.apiKey || configData.api_key || 're_•••••••••',
+      });
+      showSuccess(
+        'Email Configuration Saved',
+        'Transactional email sender settings for Resend have been updated successfully.'
+      );
+    } catch (err) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to update email configuration.';
+      setEmailConfigErrors({ fromEmail: errMsg });
+    }
   };
 
   const handleRemoveEmailConfig = () => {
@@ -3996,16 +4056,16 @@ export default function SuperAdminTicketConfig() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <h2 className="text-xl font-bold text-gray-900">Email Configuration</h2>
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border ${
-                    emailConfig?.isConfigured 
+                    isEmailConfigured 
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
                       : 'border-amber-200 bg-amber-50 text-amber-700'
                   }`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${emailConfig?.isConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                    {emailConfig?.isConfigured ? 'Connected & Active' : 'Not Configured'}
+                    <span className={`h-1.5 w-1.5 rounded-full ${isEmailConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    {isEmailConfigured ? 'Connected & Active' : 'Not Configured'}
                   </span>
-                  {emailConfig?.lastTested && (
+                  {(emailConfig?.lastTested || emailConfig?.last_tested) && (
                     <span className="text-xs text-gray-400">
-                      Last tested: {emailConfig.lastTested}
+                      Last tested: {emailConfig.lastTested || emailConfig.last_tested}
                     </span>
                   )}
                 </div>
@@ -4014,7 +4074,7 @@ export default function SuperAdminTicketConfig() {
                 </p>
               </div>
 
-              {!emailConfig || !emailConfig.isConfigured ? (
+              {!isEmailConfigured ? (
                 /* Unconfigured state */
                 !isAddingEmailConfig ? (
                   <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 sm:p-14 flex flex-col items-center justify-center text-center shadow-xs">
@@ -4315,9 +4375,13 @@ export default function SuperAdminTicketConfig() {
                         </label>
                         <input
                           type="text"
-                          value={emailConfig.fromName || ''}
+                          value={emailConfig?.fromName ?? emailConfig?.from_name ?? ''}
                           onChange={(e) => {
-                            setEmailConfig({ ...emailConfig, fromName: e.target.value });
+                            setEmailConfig({
+                              ...emailConfig,
+                              fromName: e.target.value,
+                              from_name: e.target.value,
+                            });
                             if (emailConfigErrors.fromName) {
                               setEmailConfigErrors((prev) => {
                                 const n = { ...prev };
@@ -4348,9 +4412,13 @@ export default function SuperAdminTicketConfig() {
                         </label>
                         <input
                           type="email"
-                          value={emailConfig.fromEmail || ''}
+                          value={emailConfig?.fromEmail ?? emailConfig?.from_email ?? ''}
                           onChange={(e) => {
-                            setEmailConfig({ ...emailConfig, fromEmail: e.target.value });
+                            setEmailConfig({
+                              ...emailConfig,
+                              fromEmail: e.target.value,
+                              from_email: e.target.value,
+                            });
                             if (emailConfigErrors.fromEmail) {
                               setEmailConfigErrors((prev) => {
                                 const n = { ...prev };
@@ -5793,7 +5861,7 @@ export default function SuperAdminTicketConfig() {
                 <p className="text-xs font-semibold text-red-600">{emailConfigErrors.testEmail}</p>
               )}
               <p className="text-[11px] text-gray-400">
-                A sample verification alert will be sent from <span className="font-semibold text-gray-600">{emailConfig?.fromName || newEmailConfig.fromName || 'SBSI Support'}</span> ({emailConfig?.fromEmail || newEmailConfig.fromEmail || 'support@sbs-med.com'}) via Resend.
+                A sample verification alert will be sent from <span className="font-semibold text-gray-600">{emailConfig?.fromName || emailConfig?.from_name || newEmailConfig.fromName || 'SBSI Support'}</span> ({emailConfig?.fromEmail || emailConfig?.from_email || newEmailConfig.fromEmail || 'support@sbs-med.com'}) via Resend.
               </p>
             </div>
 

@@ -159,6 +159,39 @@ class EmailConfigurationController extends Controller
     }
 
     /**
+     * Updates sender identity details (from_name, from_email) for the active configuration.
+     */
+    public function updateConfiguration(Request $request)
+    {
+        $validated = $request->validate([
+            'fromName' => 'required|string|max:255',
+            'fromEmail' => 'required|email|max:255',
+        ], [
+            'fromName.required' => 'From Name is required and cannot be empty.',
+            'fromEmail.required' => 'From Email is required and cannot be empty.',
+            'fromEmail.email' => 'Please provide a valid sender email address.',
+        ]);
+
+        $config = EmailConfiguration::where('is_active', true)->latest()->first();
+
+        if (!$config) {
+            return response()->json([
+                'message' => 'No active email configuration found to update.',
+            ], 404);
+        }
+
+        $config->update([
+            'from_name' => trim($validated['fromName']),
+            'from_email' => trim($validated['fromEmail']),
+        ]);
+
+        return response()->json([
+            'message' => 'Email delivery configuration updated successfully.',
+            'data' => $config->toMaskedResponse(),
+        ]);
+    }
+
+    /**
      * Removes the active email delivery configuration.
      */
     public function removeConfiguration()

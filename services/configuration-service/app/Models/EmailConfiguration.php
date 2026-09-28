@@ -43,15 +43,23 @@ class EmailConfiguration extends Model
      */
     public function toMaskedResponse(): array
     {
+        $lastTestedFormatted = $this->last_tested_at ? $this->last_tested_at->format('M j, h:i A') : null;
+
         return [
             'id' => $this->id,
             'provider' => 'Resend',
             'api_key' => 're_•••••••••',
+            'apiKey' => 're_•••••••••',
             'from_name' => $this->from_name,
+            'fromName' => $this->from_name,
             'from_email' => $this->from_email,
+            'fromEmail' => $this->from_email,
             'is_configured' => true,
+            'isConfigured' => true,
             'is_active' => (bool) $this->is_active,
-            'last_tested' => $this->last_tested_at ? $this->last_tested_at->format('M j, h:i A') : null,
+            'isActive' => (bool) $this->is_active,
+            'last_tested' => $lastTestedFormatted,
+            'lastTested' => $lastTestedFormatted,
             'last_tested_at' => $this->last_tested_at?->toISOString(),
         ];
     }
