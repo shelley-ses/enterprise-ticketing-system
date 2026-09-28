@@ -779,23 +779,7 @@ export default function SuperAdminTicketConfig() {
   const [limitError, setLimitError] = useState('');
 
   // Email Delivery Configuration state
-  const [emailConfig, setEmailConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem('superadmin_email_config');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.isConfigured && parsed.apiKey) {
-          return {
-            ...parsed,
-            provider: 'Resend',
-          };
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return null;
-  });
+  const [emailConfig, setEmailConfig] = useState(null);
   const [isAddingEmailConfig, setIsAddingEmailConfig] = useState(false);
   const [newEmailConfig, setNewEmailConfig] = useState({
     provider: 'Resend',
