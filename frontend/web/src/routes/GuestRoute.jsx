@@ -10,9 +10,25 @@ export const checkIsCS = (user) => {
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
+export const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
+export const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
+};
+
 export const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
+  if (checkIsAdmin(user)) return false;
+  if (checkIsSuperAdmin(user)) return false;
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
@@ -59,7 +75,6 @@ export default function GuestRoute({ children }) {
   const { isAuthenticated, isLoading, user, isFirstLogin } = useAuth();
   const location = useLocation();
 
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -72,18 +87,23 @@ export default function GuestRoute({ children }) {
   }
 
   if (isAuthenticated && !isFirstLogin) {
-    const isSuperAdmin = (user?.role || '').toLowerCase() === 'superadmin' || (user?.profile?.role?.name || '').toLowerCase() === 'superadmin';
-    const isCS       = checkIsCS(user);
-    const isEmployee = checkIsEmployee(user);
-    const isCustomer = !isCS && !isEmployee && !isSuperAdmin;
+    const isSuperAdmin = checkIsSuperAdmin(user);
+    const isAdmin      = checkIsAdmin(user);
+    const isCS         = checkIsCS(user);
+    const isEmployee   = checkIsEmployee(user);
+    const isCustomer   = !isCS && !isEmployee && !isSuperAdmin && !isAdmin;
 
     if (isSuperAdmin) {
       return <Navigate to="/superadmin/ticket-config" replace />;
+    }
+    if (isAdmin) {
+      return <Navigate to="/admin/dashboard" replace />;
     }
     if (isCustomerSite) {
       if (isCustomer) {
         return <Navigate to="/customer-dashboard" replace />;
       }
+      return <WrongPortal />;
     } else {
       if (isCS)       return <Navigate to="/cs/dashboard" replace />;
       if (isEmployee) return <Navigate to="/employee/dashboard" replace />;

@@ -33,9 +33,25 @@ const checkIsCS = (user) => {
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
+const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
+};
+
 const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
+  if (checkIsAdmin(user)) return false;
+  if (checkIsSuperAdmin(user)) return false;
   
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
@@ -44,13 +60,6 @@ const checkIsEmployee = (user) => {
     return true;
   }
   return role === 'employee' || role.includes('service') || role.includes('engineer');
-};
-
-const checkIsSuperAdmin = (user) => {
-  if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
 // ─── Forgot Password Modal ────────────────────────────────────────────────────
@@ -424,10 +433,13 @@ function Loginpage({ mode = 'customer' }) {
       const isCS = checkIsCS(user);
       const isEmployee = checkIsEmployee(user);
       const isSuperAdmin = checkIsSuperAdmin(user);
+      const isAdmin = checkIsAdmin(user);
       const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
       if (isSuperAdmin) {
         navigate('/superadmin/ticket-config', { replace: true });
+      } else if (isAdmin) {
+        navigate('/admin/dashboard', { replace: true });
       } else if (isCustomerSite) {
         if (isCS) {
           window.location.replace('/ticketing/cs/dashboard');
@@ -527,10 +539,13 @@ function Loginpage({ mode = 'customer' }) {
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
         const isSuperAdmin = checkIsSuperAdmin(result.user);
+        const isAdmin = checkIsAdmin(result.user);
         const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
         if (isSuperAdmin) {
           navigate('/superadmin/ticket-config', { replace: true });
+        } else if (isAdmin) {
+          navigate('/admin/dashboard', { replace: true });
         } else if (isCustomerSite) {
           if (isCS) {
             window.location.replace('/ticketing/cs/dashboard');
