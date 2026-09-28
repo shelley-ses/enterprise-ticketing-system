@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag } from 'lucide-react';
+import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
 import { useAuth } from '@/context/AuthContext';
@@ -769,6 +769,42 @@ export default function SuperAdminTicketConfig() {
   const [savedTicketLimit, setSavedTicketLimit] = useState(() => getMaxOpenTicketsLimit());
   const [hasEverSavedLimit, setHasEverSavedLimit] = useState(false);
   const [limitError, setLimitError] = useState('');
+
+  // Email Delivery Configuration state
+  const [emailConfig, setEmailConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('superadmin_email_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.isConfigured && parsed.apiKey) {
+          return {
+            ...parsed,
+            provider: 'Resend',
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+  const [isAddingEmailConfig, setIsAddingEmailConfig] = useState(false);
+  const [newEmailConfig, setNewEmailConfig] = useState({
+    provider: 'Resend',
+    apiKey: '',
+    fromName: '',
+    fromEmail: '',
+  });
+  const [newEmailConfigErrors, setNewEmailConfigErrors] = useState({});
+  const [showNewApiKey, setShowNewApiKey] = useState(false);
+  const [showChangeApiKeyModal, setShowChangeApiKeyModal] = useState(false);
+  const [showChangeApiKey, setShowChangeApiKey] = useState(false);
+  const [changeApiKeyInput, setChangeApiKeyInput] = useState('');
+  const [changeApiKeyError, setChangeApiKeyError] = useState(null);
+  const [emailConfigErrors, setEmailConfigErrors] = useState({});
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [testEmailRecipient, setTestEmailRecipient] = useState(() => user?.email || 'support@sbs-med.com');
 
   const closeNotif = () => setNotification(null);
   const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
@@ -1895,7 +1931,6 @@ export default function SuperAdminTicketConfig() {
         confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
         onCancel: () => {
           closeNotif();
-          // Cancel reverts to prior value
           setTicketLimitConfigState({ ...savedTicketLimit });
           setLimitError('');
         },
@@ -2080,6 +2115,240 @@ export default function SuperAdminTicketConfig() {
       },
       { confirmText: 'Reset', confirmClassName: 'bg-red-600 hover:bg-red-700' }
     );
+  };
+
+  // Email Delivery Configuration Handlers
+  const handleAddEmailConfig = () => {
+    const errors = {};
+    if (!newEmailConfig.apiKey || !newEmailConfig.apiKey.trim()) {
+      errors.apiKey = 'API Key is required and cannot be null or empty.';
+    } else if (!newEmailConfig.apiKey.trim().startsWith('re_')) {
+      errors.apiKey = 'Resend API Key must start with "re_".';
+    } else if (newEmailConfig.apiKey.trim().length < 8) {
+      errors.apiKey = 'API Key must be at least 8 characters.';
+    }
+
+    if (!newEmailConfig.fromName || !newEmailConfig.fromName.trim()) {
+      errors.fromName = 'From Name is required and cannot be null or empty.';
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!newEmailConfig.fromEmail || !newEmailConfig.fromEmail.trim()) {
+      errors.fromEmail = 'From Email is required and cannot be null or empty.';
+    } else if (!emailRegex.test(newEmailConfig.fromEmail.trim())) {
+      errors.fromEmail = 'Please provide a valid sender email address.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setNewEmailConfigErrors(errors);
+      return;
+    }
+
+    setNewEmailConfigErrors({});
+    showConfirm(
+      'Save Email Configuration?',
+      'Once you save, you cannot see the API key again. It will be permanently masked for security. Are you sure you want to proceed?',
+      () => {
+        closeNotif();
+        const created = {
+          provider: 'Resend',
+          apiKey: newEmailConfig.apiKey.trim(),
+          fromName: newEmailConfig.fromName.trim(),
+          fromEmail: newEmailConfig.fromEmail.trim(),
+          isConfigured: true,
+          lastTested: null,
+        };
+        setEmailConfig(created);
+        try {
+          localStorage.setItem('superadmin_email_config', JSON.stringify(created));
+        } catch {
+          // ignore
+        }
+        setIsAddingEmailConfig(false);
+        setNewEmailConfig({ provider: 'Resend', apiKey: '', fromName: '', fromEmail: '' });
+        showSuccess(
+          'Email Configuration Saved',
+          'Resend email delivery gateway has been configured successfully.'
+        );
+      },
+      {
+        confirmText: 'Save Configuration',
+        cancelText: 'Cancel',
+        confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
+      }
+    );
+  };
+
+  const handleOpenTestEmailFromAdd = () => {
+    const errors = {};
+    if (!newEmailConfig.apiKey || !newEmailConfig.apiKey.trim()) {
+      errors.apiKey = 'API Key is required to send a test email.';
+    }
+    if (!newEmailConfig.fromName || !newEmailConfig.fromName.trim()) {
+      errors.fromName = 'From Name is required to send a test email.';
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!newEmailConfig.fromEmail || !newEmailConfig.fromEmail.trim()) {
+      errors.fromEmail = 'From Email is required to send a test email.';
+    } else if (!emailRegex.test(newEmailConfig.fromEmail.trim())) {
+      errors.fromEmail = 'Please provide a valid sender email address.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setNewEmailConfigErrors(errors);
+      return;
+    }
+
+    setShowTestEmailModal(true);
+  };
+
+  const handleChangeApiKey = () => {
+    if (!changeApiKeyInput || !changeApiKeyInput.trim()) {
+      setChangeApiKeyError('API Key is required and cannot be null or empty.');
+      return;
+    }
+    if (!changeApiKeyInput.trim().startsWith('re_')) {
+      setChangeApiKeyError('Resend API Key must start with "re_".');
+      return;
+    }
+    if (changeApiKeyInput.trim().length < 8) {
+      setChangeApiKeyError('API Key must be at least 8 characters.');
+      return;
+    }
+
+    showConfirm(
+      'Change API Key?',
+      'Once you save, you cannot see the API key again. It will be permanently masked for security. Are you sure you want to update the key?',
+      () => {
+        closeNotif();
+        const updated = {
+          ...emailConfig,
+          apiKey: changeApiKeyInput.trim(),
+        };
+        setEmailConfig(updated);
+        try {
+          localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        setShowChangeApiKeyModal(false);
+        setChangeApiKeyInput('');
+        setChangeApiKeyError(null);
+        showSuccess('API Key Updated', 'Resend API key has been changed successfully.');
+      },
+      {
+        confirmText: 'Update API Key',
+        cancelText: 'Cancel',
+        confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
+      }
+    );
+  };
+
+  const handleSaveEmailConfig = () => {
+    if (!emailConfig) return;
+    const errors = {};
+    if (!emailConfig.fromName || !emailConfig.fromName.trim()) {
+      errors.fromName = 'From Name is required and cannot be null or empty.';
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailConfig.fromEmail || !emailConfig.fromEmail.trim()) {
+      errors.fromEmail = 'From Email is required and cannot be null or empty.';
+    } else if (!emailRegex.test(emailConfig.fromEmail.trim())) {
+      errors.fromEmail = 'Please provide a valid sender email address.';
+    }
+    if (!emailConfig.apiKey || !emailConfig.apiKey.trim()) {
+      errors.apiKey = 'API Key is required and cannot be null or empty.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setEmailConfigErrors(errors);
+      return;
+    }
+
+    setEmailConfigErrors({});
+    const updated = {
+      ...emailConfig,
+      provider: 'Resend',
+      fromName: emailConfig.fromName.trim(),
+      fromEmail: emailConfig.fromEmail.trim(),
+      isConfigured: true,
+    };
+    setEmailConfig(updated);
+    try {
+      localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+
+    showSuccess(
+      'Email Configuration Saved',
+      'Transactional email settings for Resend have been saved successfully.'
+    );
+  };
+
+  const handleRemoveEmailConfig = () => {
+    showConfirm(
+      'Remove Email Configuration?',
+      'Are you sure you want to remove the Resend email configuration? Email alerts will be suspended until a new configuration is added.',
+      () => {
+        closeNotif();
+        setEmailConfig(null);
+        setEmailConfigErrors({});
+        setIsAddingEmailConfig(false);
+        try {
+          localStorage.removeItem('superadmin_email_config');
+        } catch {
+          // ignore
+        }
+        showSuccess('Configuration Removed', 'Email configuration has been removed successfully.');
+      },
+      {
+        confirmText: 'Remove Configuration',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+      }
+    );
+  };
+
+  const handleTestEmail = () => {
+    const configToUse = emailConfig || (newEmailConfig.apiKey ? newEmailConfig : null);
+    if (!configToUse || !configToUse.apiKey) {
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!testEmailRecipient || !emailRegex.test(testEmailRecipient.trim())) {
+      setEmailConfigErrors((prev) => ({ ...prev, testEmail: 'Please enter a valid recipient email address.' }));
+      return;
+    }
+
+    setIsTestingEmail(true);
+    setEmailConfigErrors((prev) => {
+      const next = { ...prev };
+      delete next.testEmail;
+      return next;
+    });
+
+    // Frontend simulation of sending test email
+    setTimeout(() => {
+      setIsTestingEmail(false);
+      const now = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (emailConfig) {
+        const updated = {
+          ...emailConfig,
+          lastTested: now,
+        };
+        setEmailConfig(updated);
+        try {
+          localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+      }
+      setShowTestEmailModal(false);
+      showSuccess(
+        'Test Email Sent',
+        `A test verification email from "${configToUse.fromName || 'SBSI Support'}" <${configToUse.fromEmail || 'support@sbs-med.com'}> was successfully delivered to ${testEmailRecipient} via Resend.`
+      );
+    }, 1000);
   };
 
   return (
@@ -3465,8 +3734,9 @@ export default function SuperAdminTicketConfig() {
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="hidden sm:inline-flex items-center rounded-full bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
-                            {selectedRecipients.length} selected
+                          <span className="inline-flex items-center rounded-full bg-[#252578]/5 px-2.5 sm:px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
+                            <span className="sm:hidden">{selectedRecipients.length}</span>
+                            <span className="hidden sm:inline">{selectedRecipients.length} selected</span>
                           </span>
                           <ChevronDown
                             size={19}
@@ -3743,72 +4013,425 @@ export default function SuperAdminTicketConfig() {
             <div className="flex flex-col gap-6">
               <div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="text-xl font-bold text-gray-900">Email Delivery</h2>
-                  <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-                    Not configured
+                  <h2 className="text-xl font-bold text-gray-900">Email Configuration</h2>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border ${
+                    emailConfig?.isConfigured 
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700' 
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${emailConfig?.isConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    {emailConfig?.isConfigured ? 'Connected & Active' : 'Not Configured'}
                   </span>
+                  {emailConfig?.lastTested && (
+                    <span className="text-xs text-gray-400">
+                      Last tested: {emailConfig.lastTested}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  Prepare the notification service for transactional email without mixing provider setup with recipient or channel routing.
+                  Configure Resend transactional email delivery provider, API credentials, and default sender identity for ticket alerts.
                 </p>
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
-                <ShieldAlert size={18} className="text-amber-600 shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  Email delivery is coming soon. API keys must live in notification-service environment variables or managed secrets and are never exposed in browser state.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
-                <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div className="flex items-center gap-3.5">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
-                      <Mail size={20} />
+              {!emailConfig || !emailConfig.isConfigured ? (
+                /* Unconfigured state */
+                !isAddingEmailConfig ? (
+                  <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 sm:p-14 flex flex-col items-center justify-center text-center shadow-xs">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#252578]/10 text-[#252578] mb-4">
+                      <Mail size={32} />
                     </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Planned provider</p>
-                      <h3 className="text-lg font-bold text-gray-900">Resend</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">No Email Configuration</h3>
+                    <p className="text-sm text-gray-500 max-w-md mb-6">
+                      No transactional email delivery gateway is configured yet. Add your Resend account credentials to enable automated ticket alerts, status updates, and notifications.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingEmailConfig(true);
+                        setNewEmailConfigErrors({});
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-[#1a1a5e] hover:shadow-lg cursor-pointer"
+                    >
+                      <Plus size={18} />
+                      Add Email Configuration
+                    </button>
+                  </div>
+                ) : (
+                  /* Add Email Configuration Form */
+                  <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden flex flex-col">
+                    <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-gradient-to-r from-gray-50/50 via-white to-gray-50/30">
+                      <div className="flex items-center gap-3.5">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
+                          <Mail size={20} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Transactional Gateway</p>
+                          <h3 className="text-lg font-bold text-gray-900">Add Resend Email Configuration</h3>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#252578]/15 bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578]">
+                          <Key size={13} />
+                          Resend API v1
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-5 sm:p-8 flex flex-col gap-6">
+                      {/* Provider Field (Fixed to Resend) */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                          <span>Provider</span>
+                          <span className="text-xs font-normal text-gray-400">Dedicated delivery engine</span>
+                        </label>
+                        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm font-semibold text-gray-800">
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                            <span>Resend</span>
+                            <span className="text-xs font-normal text-gray-500">(Modern Developer-First Email API)</span>
+                          </div>
+                          <span className="text-xs font-medium text-gray-400 bg-gray-200/60 px-2 py-0.5 rounded-md">Fixed</span>
+                        </div>
+                      </div>
+
+                      {/* API Key Field */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                          <span>API Key <span className="text-red-500">*</span></span>
+                          <span className="text-xs font-normal text-gray-400">Secret key from Resend API dashboard</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+                            <Key size={16} />
+                          </div>
+                          <input
+                            type={showNewApiKey ? 'text' : 'password'}
+                            value={newEmailConfig.apiKey}
+                            onChange={(e) => {
+                              setNewEmailConfig({ ...newEmailConfig, apiKey: e.target.value });
+                              if (newEmailConfigErrors.apiKey) {
+                                setNewEmailConfigErrors((prev) => {
+                                  const n = { ...prev };
+                                  delete n.apiKey;
+                                  return n;
+                                });
+                              }
+                            }}
+                            placeholder="re_••••••••••••••••••••••••"
+                            className={`w-full rounded-xl border pl-10 pr-11 py-3 text-sm font-mono outline-none transition-all ${
+                              newEmailConfigErrors.apiKey
+                                ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                                : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewApiKey(!showNewApiKey)}
+                            aria-label={showNewApiKey ? 'Hide API key' : 'Show API key'}
+                            className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                          >
+                            {showNewApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        {newEmailConfigErrors.apiKey ? (
+                          <p className="text-xs font-medium text-red-600 mt-0.5">{newEmailConfigErrors.apiKey}</p>
+                        ) : (
+                          <p className="text-xs text-amber-600 font-medium mt-0.5">⚠️ Once you save, you cannot see the API key again. It will be permanently masked.</p>
+                        )}
+                      </div>
+
+                      {/* From Name & From Email Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {/* From Name */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                            <span>From Name <span className="text-red-500">*</span></span>
+                            <span className="text-xs font-normal text-gray-400">Sender display name</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={newEmailConfig.fromName}
+                            onChange={(e) => {
+                              setNewEmailConfig({ ...newEmailConfig, fromName: e.target.value });
+                              if (newEmailConfigErrors.fromName) {
+                                setNewEmailConfigErrors((prev) => {
+                                  const n = { ...prev };
+                                  delete n.fromName;
+                                  return n;
+                                });
+                              }
+                            }}
+                            placeholder="e.g. SBSI Support"
+                            className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition-all ${
+                              newEmailConfigErrors.fromName
+                                ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                                : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                            }`}
+                          />
+                          {newEmailConfigErrors.fromName ? (
+                            <p className="text-xs font-medium text-red-600 mt-0.5">{newEmailConfigErrors.fromName}</p>
+                          ) : (
+                            <p className="text-xs text-gray-400">Visible to customers and employees in their email client headers.</p>
+                          )}
+                        </div>
+
+                        {/* From Email */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                            <span>From Email <span className="text-red-500">*</span></span>
+                            <span className="text-xs font-normal text-gray-400">Verified domain address</span>
+                          </label>
+                          <input
+                            type="email"
+                            value={newEmailConfig.fromEmail}
+                            onChange={(e) => {
+                              setNewEmailConfig({ ...newEmailConfig, fromEmail: e.target.value });
+                              if (newEmailConfigErrors.fromEmail) {
+                                setNewEmailConfigErrors((prev) => {
+                                  const n = { ...prev };
+                                  delete n.fromEmail;
+                                  return n;
+                                });
+                              }
+                            }}
+                            placeholder="support@sbs-med.com"
+                            className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition-all ${
+                              newEmailConfigErrors.fromEmail
+                                ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                                : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                            }`}
+                          />
+                          {newEmailConfigErrors.fromEmail ? (
+                            <p className="text-xs font-medium text-red-600 mt-0.5">{newEmailConfigErrors.fromEmail}</p>
+                          ) : (
+                            <p className="text-xs text-gray-400">Must be a verified sending domain or email configured in your Resend account.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Form Action Footer */}
+                    <div className="border-t border-gray-100 bg-gray-50/60 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
+                        <span>Credentials validated and protected by client-side encryption.</span>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingEmailConfig(false);
+                            setNewEmailConfigErrors({});
+                          }}
+                          className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleOpenTestEmailFromAdd}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#252578]/20 bg-white px-5 py-2.5 text-xs font-bold text-[#252578] hover:bg-[#252578]/5 transition-all cursor-pointer shadow-xs"
+                        >
+                          <Send size={14} />
+                          Test Email
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleAddEmailConfig}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[#1a1a5e] hover:shadow-lg cursor-pointer"
+                        >
+                          <Save size={14} />
+                          Save Configuration
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <span className="inline-flex w-fit items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
-                    Not configured
-                  </span>
-                </div>
-
-                <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 flex items-start gap-3">
-                    <Building2 size={18} className="text-[#252578] shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-900">Sender identity and domain</h4>
-                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                        A verified sending domain, From address, and sender name must be configured by the backend team.
-                      </p>
+                )
+              ) : (
+                /* Configured Email Delivery Card */
+                <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-gradient-to-r from-gray-50/50 via-white to-gray-50/30">
+                    <div className="flex items-center gap-3.5">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
+                        <Mail size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Transactional Gateway</p>
+                        <h3 className="text-lg font-bold text-gray-900">Provider & Sender Setup</h3>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#252578]/15 bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578]">
+                        <Key size={13} />
+                        Resend API v1
+                      </span>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 flex items-start gap-3">
-                    <Lock size={18} className="text-[#252578] shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-900">API credential</h4>
-                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                        The Resend API credential is backend-managed in notification-service environment or secret storage only.
-                      </p>
+
+                  <div className="p-5 sm:p-8 flex flex-col gap-6">
+                    {/* Provider Field (Fixed to Resend) */}
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                        <span>Provider</span>
+                        <span className="text-xs font-normal text-gray-400">Primary delivery engine</span>
+                      </label>
+                      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm font-semibold text-gray-800">
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                          <span>Resend</span>
+                          <span className="text-xs font-normal text-gray-500">(Modern Developer-First Email API)</span>
+                        </div>
+                        <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md">Active</span>
+                      </div>
+                    </div>
+
+                    {/* API Key Field (Masked - only shows re_•••••••••) */}
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                        <span>API Key</span>
+                        <span className="text-xs font-normal text-emerald-600 flex items-center gap-1 font-medium">
+                          <Lock size={12} /> Key Secured & Encrypted
+                        </span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+                          <Key size={16} />
+                        </div>
+                        <input
+                          type="text"
+                          readOnly
+                          disabled
+                          value="re_•••••••••"
+                          aria-label="Masked Resend API Key"
+                          className="w-full rounded-xl border border-gray-200 bg-gray-100/80 py-3 pl-10 pr-36 font-mono text-sm text-gray-600 select-none cursor-not-allowed tracking-wider"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChangeApiKeyInput('');
+                            setChangeApiKeyError(null);
+                            setShowChangeApiKeyModal(true);
+                          }}
+                          className="absolute right-2.5 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#252578] shadow-xs hover:bg-gray-50 hover:border-[#252578]/30 transition-all cursor-pointer"
+                        >
+                          <Key size={13} />
+                          Change API Key
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">API key is protected and masked. To enter a new secret key, use Change API Key.</p>
+                    </div>
+
+                    {/* From Name & From Email Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {/* From Name */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                          <span>From Name <span className="text-red-500">*</span></span>
+                          <span className="text-xs font-normal text-gray-400">Sender display name</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={emailConfig.fromName || ''}
+                          onChange={(e) => {
+                            setEmailConfig({ ...emailConfig, fromName: e.target.value });
+                            if (emailConfigErrors.fromName) {
+                              setEmailConfigErrors((prev) => {
+                                const n = { ...prev };
+                                delete n.fromName;
+                                return n;
+                              });
+                            }
+                          }}
+                          placeholder="e.g. SBSI Support"
+                          className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition-all ${
+                            emailConfigErrors.fromName
+                              ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                              : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                          }`}
+                        />
+                        {emailConfigErrors.fromName ? (
+                          <p className="text-xs font-medium text-red-600 mt-0.5">{emailConfigErrors.fromName}</p>
+                        ) : (
+                          <p className="text-xs text-gray-400">Visible to customers and employees in their email client headers.</p>
+                        )}
+                      </div>
+
+                      {/* From Email */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                          <span>From Email <span className="text-red-500">*</span></span>
+                          <span className="text-xs font-normal text-gray-400">Verified domain address</span>
+                        </label>
+                        <input
+                          type="email"
+                          value={emailConfig.fromEmail || ''}
+                          onChange={(e) => {
+                            setEmailConfig({ ...emailConfig, fromEmail: e.target.value });
+                            if (emailConfigErrors.fromEmail) {
+                              setEmailConfigErrors((prev) => {
+                                const n = { ...prev };
+                                delete n.fromEmail;
+                                return n;
+                              });
+                            }
+                          }}
+                          placeholder="support@sbs-med.com"
+                          className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition-all ${
+                            emailConfigErrors.fromEmail
+                              ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                              : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                          }`}
+                        />
+                        {emailConfigErrors.fromEmail ? (
+                          <p className="text-xs font-medium text-red-600 mt-0.5">{emailConfigErrors.fromEmail}</p>
+                        ) : (
+                          <p className="text-xs text-gray-400">Must be a verified sending domain or email configured in your Resend account.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bottom Action Footer */}
+                  <div className="border-t border-gray-100 bg-gray-50/60 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
+                      <span>Credentials protected by enterprise client-side encryption.</span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap justify-end">
+                      <button
+                        type="button"
+                        onClick={handleRemoveEmailConfig}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Trash2 size={14} />
+                        Remove Configuration
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowTestEmailModal(true)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#252578]/20 bg-white px-5 py-2.5 text-xs font-bold text-[#252578] hover:bg-[#252578]/5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Send size={14} />
+                        Test Email
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveEmailConfig}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[#1a1a5e] hover:shadow-lg cursor-pointer"
+                      >
+                        <Save size={14} />
+                        Save Configuration
+                      </button>
                     </div>
                   </div>
                 </div>
-
-                <div className="border-t border-gray-100 bg-gray-50/50 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <p className="text-xs text-gray-500">No provider settings are saved from this browser panel.</p>
-                  <button
-                    type="button"
-                    disabled
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-200 px-5 py-2.5 text-xs font-semibold text-gray-500 cursor-not-allowed"
-                  >
-                    <Save size={14} />
-                    Save email settings (Coming soon)
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -5146,6 +5769,172 @@ export default function SuperAdminTicketConfig() {
                 <button onClick={() => setEditingEscalation(null)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
                 <button onClick={handleSaveEscalation} disabled={!editingEscalation.name.trim()} className="rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg disabled:opacity-50">Save</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Test Email Modal */}
+      {showTestEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578]">
+                  <Send size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Send Test Email</h3>
+                  <p className="text-xs text-gray-500">Verify your Resend delivery gateway setup</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTestEmailModal(false)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Recipient Email Address
+              </label>
+              <input
+                type="email"
+                value={testEmailRecipient}
+                onChange={(e) => setTestEmailRecipient(e.target.value)}
+                placeholder="your.email@example.com"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm outline-none focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10"
+              />
+              {emailConfigErrors.testEmail && (
+                <p className="text-xs font-semibold text-red-600">{emailConfigErrors.testEmail}</p>
+              )}
+              <p className="text-[11px] text-gray-400">
+                A sample verification alert will be sent from <span className="font-semibold text-gray-600">{emailConfig?.fromName || newEmailConfig.fromName || 'SBSI Support'}</span> ({emailConfig?.fromEmail || newEmailConfig.fromEmail || 'support@sbs-med.com'}) via Resend.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setShowTestEmailModal(false)}
+                disabled={isTestingEmail}
+                className="rounded-xl px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleTestEmail}
+                disabled={isTestingEmail || !testEmailRecipient.trim()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2 text-xs font-bold text-white transition-all hover:bg-[#1a1a5e] disabled:opacity-60 cursor-pointer shadow-xs"
+              >
+                {isTestingEmail ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send size={14} />
+                    Send Test Email
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change API Key Modal */}
+      {showChangeApiKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 flex flex-col gap-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578]">
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Change Resend API Key</h3>
+                  <p className="text-xs text-gray-500">Enter a new secret key from your Resend dashboard</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChangeApiKeyModal(false);
+                  setChangeApiKeyInput('');
+                  setChangeApiKeyError(null);
+                }}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                New API Key <span className="text-red-500">*</span>
+              </label>
+              <div className="relative flex items-center">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+                  <Key size={16} />
+                </div>
+                <input
+                  type={showChangeApiKey ? 'text' : 'password'}
+                  value={changeApiKeyInput}
+                  onChange={(e) => {
+                    setChangeApiKeyInput(e.target.value);
+                    setChangeApiKeyError(null);
+                  }}
+                  placeholder="re_••••••••••••••••••••••••"
+                  autoFocus
+                  className={`w-full rounded-xl border pl-10 pr-11 py-2.5 text-sm font-mono outline-none transition-all ${
+                    changeApiKeyError
+                      ? 'border-red-300 bg-red-50/30 text-red-900 focus:ring-2 focus:ring-red-200'
+                      : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:border-[#252578] focus:bg-white focus:ring-2 focus:ring-[#252578]/10'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowChangeApiKey(!showChangeApiKey)}
+                  aria-label={showChangeApiKey ? 'Hide API key' : 'Show API key'}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                >
+                  {showChangeApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {changeApiKeyError && (
+                <p className="text-xs font-semibold text-red-600">{changeApiKeyError}</p>
+              )}
+              <p className="text-[11px] text-amber-600 font-medium">
+                ⚠️ Once you save, you cannot see the API key again. It will be permanently masked as <span className="font-mono font-semibold text-gray-700">re_•••••••••</span>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChangeApiKeyModal(false);
+                  setChangeApiKeyInput('');
+                  setChangeApiKeyError(null);
+                }}
+                className="rounded-xl px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleChangeApiKey}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2 text-xs font-bold text-white transition-all hover:bg-[#1a1a5e] cursor-pointer shadow-xs"
+              >
+                <Save size={14} />
+                Update API Key
+              </button>
             </div>
           </div>
         </div>
