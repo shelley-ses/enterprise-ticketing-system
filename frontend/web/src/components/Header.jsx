@@ -247,7 +247,7 @@ export default function Header({ sidebarHovered }) {
             >
               <Bell size={20} />
               {notificationCount > 0 && (
-                <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold shadow-sm">
+                <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-semibold shadow-sm">
                   {notificationCount}
                 </span>
               )}

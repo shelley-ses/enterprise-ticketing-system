@@ -1,13 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NotificationModal from '@/components/NotificationModal';
 import TitleCasingModal from '@/components/TitleCasingModal';
-import { getTicketFormOptions, createTicket } from '@/services/ticketService';
+import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
+import { useAuth } from '@/context/AuthContext';
+import { getExternalTicketsFromStorage } from '@/data/mockFeedbackData';
+import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const effectiveUser = user || JSON.parse(localStorage.getItem('user') || 'null');
+  const customerId = effectiveUser?.id || 1;
+
   const [formData, setFormData] = useState({
     title: '',
     machine_ID: '',
@@ -31,6 +38,39 @@ export default function TicketCreation() {
   const [createdTicketId, setCreatedTicketId] = useState(null);
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
+  const [customerOpenCount, setCustomerOpenCount] = useState(0);
+
+  const fetchCustomerOpenCount = useCallback(async () => {
+    try {
+      const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh: true }).catch(() => []);
+      const externalTickets = getExternalTicketsFromStorage() || [];
+      const seenIds = new Set();
+      const all = [];
+      for (const t of [...externalTickets, ...(ticketsList || [])]) {
+        const id = t.ticket_id || t.ticket_ID || t.id;
+        if (id && seenIds.has(id)) continue;
+        if (id) seenIds.add(id);
+        all.push(t);
+      }
+      const count = all.filter((t) => {
+        const matchesCustomer = !t.created_by || String(t.created_by) === String(customerId);
+        return !t.is_internal && matchesCustomer && OPEN_STATUS_SET.includes(t.status);
+      }).length;
+      setCustomerOpenCount(count);
+      return count;
+    } catch {
+      return customerOpenCount;
+    }
+  }, [customerId, customerOpenCount]);
+
+  useEffect(() => {
+    fetchCustomerOpenCount();
+    const handleConfigChange = () => {
+      fetchCustomerOpenCount();
+    };
+    window.addEventListener('ticket_limit_config_changed', handleConfigChange);
+    return () => window.removeEventListener('ticket_limit_config_changed', handleConfigChange);
+  }, [fetchCustomerOpenCount]);
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -113,6 +153,26 @@ export default function TicketCreation() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+
+    // TS096: Before pre-submission validation block, verify requester's open tickets count
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited) {
+      let openCount = customerOpenCount;
+      try {
+        const freshCount = await fetchCustomerOpenCount();
+        if (typeof freshCount === 'number') {
+          openCount = freshCount;
+        }
+      } catch (err) {
+        console.warn('Failed to refresh open ticket count before submit:', err);
+      }
+
+      if (openCount >= limitConfig.limit) {
+        setError(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+        return;
+      }
+    }
+
     const titleTrim = (formData.title || '').trim();
     const descTrim = (formData.description || '').trim();
     if (!titleTrim || !formData.machine_ID || !formData.problem_category_ID || !descTrim) {
@@ -143,6 +203,12 @@ export default function TicketCreation() {
 
   const handleConfirmTitleCasing = async () => {
     if (!titleCasingData) return;
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && customerOpenCount >= limitConfig.limit) {
+      setShowTitleCasingModal(false);
+      setError(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+      return;
+    }
     const formatted = titleCasingData.formatted;
     setFormData((prev) => ({ ...prev, title: formatted }));
     setShowTitleCasingModal(false);
@@ -172,6 +238,7 @@ export default function TicketCreation() {
       const newTicketId = response.ticket?.ticket_ID || response.ticket_ID;
       setCreatedTicketId(newTicketId);
       setSuccessModal(true);
+      fetchCustomerOpenCount();
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to submit ticket. Please try again.');
       console.error(err);

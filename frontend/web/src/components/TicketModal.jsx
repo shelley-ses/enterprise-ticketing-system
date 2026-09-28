@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/ticketService';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
+import { getMaxOpenTicketsLimit } from '@/data/ticketLimitConfig';
 
 const initialFormData = {
   title: '',
@@ -24,7 +25,7 @@ const MAX_DESCRIPTION_CHARS = 500;
 const MIN_TITLE_CHARS = 5;
 const MIN_DESCRIPTION_CHARS = 20;
 
-export default function TicketModal({ isOpen, onClose, onSubmit }) {
+export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCount = null }) {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -161,6 +162,13 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       return;
     }
 
+    // TS096: Before pre-submission validation block, enforce max open tickets limit if count provided
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && typeof openTicketsCount === 'number' && openTicketsCount >= limitConfig.limit) {
+      setSubmitError(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+      return;
+    }
+
     const titleTrim = (formData.title || '').trim();
     const descTrim = (formData.description || '').trim();
     if (!titleTrim || titleTrim.length < MIN_TITLE_CHARS) {
@@ -199,7 +207,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       });
       resetFormState();
     } catch (error) {
-      setSubmitError(error?.response?.data?.message || 'Failed to create ticket. Please try again.');
+      setSubmitError(error?.response?.data?.message || error?.message || 'Failed to create ticket. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -207,6 +215,14 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
 
   const handleConfirmTitleCasing = async () => {
     if (!titleCasingData) return;
+
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && typeof openTicketsCount === 'number' && openTicketsCount >= limitConfig.limit) {
+      setShowTitleCasingModal(false);
+      setSubmitError(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+      return;
+    }
+
     const formatted = titleCasingData.formatted;
     setFormData((prev) => ({ ...prev, title: formatted }));
     setShowTitleCasingModal(false);
@@ -222,7 +238,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit }) {
       });
       resetFormState();
     } catch (error) {
-      setSubmitError(error?.response?.data?.message || 'Failed to create ticket. Please try again.');
+      setSubmitError(error?.response?.data?.message || error?.message || 'Failed to create ticket. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

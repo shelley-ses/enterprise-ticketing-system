@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Inbox, Clock, CheckCircle, Archive, Bot } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
@@ -20,6 +20,7 @@ import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
 import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 import { parseUTCDate } from '@/utils/dateUtils';
+import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 const getStoredUser = () => {
   try {
@@ -348,7 +349,18 @@ export default function CustomerDashboard() {
     }
   };
 
+  const customerOpenCount = useMemo(() => {
+    return (recentTickets || []).filter(
+      (t) => !t.is_internal && OPEN_STATUS_SET.includes(t.status)
+    ).length;
+  }, [recentTickets]);
+
   const handleCreateTicket = async (payload) => {
+    const limitConfig = getMaxOpenTicketsLimit();
+    if (!limitConfig.isUnlimited && customerOpenCount >= limitConfig.limit) {
+      throw new Error(`You've reached the maximum number of open tickets (${limitConfig.limit}). Resolve or close an existing ticket before submitting another.`);
+    }
+
     setLoadingText('Creating ticket...');
     setModalLoading(true);
     try {
@@ -499,6 +511,7 @@ export default function CustomerDashboard() {
         isOpen={isTicketModalOpen}
         onClose={() => setIsTicketModalOpen(false)}
         onSubmit={handleCreateTicket}
+        openTicketsCount={customerOpenCount}
       />
 
       {/* Ticket Detail Modal */}

@@ -10,5 +10,9 @@ export default function SidebarSuperAdmin({ collapsed, onHoverChange }) {
     { name: 'History', path: '/superadmin/history', icon: <History size={20} /> },
   ];
 
-  return <SidebarBase navItems={navItems} collapsed={collapsed} onHoverChange={onHoverChange} />;
+  const bottomItems = [
+    { name: 'System Settings', path: '/superadmin/settings', icon: <Settings size={20} /> },
+  ];
+
+  return <SidebarBase navItems={navItems} bottomItems={bottomItems} collapsed={collapsed} onHoverChange={onHoverChange} />;
 }

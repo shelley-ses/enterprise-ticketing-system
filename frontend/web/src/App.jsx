@@ -42,6 +42,7 @@ const SuperAdminTicketConfig = React.lazy(() => import('./pages/SuperAdminTicket
 const SuperAdminAuditLogs = React.lazy(() => import('./pages/SuperAdminAuditLogs.jsx'));
 const SuperAdminHistory = React.lazy(() => import('./pages/SuperAdminHistory.jsx'));
 const AIKnowledgeBase = React.lazy(() => import('./pages/AIKnowledgeBase.jsx'));
+const SuperAdminSettings = React.lazy(() => import('./pages/SuperAdminSettings.jsx'));
 const SuperAdminDevLogin = React.lazy(() => import('./pages/SuperAdminDevLogin.jsx'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 
@@ -298,6 +299,7 @@ function App() {
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
                 <Route path="history" element={<SuperAdminHistory />} />
                 <Route path="knowledge-base" element={<AIKnowledgeBase />} />
+                <Route path="settings" element={<SuperAdminSettings />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />
               </Route>
