@@ -1,6 +1,43 @@
-import axiosInstance from '@/api/axiosInstance';
+import axios from 'axios';
+import tokenStore from '@/auth/tokenStore';
+import { refreshAccessToken } from '@/auth/refreshSession';
 import { CONFIGURATION_API_URL } from '@/config/api.config';
 import { fetchEncryptionKey, encryptPayload } from '@/utils/rsa';
+
+const configClient = axios.create({
+  baseURL: CONFIGURATION_API_URL || '/api/ticketing/configuration',
+  withCredentials: true,
+  headers: {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  },
+});
+
+configClient.interceptors.request.use((config) => {
+  const token = tokenStore.getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+configClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true;
+      const refreshed = await refreshAccessToken();
+      const currentToken = tokenStore.getToken();
+      if (refreshed && currentToken) {
+        originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+        return configClient(originalRequest);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Fetches the ephemeral RSA encryption key directly from configuration-service
@@ -8,7 +45,7 @@ import { fetchEncryptionKey, encryptPayload } from '@/utils/rsa';
  */
 async function getServiceEncryptionKey() {
   try {
-    const res = await axiosInstance.get(`${CONFIGURATION_API_URL}/encryption-key`);
+    const res = await configClient.get('/encryption-key');
     if (res.data?.public_key && res.data?.key_id) {
       return res.data;
     }
@@ -23,7 +60,7 @@ async function getServiceEncryptionKey() {
  * Returns { is_configured: boolean, data: { provider, api_key: 're_•••••••••', from_name, from_email, last_tested } | null }
  */
 export async function getEmailConfiguration() {
-  const response = await axiosInstance.get(`${CONFIGURATION_API_URL}/email`);
+  const response = await configClient.get('/email');
   return response.data;
 }
 
@@ -34,8 +71,8 @@ export async function saveEmailConfiguration({ apiKey, fromName, fromEmail }) {
   const { public_key, key_id } = await getServiceEncryptionKey();
   const encryptedApiKey = encryptPayload(apiKey.trim(), public_key);
 
-  const response = await axiosInstance.post(
-    `${CONFIGURATION_API_URL}/email`,
+  const response = await configClient.post(
+    '/email',
     {
       apiKey: encryptedApiKey,
       fromName: fromName.trim(),
@@ -57,8 +94,8 @@ export async function updateEmailApiKey(apiKey) {
   const { public_key, key_id } = await getServiceEncryptionKey();
   const encryptedApiKey = encryptPayload(apiKey.trim(), public_key);
 
-  const response = await axiosInstance.put(
-    `${CONFIGURATION_API_URL}/email/api-key`,
+  const response = await configClient.put(
+    '/email/api-key',
     {
       apiKey: encryptedApiKey,
     },
@@ -75,7 +112,7 @@ export async function updateEmailApiKey(apiKey) {
  * Remove the active email configuration.
  */
 export async function removeEmailConfiguration() {
-  const response = await axiosInstance.delete(`${CONFIGURATION_API_URL}/email`);
+  const response = await configClient.delete('/email');
   return response.data;
 }
 
@@ -96,8 +133,8 @@ export async function sendTestEmail({ recipientEmail, apiKey, fromName, fromEmai
     headers['X-Key-Id'] = key_id;
   }
 
-  const response = await axiosInstance.post(
-    `${CONFIGURATION_API_URL}/email/test`,
+  const response = await configClient.post(
+    '/email/test',
     payload,
     { headers }
   );

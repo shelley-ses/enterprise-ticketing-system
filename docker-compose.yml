@@ -531,6 +531,7 @@ services:
       VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
       VITE_AI_SERVICE_URL: "http://ai-service:8000"
       VITE_ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
+      VITE_CONFIGURATION_SERVICE_URL: "http://configuration-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5005"
     restart: always
 
@@ -558,6 +559,7 @@ services:
       VITE_MESSAGING_SERVICE_URL: "http://messaging-service:8000"
       VITE_AI_SERVICE_URL: "http://ai-service:8000"
       VITE_ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
+      VITE_CONFIGURATION_SERVICE_URL: "http://configuration-service:8000"
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5006"
     restart: always
 

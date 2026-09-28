@@ -100,7 +100,7 @@ class TicketNotificationService
         $ticketLink = url("/tickets/{$ticketId}");
 
         try {
-            Mail::to($employee->email)->send(new TicketNotificationMail(
+            $mailable = new TicketNotificationMail(
                 $subject,
                 $message,
                 $ticketRef,
@@ -108,7 +108,8 @@ class TicketNotificationService
                 $category,
                 $priority,
                 $ticketLink
-            ));
+            );
+            $this->dispatchEmail($employee->email, $mailable);
         } catch (\Exception $e) {
             Log::warning("Failed to send ticket email to {$employee->email}: {$e->getMessage()}");
         }
@@ -135,7 +136,7 @@ class TicketNotificationService
         $ticketLink = url("/tickets/{$ticketId}");
 
         try {
-            Mail::to($client->email)->send(new TicketNotificationMail(
+            $mailable = new TicketNotificationMail(
                 $subject,
                 $message,
                 $ticketRef,
@@ -143,10 +144,35 @@ class TicketNotificationService
                 $category,
                 $priority,
                 $ticketLink
-            ));
+            );
+            $this->dispatchEmail($client->email, $mailable);
         } catch (\Exception $e) {
             Log::warning("Failed to send customer email to {$client->email}: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Dispatches email via configuration-service (Resend), falling back to SMTP.
+     */
+    protected function dispatchEmail(string $recipientEmail, TicketNotificationMail $mailable): void
+    {
+        try {
+            $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+            $response = \Illuminate\Support\Facades\Http::timeout(6)->post("{$configUrl}/api/email/dispatch", [
+                'to' => $recipientEmail,
+                'subject' => $mailable->subject ?? 'Ticket Notification',
+                'html' => $mailable->render(),
+            ]);
+
+            if ($response->successful()) {
+                Log::info("Ticket notification email dispatched via Resend to {$recipientEmail}");
+                return;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Configuration service email dispatch failed, falling back to SMTP: {$e->getMessage()}");
+        }
+
+        Mail::to($recipientEmail)->send($mailable);
     }
 
     /**

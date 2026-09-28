@@ -55,6 +55,18 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/ticketing\/analytics/, '/api')
       },
+      '/api/ticketing/configuration': {
+        target: process.env.VITE_CONFIGURATION_SERVICE_URL || 'http://127.0.0.1:8009',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/ticketing\/configuration/, '/api')
+      },
+      '/api/configuration': {
+        target: process.env.VITE_CONFIGURATION_SERVICE_URL || 'http://127.0.0.1:8009',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/configuration/, '/api')
+      },
       '/api/analytics': {
         target: process.env.VITE_ANALYTICS_SERVICE_URL || 'http://127.0.0.1:8010',
         changeOrigin: true,

@@ -117,4 +117,52 @@ class ResendService
             ];
         }
     }
+
+    /**
+     * Sends an arbitrary transactional email via Resend using the active configuration.
+     */
+    public function sendRawEmail(string $apiKey, string $fromName, string $fromEmail, string $toEmail, string $subject, string $html): array
+    {
+        $formattedFrom = !empty($fromName) ? "{$fromName} <{$fromEmail}>" : $fromEmail;
+
+        try {
+            $response = Http::withToken(trim($apiKey))
+                ->timeout(10)
+                ->acceptJson()
+                ->post(self::API_BASE . '/emails', [
+                    'from' => $formattedFrom,
+                    'to' => [trim($toEmail)],
+                    'subject' => $subject,
+                    'html' => $html,
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return [
+                    'success' => true,
+                    'id' => $data['id'] ?? null,
+                    'error' => null,
+                ];
+            }
+
+            $body = $response->json();
+            $errorMsg = $body['message'] ?? 'Failed to dispatch email through Resend.';
+
+            Log::warning('Resend email dispatch failed', [
+                'status' => $response->status(),
+                'error' => $errorMsg,
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $errorMsg,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Resend email dispatch exception: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Failed to reach Resend API: ' . $e->getMessage(),
+            ];
+        }
+    }
 }

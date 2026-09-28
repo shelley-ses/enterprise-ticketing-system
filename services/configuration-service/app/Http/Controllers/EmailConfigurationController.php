@@ -214,4 +214,46 @@ class EmailConfigurationController extends Controller
             'last_tested' => now()->format('M j, h:i A'),
         ]);
     }
+
+    /**
+     * Inter-service dispatch endpoint for other microservices (e.g. ticket-service)
+     * to send transactional emails via Resend using the active configuration.
+     */
+    public function dispatchEmail(Request $request)
+    {
+        $validated = $request->validate([
+            'to' => 'required|email',
+            'subject' => 'required|string',
+            'html' => 'required|string',
+        ]);
+
+        $config = EmailConfiguration::where('is_active', true)->latest()->first();
+
+        if (!$config) {
+            return response()->json([
+                'message' => 'No active email delivery configuration found.',
+            ], 404);
+        }
+
+        $result = $this->resendService->sendRawEmail(
+            $config->api_key,
+            $config->from_name,
+            $config->from_email,
+            $validated['to'],
+            $validated['subject'],
+            $validated['html']
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'message' => 'Failed to dispatch email via Resend.',
+                'error' => $result['error'],
+            ], 502);
+        }
+
+        return response()->json([
+            'message' => 'Email dispatched successfully via Resend.',
+            'id' => $result['id'],
+        ]);
+    }
 }
