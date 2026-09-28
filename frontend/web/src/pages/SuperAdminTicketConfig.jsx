@@ -27,6 +27,14 @@ import {
   getTicketFormOptions
 } from '@/services/ticketService';
 
+import {
+  getEmailConfiguration,
+  saveEmailConfiguration,
+  updateEmailApiKey,
+  removeEmailConfiguration,
+  sendTestEmail,
+} from '@/services/configurationService';
+
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import { getMaxOpenTicketsLimit, setMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
@@ -867,6 +875,17 @@ export default function SuperAdminTicketConfig() {
             notify: r.notify,
           }))
         );
+      }
+
+      try {
+        const emailRes = await getEmailConfiguration();
+        if (emailRes?.is_configured && emailRes?.data) {
+          setEmailConfig(emailRes.data);
+        } else {
+          setEmailConfig(null);
+        }
+      } catch {
+        // keep fallback or null
       }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
@@ -2148,28 +2167,25 @@ export default function SuperAdminTicketConfig() {
     showConfirm(
       'Save Email Configuration?',
       'Once you save, you cannot see the API key again. It will be permanently masked for security. Are you sure you want to proceed?',
-      () => {
+      async () => {
         closeNotif();
-        const created = {
-          provider: 'Resend',
-          apiKey: newEmailConfig.apiKey.trim(),
-          fromName: newEmailConfig.fromName.trim(),
-          fromEmail: newEmailConfig.fromEmail.trim(),
-          isConfigured: true,
-          lastTested: null,
-        };
-        setEmailConfig(created);
         try {
-          localStorage.setItem('superadmin_email_config', JSON.stringify(created));
-        } catch {
-          // ignore
+          const res = await saveEmailConfiguration({
+            apiKey: newEmailConfig.apiKey.trim(),
+            fromName: newEmailConfig.fromName.trim(),
+            fromEmail: newEmailConfig.fromEmail.trim(),
+          });
+          setEmailConfig(res.data);
+          setIsAddingEmailConfig(false);
+          setNewEmailConfig({ provider: 'Resend', apiKey: '', fromName: '', fromEmail: '' });
+          showSuccess(
+            'Email Configuration Saved',
+            'Resend email delivery gateway has been verified and configured successfully.'
+          );
+        } catch (err) {
+          const errMsg = err?.response?.data?.errors?.apiKey || err?.response?.data?.message || err?.message || 'Failed to verify and save email configuration.';
+          setNewEmailConfigErrors((prev) => ({ ...prev, apiKey: errMsg }));
         }
-        setIsAddingEmailConfig(false);
-        setNewEmailConfig({ provider: 'Resend', apiKey: '', fromName: '', fromEmail: '' });
-        showSuccess(
-          'Email Configuration Saved',
-          'Resend email delivery gateway has been configured successfully.'
-        );
       },
       {
         confirmText: 'Save Configuration',
@@ -2219,22 +2235,19 @@ export default function SuperAdminTicketConfig() {
     showConfirm(
       'Change API Key?',
       'Once you save, you cannot see the API key again. It will be permanently masked for security. Are you sure you want to update the key?',
-      () => {
+      async () => {
         closeNotif();
-        const updated = {
-          ...emailConfig,
-          apiKey: changeApiKeyInput.trim(),
-        };
-        setEmailConfig(updated);
         try {
-          localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
-        } catch {
-          // ignore
+          const res = await updateEmailApiKey(changeApiKeyInput.trim());
+          setEmailConfig(res.data);
+          setShowChangeApiKeyModal(false);
+          setChangeApiKeyInput('');
+          setChangeApiKeyError(null);
+          showSuccess('API Key Updated', 'Resend API key has been verified and changed successfully.');
+        } catch (err) {
+          const errMsg = err?.response?.data?.errors?.apiKey || err?.response?.data?.message || err?.message || 'Failed to verify new API key with Resend.';
+          setChangeApiKeyError(errMsg);
         }
-        setShowChangeApiKeyModal(false);
-        setChangeApiKeyInput('');
-        setChangeApiKeyError(null);
-        showSuccess('API Key Updated', 'Resend API key has been changed successfully.');
       },
       {
         confirmText: 'Update API Key',
@@ -2256,9 +2269,6 @@ export default function SuperAdminTicketConfig() {
     } else if (!emailRegex.test(emailConfig.fromEmail.trim())) {
       errors.fromEmail = 'Please provide a valid sender email address.';
     }
-    if (!emailConfig.apiKey || !emailConfig.apiKey.trim()) {
-      errors.apiKey = 'API Key is required and cannot be null or empty.';
-    }
 
     if (Object.keys(errors).length > 0) {
       setEmailConfigErrors(errors);
@@ -2266,23 +2276,9 @@ export default function SuperAdminTicketConfig() {
     }
 
     setEmailConfigErrors({});
-    const updated = {
-      ...emailConfig,
-      provider: 'Resend',
-      fromName: emailConfig.fromName.trim(),
-      fromEmail: emailConfig.fromEmail.trim(),
-      isConfigured: true,
-    };
-    setEmailConfig(updated);
-    try {
-      localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
-
     showSuccess(
       'Email Configuration Saved',
-      'Transactional email settings for Resend have been saved successfully.'
+      'Transactional email settings for Resend are actively configured.'
     );
   };
 
@@ -2290,16 +2286,16 @@ export default function SuperAdminTicketConfig() {
     showConfirm(
       'Remove Email Configuration?',
       'Are you sure you want to remove the Resend email configuration? Email alerts will be suspended until a new configuration is added.',
-      () => {
+      async () => {
         closeNotif();
-        setEmailConfig(null);
-        setEmailConfigErrors({});
-        setIsAddingEmailConfig(false);
         try {
-          localStorage.removeItem('superadmin_email_config');
+          await removeEmailConfiguration();
         } catch {
           // ignore
         }
+        setEmailConfig(null);
+        setEmailConfigErrors({});
+        setIsAddingEmailConfig(false);
         showSuccess('Configuration Removed', 'Email configuration has been removed successfully.');
       },
       {
@@ -2309,9 +2305,9 @@ export default function SuperAdminTicketConfig() {
     );
   };
 
-  const handleTestEmail = () => {
+  const handleTestEmail = async () => {
     const configToUse = emailConfig || (newEmailConfig.apiKey ? newEmailConfig : null);
-    if (!configToUse || !configToUse.apiKey) {
+    if (!configToUse || (!configToUse.apiKey && !emailConfig)) {
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -2327,28 +2323,29 @@ export default function SuperAdminTicketConfig() {
       return next;
     });
 
-    // Frontend simulation of sending test email
-    setTimeout(() => {
+    try {
+      const isUnsaved = !emailConfig && Boolean(newEmailConfig.apiKey);
+      const res = await sendTestEmail({
+        recipientEmail: testEmailRecipient.trim(),
+        apiKey: isUnsaved ? newEmailConfig.apiKey.trim() : null,
+        fromName: isUnsaved ? newEmailConfig.fromName.trim() : null,
+        fromEmail: isUnsaved ? newEmailConfig.fromEmail.trim() : null,
+      });
+
       setIsTestingEmail(false);
-      const now = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      if (emailConfig) {
-        const updated = {
-          ...emailConfig,
-          lastTested: now,
-        };
-        setEmailConfig(updated);
-        try {
-          localStorage.setItem('superadmin_email_config', JSON.stringify(updated));
-        } catch {
-          // ignore
-        }
-      }
       setShowTestEmailModal(false);
+      if (emailConfig && res.last_tested) {
+        setEmailConfig((prev) => prev ? { ...prev, lastTested: res.last_tested, last_tested: res.last_tested } : prev);
+      }
       showSuccess(
         'Test Email Sent',
-        `A test verification email from "${configToUse.fromName || 'SBSI Support'}" <${configToUse.fromEmail || 'support@sbs-med.com'}> was successfully delivered to ${testEmailRecipient} via Resend.`
+        res.message || `A test verification email was successfully delivered to ${testEmailRecipient} via Resend.`
       );
-    }, 1000);
+    } catch (err) {
+      setIsTestingEmail(false);
+      const errMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to dispatch test email through Resend.';
+      setEmailConfigErrors((prev) => ({ ...prev, testEmail: errMsg }));
+    }
   };
 
   return (

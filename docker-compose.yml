@@ -153,6 +153,7 @@ services:
       - customer-service
       - ticket-service
       - employee-service
+      - configuration-service
 
 
   ticket-service:
@@ -309,6 +310,37 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  configuration-service:
+    build:
+      context: ./services/configuration-service
+    container_name: configuration-service
+    volumes:
+      - ./services/configuration-service:/var/www
+      - configuration-service-vendor:/var/www/vendor
+    ports:
+      - "8009:8000"
+    networks:
+      - default
+      - shared-capstone-network
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    command: >
+      sh -lc "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi && if [ ! -f vendor/autoload.php ]; then composer install --no-interaction --prefer-dist --optimize-autoloader; fi && if grep -q '^APP_KEY=$' .env; then php artisan key:generate --force; fi && php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   ai-service:
     build:
@@ -540,6 +572,7 @@ volumes:
   messaging-service-vendor:
   employee-service-vendor:
   ai-service-vendor:
+  configuration-service-vendor:
 
 networks:
   default:

@@ -14,6 +14,7 @@ This repository is an enterprise-grade, microservice-based IT service desk and t
   * `services/analytics-service` (Port 8004): CSAT ratings, performance metrics, and reporting.
   * `services/attachment-service` (Port 8006): Attachment storage with mandatory ClamAV antivirus daemon inspection.
   * `services/messaging-service` (Port 8007): Real-time ticket chat messaging backed by MongoDB 7.
+  * `services/configuration-service` (Port 8009): System and third-party configuration management (Resend email delivery, RSA cryptography, live credential validation).
 * **Frontend (`frontend/web/`)**: React 19 SPA with Vite, Tailwind CSS v4, Lucide icons, and dual-mode runtime (`employee` at `/ticketing/` vs `customer` at `/`).
 * **Gateway (`nginx.conf` & `nginx.prod.conf`)**: Nginx reverse proxy routing `/api/*` to corresponding microservice FastCGI or HTTP sockets.
 * **Documentation (`docs/`)**: Technical specs and architecture guides (maintained with zero Mermaid diagrams, relying on clear ASCII tables).
