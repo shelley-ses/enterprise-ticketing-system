@@ -56,9 +56,25 @@ const checkIsCS = (user) => {
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+
+const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
+};
+
 const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
+  if (checkIsAdmin(user)) return false;
+  if (checkIsSuperAdmin(user)) return false;
   const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
   const role = (user.role || user.profile?.role?.name || '').toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
@@ -93,7 +109,9 @@ const readStoredUser = () => {
 
     const isCS = checkIsCS(stored);
     const isEmployee = checkIsEmployee(stored);
-    const isCustomer = !isCS && !isEmployee;
+    const isSuperAdmin = checkIsSuperAdmin(stored);
+    const isAdmin = checkIsAdmin(stored);
+    const isCustomer = !isCS && !isEmployee && !isSuperAdmin && !isAdmin;
 
     const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
     if (isCustomerSite && !isCustomer) {

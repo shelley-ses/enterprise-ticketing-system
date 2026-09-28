@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers } from 'lucide-react';
+import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
 import { useAuth } from '@/context/AuthContext';
@@ -46,6 +46,7 @@ export const TAB_ESCALATION = 'escalation';
 
 export const NOTIF_SUBTAB_RECIPIENTS = 'recipients';
 export const NOTIF_SUBTAB_CHANNELS = 'channels';
+export const NOTIF_SUBTAB_EMAIL_DELIVERY = 'email-delivery';
 
 export const GROUPS_CONFIG = [
   {
@@ -83,6 +84,7 @@ export const GROUPS_CONFIG = [
     subTabs: [
       { id: NOTIF_SUBTAB_RECIPIENTS, label: 'Recipients' },
       { id: NOTIF_SUBTAB_CHANNELS, label: 'Channels' },
+      { id: NOTIF_SUBTAB_EMAIL_DELIVERY, label: 'Email Delivery' },
     ],
   },
   {
@@ -626,6 +628,7 @@ export default function SuperAdminTicketConfig() {
   const [routingConfig, setRoutingConfig] = useState(TS099_DEFAULT_ROUTING);
   const [configuredAlerts, setConfiguredAlerts] = useState({});
   const [routingErrors, setRoutingErrors] = useState({});
+  const [expandedRecipientAlert, setExpandedRecipientAlert] = useState(null);
 
   // TS103 Notification Channel Configuration state (local component state for this sprint)
   const [channelConfig, setChannelConfig] = useState(TS103_DEFAULT_CHANNELS);
@@ -1499,8 +1502,8 @@ export default function SuperAdminTicketConfig() {
 
       {/* Level 2: Secondary Sub-Tab Strip (reusing Notifications sub-tab styling) */}
       {currentGroup.subTabs.length > 1 && (
-        <div className="flex items-center justify-between border-b border-gray-200">
-          <div className="flex items-center gap-2 ml-3">
+        <div className="flex items-center justify-between border-b border-gray-200 overflow-x-auto">
+          <div className="flex items-center gap-2 ml-3 min-w-max">
             <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
               <span>{currentGroup.label}</span>
               <ChevronRight size={13} className="text-gray-300" />
@@ -2373,298 +2376,250 @@ export default function SuperAdminTicketConfig() {
         </div>
       ) : activeGroup === GROUP_NOTIFICATIONS ? (
         <div className="flex flex-col gap-6">
-          {/* Sub-section 1: Recipients (TS099) */}
           {currentSubTab === NOTIF_SUBTAB_RECIPIENTS ? (
             <div className="flex flex-col gap-6">
-              {/* Recipients Sub-section Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-xl font-bold text-gray-900">Notification Recipient Routing</h2>
-                    <div className="relative group inline-flex items-center">
-                      <Info size={16} className="text-gray-400 hover:text-[#252578] cursor-pointer" />
-                      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-80 rounded-xl bg-gray-900 p-3 text-center text-xs text-white shadow-xl group-hover:block z-50 leading-relaxed">
-                        System Alert isn't shown here because it always goes to Super Admin only. To configure which events trigger a System Alert, use the System Alert Events setting.
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-                      </div>
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                      <AlertCircle size={13} className="shrink-0" />
-                      <span>Changes are not yet saved — persistence coming soon</span>
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Configure target recipients and routing rules for system-generated notification alerts across static roles, departments, and ticket actors.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleResetRoutingConfig}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-                  >
-                    <RotateCcw size={14} />
-                    Reset to Defaults
-                  </button>
-                  <button
-                    onClick={handleSaveRoutingConfig}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
-                  >
-                    <Save size={14} />
-                    Save Recipients
-                  </button>
-                </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Notification Recipient Routing</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose who receives each notification event across ticket actors, roles, and departments.
+                </p>
               </div>
 
-              {/* Recipients Alert Types List */}
-              <div className="flex flex-col gap-5">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
+                <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Changes are local preview only and are not yet persisted. System Alerts are excluded because they always route to Super Admin.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
                 {TS099_ALERT_TYPES.map((alert) => {
                   const selectedRecipients = routingConfig[alert.key] || [];
                   const alertError = routingErrors[alert.key];
+                  const isExpanded = expandedRecipientAlert === alert.key;
+                  const panelId = `recipient-panel-${alert.key}`;
 
                   return (
-                    <div key={alert.key} className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm flex flex-col gap-5">
-                      {/* Card Header: Title, Category Badge, Description, Selected Count */}
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-gray-100 pb-4">
-                        <div className="flex items-start gap-3.5">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
-                            <Bell size={20} />
+                    <div key={alert.key} className={`rounded-2xl border bg-white shadow-sm overflow-hidden transition-colors ${
+                      isExpanded ? 'border-[#252578]/25' : 'border-gray-100'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRecipientAlert((current) => current === alert.key ? null : alert.key)}
+                        aria-expanded={isExpanded}
+                        aria-controls={panelId}
+                        className="w-full p-4 sm:p-5 flex items-center justify-between gap-4 text-left hover:bg-gray-50/70 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
+                            <Bell size={18} />
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2.5 flex-wrap">
-                              <h3 className="text-base font-bold text-gray-900">{alert.title}</h3>
-                              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold border ${alert.badgeColor}`}>
+                              <h3 className="text-sm sm:text-base font-bold text-gray-900">{alert.title}</h3>
+                              <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${alert.badgeColor}`}>
                                 {alert.badge}
                               </span>
                             </div>
-                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                              {alert.description}
-                            </p>
+                            <p className="text-xs text-gray-500 mt-1 truncate">{alert.description}</p>
+                            {alertError && <p className="text-xs font-semibold text-red-600 mt-1">{alertError}</p>}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="inline-flex items-center rounded-full bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
-                            {selectedRecipients.length} Recipient{selectedRecipients.length === 1 ? '' : 's'} Selected
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="hidden sm:inline-flex items-center rounded-full bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
+                            {selectedRecipients.length} selected
                           </span>
+                          <ChevronDown
+                            size={19}
+                            aria-hidden="true"
+                            className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-[#252578]' : ''}`}
+                          />
                         </div>
-                      </div>
+                      </button>
 
-                      {/* Inline Validation Error */}
-                      {alertError && (
-                        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
-                          <AlertCircle size={15} className="shrink-0 text-red-600" />
-                          <span className="font-semibold">{alertError}</span>
+                      {isExpanded && (
+                        <div id={panelId} className="border-t border-gray-100 p-4 sm:p-6 flex flex-col gap-5">
+                          <div className="sm:hidden">
+                            <span className="inline-flex items-center rounded-full bg-[#252578]/5 px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
+                              {selectedRecipients.length} Recipient{selectedRecipients.length === 1 ? '' : 's'} Selected
+                            </span>
+                          </div>
+
+                          {alertError && (
+                            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                              <AlertCircle size={15} className="shrink-0 text-red-600" />
+                              <span className="font-semibold">{alertError}</span>
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-2.5">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">Contextual Recipients</h4>
+                                <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
+                                  Dynamic Actors
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-gray-400">Resolves dynamically at runtime per ticket</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {ts099RecipientOptions.contextual.map((item) => {
+                                const isChecked = selectedRecipients.includes(item.id);
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => handleToggleRecipient(alert.key, item.id)}
+                                    className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
+                                      isChecked
+                                        ? 'border-[#252578] bg-[#252578]/5 shadow-xs ring-1 ring-[#252578]'
+                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50 opacity-75'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className={`flex h-9 w-9 items-center justify-center rounded-xl font-bold text-xs transition-colors shrink-0 ${
+                                        isChecked ? 'bg-[#252578] text-white' : 'bg-gray-100 text-gray-500'
+                                      }`}>
+                                        <UserCheck size={16} />
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="flex items-center gap-1.5">
+                                          <p className={`text-sm font-bold truncate ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>{item.label}</p>
+                                          <span className="rounded bg-purple-100 px-1.5 py-0.2 text-[9px] font-bold text-purple-700 border border-purple-200 shrink-0">
+                                            Contextual
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-gray-400 truncate mt-0.5">{item.desc}</p>
+                                      </div>
+                                    </div>
+                                    <div className="ml-3 shrink-0">
+                                      {isChecked ? (
+                                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#252578] text-white">
+                                          <Check size={12} strokeWidth={3} />
+                                        </span>
+                                      ) : (
+                                        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 bg-white" />
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="border-t border-gray-100" />
+
+                          <div>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 mb-2.5">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">Static Roles & Departments</h4>
+                                <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                                  Fixed Groups
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-gray-400">Notifies all active staff members in the selected group</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {ts099RecipientOptions.staticGroup.map((item) => {
+                                const isChecked = selectedRecipients.includes(item.id);
+                                const isDept = item.type === 'department';
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => handleToggleRecipient(alert.key, item.id)}
+                                    className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
+                                      isChecked
+                                        ? 'border-[#252578] bg-[#252578]/5 shadow-xs ring-1 ring-[#252578]'
+                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50 opacity-75'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className={`flex h-9 w-9 items-center justify-center rounded-xl font-bold text-xs transition-colors shrink-0 ${
+                                        isChecked ? 'bg-[#252578] text-white' : 'bg-gray-100 text-gray-500'
+                                      }`}>
+                                        {isDept ? <Building2 size={16} /> : <Users size={16} />}
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="flex items-center gap-1.5">
+                                          <p className={`text-sm font-bold truncate ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>{item.label}</p>
+                                          <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold shrink-0 border ${
+                                            isDept ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+                                          }`}>
+                                            {item.badge}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-gray-400 truncate mt-0.5">{item.desc}</p>
+                                      </div>
+                                    </div>
+                                    <div className="ml-3 shrink-0">
+                                      {isChecked ? (
+                                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#252578] text-white">
+                                          <Check size={12} strokeWidth={3} />
+                                        </span>
+                                      ) : (
+                                        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 bg-white" />
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                            {alert.defaultSummary}
+                          </div>
                         </div>
                       )}
-
-                      {/* Recipient Groups Container */}
-                      <div className="flex flex-col gap-5">
-                        {/* Group 1: Contextual Recipients (Dynamic Ticket Actors) */}
-                        <div>
-                          <div className="flex items-center justify-between mb-2.5">
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                                Contextual Recipients
-                              </h4>
-                              <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
-                                Dynamic Actors
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-gray-400">
-                              Resolves dynamically at runtime per ticket
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {ts099RecipientOptions.contextual.map((item) => {
-                              const isChecked = selectedRecipients.includes(item.id);
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  onClick={() => handleToggleRecipient(alert.key, item.id)}
-                                  className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
-                                    isChecked
-                                      ? 'border-[#252578] bg-[#252578]/5 shadow-xs ring-1 ring-[#252578]'
-                                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50 opacity-75'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div
-                                      className={`flex h-9 w-9 items-center justify-center rounded-xl font-bold text-xs transition-colors shrink-0 ${
-                                        isChecked ? 'bg-[#252578] text-white' : 'bg-gray-100 text-gray-500'
-                                      }`}
-                                    >
-                                      <UserCheck size={16} />
-                                    </div>
-                                    <div className="truncate">
-                                      <div className="flex items-center gap-1.5">
-                                        <p className={`text-sm font-bold truncate ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>
-                                          {item.label}
-                                        </p>
-                                        <span className="rounded bg-purple-100 px-1.5 py-0.2 text-[9px] font-bold text-purple-700 border border-purple-200 shrink-0">
-                                          Contextual
-                                        </span>
-                                      </div>
-                                      <p className="text-[11px] text-gray-400 truncate mt-0.5">
-                                        {item.desc}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="ml-3 shrink-0">
-                                    {isChecked ? (
-                                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#252578] text-white">
-                                        <Check size={12} strokeWidth={3} />
-                                      </span>
-                                    ) : (
-                                      <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 bg-white" />
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Divider */}
-                        <div className="border-t border-gray-100" />
-
-                        {/* Group 2: Static Roles & Departments */}
-                        <div>
-                          <div className="flex items-center justify-between mb-2.5">
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                                Static Roles & Departments
-                              </h4>
-                              <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
-                                Fixed Groups
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-gray-400">
-                              Notifies all active staff members in the selected group
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {ts099RecipientOptions.staticGroup.map((item) => {
-                              const isChecked = selectedRecipients.includes(item.id);
-                              const isDept = item.type === 'department';
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  onClick={() => handleToggleRecipient(alert.key, item.id)}
-                                  className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
-                                    isChecked
-                                      ? 'border-[#252578] bg-[#252578]/5 shadow-xs ring-1 ring-[#252578]'
-                                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50 opacity-75'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div
-                                      className={`flex h-9 w-9 items-center justify-center rounded-xl font-bold text-xs transition-colors shrink-0 ${
-                                        isChecked ? 'bg-[#252578] text-white' : 'bg-gray-100 text-gray-500'
-                                      }`}
-                                    >
-                                      {isDept ? <Building2 size={16} /> : <Users size={16} />}
-                                    </div>
-                                    <div className="truncate">
-                                      <div className="flex items-center gap-1.5">
-                                        <p className={`text-sm font-bold truncate ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>
-                                          {item.label}
-                                        </p>
-                                        <span className={`rounded px-1.5 py-0.2 text-[9px] font-bold shrink-0 border ${
-                                          isDept
-                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                                        }`}>
-                                          {item.badge}
-                                        </span>
-                                      </div>
-                                      <p className="text-[11px] text-gray-400 truncate mt-0.5">
-                                        {item.desc}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="ml-3 shrink-0">
-                                    {isChecked ? (
-                                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#252578] text-white">
-                                        <Check size={12} strokeWidth={3} />
-                                      </span>
-                                    ) : (
-                                      <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 bg-white" />
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Card Footer: Default Summary */}
-                      <div className="mt-1 pt-3 border-t border-gray-100 text-[11px] text-gray-400 flex items-center justify-between flex-wrap gap-2">
-                        <span>{alert.defaultSummary}</span>
-                        <span className="text-gray-400">Modifications to existing routing trigger a confirmation warning.</span>
-                      </div>
                     </div>
                   );
                 })}
               </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                <button
+                  onClick={handleResetRoutingConfig}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                >
+                  <RotateCcw size={14} />
+                  Reset to Defaults
+                </button>
+                <button
+                  onClick={handleSaveRoutingConfig}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
+                >
+                  <Save size={14} />
+                  Save Recipients
+                </button>
+              </div>
             </div>
-          ) : (
-            /* Sub-section 2: Channels (TS103) */
+          ) : currentSubTab === NOTIF_SUBTAB_CHANNELS ? (
             <div className="flex flex-col gap-6">
-              {/* Channels Sub-section Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-xl font-bold text-gray-900">Notification Channel Configuration</h2>
-                    <div className="relative group inline-flex items-center">
-                      <Info size={16} className="text-gray-400 hover:text-[#252578] cursor-pointer" />
-                      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-80 rounded-xl bg-gray-900 p-3 text-center text-xs text-white shadow-xl group-hover:block z-50 leading-relaxed">
-                        This setting controls delivery channel only, not who receives the alert. Recipient routing is in the Recipients tab.
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-                      </div>
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                      <AlertCircle size={13} className="shrink-0" />
-                      <span>Changes are not yet saved — persistence coming soon</span>
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Configure delivery channels (Email, In-App, or Both) for all system-generated notification events.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleResetChannelConfig}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-                  >
-                    <RotateCcw size={14} />
-                    Reset to Defaults
-                  </button>
-                  <button
-                    onClick={handleSaveChannelConfig}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
-                  >
-                    <Save size={14} />
-                    Save Channels
-                  </button>
-                </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Notification Channel Configuration</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose whether each system-generated event is delivered by email, in-app notification, or both.
+                </p>
               </div>
 
-              {/* Channels Alert Types List */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
+                <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Changes are local preview only and are not yet persisted. This tab controls delivery channels; recipient routing remains in Recipients.
+                </p>
+              </div>
+
               <div className="flex flex-col gap-5">
                 {TS103_ALERT_TYPES.map((alert) => {
                   const selectedChannel = channelConfig[alert.key] || alert.defaultChannel;
                   const alertError = channelErrors[alert.key];
 
                   return (
-                    <div key={alert.key} className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm flex flex-col gap-5">
-                      {/* Card Header: Title, Category Badge, Description, Segmented Control */}
+                    <div key={alert.key} className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm flex flex-col gap-5">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 pb-4">
                         <div className="flex items-start gap-3.5">
                           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
@@ -2677,15 +2632,12 @@ export default function SuperAdminTicketConfig() {
                                 {alert.badge}
                               </span>
                             </div>
-                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                              {alert.description}
-                            </p>
+                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{alert.description}</p>
                           </div>
                         </div>
 
-                        {/* Segmented Channel Control */}
-                        <div className="flex items-center shrink-0">
-                          <div className="inline-flex rounded-xl bg-gray-100 p-1 border border-gray-200">
+                        <div className="flex items-center shrink-0 overflow-x-auto">
+                          <div className="inline-flex rounded-xl bg-gray-100 p-1 border border-gray-200 min-w-max">
                             {TS103_CHANNEL_OPTIONS.map((opt) => {
                               const isActive = selectedChannel === opt.id;
                               return (
@@ -2694,9 +2646,7 @@ export default function SuperAdminTicketConfig() {
                                   type="button"
                                   onClick={() => handleChangeChannel(alert.key, opt.id)}
                                   className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none flex items-center gap-1.5 ${
-                                    isActive
-                                      ? 'bg-[#252578] text-white shadow-xs'
-                                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                                    isActive ? 'bg-[#252578] text-white shadow-xs' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
                                   }`}
                                 >
                                   {opt.id === 'email' && <Mail size={13} />}
@@ -2710,7 +2660,6 @@ export default function SuperAdminTicketConfig() {
                         </div>
                       </div>
 
-                      {/* System Alert Dedicated Note */}
                       {alert.isSystemAlert && (
                         <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
                           <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
@@ -2720,7 +2669,6 @@ export default function SuperAdminTicketConfig() {
                         </div>
                       )}
 
-                      {/* Inline Validation Error */}
                       {alertError && (
                         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
                           <AlertCircle size={15} className="shrink-0 text-red-600" />
@@ -2728,17 +2676,103 @@ export default function SuperAdminTicketConfig() {
                         </div>
                       )}
 
-                      {/* Card Footer: Default Info */}
-                      <div className="mt-1 pt-3 border-t border-gray-100 text-[11px] text-gray-400 flex items-center justify-between flex-wrap gap-2">
-                        <span>Default: {TS103_CHANNEL_OPTIONS.find((o) => o.id === alert.defaultChannel)?.label || alert.defaultChannel}</span>
-                        <span className="text-gray-400">Modifications to existing delivery channels trigger a confirmation warning.</span>
+                      <div className="pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                        Default: {TS103_CHANNEL_OPTIONS.find((o) => o.id === alert.defaultChannel)?.label || alert.defaultChannel}
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                <button
+                  onClick={handleResetChannelConfig}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                >
+                  <RotateCcw size={14} />
+                  Reset to Defaults
+                </button>
+                <button
+                  onClick={handleSaveChannelConfig}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
+                >
+                  <Save size={14} />
+                  Save Channels
+                </button>
+              </div>
             </div>
-          )}
+          ) : currentSubTab === NOTIF_SUBTAB_EMAIL_DELIVERY ? (
+            <div className="flex flex-col gap-6">
+              <div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-xl font-bold text-gray-900">Email Delivery</h2>
+                  <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
+                    Not configured
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Prepare the notification service for transactional email without mixing provider setup with recipient or channel routing.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
+                <ShieldAlert size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Email delivery is coming soon. API keys must live in notification-service environment variables or managed secrets and are never exposed in browser state.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+                <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
+                      <Mail size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Planned provider</p>
+                      <h3 className="text-lg font-bold text-gray-900">Resend</h3>
+                    </div>
+                  </div>
+                  <span className="inline-flex w-fit items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600">
+                    Not configured
+                  </span>
+                </div>
+
+                <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 flex items-start gap-3">
+                    <Building2 size={18} className="text-[#252578] shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">Sender identity and domain</h4>
+                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                        A verified sending domain, From address, and sender name must be configured by the backend team.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 flex items-start gap-3">
+                    <Lock size={18} className="text-[#252578] shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">API credential</h4>
+                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                        The Resend API credential is backend-managed in notification-service environment or secret storage only.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 bg-gray-50/50 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-xs text-gray-500">No provider settings are saved from this browser panel.</p>
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-200 px-5 py-2.5 text-xs font-semibold text-gray-500 cursor-not-allowed"
+                  >
+                    <Save size={14} />
+                    Save email settings (Coming soon)
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : tab === TAB_ESCALATION ? (
         <div className="flex flex-col gap-6">
