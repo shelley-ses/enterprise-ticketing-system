@@ -41,6 +41,19 @@ class ResendService
             $body = $response->json();
             $message = $body['message'] ?? 'Provider returned an unauthorized or forbidden response.';
 
+            // Resend returns "This API key is restricted to only send emails" when a valid,
+            // active sending-only (least-privilege) API key is used against management endpoints.
+            if (
+                ($statusCode === 401 || $statusCode === 403) &&
+                (stripos($message, 'only send emails') !== false || stripos($message, 'restricted to send') !== false)
+            ) {
+                Log::info('Resend API key validated as active sending-access key.');
+                return [
+                    'valid' => true,
+                    'error' => null,
+                ];
+            }
+
             Log::warning('Resend API key ping validation rejected', [
                 'status' => $statusCode,
                 'error' => $message,
