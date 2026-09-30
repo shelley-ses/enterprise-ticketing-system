@@ -6,6 +6,7 @@ export const EMPLOYEE_API_URL = import.meta.env.VITE_EMPLOYEE_API_URL || '/api/t
 export const AI_API_URL = import.meta.env.VITE_AI_API_URL || '/api/ticketing/ai';
 
 export const KB_API_URL = import.meta.env.VITE_KB_API_URL || 'http://localhost:8009/api';
+export const CONFIGURATION_API_URL = import.meta.env.VITE_CONFIGURATION_API_URL || '/api/ticketing/configuration';
 
 if(!API_BASE_URL){
   throw new Error("Missing VITE_API_URL in environment variables");
