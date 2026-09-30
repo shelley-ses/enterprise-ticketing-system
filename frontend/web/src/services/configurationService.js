@@ -151,3 +151,59 @@ export async function sendTestEmail({ recipientEmail, apiKey, fromName, fromEmai
   );
   return response.data;
 }
+
+// ---------------------------------------------------------------------------
+// Email Templates
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all email templates with placeholder reference.
+ * Returns { templates: [...], placeholders: { token: description } }
+ */
+export async function getEmailTemplates() {
+  const response = await configClient.get('/email-templates');
+  return response.data;
+}
+
+/**
+ * Update the subject and body of a specific email template.
+ */
+export async function updateEmailTemplate(eventKey, { subject, body, is_enabled }) {
+  const response = await configClient.put(`/email-templates/${eventKey}`, {
+    subject,
+    body,
+    is_enabled,
+  });
+  return response.data;
+}
+
+/**
+ * Toggle an email template on/off by event key.
+ */
+export async function toggleEmailTemplate(eventKey, isEnabled) {
+  const response = await configClient.post(`/email-templates/${eventKey}/toggle`, {
+    is_enabled: isEnabled,
+  });
+  return response.data;
+}
+
+/**
+ * Reset a template back to its factory defaults.
+ */
+export async function resetEmailTemplate(eventKey) {
+  const response = await configClient.post(`/email-templates/${eventKey}/reset`);
+  return response.data;
+}
+
+/**
+ * Dispatches a test email for a specific template to the superadmin/recipient.
+ */
+export async function sendTestTemplateEmail(eventKey, { recipientEmail, subject, body }) {
+  const response = await configClient.post(`/email-templates/${eventKey}/test`, {
+    recipientEmail: recipientEmail?.trim(),
+    subject: subject?.trim(),
+    body,
+  });
+  return response.data;
+}
+

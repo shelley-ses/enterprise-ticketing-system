@@ -6,6 +6,7 @@ use App\Events\TicketChanged;
 use App\Mail\TicketNotificationMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -80,6 +81,54 @@ class TicketNotificationService
     }
 
     /**
+     * Maps subject/action to an event template key.
+     */
+    protected function inferEventKey(string $subject): ?string
+    {
+        $normalized = strtolower($subject);
+        if (str_contains($normalized, 'created')) return 'ticket_created';
+        if (str_contains($normalized, 'assign')) return 'ticket_assigned';
+        if (str_contains($normalized, 'status')) return 'ticket_status_changed';
+        if (str_contains($normalized, 'resolved')) return 'ticket_resolved';
+        if (str_contains($normalized, 'closed')) return 'ticket_closed';
+        if (str_contains($normalized, 'escalat')) return 'ticket_escalated';
+        if (str_contains($normalized, 'message')) return 'new_message';
+        if (str_contains($normalized, 'sla')) return 'sla_breach_warning';
+        return null;
+    }
+
+    /**
+     * Dispatches a template-driven email via configuration-service.
+     */
+    public function dispatchTemplateEmail(string $recipientEmail, ?string $eventKey, array $data = []): bool
+    {
+        if (!$eventKey) {
+            return false;
+        }
+
+        try {
+            $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+            $response = Http::timeout(6)->post("{$configUrl}/api/email/dispatch-event", [
+                'eventKey' => $eventKey,
+                'to'       => $recipientEmail,
+                'data'     => $data,
+            ]);
+
+            if ($response->successful()) {
+                $status = $response->json('status');
+                if ($status === 'success' || $status === 'skipped') {
+                    Log::info("Event email [{$eventKey}] handled by configuration-service for {$recipientEmail} (status: {$status})");
+                    return true;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Configuration-service template dispatch-event failed: {$e->getMessage()}");
+        }
+
+        return false;
+    }
+
+    /**
      * Dispatch email notification to an assigned employee.
      */
     public function sendTicketEmail(
@@ -89,7 +138,9 @@ class TicketNotificationService
         int $ticketId,
         string $ticketTitle,
         string $category,
-        string $priority
+        string $priority,
+        ?string $eventKey = null,
+        array $extraData = []
     ): void {
         $employee = DB::table('employees')->where('emp_id', $empId)->first();
         if (!$employee || !$employee->email) {
@@ -98,6 +149,22 @@ class TicketNotificationService
 
         $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
         $ticketLink = url("/tickets/{$ticketId}");
+
+        $inferredKey = $eventKey ?? $this->inferEventKey($subject);
+        $templateDispatched = $this->dispatchTemplateEmail($employee->email, $inferredKey, array_merge([
+            'customer_name'   => ($employee->first_name ?? '') . ' ' . ($employee->last_name ?? ''),
+            'agent_name'      => ($employee->first_name ?? '') . ' ' . ($employee->last_name ?? ''),
+            'ticket_number'   => $ticketRef,
+            'ticket_subject'  => $ticketTitle,
+            'ticket_priority' => $priority,
+            'ticket_category' => $category,
+            'ticket_link'     => $ticketLink,
+            'message_preview' => $message,
+        ], $extraData));
+
+        if ($templateDispatched) {
+            return;
+        }
 
         try {
             Mail::to($employee->email)->send(new TicketNotificationMail(
@@ -124,7 +191,9 @@ class TicketNotificationService
         int $ticketId,
         string $ticketTitle,
         string $category,
-        string $priority
+        string $priority,
+        ?string $eventKey = null,
+        array $extraData = []
     ): void {
         $client = DB::table('clients')->where('id', $customerId)->first();
         if (!$client || !$client->email) {
@@ -133,6 +202,21 @@ class TicketNotificationService
 
         $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
         $ticketLink = url("/tickets/{$ticketId}");
+
+        $inferredKey = $eventKey ?? $this->inferEventKey($subject);
+        $templateDispatched = $this->dispatchTemplateEmail($client->email, $inferredKey, array_merge([
+            'customer_name'   => $client->client_name ?? 'Valued Customer',
+            'ticket_number'   => $ticketRef,
+            'ticket_subject'  => $ticketTitle,
+            'ticket_priority' => $priority,
+            'ticket_category' => $category,
+            'ticket_link'     => $ticketLink,
+            'message_preview' => $message,
+        ], $extraData));
+
+        if ($templateDispatched) {
+            return;
+        }
 
         try {
             Mail::to($client->email)->send(new TicketNotificationMail(

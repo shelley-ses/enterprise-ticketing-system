@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\EmailConfigurationController;
+use App\Http\Controllers\EmailTemplateController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -9,12 +10,12 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-// Public endpoint to obtain ephemeral RSA encryption key
-Route::get('/encryption-key', [EmailConfigurationController::class, 'getEncryptionKey']);
-
 // Core configuration endpoints
 $registerRoutes = function () {
+    // Ephemeral RSA encryption key
     Route::get('/encryption-key', [EmailConfigurationController::class, 'getEncryptionKey']);
+
+    // Email delivery configuration
     Route::get('/email', [EmailConfigurationController::class, 'getConfiguration']);
     Route::post('/email', [EmailConfigurationController::class, 'saveConfiguration'])->middleware('decrypt.rsa:apiKey');
     Route::put('/email', [EmailConfigurationController::class, 'updateConfiguration']);
@@ -23,9 +24,22 @@ $registerRoutes = function () {
     Route::delete('/email', [EmailConfigurationController::class, 'removeConfiguration']);
     Route::post('/email/test', [EmailConfigurationController::class, 'sendTestEmail'])->middleware('decrypt.rsa:apiKey');
     Route::post('/email/dispatch', [EmailConfigurationController::class, 'dispatchEmail']);
+    Route::post('/email/dispatch-event', [EmailConfigurationController::class, 'dispatchEventEmail']);
+
+    // Email templates (event-driven configurable templates)
+    Route::get('/email-templates', [EmailTemplateController::class, 'index']);
+    Route::get('/email-templates/{eventKey}', [EmailTemplateController::class, 'show']);
+    Route::put('/email-templates/{eventKey}', [EmailTemplateController::class, 'update']);
+    Route::patch('/email-templates/{eventKey}', [EmailTemplateController::class, 'update']);
+    Route::post('/email-templates/{eventKey}/toggle', [EmailTemplateController::class, 'toggle']);
+    Route::post('/email-templates/{eventKey}/reset', [EmailTemplateController::class, 'reset']);
+    Route::post('/email-templates/{eventKey}/test', [EmailTemplateController::class, 'sendTestTemplateEmail']);
 };
 
-// Direct routes (e.g. proxied with rewrite)
+// Public RSA encryption key endpoint (no prefix)
+Route::get('/encryption-key', [EmailConfigurationController::class, 'getEncryptionKey']);
+
+// Direct routes (proxied with rewrite strips the prefix)
 $registerRoutes();
 
 // Grouped routes under /configuration/

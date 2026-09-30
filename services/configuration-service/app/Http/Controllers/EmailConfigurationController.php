@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\EmailConfiguration;
+use App\Models\EmailTemplate;
 use App\Services\ResendService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -16,6 +19,30 @@ class EmailConfigurationController extends Controller
     public function __construct(ResendService $resendService)
     {
         $this->resendService = $resendService;
+    }
+
+    /**
+     * Helper to write configuration change audit logs to ticket_audit_logs.
+     */
+    protected function logAudit(Request $request, string $actionType, string $module, string $target, string $text): void
+    {
+        try {
+            $userId = $request->user()?->emp_id ?? $request->user()?->id ?? 1;
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID'    => null,
+                'action_type'  => $actionType,
+                'action_by_ID' => $userId,
+                'actor_type'   => 'superadmin',
+                'details'      => json_encode([
+                    'module' => $module,
+                    'target' => $target,
+                    'text'   => $text,
+                ]),
+                'created_at'   => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to record configuration audit log: " . $e->getMessage());
+        }
     }
 
     /**
@@ -109,6 +136,14 @@ class EmailConfigurationController extends Controller
             'last_tested_at' => null,
         ]);
 
+        $this->logAudit(
+            $request,
+            'config_create',
+            'Email Delivery',
+            'Resend Gateway',
+            "Configured Resend email delivery with sender '{$config->from_name} <{$config->from_email}>'"
+        );
+
         return response()->json([
             'message' => 'Resend email delivery configuration saved successfully.',
             'data' => $config->toMaskedResponse(),
@@ -152,6 +187,14 @@ class EmailConfigurationController extends Controller
             'api_key' => $rawApiKey,
         ]);
 
+        $this->logAudit(
+            $request,
+            'config_update',
+            'Email Delivery',
+            'API Credentials',
+            'Updated and re-encrypted Resend API secret key'
+        );
+
         return response()->json([
             'message' => 'Resend API Key updated and verified successfully.',
             'data' => $config->toMaskedResponse(),
@@ -185,6 +228,14 @@ class EmailConfigurationController extends Controller
             'from_email' => trim($validated['fromEmail']),
         ]);
 
+        $this->logAudit(
+            $request,
+            'config_update',
+            'Email Delivery',
+            'Sender Identity',
+            "Updated email sender identity to '{$config->from_name} <{$config->from_email}>'"
+        );
+
         return response()->json([
             'message' => 'Email delivery configuration updated successfully.',
             'data' => $config->toMaskedResponse(),
@@ -194,9 +245,17 @@ class EmailConfigurationController extends Controller
     /**
      * Removes the active email delivery configuration.
      */
-    public function removeConfiguration()
+    public function removeConfiguration(Request $request)
     {
         EmailConfiguration::where('is_active', true)->update(['is_active' => false]);
+
+        $this->logAudit(
+            $request,
+            'config_delete',
+            'Email Delivery',
+            'Resend Gateway',
+            'Removed active Resend transactional email delivery configuration'
+        );
 
         return response()->json([
             'message' => 'Email delivery configuration has been removed successfully.',
@@ -240,6 +299,14 @@ class EmailConfigurationController extends Controller
         if ($config) {
             $config->update(['last_tested_at' => now()]);
         }
+
+        $this->logAudit(
+            $request,
+            'config_update',
+            'Email Delivery',
+            'Test Verification',
+            "Dispatched delivery verification test email to {$recipient}"
+        );
 
         return response()->json([
             'message' => "A test verification email from \"{$fromName}\" <{$fromEmail}> was successfully delivered to {$recipient} via Resend.",
@@ -287,6 +354,105 @@ class EmailConfigurationController extends Controller
         return response()->json([
             'message' => 'Email dispatched successfully via Resend.',
             'id' => $result['id'],
+        ]);
+    }
+
+    /**
+     * Dispatches a dynamic, template-driven transactional email for ticket lifecycle events.
+     * Hydrates template placeholders with runtime ticket data at the moment of creation.
+     */
+    public function dispatchEventEmail(Request $request)
+    {
+        $validated = $request->validate([
+            'eventKey' => 'required|string',
+            'to'       => 'required|email',
+            'data'     => 'nullable|array',
+        ]);
+
+        $eventKey = $validated['eventKey'];
+        $to = trim($validated['to']);
+        $data = $validated['data'] ?? [];
+
+        $template = EmailTemplate::where('event_key', $eventKey)->first();
+
+        // If template doesn't exist or is disabled by SuperAdmin, cleanly skip dispatch
+        if (!$template || !$template->is_enabled) {
+            return response()->json([
+                'status'  => 'skipped',
+                'message' => "Email notification for event \"{$eventKey}\" is disabled or template not found.",
+            ]);
+        }
+
+        $config = EmailConfiguration::where('is_active', true)->latest()->first();
+        if (!$config || empty($config->api_key)) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'No active email delivery configuration found.',
+            ], 422);
+        }
+
+        // Hydrate placeholders dynamically
+        $placeholders = [
+            '{customer_name}'    => $data['customer_name'] ?? 'Valued Customer',
+            '{ticket_number}'    => $data['ticket_number'] ?? 'TKT-0000',
+            '{ticket_subject}'   => $data['ticket_subject'] ?? 'Ticket Notification',
+            '{ticket_priority}'  => $data['ticket_priority'] ?? 'Medium',
+            '{ticket_status}'    => $data['ticket_status'] ?? 'Open',
+            '{previous_status}'  => $data['previous_status'] ?? 'Open',
+            '{agent_name}'       => $data['agent_name'] ?? 'Support Specialist',
+            '{sender_name}'      => $data['sender_name'] ?? 'Support Team',
+            '{message_preview}'  => $data['message_preview'] ?? '',
+            '{resolved_at}'      => $data['resolved_at'] ?? now()->format('M j, Y g:i A'),
+            '{closed_at}'        => $data['closed_at'] ?? now()->format('M j, Y g:i A'),
+            '{sla_deadline}'     => $data['sla_deadline'] ?? '',
+            '{from_name}'        => $config->from_name ?? 'SBSI Support',
+        ];
+
+        foreach ($data as $k => $v) {
+            if (is_scalar($v) && !isset($placeholders['{' . $k . '}'])) {
+                $placeholders['{' . $k . '}'] = (string) $v;
+            }
+        }
+
+        $subject = str_replace(array_keys($placeholders), array_values($placeholders), $template->subject);
+        $body = str_replace(array_keys($placeholders), array_values($placeholders), $template->body);
+
+        $html = '
+            <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+                <div style="background-color: #252578; color: #ffffff; padding: 20px 24px;">
+                    <h2 style="margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.025em;">SBSI Enterprise Support Desk</h2>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.85;">' . htmlspecialchars($subject) . '</p>
+                </div>
+                <div style="padding: 24px; color: #374151; font-size: 14px; line-height: 1.6;">
+                    ' . $body . '
+                </div>
+                <div style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 16px 24px; font-size: 12px; color: #6b7280;">
+                    <p style="margin: 0; font-size: 11px; color: #9ca3af;">This is an automated notification from SBSI Enterprise Ticketing System. Please do not reply directly to this email.</p>
+                </div>
+            </div>
+        ';
+
+        $result = $this->resendService->sendRawEmail(
+            $config->api_key,
+            $config->from_name,
+            $config->from_email,
+            $to,
+            $subject,
+            $html
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to dispatch email via Resend.',
+                'error'   => $result['error'],
+            ], 502);
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => "Email for \"{$template->event_label}\" dispatched successfully via Resend.",
+            'id'      => $result['id'],
         ]);
     }
 }
