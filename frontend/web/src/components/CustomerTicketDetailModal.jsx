@@ -6,7 +6,8 @@ import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled } from '@/data/mockFeedbackData';
+import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
+import { getFeedbackFormStatus } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const getFileName = (file, fallback = 'Attachment') => {
@@ -45,12 +46,22 @@ export default function CustomerTicketDetailModal({
   const [feedbackEnabled, setFeedbackEnabled] = useState(() => isFeedbackFormEnabled());
 
   useEffect(() => {
+    let isMounted = true;
+    getFeedbackFormStatus().then((res) => {
+      if (isMounted && res && (res.is_enabled !== undefined || res.isEnabled !== undefined)) {
+        const isMasterOn = Boolean(res.is_enabled ?? res.isEnabled);
+        setFeedbackEnabled(isMasterOn);
+        setFeedbackFormEnabled(isMasterOn);
+      }
+    }).catch(() => {});
+
     const handleToggleChange = () => {
       setFeedbackEnabled(isFeedbackFormEnabled());
     };
     window.addEventListener('storage', handleToggleChange);
     window.addEventListener('feedback_master_toggle_changed', handleToggleChange);
     return () => {
+      isMounted = false;
       window.removeEventListener('storage', handleToggleChange);
       window.removeEventListener('feedback_master_toggle_changed', handleToggleChange);
     };

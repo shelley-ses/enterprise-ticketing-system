@@ -14,12 +14,23 @@ class FeedbackController extends Controller
      */
     public function store(Request $request)
     {
+        // Enforce the master feedback collection toggle
+        $isFeedbackEnabled = DB::table('feedback_form_settings')->where('key', 'master_toggle')->value('is_enabled');
+        if ($isFeedbackEnabled !== null && !$isFeedbackEnabled) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Customer feedback submissions and analytics collection are currently disabled by the system administrator.',
+            ], 403);
+        }
+
         $validated = $request->validate([
-            'ticket_id' => 'required|string',
-            'customer_id' => 'nullable|string',
-            'ratings' => 'required|array',
-            'comments' => 'nullable|array',
-            'overall_comment' => 'nullable|string',
+            'ticket_id'                   => 'required|string',
+            'customer_id'                 => 'nullable|string',
+            'ratings'                     => 'required|array',
+            'comments'                    => 'nullable|array',
+            'overall_comment'             => 'nullable|string',
+            'question_answers'            => 'nullable|array',
+            'category_questions_snapshot' => 'nullable|array',
         ]);
 
         $ratings = $validated['ratings'] ?? [];
@@ -34,23 +45,23 @@ class FeedbackController extends Controller
         foreach ($ratings as $empId => $score) {
             $employeeRatings[] = [
                 'employee_id' => $empId,
-                'rating' => (int) $score,
-                'comment' => $comments[$empId] ?? '',
+                'rating'      => (int) $score,
+                'comment'     => $comments[$empId] ?? '',
             ];
         }
 
         $feedback = CustomerFeedback::create([
-            'ticket_id' => $validated['ticket_id'],
-            'customer_id' => $validated['customer_id'] ?? null,
-            'overall_rating' => round($avgRating, 2),
-            'overall_comment' => $validated['overall_comment'] ?? '',
+            'ticket_id'        => $validated['ticket_id'],
+            'customer_id'      => $validated['customer_id'] ?? null,
+            'overall_rating'   => round($avgRating, 2),
+            'overall_comment'  => $validated['overall_comment'] ?? '',
             'employee_ratings' => $employeeRatings,
         ]);
 
         return response()->json([
-            'status' => 'success',
+            'status'  => 'success',
             'message' => 'Customer feedback stored successfully.',
-            'data' => $feedback,
+            'data'    => $feedback,
         ], 201);
     }
 

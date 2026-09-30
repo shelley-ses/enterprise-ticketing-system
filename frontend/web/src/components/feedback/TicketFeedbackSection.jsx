@@ -63,6 +63,25 @@ export default function TicketFeedbackSection({ ticket, onLeaveFeedback }) {
           <p className="mt-2 text-xs text-gray-400">Submitted on {formatDate(feedback.submittedAt)}</p>
         </div>
       )}
+
+      {feedback.categoryQuestionsSnapshot && feedback.categoryQuestionsSnapshot.length > 0 && (
+        <div className="mt-4 rounded-xl border border-gray-100 bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Category Service Evaluation</p>
+          <div className="divide-y divide-gray-100">
+            {feedback.categoryQuestionsSnapshot.map((q) => {
+              const answer = feedback.questionAnswers?.[q.id];
+              return (
+                <div key={q.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <p className="text-xs font-medium text-gray-500">{q.text}</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-800">
+                    {answer !== undefined && answer !== null && answer !== '' ? String(answer) : '—'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
