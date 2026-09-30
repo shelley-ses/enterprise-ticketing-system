@@ -325,7 +325,24 @@ class EmailConfigurationController extends Controller
             'to' => 'required|email',
             'subject' => 'required|string',
             'html' => 'required|string',
+            'alert_key' => 'nullable|string',
+            'event_key' => 'nullable|string',
         ]);
+
+        // TS103 Check delivery channel configuration: if in_app only, skip email dispatch
+        $alertKey = $request->input('alert_key')
+            ?? $this->mapEventKeyToAlertKey($request->input('event_key'))
+            ?? $this->inferAlertKey($validated['subject']);
+
+        if ($alertKey) {
+            $channel = DB::table('notification_channels')->where('alert_key', $alertKey)->value('channel');
+            if ($channel === 'in_app') {
+                return response()->json([
+                    'status'  => 'skipped',
+                    'message' => "Email notification skipped because delivery channel for \"{$alertKey}\" is set to in-app only.",
+                ]);
+            }
+        }
 
         $config = EmailConfiguration::where('is_active', true)->latest()->first();
 
@@ -372,6 +389,18 @@ class EmailConfigurationController extends Controller
         $eventKey = $validated['eventKey'];
         $to = trim($validated['to']);
         $data = $validated['data'] ?? [];
+
+        // TS103 Check delivery channel configuration: if in_app only, skip email dispatch
+        $alertKey = $this->mapEventKeyToAlertKey($eventKey);
+        if ($alertKey) {
+            $channel = DB::table('notification_channels')->where('alert_key', $alertKey)->value('channel');
+            if ($channel === 'in_app') {
+                return response()->json([
+                    'status'  => 'skipped',
+                    'message' => "Email notification for event \"{$eventKey}\" is skipped because delivery channel is set to in-app only.",
+                ]);
+            }
+        }
 
         $template = EmailTemplate::where('event_key', $eventKey)->first();
 
@@ -454,5 +483,48 @@ class EmailConfigurationController extends Controller
             'message' => "Email for \"{$template->event_label}\" dispatched successfully via Resend.",
             'id'      => $result['id'],
         ]);
+    }
+
+    /**
+     * Map email event key to alert key in notification_channels.
+     */
+    protected function mapEventKeyToAlertKey(?string $eventKey): ?string
+    {
+        if (!$eventKey) return null;
+        return match ($eventKey) {
+            'ticket_created' => 'new_ticket',
+            'ticket_assigned', 'ticket_escalated' => 'escalation_delegation',
+            'ticket_status_changed', 'ticket_resolved', 'ticket_closed' => 'status_update',
+            'new_message' => 'new_message',
+            'sla_breach_warning', 'overdue_sla_breach' => 'overdue_sla_breach',
+            'reassignment' => 'reassignment',
+            'system_alert' => 'system_alert',
+            default => null,
+        };
+    }
+
+    /**
+     * Infer alert key from subject text.
+     */
+    protected function inferAlertKey(string $text): string
+    {
+        $normalized = strtolower($text);
+        if (str_contains($normalized, 'reassign')) return 'reassignment';
+        if (str_contains($normalized, 'escalat') || str_contains($normalized, 'delegat') || str_contains($normalized, 'assign')) return 'escalation_delegation';
+        if (
+            str_contains($normalized, 'status') ||
+            str_contains($normalized, 'resolv') ||
+            str_contains($normalized, 'close') ||
+            str_contains($normalized, 'reopen') ||
+            str_contains($normalized, 'reject') ||
+            str_contains($normalized, 'approv') ||
+            str_contains($normalized, 'complet') ||
+            str_contains($normalized, 'proof')
+        ) return 'status_update';
+        if (str_contains($normalized, 'message') || str_contains($normalized, 'chat')) return 'new_message';
+        if (str_contains($normalized, 'overdue') || str_contains($normalized, 'breach') || str_contains($normalized, 'sla')) return 'overdue_sla_breach';
+        if (str_contains($normalized, 'system') || str_contains($normalized, 'critical')) return 'system_alert';
+        if (str_contains($normalized, 'creat') || str_contains($normalized, 'new')) return 'new_ticket';
+        return 'new_ticket';
     }
 }

@@ -39,6 +39,22 @@ import {
   toggleEmailTemplate,
   resetEmailTemplate,
   sendTestTemplateEmail,
+  getNotificationChannels,
+  updateNotificationChannels,
+  resetNotificationChannels,
+  getFeedbackQuestions,
+  createFeedbackQuestion,
+  updateFeedbackQuestion,
+  toggleFeedbackQuestion,
+  reorderFeedbackQuestions,
+  deleteFeedbackQuestion,
+  resetFeedbackQuestions,
+  seedFeedbackCategory,
+  getFeedbackFormStatus,
+  updateFeedbackFormStatus,
+  getCategoryFeedbackToggles,
+  setCategoryFeedbackToggle,
+  disableFeedbackCategory,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -748,19 +764,35 @@ export default function SuperAdminTicketConfig() {
   const [routingErrors, setRoutingErrors] = useState({});
   const [expandedRecipientAlert, setExpandedRecipientAlert] = useState(null);
 
-  //  Notification Channel Configuration state (local component state for this sprint)
+  // TS103: Notification Channel Configuration state
   const [channelConfig, setChannelConfig] = useState(TS103_DEFAULT_CHANNELS);
   const [configuredChannels, setConfiguredChannels] = useState({});
   const [channelErrors, setChannelErrors] = useState({});
+  const [channelsLoading, setChannelsLoading] = useState(true);
+  const [channelsSaving, setChannelsSaving] = useState(false);
 
-  // Feedback Form Configuration state (local component state for this sprint)
+  // Feedback Form Configuration state
+  // feedbackQuestions is keyed by category name from the DB (dynamic, not hardcoded)
   const [feedbackQuestions, setFeedbackQuestions] = useState(TS104_DEFAULT_QUESTIONS);
+  // feedbackCategories is derived from items.equipment names UNION any categories present in the DB
+  // (ensures IT/Service/Others from the initial seed also appear even before machine categories are renamed)
+  const [knownFeedbackCategories, setKnownFeedbackCategories] = useState([]);
+  const feedbackCategories = useMemo(() => {
+    const equipmentNames = (items.equipment || []).map((e) => e.name);
+    // Union: all equipment names + any DB-backed categories not yet in equipment
+    const all = Array.from(new Set([...equipmentNames, ...knownFeedbackCategories]));
+    return all.length > 0 ? all : FEEDBACK_CATEGORIES;
+  }, [items.equipment, knownFeedbackCategories]);
   const [activeFeedbackCategory, setActiveFeedbackCategory] = useState(FEEDBACK_CATEGORIES[0]);
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [feedbackInlineError, setFeedbackInlineError] = useState('');
 
   //  Feedback Form Master Toggle state (defaults to true / read from localStorage)
   const [feedbackMasterEnabled, setFeedbackMasterEnabled] = useState(() => isFeedbackFormEnabled());
+
+  // Per-category feedback enabled state: { [categoryName]: boolean }
+  // Defaults to true for unknown categories (enabled unless explicitly disabled)
+  const [categoryFeedbackToggles, setCategoryFeedbackToggles] = useState({});
 
   //  Ticket Defaults state (local component state for this sprint)
   // Low priority and dynamic SLA policy are active system defaults, so they start as configured
@@ -868,8 +900,9 @@ export default function SuperAdminTicketConfig() {
     setLoading(true);
     setEmailConfigLoading(true);
     setTemplatesLoading(true);
+    setChannelsLoading(true);
     try {
-      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes] = await Promise.all([
+      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes] = await Promise.all([
         getSuperAdminConfig().catch(() => ({ equipment: [], priorities: [] })),
         getSLARules().catch(() => ({ sla_rules: [] })),
         getDepartments().catch(() => ({ departments: [] })),
@@ -878,6 +911,10 @@ export default function SuperAdminTicketConfig() {
         getTicketFormOptions().catch(() => ({ slas: [] })),
         getEmailConfiguration().catch(() => null),
         getEmailTemplates().catch(() => null),
+        getNotificationChannels().catch(() => null),
+        getFeedbackQuestions().catch(() => null),
+        getFeedbackFormStatus().catch(() => null),
+        getCategoryFeedbackToggles().catch(() => null),
       ]);
 
       const depts = deptsData.departments || deptsData || [];
@@ -958,12 +995,55 @@ export default function SuperAdminTicketConfig() {
         });
         setEditingTemplates(editing);
       }
+
+      if (channelsRes?.channels && Array.isArray(channelsRes.channels)) {
+        const loadedChannels = {};
+        const configured = {};
+        channelsRes.channels.forEach((c) => {
+          const key = c.key || c.alert_key;
+          if (key) {
+            loadedChannels[key] = c.channel;
+            configured[key] = true;
+          }
+        });
+        setChannelConfig((prev) => ({
+          ...prev,
+          ...(channelsRes.channelMap || {}),
+          ...loadedChannels,
+        }));
+        setConfiguredChannels(configured);
+      } else if (channelsRes?.channelMap) {
+        setChannelConfig((prev) => ({
+          ...prev,
+          ...channelsRes.channelMap,
+        }));
+      }
+
+      if (feedbackRes?.grouped) {
+        setFeedbackQuestions(feedbackRes.grouped);
+      }
+
+      // Capture the categories list from the backend (the union of all categories that have questions)
+      if (feedbackRes?.categories?.length > 0) {
+        setKnownFeedbackCategories(feedbackRes.categories);
+      }
+
+      if (catTogglesRes?.categories) {
+        setCategoryFeedbackToggles(catTogglesRes.categories);
+      }
+
+      if (feedbackStatusRes && (feedbackStatusRes.is_enabled !== undefined || feedbackStatusRes.isEnabled !== undefined)) {
+        const isMasterOn = Boolean(feedbackStatusRes.is_enabled ?? feedbackStatusRes.isEnabled);
+        setFeedbackMasterEnabled(isMasterOn);
+        setFeedbackFormEnabled(isMasterOn);
+      }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
     } finally {
       setLoading(false);
       setEmailConfigLoading(false);
       setTemplatesLoading(false);
+      setChannelsLoading(false);
     }
   }, []);
 
@@ -1041,12 +1121,28 @@ export default function SuperAdminTicketConfig() {
     if (!editName.trim()) return;
     try {
       if (tab === TAB_EQUIPMENT) {
-        if (editingItem.id === null) {
+        const isNew = editingItem.id === null;
+        if (isNew) {
           await createSuperAdminEquipment({ name: editName.trim() });
         } else {
           await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
         }
         showSuccess('Saved', 'Category has been saved.');
+        // After creating a new equipment category, automatically seed default feedback questions for it
+        // (idempotent: backend skips if questions already exist for that category)
+        if (isNew) {
+          try {
+            const seedRes = await seedFeedbackCategory(editName.trim());
+            if (seedRes?.seeded && seedRes?.questions?.length > 0) {
+              setFeedbackQuestions((prev) => ({
+                ...prev,
+                [editName.trim()]: seedRes.questions,
+              }));
+            }
+          } catch (seedErr) {
+            console.warn('Failed to seed feedback questions for new category (non-critical):', seedErr);
+          }
+        }
       } else {
         if (editingItem.id === null) {
           await createSuperAdminPriority({ name: editName.trim(), color: editColor });
@@ -1067,7 +1163,16 @@ export default function SuperAdminTicketConfig() {
     setOpenMenuId(null);
     setMenuPos(null);
     const label = tab === TAB_EQUIPMENT ? 'category' : 'priority';
-    showConfirm(`Delete ${label}?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
+    if (tab === TAB_EQUIPMENT) {
+      showConfirm(
+        `Delete Equipment Category?`,
+        `Are you sure you want to delete "${item.name}"?\n\n⚠️ Feedback Impact: The feedback form for the "${item.name}" category will be disabled. Existing feedback questions and historical responses for this category will not be deleted — they remain in the system for reporting. You can re-enable feedback for this category if it is recreated.`,
+        () => confirmDelete(item),
+        { confirmText: 'Delete Category', confirmClassName: 'bg-red-600 hover:bg-red-700' }
+      );
+    } else {
+      showConfirm(`Delete ${label}?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
+    }
   };
 
   const confirmDelete = async (item) => {
@@ -1075,7 +1180,14 @@ export default function SuperAdminTicketConfig() {
     try {
       if (tab === TAB_EQUIPMENT) {
         await deleteSuperAdminEquipment(item.id);
-        showSuccess('Deleted', `${item.name} has been deleted.`);
+        // Auto-disable feedback for this category — preserves historical data
+        try {
+          await disableFeedbackCategory(item.name);
+          setCategoryFeedbackToggles((prev) => ({ ...prev, [item.name]: false }));
+        } catch (fbErr) {
+          console.warn('Could not disable category feedback (non-critical):', fbErr);
+        }
+        showSuccess('Deleted', `${item.name} has been deleted. Feedback collection for this category has been disabled.`);
       } else {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
@@ -1621,10 +1733,6 @@ export default function SuperAdminTicketConfig() {
     const currentChannel = channelConfig[alertKey];
     if (currentChannel === newChannel) return;
 
-    const alertMeta = TS103_ALERT_TYPES.find((a) => a.key === alertKey);
-    const getOptionLabel = (val) => TS103_CHANNEL_OPTIONS.find((o) => o.id === val)?.label || val;
-    const isAlreadyConfigured = Boolean(configuredChannels[alertKey]);
-
     // Clear any existing error for this alertKey
     setChannelErrors((prev) => {
       if (!prev[alertKey]) return prev;
@@ -1633,50 +1741,39 @@ export default function SuperAdminTicketConfig() {
       return next;
     });
 
-    if (isAlreadyConfigured) {
-      showConfirm(
-        `Update ${alertMeta?.title || 'Alert'} Delivery Channel?`,
-        `Are you sure you want to change the delivery channel for "${alertMeta?.title || alertKey}" from "${getOptionLabel(currentChannel)}" to "${getOptionLabel(newChannel)}"? This alters how notifications are delivered to recipients.`,
-        () => {
-          closeNotif();
-          setChannelConfig((prev) => ({
-            ...prev,
-            [alertKey]: newChannel,
-          }));
-          showSuccess('Channel Updated', `Delivery channel for ${alertMeta?.title} set to ${getOptionLabel(newChannel)}.`);
-        },
-        {
-          confirmText: 'Update Channel',
-          confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
-          onCancel: () => {
-            closeNotif();
-            // Revert: stays at currentChannel
-          },
-        }
-      );
-    } else {
-      // First-time configuration: skip modal
-      setChannelConfig((prev) => ({
-        ...prev,
-        [alertKey]: newChannel,
-      }));
-      setConfiguredChannels((prev) => ({
-        ...prev,
-        [alertKey]: true,
-      }));
-    }
+    setChannelConfig((prev) => ({
+      ...prev,
+      [alertKey]: newChannel,
+    }));
   };
 
   const handleResetChannelConfig = () => {
     showConfirm(
       'Reset Notification Channels to Defaults?',
       'Are you sure you want to restore all notification delivery channels to system defaults? Any channel customizations will be reverted.',
-      () => {
+      async () => {
         closeNotif();
-        setChannelConfig(TS103_DEFAULT_CHANNELS);
-        setConfiguredChannels({});
-        setChannelErrors({});
-        showSuccess('Reset to Defaults', 'Notification channel configuration has been restored to defaults.');
+        setChannelsSaving(true);
+        try {
+          const res = await resetNotificationChannels();
+          if (res?.channels && Array.isArray(res.channels)) {
+            const defaults = {};
+            res.channels.forEach((c) => {
+              defaults[c.alert_key] = c.channel;
+            });
+            setChannelConfig(defaults);
+          } else {
+            setChannelConfig(TS103_DEFAULT_CHANNELS);
+          }
+          setConfiguredChannels({});
+          setChannelErrors({});
+          showSuccess('Reset to Defaults', res.message || 'Notification channel configuration has been restored to defaults.');
+        } catch (err) {
+          const msg = err.response?.data?.message || err.message || 'Failed to reset notification channels.';
+          showSuccess('Reset Failed', msg);
+        } finally {
+          setChannelsSaving(false);
+        }
       },
       {
         confirmText: 'Reset to Defaults',
@@ -1685,12 +1782,13 @@ export default function SuperAdminTicketConfig() {
     );
   };
 
-  const handleSaveChannelConfig = () => {
+  const handleSaveChannelConfig = async () => {
     const errors = {};
+    const validChannels = ['email', 'in_app', 'both'];
     for (const alert of TS103_ALERT_TYPES) {
       const ch = channelConfig[alert.key];
-      if (!ch) {
-        errors[alert.key] = `Please select a delivery channel for ${alert.title}.`;
+      if (!ch || !validChannels.includes(ch)) {
+        errors[alert.key] = `Please select a valid delivery channel for ${alert.title}.`;
       }
     }
 
@@ -1701,15 +1799,30 @@ export default function SuperAdminTicketConfig() {
     }
 
     setChannelErrors({});
-    const allConfigured = {};
-    TS103_ALERT_TYPES.forEach((a) => {
-      allConfigured[a.key] = true;
-    });
-    setConfiguredChannels(allConfigured);
-    showSuccess(
-      'Settings Saved (Preview)',
-      'Notification channel configuration updated in local state.'
-    );
+    setChannelsSaving(true);
+    try {
+      const res = await updateNotificationChannels(channelConfig);
+      const allConfigured = {};
+      TS103_ALERT_TYPES.forEach((a) => {
+        allConfigured[a.key] = true;
+      });
+      setConfiguredChannels(allConfigured);
+      if (res?.channelMap) {
+        setChannelConfig((prev) => ({
+          ...prev,
+          ...res.channelMap,
+        }));
+      }
+      showSuccess(
+        'Configuration Saved',
+        res.message || 'Notification channel configuration has been saved in the database successfully.'
+      );
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save notification channel configuration.';
+      showSuccess('Save Failed', msg);
+    } finally {
+      setChannelsSaving(false);
+    }
   };
 
   // TS095 Ticket Defaults Handlers
@@ -2052,35 +2165,59 @@ export default function SuperAdminTicketConfig() {
   };
 
   // TS101 Feedback Form Master Toggle Handler
-  // TEMPORARY: localStorage is used here only as a same-session demo bridge between Super Admin and Customer portals for this sprint's frontend-only scope. This must be replaced with a real backend-persisted setting, read by both portals via API, before this is production-ready — localStorage does not sync across different users/devices/browsers.
   const handleToggleFeedbackMaster = () => {
     if (feedbackMasterEnabled) {
       showConfirm(
         'Disable Feedback Form?',
-        'Disabling Feedback Form will stop showing the feedback prompt to customers and stop collecting new CSAT/feedback analytics. Historical data already collected will not be affected.',
-        () => {
+        'Disabling this switch will immediately stop presenting feedback forms to customers across the entire portal and pause collecting new feedback data points. Historical CSAT and feedback data will not be deleted, archived, or hidden.',
+        async () => {
           closeNotif();
           setFeedbackMasterEnabled(false);
           setFeedbackFormEnabled(false);
+          try {
+            const res = await updateFeedbackFormStatus(false);
+            showSuccess('Feedback Form Disabled', res.message || 'Feedback forms and analytics collection are now disabled.');
+          } catch (err) {
+            setFeedbackMasterEnabled(true);
+            setFeedbackFormEnabled(true);
+            const msg = err.response?.data?.message || 'Failed to update feedback form status.';
+            showSuccess('Update Failed', msg);
+          }
         },
         {
           confirmText: 'Disable Feedback Form',
-          confirmClassName: 'bg-red-600 hover:bg-red-700',
+          confirmClassName: 'bg-amber-600 hover:bg-amber-700',
         }
       );
     } else {
       setFeedbackMasterEnabled(true);
       setFeedbackFormEnabled(true);
+      updateFeedbackFormStatus(true).then((res) => {
+        showSuccess('Feedback Form Enabled', res.message || 'Feedback forms and analytics collection are now active.');
+      }).catch((err) => {
+        setFeedbackMasterEnabled(false);
+        setFeedbackFormEnabled(false);
+        const msg = err.response?.data?.message || 'Failed to update feedback form status.';
+        showSuccess('Update Failed', msg);
+      });
     }
   };
 
   // TS104 Feedback Form Handlers
+  // Keep activeFeedbackCategory in sync: if the dynamic category list changes and the active one
+  // is no longer present (e.g. after adding new equipment categories), reset to first available
+  useEffect(() => {
+    if (feedbackCategories.length > 0 && !feedbackCategories.includes(activeFeedbackCategory)) {
+      setActiveFeedbackCategory(feedbackCategories[0]);
+    }
+  }, [feedbackCategories, activeFeedbackCategory]);
+
   const handleSelectFeedbackCategory = (cat) => {
     setActiveFeedbackCategory(cat);
     setFeedbackInlineError('');
   };
 
-  const handleToggleFeedbackQuestion = (category, questionId) => {
+  const handleToggleFeedbackQuestion = async (category, questionId) => {
     setFeedbackInlineError('');
     const questions = feedbackQuestions[category] || [];
     const target = questions.find((q) => q.id === questionId);
@@ -2094,15 +2231,39 @@ export default function SuperAdminTicketConfig() {
       }
     }
 
+    // Optimistic update
     setFeedbackQuestions((prev) => ({
       ...prev,
       [category]: (prev[category] || []).map((q) =>
         q.id === questionId ? { ...q, isEnabled: !q.isEnabled } : q
       ),
     }));
+
+    try {
+      const res = await toggleFeedbackQuestion(questionId, category);
+      if (res.question) {
+        setFeedbackQuestions((prev) => ({
+          ...prev,
+          [category]: (prev[category] || []).map((q) =>
+            String(q.id) === String(questionId) || String(q.id) === String(res.question.id) ? res.question : q
+          ),
+        }));
+      }
+    } catch (err) {
+      // Revert optimistic update
+      setFeedbackQuestions((prev) => ({
+        ...prev,
+        [category]: (prev[category] || []).map((q) =>
+          String(q.id) === String(questionId) ? { ...q, isEnabled: target.isEnabled } : q
+        ),
+      }));
+      const msg = err.response?.data?.message || 'Failed to toggle feedback question.';
+      setFeedbackInlineError(msg);
+      showSuccess('Action Failed', msg);
+    }
   };
 
-  const handleMoveFeedbackQuestion = (category, index, direction) => {
+  const handleMoveFeedbackQuestion = async (category, index, direction) => {
     setFeedbackInlineError('');
     const questions = feedbackQuestions[category] || [];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -2116,6 +2277,18 @@ export default function SuperAdminTicketConfig() {
       ...prev,
       [category]: updated,
     }));
+
+    try {
+      await reorderFeedbackQuestions(category, updated.map((q) => q.id));
+    } catch (err) {
+      // Revert
+      setFeedbackQuestions((prev) => ({
+        ...prev,
+        [category]: questions,
+      }));
+      const msg = err.response?.data?.message || 'Failed to reorder feedback questions.';
+      setFeedbackInlineError(msg);
+    }
   };
 
   const handleAddFeedbackQuestion = () => {
@@ -2137,38 +2310,50 @@ export default function SuperAdminTicketConfig() {
     });
   };
 
-  const handleSaveFeedbackQuestion = () => {
+  const handleSaveFeedbackQuestion = async () => {
     if (!editingQuestion || !editingQuestion.text.trim()) return;
     const trimmedText = editingQuestion.text.trim();
     const cat = editingQuestion.category || activeFeedbackCategory;
 
-    setFeedbackQuestions((prev) => {
-      const list = prev[cat] || [];
-      if (editingQuestion.id === null) {
-        const newQuestion = {
-          id: `custom-${Date.now()}`,
+    try {
+      if (editingQuestion.id === null || String(editingQuestion.id).startsWith('custom-')) {
+        const res = await createFeedbackQuestion({
+          category: cat,
           text: trimmedText,
           responseType: editingQuestion.responseType || 'Star Rating',
+          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
           isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
-        };
-        return {
+        });
+        const created = res.question;
+        setFeedbackQuestions((prev) => ({
           ...prev,
-          [cat]: [...list, newQuestion],
-        };
+          [cat]: [...(prev[cat] || []), created],
+        }));
+        showSuccess('Question Created', `Feedback question added to ${cat}.`);
       } else {
-        return {
+        const res = await updateFeedbackQuestion(editingQuestion.id, {
+          category: cat,
+          text: trimmedText,
+          responseType: editingQuestion.responseType,
+          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
+          isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
+        });
+        const updated = res.question;
+        setFeedbackQuestions((prev) => ({
           ...prev,
-          [cat]: list.map((q) =>
-            q.id === editingQuestion.id
-              ? { ...q, text: trimmedText, responseType: editingQuestion.responseType }
-              : q
+          [cat]: (prev[cat] || []).map((q) =>
+            String(q.id) === String(editingQuestion.id) || String(q.id) === String(updated?.id) ? updated : q
           ),
-        };
+        }));
+        showSuccess('Question Updated', `Feedback question updated successfully.`);
       }
-    });
-
-    setEditingQuestion(null);
-    setFeedbackInlineError('');
+      setEditingQuestion(null);
+      setFeedbackInlineError('');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to save feedback question.';
+      setFeedbackInlineError(msg);
+      showSuccess('Save Failed', msg);
+    }
   };
 
   const handleRemoveFeedbackQuestion = (category, question) => {
@@ -2184,13 +2369,21 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       'Remove Question?',
-      'This action cannot be undone. Historical responses tied to this question will remain in past submissions, but the question will no longer be editable or reusable.',
-      () => {
+      'This action will remove the question from future customer feedback forms. Historical responses tied to this question remain completely preserved.',
+      async () => {
         closeNotif();
-        setFeedbackQuestions((prev) => ({
-          ...prev,
-          [category]: (prev[category] || []).filter((q) => q.id !== question.id),
-        }));
+        try {
+          await deleteFeedbackQuestion(question.id, category);
+          setFeedbackQuestions((prev) => ({
+            ...prev,
+            [category]: (prev[category] || []).filter((q) => String(q.id) !== String(question.id)),
+          }));
+          showSuccess('Question Removed', 'Question removed successfully while historical answers remain preserved.');
+        } catch (err) {
+          const msg = err.response?.data?.message || 'Failed to remove question.';
+          setFeedbackInlineError(msg);
+          showSuccess('Removal Blocked', msg);
+        }
       },
       { confirmText: 'Remove', confirmClassName: 'bg-red-600 hover:bg-red-700' }
     );
@@ -2199,14 +2392,63 @@ export default function SuperAdminTicketConfig() {
   const handleResetFeedback = () => {
     showConfirm(
       'Reset Questions to Defaults?',
-      'This will restore all default questions for IT, Service, and Others. Any unsaved custom questions will be lost.',
-      () => {
+      `This will restore all default questions for ${activeFeedbackCategory}. Any custom questions will be removed from future forms while historical responses remain preserved.`,
+      async () => {
         closeNotif();
-        setFeedbackQuestions(TS104_DEFAULT_QUESTIONS);
-        setFeedbackInlineError('');
+        try {
+          const res = await resetFeedbackQuestions(activeFeedbackCategory);
+          if (res.grouped) {
+            setFeedbackQuestions(res.grouped);
+          }
+          setFeedbackInlineError('');
+          showSuccess('Questions Reset', `Default questions restored for ${activeFeedbackCategory}.`);
+        } catch (err) {
+          const msg = err.response?.data?.message || 'Failed to reset questions.';
+          setFeedbackInlineError(msg);
+          showSuccess('Reset Failed', msg);
+        }
       },
       { confirmText: 'Reset', confirmClassName: 'bg-red-600 hover:bg-red-700' }
     );
+  };
+
+  /**
+   * TS104: Toggle the per-category feedback form enabled/disabled state.
+   * Disabling stops feedback collection for that category only (master toggle unaffected).
+   * Historical feedback data and questions are always preserved regardless of this toggle.
+   */
+  const handleToggleCategoryFeedback = (cat) => {
+    const currentlyEnabled = categoryFeedbackToggles[cat] !== false; // default true
+    if (currentlyEnabled) {
+      // Turning OFF — show confirmation explaining the impact
+      showConfirm(
+        `Disable Feedback for "${cat}"?`,
+        `Customers with tickets in the "${cat}" category will no longer be prompted for feedback when this category is active. Existing questions and historical feedback data will remain preserved and visible in reports.`,
+        async () => {
+          closeNotif();
+          setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: false }));
+          try {
+            await setCategoryFeedbackToggle(cat, false);
+            showSuccess('Category Feedback Disabled', `Feedback form for "${cat}" has been disabled.`);
+          } catch (err) {
+            setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: true }));
+            const msg = err.response?.data?.message || 'Failed to update category feedback state.';
+            showSuccess('Update Failed', msg);
+          }
+        },
+        { confirmText: 'Disable', confirmClassName: 'bg-amber-600 hover:bg-amber-700', cancelText: 'Cancel' }
+      );
+    } else {
+      // Turning ON — immediate, no confirmation needed
+      setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: true }));
+      setCategoryFeedbackToggle(cat, true)
+        .then((res) => showSuccess('Category Feedback Enabled', res.message || `Feedback form for "${cat}" has been enabled.`))
+        .catch((err) => {
+          setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: false }));
+          const msg = err.response?.data?.message || 'Failed to enable category feedback.';
+          showSuccess('Update Failed', msg);
+        });
+    }
   };
 
   // Email Delivery Configuration Handlers
@@ -3388,9 +3630,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">Feedback Form Configuration</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon. Toggle state syncs locally via localStorage for demo.</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected & Real-time Broadcast</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -3489,8 +3731,8 @@ export default function SuperAdminTicketConfig() {
           {/* Category Tabs & Tooltip Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200/80 pb-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex gap-1 rounded-xl bg-gray-100 p-1 shadow-xs">
-                {FEEDBACK_CATEGORIES.map((cat) => {
+              <div className="flex gap-1 rounded-xl bg-gray-100 p-1 shadow-xs flex-wrap">
+                {feedbackCategories.map((cat) => {
                   const isCatActive = activeFeedbackCategory === cat;
                   const catList = feedbackQuestions[cat] || [];
                   const enabledCount = catList.filter((q) => q.isEnabled).length;
@@ -3564,6 +3806,58 @@ export default function SuperAdminTicketConfig() {
                   The Feedback Form master toggle is currently OFF. You can still create, edit, reorder, or toggle questions below, but customers will not see any feedback prompts until the feature is re-enabled.
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Per-Category Feedback Toggle */}
+          {feedbackMasterEnabled && activeFeedbackCategory && (
+            <div className={`rounded-2xl border p-4 flex items-center justify-between gap-4 shadow-xs transition-colors ${
+              categoryFeedbackToggles[activeFeedbackCategory] !== false
+                ? 'border-green-100 bg-green-50/50'
+                : 'border-amber-100 bg-amber-50/50'
+            }`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-gray-900">
+                    {activeFeedbackCategory} Category Feedback
+                  </span>
+                  {categoryFeedbackToggles[activeFeedbackCategory] !== false ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700 border border-green-200">
+                      <CheckCircle2 size={11} /> Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                      <EyeOff size={11} /> Disabled
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                  {categoryFeedbackToggles[activeFeedbackCategory] !== false
+                    ? `Customers closing "${activeFeedbackCategory}" tickets will be prompted for feedback using the questions below.`
+                    : `Feedback prompts are currently suppressed for the "${activeFeedbackCategory}" category. Questions and historical data are preserved.`
+                  }
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={categoryFeedbackToggles[activeFeedbackCategory] !== false}
+                onClick={() => handleToggleCategoryFeedback(activeFeedbackCategory)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer ${
+                  categoryFeedbackToggles[activeFeedbackCategory] !== false ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+                title={
+                  categoryFeedbackToggles[activeFeedbackCategory] !== false
+                    ? `Click to disable feedback for ${activeFeedbackCategory}`
+                    : `Click to enable feedback for ${activeFeedbackCategory}`
+                }
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
+                    categoryFeedbackToggles[activeFeedbackCategory] !== false ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
           )}
 
@@ -4025,102 +4319,127 @@ export default function SuperAdminTicketConfig() {
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Notification Channel Configuration</h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  Choose whether each system-generated event is delivered by email, in-app notification, or both.
+                  Choose whether each system-generated alert type is delivered by email, in-app notification, or both.
                 </p>
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
-                <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  Changes are local preview only and are not yet persisted. This tab controls delivery channels; recipient routing remains in Recipients.
-                </p>
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-sm text-indigo-900 flex items-start gap-3">
+                <Info size={18} className="text-[#252578] shrink-0 mt-0.5" />
+                <div className="text-xs leading-relaxed space-y-1">
+                  <p className="font-semibold text-[#252578]">Real-time Channel Dispatch Engine</p>
+                  <p className="text-slate-600">
+                    Channel configurations apply immediately to all newly generated ticket events and notifications. Changing delivery preferences preserves past in-app notifications and previously sent emails intact and immutable.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex flex-col gap-5">
-                {TS103_ALERT_TYPES.map((alert) => {
-                  const selectedChannel = channelConfig[alert.key] || alert.defaultChannel;
-                  const alertError = channelErrors[alert.key];
+              {channelsLoading ? (
+                <div className="rounded-2xl border border-gray-100 bg-white p-12 text-center shadow-sm">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#252578]" />
+                  <p className="mt-3 text-sm text-gray-500 font-medium">Loading channel configurations…</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-5">
+                  {TS103_ALERT_TYPES.map((alert) => {
+                    const selectedChannel = channelConfig[alert.key] || alert.defaultChannel;
+                    const alertError = channelErrors[alert.key];
 
-                  return (
-                    <div key={alert.key} className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm flex flex-col gap-5">
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-                        <div className="flex items-start gap-3.5">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
-                            {alert.key === 'reassignment' ? <Mail size={20} /> : <Bell size={20} />}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                              <h3 className="text-base font-semibold text-gray-900">{alert.title}</h3>
-                              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold border ${alert.badgeColor}`}>
-                                {alert.badge}
-                              </span>
+                    return (
+                      <div key={alert.key} className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm flex flex-col gap-5">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                          <div className="flex items-start gap-3.5">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578] shrink-0">
+                              {alert.key === 'reassignment' ? <Mail size={20} /> : <Bell size={20} />}
                             </div>
-                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{alert.description}</p>
+                            <div>
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <h3 className="text-base font-semibold text-gray-900">{alert.title}</h3>
+                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold border ${alert.badgeColor}`}>
+                                  {alert.badge}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1 leading-relaxed">{alert.description}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center shrink-0 overflow-x-auto">
+                            <div className="inline-flex rounded-xl bg-gray-100 p-1 border border-gray-200 min-w-max">
+                              {TS103_CHANNEL_OPTIONS.map((opt) => {
+                                const isActive = selectedChannel === opt.id;
+                                return (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    disabled={channelsSaving}
+                                    onClick={() => handleChangeChannel(alert.key, opt.id)}
+                                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none flex items-center gap-1.5 disabled:opacity-50 ${
+                                      isActive ? 'bg-[#252578] text-white shadow-xs' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                                    }`}
+                                  >
+                                    {opt.id === 'email' && <Mail size={13} />}
+                                    {opt.id === 'in_app' && <Bell size={13} />}
+                                    {opt.id === 'both' && <Layers size={13} />}
+                                    <span>{opt.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center shrink-0 overflow-x-auto">
-                          <div className="inline-flex rounded-xl bg-gray-100 p-1 border border-gray-200 min-w-max">
-                            {TS103_CHANNEL_OPTIONS.map((opt) => {
-                              const isActive = selectedChannel === opt.id;
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => handleChangeChannel(alert.key, opt.id)}
-                                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none flex items-center gap-1.5 ${
-                                    isActive ? 'bg-[#252578] text-white shadow-xs' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
-                                  }`}
-                                >
-                                  {opt.id === 'email' && <Mail size={13} />}
-                                  {opt.id === 'in_app' && <Bell size={13} />}
-                                  {opt.id === 'both' && <Layers size={13} />}
-                                  <span>{opt.label}</span>
-                                </button>
-                              );
-                            })}
+                        {alert.isSystemAlert && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
+                            <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                            <span className="font-medium leading-relaxed">
+                              System Alert always goes to Super Admin only, regardless of the channel chosen here.
+                            </span>
                           </div>
+                        )}
+
+                        {alertError && (
+                          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                            <AlertCircle size={15} className="shrink-0 text-red-600" />
+                            <span className="font-semibold">{alertError}</span>
+                          </div>
+                        )}
+
+                        <div className="pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                          Default: {TS103_CHANNEL_OPTIONS.find((o) => o.id === alert.defaultChannel)?.label || alert.defaultChannel}
                         </div>
                       </div>
-
-                      {alert.isSystemAlert && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
-                          <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                          <span className="font-medium leading-relaxed">
-                            System Alert always goes to Super Admin only, regardless of the channel chosen here.
-                          </span>
-                        </div>
-                      )}
-
-                      {alertError && (
-                        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
-                          <AlertCircle size={15} className="shrink-0 text-red-600" />
-                          <span className="font-semibold">{alertError}</span>
-                        </div>
-                      )}
-
-                      <div className="pt-3 border-t border-gray-100 text-[11px] text-gray-400">
-                        Default: {TS103_CHANNEL_OPTIONS.find((o) => o.id === alert.defaultChannel)?.label || alert.defaultChannel}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
                 <button
+                  type="button"
+                  disabled={channelsSaving || channelsLoading}
                   onClick={handleResetChannelConfig}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs disabled:opacity-50"
                 >
                   <RotateCcw size={14} />
                   Reset to Defaults
                 </button>
                 <button
+                  type="button"
+                  id="save-channel-config-btn"
+                  disabled={channelsSaving || channelsLoading}
                   onClick={handleSaveChannelConfig}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer disabled:opacity-50"
                 >
-                  <Save size={14} />
-                  Save Channels
+                  {channelsSaving ? (
+                    <>
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Saving Configuration…
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      Save Configuration
+                    </>
+                  )}
                 </button>
               </div>
             </div>

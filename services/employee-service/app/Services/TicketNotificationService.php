@@ -28,7 +28,72 @@ class TicketNotificationService
     }
 
     /**
+     * Maps subject/title to an alert type key for channel lookup.
+     */
+    public function inferAlertKey(string $text): string
+    {
+        $normalized = strtolower($text);
+        if (str_contains($normalized, 'reassign')) return 'reassignment';
+        if (str_contains($normalized, 'escalat') || str_contains($normalized, 'delegat') || str_contains($normalized, 'assign')) return 'escalation_delegation';
+        if (
+            str_contains($normalized, 'status') ||
+            str_contains($normalized, 'resolv') ||
+            str_contains($normalized, 'close') ||
+            str_contains($normalized, 'reopen') ||
+            str_contains($normalized, 'reject') ||
+            str_contains($normalized, 'approv') ||
+            str_contains($normalized, 'complet') ||
+            str_contains($normalized, 'proof')
+        ) return 'status_update';
+        if (str_contains($normalized, 'message') || str_contains($normalized, 'chat')) return 'new_message';
+        if (str_contains($normalized, 'overdue') || str_contains($normalized, 'breach') || str_contains($normalized, 'sla')) return 'overdue_sla_breach';
+        if (str_contains($normalized, 'system') || str_contains($normalized, 'critical')) return 'system_alert';
+        if (str_contains($normalized, 'creat') || str_contains($normalized, 'new')) return 'new_ticket';
+        return 'new_ticket';
+    }
+
+    /**
+     * Maps email template event key to delivery channel alert key.
+     */
+    public function mapEventKeyToAlertKey(?string $eventKey): ?string
+    {
+        if (!$eventKey) return null;
+        return match ($eventKey) {
+            'ticket_created' => 'new_ticket',
+            'ticket_assigned', 'ticket_escalated' => 'escalation_delegation',
+            'ticket_status_changed', 'ticket_resolved', 'ticket_closed' => 'status_update',
+            'new_message' => 'new_message',
+            'sla_breach_warning', 'overdue_sla_breach' => 'overdue_sla_breach',
+            'reassignment' => 'reassignment',
+            'system_alert' => 'system_alert',
+            default => null,
+        };
+    }
+
+    /**
+     * Looks up the configured delivery channel ('email', 'in_app', 'both') for an alert key.
+     */
+    public function getDeliveryChannel(?string $alertKey): string
+    {
+        if (!$alertKey) {
+            return 'both';
+        }
+
+        try {
+            $channel = DB::table('notification_channels')->where('alert_key', $alertKey)->value('channel');
+            if ($channel && in_array($channel, ['email', 'in_app', 'both'], true)) {
+                return $channel;
+            }
+        } catch (\Throwable $e) {
+            // Default to 'both' if table is unavailable
+        }
+
+        return 'both';
+    }
+
+    /**
      * Persist an in-app notification in the database.
+     * Respects the configured delivery channel; skips insertion if channel is 'email' only.
      */
     public function notifyRecipient(
         int $recipientId,
@@ -36,46 +101,56 @@ class TicketNotificationService
         string $title,
         string $message,
         ?int $ticketId = null,
-        ?array $data = null
+        ?array $data = null,
+        ?string $alertKey = null
     ): void {
+        $key = $alertKey ?? $this->inferAlertKey($title);
+        $channel = $this->getDeliveryChannel($key);
+
+        // If configured as 'email' only, skip in-app notification insertion
+        if ($channel === 'email') {
+            Log::info("In-app notification for alert [{$key}] skipped due to 'email only' delivery channel setting.");
+            return;
+        }
+
         DB::table('notifications')->insert([
-            'recipient_id' => $recipientId,
+            'recipient_id'   => $recipientId,
             'recipient_type' => $recipientType,
-            'title' => $title,
-            'message' => $message,
-            'ticket_id' => $ticketId,
-            'data' => $data ? json_encode($data) : null,
-            'is_read' => false,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'title'          => $title,
+            'message'        => $message,
+            'ticket_id'      => $ticketId,
+            'data'           => $data ? json_encode($data) : null,
+            'is_read'        => false,
+            'created_at'     => now(),
+            'updated_at'     => now(),
         ]);
     }
 
     /**
      * Notify all customer service employees.
      */
-    public function notifyCS(string $title, string $message, ?int $ticketId = null, ?array $data = null, ?int $excludeUserId = null): void
+    public function notifyCS(string $title, string $message, ?int $ticketId = null, ?array $data = null, ?int $excludeUserId = null, ?string $alertKey = null): void
     {
         $csUsers = DB::table('employees')->where('role', 'customer service')->pluck('emp_id');
         foreach ($csUsers as $csEmpId) {
             if ($excludeUserId !== null && (int) $csEmpId === $excludeUserId) {
                 continue;
             }
-            $this->notifyRecipient((int)$csEmpId, 'employee', $title, $message, $ticketId, $data);
+            $this->notifyRecipient((int)$csEmpId, 'employee', $title, $message, $ticketId, $data, $alertKey);
         }
     }
 
     /**
      * Notify customer (and requested_by employee if internal).
      */
-    public function notifyCustomer(int $customerId, string $title, string $message, ?int $ticketId = null, ?array $data = null): void
+    public function notifyCustomer(int $customerId, string $title, string $message, ?int $ticketId = null, ?array $data = null, ?string $alertKey = null): void
     {
-        $this->notifyRecipient($customerId, 'client', $title, $message, $ticketId, $data);
+        $this->notifyRecipient($customerId, 'client', $title, $message, $ticketId, $data, $alertKey);
 
         if ($ticketId) {
             $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first(['requested_by']);
             if ($ticket && $ticket->requested_by) {
-                $this->notifyRecipient((int)$ticket->requested_by, 'employee', $title, $message, $ticketId, $data);
+                $this->notifyRecipient((int)$ticket->requested_by, 'employee', $title, $message, $ticketId, $data, $alertKey);
             }
         }
     }
@@ -104,6 +179,13 @@ class TicketNotificationService
     {
         if (!$eventKey) {
             return false;
+        }
+
+        $alertKey = $this->mapEventKeyToAlertKey($eventKey);
+        $channel = $this->getDeliveryChannel($alertKey);
+        if ($channel === 'in_app') {
+            Log::info("Template email dispatch [{$eventKey}] skipped due to 'in_app only' delivery channel setting.");
+            return true;
         }
 
         try {
@@ -144,6 +226,15 @@ class TicketNotificationService
     ): void {
         $employee = DB::table('employees')->where('emp_id', $empId)->first();
         if (!$employee || !$employee->email) {
+            return;
+        }
+
+        $alertKey = $this->mapEventKeyToAlertKey($eventKey) ?? $this->inferAlertKey($subject);
+        $channel = $this->getDeliveryChannel($alertKey);
+
+        // If configured as 'in_app' only, skip email dispatch
+        if ($channel === 'in_app') {
+            Log::info("Email notification for alert [{$alertKey}] skipped due to 'in_app only' delivery channel setting.");
             return;
         }
 
@@ -197,6 +288,15 @@ class TicketNotificationService
     ): void {
         $client = DB::table('clients')->where('id', $customerId)->first();
         if (!$client || !$client->email) {
+            return;
+        }
+
+        $alertKey = $this->mapEventKeyToAlertKey($eventKey) ?? $this->inferAlertKey($subject);
+        $channel = $this->getDeliveryChannel($alertKey);
+
+        // If configured as 'in_app' only, skip email dispatch
+        if ($channel === 'in_app') {
+            Log::info("Email notification for alert [{$alertKey}] skipped due to 'in_app only' delivery channel setting.");
             return;
         }
 

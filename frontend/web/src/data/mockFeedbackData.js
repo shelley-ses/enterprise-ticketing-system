@@ -196,12 +196,14 @@ export function hasFeedbackBeenSubmitted(ticketId) {
   return !!(feedback && feedback.submitted);
 }
 
-export async function saveFeedback(ticketId, ratings, comments, overallComment, customerId = null) {
+export async function saveFeedback(ticketId, ratings, comments, overallComment, customerId = null, questionAnswers = {}, categoryQuestionsSnapshot = []) {
   const all = getAllFeedback();
   const feedbackData = {
     ratings,
     comments: comments || {},
     overallComment: overallComment || '',
+    questionAnswers: questionAnswers || {},
+    categoryQuestionsSnapshot: categoryQuestionsSnapshot || [],
     submittedAt: new Date().toISOString(),
     submitted: true,
   };
@@ -223,6 +225,8 @@ export async function saveFeedback(ticketId, ratings, comments, overallComment, 
         ratings,
         comments: comments || {},
         overall_comment: overallComment || '',
+        question_answers: questionAnswers || {},
+        category_questions_snapshot: categoryQuestionsSnapshot || [],
       }),
     });
     const result = await res.json();

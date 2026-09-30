@@ -207,3 +207,200 @@ export async function sendTestTemplateEmail(eventKey, { recipientEmail, subject,
   return response.data;
 }
 
+// ---------------------------------------------------------------------------
+// Notification Delivery Channels
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all alert types and their active notification delivery channel configurations.
+ * Returns { channels: [...], alert_types: { key: meta } }
+ */
+export async function getNotificationChannels() {
+  const response = await configClient.get('/notification-channels');
+  return response.data;
+}
+
+/**
+ * Bulk update notification delivery channels for all alert types.
+ * @param {Object} channels - Map of { [alertKey]: 'email' | 'in_app' | 'both' }
+ */
+export async function updateNotificationChannels(channels) {
+  const response = await configClient.put('/notification-channels', { channels });
+  return response.data;
+}
+
+/**
+ * Update the delivery channel for a single alert type.
+ * @param {string} alertKey
+ * @param {'email' | 'in_app' | 'both'} channel
+ */
+export async function updateSingleNotificationChannel(alertKey, channel) {
+  const response = await configClient.put(`/notification-channels/${alertKey}`, { channel });
+  return response.data;
+}
+
+/**
+ * Reset all notification delivery channels to their factory defaults.
+ */
+export async function resetNotificationChannels() {
+  const response = await configClient.post('/notification-channels/reset');
+  return response.data;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback Form Questions (TS104 Category-Scoped Questions)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all feedback questions grouped by category or filtered by category.
+ * @param {string} [category] - Optional category filter ('IT', 'Service', 'Others')
+ * @returns {Promise<{ grouped: { IT: [], Service: [], Others: [] }, questions: [] }>}
+ */
+export async function getFeedbackQuestions(category) {
+  const response = await configClient.get('/feedback-questions', {
+    params: category ? { category } : {},
+  });
+  return response.data;
+}
+
+/**
+ * Fetch currently enabled feedback questions for a given ticket category.
+ * Used by the customer feedback form rendering engine.
+ * @param {string} category
+ * @returns {Promise<{ category: string, questions: [] }>}
+ */
+export async function getCategoryFeedbackQuestions(category) {
+  const response = await configClient.get(`/feedback-questions/category/${encodeURIComponent(category)}`);
+  return response.data;
+}
+
+/**
+ * Create a new feedback question for a category.
+ */
+export async function createFeedbackQuestion({ category, text, responseType, options, isEnabled }) {
+  const response = await configClient.post('/feedback-questions', {
+    category,
+    text,
+    responseType,
+    options,
+    isEnabled,
+  });
+  return response.data;
+}
+
+/**
+ * Update an existing feedback question.
+ */
+export async function updateFeedbackQuestion(id, { category, text, responseType, options, isEnabled }) {
+  const response = await configClient.put(`/feedback-questions/${id}`, {
+    category,
+    text,
+    responseType,
+    options,
+    isEnabled,
+  });
+  return response.data;
+}
+
+/**
+ * Toggle the enabled state of a feedback question.
+ */
+export async function toggleFeedbackQuestion(id, category) {
+  const response = await configClient.post(`/feedback-questions/${id}/toggle`, {
+    category,
+  });
+  return response.data;
+}
+
+/**
+ * Reorder questions within a category.
+ * @param {string} category
+ * @param {Array<string|number>} order - Array of question IDs in sequential order
+ */
+export async function reorderFeedbackQuestions(category, order) {
+  const response = await configClient.post('/feedback-questions/reorder', {
+    category,
+    order,
+  });
+  return response.data;
+}
+
+/**
+ * Delete / remove a feedback question (soft deleted on backend to preserve historical responses).
+ */
+export async function deleteFeedbackQuestion(id, category) {
+  const response = await configClient.delete(`/feedback-questions/${id}`, {
+    params: category ? { category } : {},
+  });
+  return response.data;
+}
+
+/**
+ * Reset feedback questions for a category or all categories to defaults.
+ * @param {string} [category]
+ */
+export async function resetFeedbackQuestions(category) {
+  const response = await configClient.post('/feedback-questions/reset', { category });
+  return response.data;
+}
+
+/**
+ * Seed default feedback questions for a new equipment/machine category.
+ * Idempotent: the backend skips seeding if questions already exist for that category.
+ * @param {string} category - The new equipment category name
+ * @returns {Promise<{ seeded: boolean, category: string, questions: [] }>}
+ */
+export async function seedFeedbackCategory(category) {
+  const response = await configClient.post('/feedback-questions/seed-category', { category });
+  return response.data;
+}
+
+/**
+ * Get the feedback form master switch status.
+ * @returns {Promise<{ is_enabled: boolean, isEnabled: boolean, updated_at: string }>}
+ */
+export async function getFeedbackFormStatus() {
+  const response = await configClient.get('/feedback-form/status');
+  return response.data;
+}
+
+/**
+ * Update / toggle the feedback form master switch status.
+ * @param {boolean} isEnabled
+ */
+export async function updateFeedbackFormStatus(isEnabled) {
+  const response = await configClient.post('/feedback-form/status', { is_enabled: Boolean(isEnabled) });
+  return response.data;
+}
+
+/**
+ * Get per-category feedback enabled states.
+ * @returns {Promise<{ categories: { [categoryName]: boolean } }>}
+ */
+export async function getCategoryFeedbackToggles() {
+  const response = await configClient.get('/feedback-form/category-toggles');
+  return response.data;
+}
+
+/**
+ * Enable or disable the feedback form for a specific equipment category.
+ * @param {string} category - The equipment category name (e.g. 'IT', 'Service')
+ * @param {boolean} isEnabled
+ */
+export async function setCategoryFeedbackToggle(category, isEnabled) {
+  const response = await configClient.post('/feedback-form/category-toggle', {
+    category,
+    is_enabled: Boolean(isEnabled),
+  });
+  return response.data;
+}
+
+/**
+ * Auto-disable feedback collection for a category when the equipment category is deleted.
+ * Historical feedback data and questions are preserved.
+ * @param {string} category
+ */
+export async function disableFeedbackCategory(category) {
+  const response = await configClient.post('/feedback-form/disable-category', { category });
+  return response.data;
+}
