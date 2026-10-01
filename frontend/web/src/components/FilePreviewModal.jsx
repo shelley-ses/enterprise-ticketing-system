@@ -31,6 +31,11 @@ export default function FilePreviewModal({ file, onClose }) {
 
     const cleaned = String(inputUrl).trim();
 
+    // Preserve already-routed API endpoints
+    if (cleaned.startsWith('/api/ticketing/attachment/') || cleaned.startsWith('/api/attachment/')) {
+      return cleaned;
+    }
+
     // If it contains /storage/ anywhere (e.g. http://localhost:8006/storage/... or http://attachment-service:8000/storage/...)
     const storageIdx = cleaned.indexOf('/storage/');
     if (storageIdx !== -1) {
@@ -113,15 +118,41 @@ export default function FilePreviewModal({ file, onClose }) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const res = await fetch(absoluteUrl, { headers });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        let res = await fetch(absoluteUrl, { headers });
+        let contentType = res.headers.get('content-type') || '';
+
+        // If the response is text/html or failed, the request hit the SPA root fallback.
+        // Fall back to the routed API gateway endpoint: /api/ticketing/attachment/storage/...
+        if (!res.ok || contentType.includes('text/html')) {
+          const apiFallback = absoluteUrl.includes('/storage/')
+            ? absoluteUrl.replace('/storage/', '/api/ticketing/attachment/storage/')
+            : `/api/ticketing/attachment${absoluteUrl}`;
+
+          try {
+            const fallbackRes = await fetch(apiFallback, { headers });
+            const fallbackType = fallbackRes.headers.get('content-type') || '';
+            if (fallbackRes.ok && !fallbackType.includes('text/html')) {
+              res = fallbackRes;
+              contentType = fallbackType;
+            } else if (!res.ok) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+          } catch (fbErr) {
+            if (!res.ok) throw fbErr;
+          }
+        }
+
+        if (contentType.includes('text/html')) {
+          throw new Error('Received HTML document instead of binary file');
+        }
+
         const blob = await res.blob();
 
         let finalBlob = blob;
         if (isPdf && blob.type !== 'application/pdf') {
           finalBlob = new Blob([blob], { type: 'application/pdf' });
         } else if (isImg && !blob.type.startsWith('image/')) {
-          finalBlob = new Blob([blob], { type: ext === 'png' ? 'image/png' : 'image/jpeg' });
+          finalBlob = new Blob([blob], { type: ext === 'png' ? 'image/png' : ext === 'svg' ? 'image/svg+xml' : 'image/jpeg' });
         }
 
         objectUrl = URL.createObjectURL(finalBlob);
@@ -158,12 +189,30 @@ export default function FilePreviewModal({ file, onClose }) {
 
       let blobData = null;
       try {
-        const response = await fetch(downloadEndpoint, { headers });
-        if (response.ok) {
+        let response = await fetch(downloadEndpoint, { headers });
+        let contentType = response.headers.get('content-type') || '';
+
+        if (!response.ok || contentType.includes('text/html')) {
+          const apiDownload = downloadEndpoint.includes('/download/')
+            ? downloadEndpoint.replace('/download/', '/api/ticketing/attachment/download/')
+            : `/api/ticketing/attachment${downloadEndpoint}`;
+          const fallbackResp = await fetch(apiDownload, { headers });
+          const fbType = fallbackResp.headers.get('content-type') || '';
+          if (fallbackResp.ok && !fbType.includes('text/html')) {
+            response = fallbackResp;
+          } else {
+            const fallbackStorage = absoluteUrl.includes('/storage/')
+              ? absoluteUrl.replace('/storage/', '/api/ticketing/attachment/storage/')
+              : absoluteUrl;
+            const directResp = await fetch(fallbackStorage, { headers });
+            if (directResp.ok && !(directResp.headers.get('content-type') || '').includes('text/html')) {
+              response = directResp;
+            }
+          }
+        }
+
+        if (response.ok && !(response.headers.get('content-type') || '').includes('text/html')) {
           blobData = await response.blob();
-        } else {
-          const fallbackResp = await fetch(absoluteUrl, { headers });
-          if (fallbackResp.ok) blobData = await fallbackResp.blob();
         }
       } catch {
         // Fallback to direct window.open if fetch fails
@@ -255,6 +304,15 @@ export default function FilePreviewModal({ file, onClose }) {
               onError={() => {
                 if (blobUrl && previewUrl === blobUrl) {
                   setBlobUrl('');
+                } else if (!previewUrl.includes('/api/ticketing/attachment/')) {
+                  const fallback = absoluteUrl.includes('/storage/')
+                    ? absoluteUrl.replace('/storage/', '/api/ticketing/attachment/storage/')
+                    : absoluteUrl;
+                  if (fallback !== previewUrl) {
+                    setBlobUrl(fallback);
+                  } else {
+                    setImgError(true);
+                  }
                 } else {
                   setImgError(true);
                 }
