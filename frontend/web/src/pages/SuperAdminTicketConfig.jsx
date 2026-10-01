@@ -55,6 +55,10 @@ import {
   getCategoryFeedbackToggles,
   setCategoryFeedbackToggle,
   disableFeedbackCategory,
+  getCachedWindowConfiguration,
+  getWindowConfiguration,
+  updateWindowConfiguration,
+  resetWindowConfiguration,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -753,8 +757,39 @@ export default function SuperAdminTicketConfig() {
   const [fileConfigErrors, setFileConfigErrors] = useState({});
 
   // Reopen & Auto-Close Windows state (local component state for this sprint)
-  const [windowConfig, setWindowConfig] = useState(TS100_DEFAULT_WINDOW_CONFIG);
+  const [windowConfig, setWindowConfig] = useState(() => {
+    const cached = getCachedWindowConfiguration();
+    if (cached && typeof cached.reopenWindowDays !== 'undefined') {
+      return {
+        reopenEnabled: Boolean(cached.reopenEnabled ?? true),
+        reopenWindowDays: Number(cached.reopenWindowDays ?? 2),
+        autoCloseEnabled: Boolean(cached.autoCloseEnabled ?? true),
+        autoCloseWindowDays: Number(cached.autoCloseWindowDays ?? 2),
+      };
+    }
+    return TS100_DEFAULT_WINDOW_CONFIG;
+  });
   const [windowConfigErrors, setWindowConfigErrors] = useState({});
+
+  // Fast independent fetch for window configuration to avoid waiting on other heavy endpoints
+  useEffect(() => {
+    let isMounted = true;
+    getWindowConfiguration()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setWindowConfig({
+            reopenEnabled: Boolean(cfg.reopenEnabled ?? true),
+            reopenWindowDays: Number(cfg.reopenWindowDays ?? 2),
+            autoCloseEnabled: Boolean(cfg.autoCloseEnabled ?? true),
+            autoCloseWindowDays: Number(cfg.autoCloseWindowDays ?? 2),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Notifications state (managed via two-level activeGroup / activeSubTabs state)
 
@@ -852,7 +887,11 @@ export default function SuperAdminTicketConfig() {
   const [testingTemplate, setTestingTemplate] = useState({});
 
   const closeNotif = () => setNotification(null);
-  const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
+  const showError = (title, message) => setNotification({ type: 'error', title, message });
+  const showSuccess = (title, message) => {
+    const isErr = /error|fail|invalid|warning/i.test(String(title || ''));
+    setNotification({ type: isErr ? 'error' : 'success', title, message });
+  };
   const showConfirm = (title, message, onConfirm, opts = {}) => setNotification({ type: 'confirm', title, message, onConfirm, onCancel: closeNotif, ...opts });
 
   const handleTestTemplate = async (template, draft) => {
@@ -902,7 +941,7 @@ export default function SuperAdminTicketConfig() {
     setTemplatesLoading(true);
     setChannelsLoading(true);
     try {
-      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes] = await Promise.all([
+      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes, windowRes] = await Promise.all([
         getSuperAdminConfig().catch(() => ({ equipment: [], priorities: [] })),
         getSLARules().catch(() => ({ sla_rules: [] })),
         getDepartments().catch(() => ({ departments: [] })),
@@ -915,6 +954,7 @@ export default function SuperAdminTicketConfig() {
         getFeedbackQuestions().catch(() => null),
         getFeedbackFormStatus().catch(() => null),
         getCategoryFeedbackToggles().catch(() => null),
+        getWindowConfiguration().catch(() => null),
       ]);
 
       const depts = deptsData.departments || deptsData || [];
@@ -1037,6 +1077,15 @@ export default function SuperAdminTicketConfig() {
         setFeedbackMasterEnabled(isMasterOn);
         setFeedbackFormEnabled(isMasterOn);
       }
+
+      if (windowRes) {
+        setWindowConfig({
+          reopenEnabled: Boolean(windowRes.reopenEnabled ?? true),
+          reopenWindowDays: Number(windowRes.reopenWindowDays ?? 2),
+          autoCloseEnabled: Boolean(windowRes.autoCloseEnabled ?? true),
+          autoCloseWindowDays: Number(windowRes.autoCloseWindowDays ?? 2),
+        });
+      }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
     } finally {
@@ -1155,7 +1204,7 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showSuccess('Error', 'Failed to save configuration settings.');
+      showError('Error', 'Failed to save configuration settings.');
     }
   };
 
@@ -1195,7 +1244,7 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showSuccess('Error', 'Failed to delete item.');
+      showError('Error', 'Failed to delete item.');
     }
   };
 
@@ -1229,7 +1278,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to save workflow status:', err);
-      showSuccess('Error', 'Failed to save workflow status.');
+      showError('Error', 'Failed to save workflow status.');
     }
   };
 
@@ -1242,7 +1291,7 @@ export default function SuperAdminTicketConfig() {
         await loadConfig();
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
-        showSuccess('Error', 'Failed to delete workflow status.');
+        showError('Error', 'Failed to delete workflow status.');
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1262,7 +1311,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to toggle escalation rule:', err);
-      showSuccess('Error', 'Failed to update escalation rule status.');
+      showError('Error', 'Failed to update escalation rule status.');
     }
   };
 
@@ -1289,7 +1338,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to save escalation rule:', err);
-      showSuccess('Error', 'Failed to save escalation rule.');
+      showError('Error', 'Failed to save escalation rule.');
     }
   };
 
@@ -1302,7 +1351,7 @@ export default function SuperAdminTicketConfig() {
         await loadConfig();
       } catch (err) {
         console.error('Failed to delete escalation rule:', err);
-        showSuccess('Error', 'Failed to delete escalation rule.');
+        showError('Error', 'Failed to delete escalation rule.');
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1323,7 +1372,7 @@ export default function SuperAdminTicketConfig() {
     for (const p of priorityList) {
       const data = departmentSlaForm[p.name];
       if (!data?.response_time_limit || !data?.resolution_time_limit || isNaN(data.response_time_limit) || isNaN(data.resolution_time_limit)) {
-        showSuccess('Validation Error', `Please fill out valid response and resolution time limits for ${p.name} priority.`);
+        showError('Validation Error', `Please fill out valid response and resolution time limits for ${p.name} priority.`);
         return;
       }
     }
@@ -1344,7 +1393,7 @@ export default function SuperAdminTicketConfig() {
       setSelectedDeptId(null);
     } catch (err) {
       console.error('Failed to save department SLA rules:', err);
-      showSuccess('Error', 'Failed to save SLA rules for this department.');
+      showError('Error', 'Failed to save SLA rules for this department.');
     } finally {
       setSavingSla(false);
     }
@@ -1415,7 +1464,7 @@ export default function SuperAdminTicketConfig() {
       const isAllowed = prev.allowedFileTypes.includes(ext);
       if (isAllowed) {
         if (prev.allowedFileTypes.length <= 1) {
-          showSuccess('Validation Warning', 'At least one file type must remain allowed.');
+          showError('Validation Warning', 'At least one file type must remain allowed.');
           setFileConfigErrors((e) => ({ ...e, allowedFileTypes: 'At least one file type must remain allowed.' }));
           return prev;
         }
@@ -1481,7 +1530,7 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setFileConfigErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors before saving.');
+      showError('Validation Error', 'Please correct the errors before saving.');
       return;
     }
 
@@ -1556,13 +1605,18 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
-  const handleResetWindowConfig = () => {
-    setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
-    setWindowConfigErrors({});
-    showSuccess('Reset Complete', 'Reopen and auto-close window rules have been restored to system defaults.');
+  const handleResetWindowConfig = async () => {
+    try {
+      await resetWindowConfiguration();
+      setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
+      setWindowConfigErrors({});
+      showSuccess('Reset Complete', 'Reopen and auto-close window rules have been restored to system defaults.');
+    } catch (err) {
+      showError('Reset Error', err.response?.data?.message || 'Failed to reset window rules.');
+    }
   };
 
-  const handleSaveWindowConfig = () => {
+  const handleSaveWindowConfig = async () => {
     const errors = {};
     if (windowConfig.reopenEnabled) {
       const num = parseInt(windowConfig.reopenWindowDays, 10);
@@ -1579,12 +1633,34 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setWindowConfigErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors before saving.');
+      showError('Validation Error', 'Please correct the errors before saving.');
       return;
     }
 
-    setWindowConfigErrors({});
-    showSuccess('Settings Saved (Session)', 'Reopen and auto-close window rules updated in session state. Persistence coming soon.');
+    try {
+      const updated = await updateWindowConfiguration({
+        reopenEnabled: Boolean(windowConfig.reopenEnabled),
+        reopenWindowDays: parseInt(windowConfig.reopenWindowDays, 10),
+        autoCloseEnabled: Boolean(windowConfig.autoCloseEnabled),
+        autoCloseWindowDays: parseInt(windowConfig.autoCloseWindowDays, 10),
+      });
+
+      setWindowConfigErrors({});
+      if (updated) {
+        setWindowConfig({
+          reopenEnabled: Boolean(updated.reopenEnabled ?? windowConfig.reopenEnabled),
+          reopenWindowDays: Number(updated.reopenWindowDays ?? windowConfig.reopenWindowDays),
+          autoCloseEnabled: Boolean(updated.autoCloseEnabled ?? windowConfig.autoCloseEnabled),
+          autoCloseWindowDays: Number(updated.autoCloseWindowDays ?? windowConfig.autoCloseWindowDays),
+        });
+      }
+      showSuccess('Settings Saved', 'Reopen and auto-close window rules updated and saved successfully.');
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.errors
+        ? Object.values(err.response?.data?.errors || {}).flat().join(' ')
+        : 'Failed to save window configuration.';
+      showError('Save Error', msg);
+    }
   };
 
   // TS099: Compute full recipient options combining contextual actors, static roles, and dynamic departments
@@ -1712,7 +1788,7 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setRoutingErrors(errors);
-      showSuccess('Validation Error', 'Please ensure all alert types have at least one recipient selected.');
+      showError('Validation Error', 'Please ensure all alert types have at least one recipient selected.');
       return;
     }
 
@@ -1770,7 +1846,7 @@ export default function SuperAdminTicketConfig() {
           showSuccess('Reset to Defaults', res.message || 'Notification channel configuration has been restored to defaults.');
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Failed to reset notification channels.';
-          showSuccess('Reset Failed', msg);
+          showError('Reset Failed', msg);
         } finally {
           setChannelsSaving(false);
         }
@@ -1794,7 +1870,7 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setChannelErrors(errors);
-      showSuccess('Validation Error', 'Please select a delivery channel for all alert types.');
+      showError('Validation Error', 'Please select a delivery channel for all alert types.');
       return;
     }
 
@@ -1819,7 +1895,7 @@ export default function SuperAdminTicketConfig() {
       );
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to save notification channel configuration.';
-      showSuccess('Save Failed', msg);
+      showError('Save Failed', msg);
     } finally {
       setChannelsSaving(false);
     }
@@ -2024,7 +2100,7 @@ export default function SuperAdminTicketConfig() {
     const errors = validateNumberFormat(numberFormatConfig);
     if (Object.keys(errors).length > 0) {
       setNumberFormatErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors in the format configuration before saving.');
+      showError('Validation Error', 'Please correct the errors in the format configuration before saving.');
       return;
     }
 
@@ -2103,7 +2179,7 @@ export default function SuperAdminTicketConfig() {
       const parsed = parseInt(String(ticketLimitConfig.limit).trim(), 10);
       if (isNaN(parsed) || parsed <= 0) {
         setLimitError('Please enter a valid ticket limit greater than 0.');
-        showSuccess('Validation Error', 'Please enter a valid numeric limit greater than 0.');
+        showError('Validation Error', 'Please enter a valid numeric limit greater than 0.');
         return;
       }
     }
@@ -2181,7 +2257,7 @@ export default function SuperAdminTicketConfig() {
             setFeedbackMasterEnabled(true);
             setFeedbackFormEnabled(true);
             const msg = err.response?.data?.message || 'Failed to update feedback form status.';
-            showSuccess('Update Failed', msg);
+            showError('Update Failed', msg);
           }
         },
         {
@@ -2198,7 +2274,7 @@ export default function SuperAdminTicketConfig() {
         setFeedbackMasterEnabled(false);
         setFeedbackFormEnabled(false);
         const msg = err.response?.data?.message || 'Failed to update feedback form status.';
-        showSuccess('Update Failed', msg);
+        showError('Update Failed', msg);
       });
     }
   };
@@ -2259,7 +2335,7 @@ export default function SuperAdminTicketConfig() {
       }));
       const msg = err.response?.data?.message || 'Failed to toggle feedback question.';
       setFeedbackInlineError(msg);
-      showSuccess('Action Failed', msg);
+      showError('Action Failed', msg);
     }
   };
 
@@ -2352,7 +2428,7 @@ export default function SuperAdminTicketConfig() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save feedback question.';
       setFeedbackInlineError(msg);
-      showSuccess('Save Failed', msg);
+      showError('Save Failed', msg);
     }
   };
 
@@ -2382,7 +2458,7 @@ export default function SuperAdminTicketConfig() {
         } catch (err) {
           const msg = err.response?.data?.message || 'Failed to remove question.';
           setFeedbackInlineError(msg);
-          showSuccess('Removal Blocked', msg);
+          showError('Removal Blocked', msg);
         }
       },
       { confirmText: 'Remove', confirmClassName: 'bg-red-600 hover:bg-red-700' }
@@ -2405,7 +2481,7 @@ export default function SuperAdminTicketConfig() {
         } catch (err) {
           const msg = err.response?.data?.message || 'Failed to reset questions.';
           setFeedbackInlineError(msg);
-          showSuccess('Reset Failed', msg);
+          showError('Reset Failed', msg);
         }
       },
       { confirmText: 'Reset', confirmClassName: 'bg-red-600 hover:bg-red-700' }
@@ -2433,7 +2509,7 @@ export default function SuperAdminTicketConfig() {
           } catch (err) {
             setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: true }));
             const msg = err.response?.data?.message || 'Failed to update category feedback state.';
-            showSuccess('Update Failed', msg);
+            showError('Update Failed', msg);
           }
         },
         { confirmText: 'Disable', confirmClassName: 'bg-amber-600 hover:bg-amber-700', cancelText: 'Cancel' }
@@ -2446,7 +2522,7 @@ export default function SuperAdminTicketConfig() {
         .catch((err) => {
           setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: false }));
           const msg = err.response?.data?.message || 'Failed to enable category feedback.';
-          showSuccess('Update Failed', msg);
+          showError('Update Failed', msg);
         });
     }
   };
@@ -3386,9 +3462,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0" />
+                  <span>Active Operational Policy</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">

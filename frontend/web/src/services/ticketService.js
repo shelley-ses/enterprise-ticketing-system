@@ -962,3 +962,13 @@ export const deleteEscalationRule = async (id) => {
   const response = await ticketClient.delete(`/superadmin/escalation-rules/${id}`);
   return response.data;
 };
+
+export const getWindowConfig = async () => {
+  const response = await ticketClient.get('/superadmin/window-config');
+  return response.data?.value || response.data;
+};
+
+export const updateWindowConfig = async (payload) => {
+  const response = await ticketClient.put('/superadmin/window-config', payload);
+  return response.data?.value || response.data;
+};
