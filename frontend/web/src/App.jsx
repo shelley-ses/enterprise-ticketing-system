@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 // Vite's BASE_URL is '/', '/ticketing/', or '/customer-service/' depending on context.
 const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { BranchProvider } from '@/context/BranchContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
 import AuthGate from '@/routes/AuthGate';
@@ -126,7 +127,8 @@ function EmployeePortalGate() {
 function App() {
   return (
     <AuthProvider>
-      <Router basename={routerBasename}>
+      <BranchProvider>
+        <Router basename={routerBasename}>
         <PageTitleUpdater />
         <AuthGate>
           <Suspense fallback={
@@ -335,6 +337,7 @@ function App() {
           </Suspense>
         </AuthGate>
       </Router>
+    </BranchProvider>
     </AuthProvider>
   );
 }
