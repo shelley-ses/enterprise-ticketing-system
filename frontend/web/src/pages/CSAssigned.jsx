@@ -36,6 +36,7 @@ export default function CSAssigned() {
   const [category, setCategory] = useState('All Categories');
   // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [notificationBanner, setNotificationBanner] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [assignedTab, setAssignedTab] = useState('all'); // 'all' | 'in_progress' | 'pending_evaluation' | 'reassigned' | 'resolved_closed'
