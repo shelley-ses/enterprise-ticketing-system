@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X } from 'lucide-react';
+import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X, Sparkles } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
 import { useAuth } from '@/context/AuthContext';
@@ -61,6 +61,28 @@ import EmailVisualEditor from '@/components/EmailVisualEditor';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import { getMaxOpenTicketsLimit, setMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
+import {
+  isMessageArchivalOnClosureEnabled,
+  setMessageArchivalOnClosureEnabled,
+} from '@/data/messageArchivalConfig';
+import BranchSelector from '@/components/BranchSelector';
+import { useBranch } from '@/context/BranchContext';
+import {
+  SYSTEM_DEFAULT_PRIORITY_SLAS,
+  INITIAL_BRANCH_PRIORITY_OVERRIDES,
+  getStoredBranchOverrides,
+  setStoredBranchOverrides,
+} from '@/data/branchPriorityConfig';
+import {
+  SYSTEM_DEFAULT_CATEGORIES,
+  SYSTEM_DEFAULT_CATEGORY_SLAS,
+  INITIAL_BRANCH_CATEGORIES,
+  INITIAL_BRANCH_SLA_POLICIES,
+  getStoredBranchCategories,
+  setStoredBranchCategories,
+  getStoredBranchSlaPolicies,
+  setStoredBranchSlaPolicies,
+} from '@/data/branchCategoryConfig';
 
 export const GROUP_CLASSIFICATION = 'classification';
 export const GROUP_LIFECYCLE = 'lifecycle';
@@ -70,6 +92,9 @@ export const GROUP_SECURITY = 'security';
 
 export const TAB_EQUIPMENT = 'equipment';
 export const TAB_PRIORITY = 'priority';
+export const TAB_BRANCH_CONFIG = 'branch-config';
+export const TAB_BRANCH_PRIORITY = 'branch-priority';
+export const TAB_BRANCH_CATEGORIES = 'branch-categories';
 export const TAB_DEFAULTS = 'defaults';
 export const TAB_NUMBER_FORMAT = 'number-format';
 export const TAB_LIMITS = 'limits';
@@ -81,6 +106,9 @@ export const TAB_WINDOWS = 'windows';
 export const TAB_NOTIFICATIONS = 'notifications';
 export const TAB_ESCALATION = 'escalation';
 export const TAB_FEEDBACK = 'feedback';
+
+export const BRANCH_SUBTAB_CATEGORIES = 'categories';
+export const BRANCH_SUBTAB_PRIORITIES = 'priorities-sla';
 
 export const NOTIF_SUBTAB_RECIPIENTS = 'recipients';
 export const NOTIF_SUBTAB_CHANNELS = 'channels';
@@ -95,6 +123,7 @@ export const GROUPS_CONFIG = [
     subTabs: [
       { id: TAB_EQUIPMENT, label: 'Equipment Categories' },
       { id: TAB_PRIORITY, label: 'Priority Levels' },
+      { id: TAB_BRANCH_CONFIG, label: 'Branch Configuration' },
       { id: TAB_DEFAULTS, label: 'Ticket Defaults' },
       { id: TAB_NUMBER_FORMAT, label: 'Ticket Number Format' },
       { id: TAB_LIMITS, label: 'Max Open Tickets' },
@@ -322,6 +351,7 @@ export const TS100_DEFAULT_WINDOW_CONFIG = {
   reopenWindowDays: 2, // 48 hours (in active codebase: TicketService.php & CustomerTicketDetailModal.jsx)
   autoCloseEnabled: true,
   autoCloseWindowDays: 2, // 48 hours (in active codebase: AutoCloseInternalTickets.php command)
+  archiveOnClosureEnabled: true, // TS067: Archive message thread on ticket closure
 };
 
 export const TS099_ALERT_TYPES = [
@@ -607,6 +637,19 @@ export default function SuperAdminTicketConfig() {
   const normalizeSubTabId = useCallback((groupId, rawSubTab) => {
     if (!rawSubTab) return null;
     const s = rawSubTab.toLowerCase();
+    if (groupId === GROUP_CLASSIFICATION) {
+      if (s === 'branch-config' || s === 'branch-configuration' || s === 'branch' || s === 'branch_config') {
+        return TAB_BRANCH_CONFIG;
+      }
+      if (s === 'branch-priority' || s === 'branch_priority') {
+        setBranchSubSection(BRANCH_SUBTAB_PRIORITIES);
+        return TAB_BRANCH_CONFIG;
+      }
+      if (s === 'branch-categories' || s === 'branch_categories') {
+        setBranchSubSection(BRANCH_SUBTAB_CATEGORIES);
+        return TAB_BRANCH_CONFIG;
+      }
+    }
     const groupDef = GROUPS_CONFIG.find((g) => g.id === groupId);
     if (!groupDef) return null;
     const matched = groupDef.subTabs.find((st) => st.id.toLowerCase() === s);
@@ -719,6 +762,8 @@ export default function SuperAdminTicketConfig() {
   const [search, setSearch] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
+  const tabContentRef = useRef(null);
+  const isInitialMount = useRef(true);
 
   // Equipment / Priority Edit state
   const [editingItem, setEditingItem] = useState(null);
@@ -753,7 +798,10 @@ export default function SuperAdminTicketConfig() {
   const [fileConfigErrors, setFileConfigErrors] = useState({});
 
   // Reopen & Auto-Close Windows state (local component state for this sprint)
-  const [windowConfig, setWindowConfig] = useState(TS100_DEFAULT_WINDOW_CONFIG);
+  const [windowConfig, setWindowConfig] = useState(() => ({
+    ...TS100_DEFAULT_WINDOW_CONFIG,
+    archiveOnClosureEnabled: isMessageArchivalOnClosureEnabled(),
+  }));
   const [windowConfigErrors, setWindowConfigErrors] = useState({});
 
   // Notifications state (managed via two-level activeGroup / activeSubTabs state)
@@ -850,6 +898,29 @@ export default function SuperAdminTicketConfig() {
   const [templateSaving, setTemplateSaving] = useState({});
   const [templateErrors, setTemplateErrors] = useState({});
   const [testingTemplate, setTestingTemplate] = useState({});
+
+  // TS092: Branch-Specific Priority Levels & SLA Overrides state
+  const { selectedBranch } = useBranch();
+  const [branchSubSection, setBranchSubSection] = useState(BRANCH_SUBTAB_CATEGORIES);
+  const [branchOverrides, setBranchOverrides] = useState(getStoredBranchOverrides);
+  const [branchOverrideError, setBranchOverrideError] = useState(null);
+  const [editingBranchOverride, setEditingBranchOverride] = useState(null);
+  const [branchModalErrors, setBranchModalErrors] = useState({});
+
+  // TS090: Branch-Specific Ticket Categories & SLA Policies state
+  // Categories: System-wide default categories are ['IT', 'Service', 'Others'] — confirmed to map onto
+  // the real Department concept (Service, IT from items.departments) plus a local "Others" catch-all,
+  // same pattern already established for TS104's FEEDBACK_CATEGORIES.
+  // This is a DIFFERENT concept from "Equipment Categories" (hardware types in machine_categories)
+  // and "Problem Categories" (issue types in problem_categories).
+  const [branchCategories, setBranchCategories] = useState(getStoredBranchCategories);
+  const [branchSlaPolicies, setBranchSlaPolicies] = useState(getStoredBranchSlaPolicies);
+  const [categoryError, setCategoryError] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null); // { isNew, id, name, originalName }
+  const [categoryModalError, setCategoryModalError] = useState('');
+  const [editingSlaPolicy, setEditingSlaPolicy] = useState(null); // { isNew, categoryName, priorityName, resolutionTimeLimit, originalResolutionTimeLimit, sysDefaultResolution, priorityColor }
+  const [slaPolicyModalError, setSlaPolicyModalError] = useState('');
+  const [slaCategoryFilter, setSlaCategoryFilter] = useState('ALL');
 
   const closeNotif = () => setNotification(null);
   const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
@@ -1094,6 +1165,28 @@ export default function SuperAdminTicketConfig() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [openMenuId]);
+
+  // Smooth scroll back to top of tab content area on tab/sub-tab switch
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    if (tabContentRef.current) {
+      const headerOffset = 150; // Clearance for fixed Header (~96px) + Sub-tab bar (~41px)
+      const elementTop = tabContentRef.current.getBoundingClientRect().top;
+      const targetScroll = window.pageYOffset + elementTop - headerOffset;
+
+      // Only scroll if user was scrolled down below the content area
+      if (window.pageYOffset > targetScroll) {
+        window.scrollTo({
+          top: Math.max(0, targetScroll),
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [activeGroup, currentSubTab, branchSubSection]);
 
   const list = tab === TAB_EQUIPMENT ? items.equipment : items.priorities;
 
@@ -1528,6 +1621,28 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
+  // TS067 Archive Message Thread on Closure Toggle Handler
+  const handleToggleArchiveOnClosure = () => {
+    if (windowConfig.archiveOnClosureEnabled) {
+      showConfirm(
+        'Disable Message Thread Archival?',
+        "Disabling this means closed tickets' message threads will no longer be automatically archived. This will not retroactively un-archive threads already archived under the current setting.",
+        () => {
+          closeNotif();
+          setWindowConfig((prev) => ({ ...prev, archiveOnClosureEnabled: false }));
+          setMessageArchivalOnClosureEnabled(false);
+        },
+        {
+          confirmText: 'Disable Archival',
+          confirmClassName: 'bg-red-600 hover:bg-red-700',
+        }
+      );
+    } else {
+      setWindowConfig((prev) => ({ ...prev, archiveOnClosureEnabled: true }));
+      setMessageArchivalOnClosureEnabled(true);
+    }
+  };
+
   const handleReopenDaysChange = (val) => {
     setWindowConfig((prev) => ({ ...prev, reopenWindowDays: val }));
     const num = parseInt(val, 10);
@@ -1559,7 +1674,8 @@ export default function SuperAdminTicketConfig() {
   const handleResetWindowConfig = () => {
     setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
     setWindowConfigErrors({});
-    showSuccess('Reset Complete', 'Reopen and auto-close window rules have been restored to system defaults.');
+    setMessageArchivalOnClosureEnabled(TS100_DEFAULT_WINDOW_CONFIG.archiveOnClosureEnabled);
+    showSuccess('Reset Complete', 'Reopen, auto-close, and message archival window rules have been restored to system defaults.');
   };
 
   const handleSaveWindowConfig = () => {
@@ -1584,7 +1700,8 @@ export default function SuperAdminTicketConfig() {
     }
 
     setWindowConfigErrors({});
-    showSuccess('Settings Saved (Session)', 'Reopen and auto-close window rules updated in session state. Persistence coming soon.');
+    setMessageArchivalOnClosureEnabled(windowConfig.archiveOnClosureEnabled);
+    showSuccess('Settings Saved (Session)', 'Closure window policies and message thread archival rules updated in session state. Persistence coming soon.');
   };
 
   // TS099: Compute full recipient options combining contextual actors, static roles, and dynamic departments
@@ -2708,6 +2825,605 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
+  // ==========================================
+  // TS092: Branch-Specific Priority Levels & SLA Overrides Handlers
+  // ==========================================
+
+  // Computed branch priority SLA overrides for active branch
+  const currentBranchOverrides = useMemo(() => {
+    const list = branchOverrides[selectedBranch.id] || [];
+    const basePriorities = items.priorities && items.priorities.length > 0
+      ? items.priorities
+      : [
+          { id: 4, name: 'Critical', color: 'bg-red-100 text-red-700' },
+          { id: 3, name: 'High', color: 'bg-orange-100 text-orange-700' },
+          { id: 2, name: 'Medium', color: 'bg-yellow-100 text-yellow-700' },
+          { id: 1, name: 'Low', color: 'bg-green-100 text-green-700' },
+        ];
+
+    return basePriorities.map((base) => {
+      const existing = list.find(
+        (o) => o.basePriorityId === base.id || o.name?.toLowerCase() === base.name?.toLowerCase()
+      );
+      const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[base.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+
+      if (existing) {
+        return {
+          ...existing,
+          basePriorityId: base.id,
+          name: base.name,
+          color: base.color || existing.color,
+        };
+      }
+
+      return {
+        id: `branch-${selectedBranch.id}-${base.name.toLowerCase()}`,
+        basePriorityId: base.id,
+        branchId: selectedBranch.id,
+        name: base.name,
+        color: base.color || 'bg-gray-100 text-gray-700',
+        responseTimeLimit: sysDefault.responseTimeLimit,
+        resolutionTimeLimit: sysDefault.resolutionTimeLimit,
+        isInherited: true,
+        inUse: false,
+        activeTicketCount: 0,
+      };
+    });
+  }, [branchOverrides, selectedBranch.id, items.priorities]);
+
+  const handleOpenBranchOverrideModal = (override) => {
+    setBranchOverrideError(null);
+    setBranchModalErrors({});
+    const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+    setEditingBranchOverride({
+      priorityName: override.name,
+      basePriorityId: override.basePriorityId,
+      responseTimeLimit: String(override.isInherited ? sysDefault.responseTimeLimit : override.responseTimeLimit),
+      resolutionTimeLimit: String(override.isInherited ? sysDefault.resolutionTimeLimit : override.resolutionTimeLimit),
+      isNew: override.isInherited,
+      originalResponse: override.responseTimeLimit,
+      originalResolution: override.resolutionTimeLimit,
+      color: override.color,
+      inUse: override.inUse,
+      activeTicketCount: override.activeTicketCount,
+    });
+  };
+
+  const handleSaveBranchOverrideConfirmed = (targetPriorityName, resp, res, isNew) => {
+    setBranchOverrides((prev) => {
+      const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
+      const idx = branchList.findIndex((o) => o.name?.toLowerCase() === targetPriorityName.toLowerCase());
+      const basePri = items.priorities?.find((p) => p.name?.toLowerCase() === targetPriorityName.toLowerCase());
+
+      const updatedRecord = {
+        id: idx >= 0 ? branchList[idx].id : `branch-${selectedBranch.id}-${targetPriorityName.toLowerCase()}`,
+        basePriorityId: basePri?.id || (idx >= 0 ? branchList[idx].basePriorityId : 1),
+        branchId: selectedBranch.id,
+        name: targetPriorityName,
+        color: basePri?.color || (idx >= 0 ? branchList[idx].color : 'bg-indigo-100 text-indigo-700'),
+        responseTimeLimit: resp,
+        resolutionTimeLimit: res,
+        isInherited: false,
+        inUse: idx >= 0 ? Boolean(branchList[idx].inUse) : false,
+        activeTicketCount: idx >= 0 ? (branchList[idx].activeTicketCount || 0) : 0,
+      };
+
+      if (idx >= 0) {
+        branchList[idx] = updatedRecord;
+      } else {
+        branchList.push(updatedRecord);
+      }
+
+      const nextAll = { ...prev, [selectedBranch.id]: branchList };
+      setStoredBranchOverrides(nextAll);
+      return nextAll;
+    });
+
+    setEditingBranchOverride(null);
+    showSuccess(
+      isNew ? 'Override Created' : 'Override Updated',
+      `${targetPriorityName} Priority SLA override for ${selectedBranch.name} set to ${formatMinutes(resp)} response / ${formatMinutes(res)} resolution.`
+    );
+  };
+
+  const handleSaveBranchOverride = () => {
+    if (!editingBranchOverride) return;
+
+    const resp = parseInt(editingBranchOverride.responseTimeLimit, 10);
+    const res = parseInt(editingBranchOverride.resolutionTimeLimit, 10);
+    const errs = {};
+
+    if (isNaN(resp) || resp <= 0) {
+      errs.responseTimeLimit = 'Please enter a valid response time limit (greater than 0 minutes).';
+    }
+    if (isNaN(res) || res <= 0) {
+      errs.resolutionTimeLimit = 'Please enter a valid resolution time limit (greater than 0 minutes).';
+    } else if (!isNaN(resp) && res <= resp) {
+      errs.resolutionTimeLimit = 'Resolution time limit must be greater than response time limit.';
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setBranchModalErrors(errs);
+      return;
+    }
+
+    setBranchModalErrors({});
+
+    // First-time creation for a given priority in this branch: no confirmation modal
+    if (editingBranchOverride.isNew) {
+      handleSaveBranchOverrideConfirmed(
+        editingBranchOverride.priorityName,
+        resp,
+        res,
+        true
+      );
+      return;
+    }
+
+    // Editing an existing override's SLA values: confirmation modal
+    // ASSUMPTION: This affects new tickets going forward; existing open tickets' due dates are not recalculated (consistent with TS090/TS100 pattern, pending explicit backend confirmation).
+    showConfirm(
+      'Confirm SLA Modification',
+      'This will affect due-date calculations for tickets using this priority level in this branch going forward.',
+      () => {
+        closeNotif();
+        handleSaveBranchOverrideConfirmed(
+          editingBranchOverride.priorityName,
+          resp,
+          res,
+          false
+        );
+      },
+      {
+        confirmText: 'Confirm & Save',
+        confirmClassName: 'bg-[#252578] hover:bg-[#1f1f60]',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  const handleRemoveBranchOverride = (override) => {
+    setBranchOverrideError(null);
+
+    // SIMULATED: no real branch-tagged ticket data exists yet. Replace inUse/activeTicketCount with a real query once tickets support branch tagging.
+    if (override.inUse || (override.activeTicketCount && override.activeTicketCount > 0)) {
+      setBranchOverrideError({
+        priorityName: override.name,
+        message: `This priority level is currently in use by ${override.activeTicketCount || 1} ticket(s) in this branch and cannot be removed.`,
+      });
+      return;
+    }
+
+    showConfirm(
+      `Remove ${override.name} Override?`,
+      `Are you sure you want to remove the custom SLA override for ${override.name} Priority at ${selectedBranch.name}? It will revert to the system-wide default SLA.`,
+      () => {
+        closeNotif();
+        setBranchOverrides((prev) => {
+          const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
+          const idx = branchList.findIndex((o) => o.name?.toLowerCase() === override.name?.toLowerCase());
+          const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+
+          if (idx >= 0) {
+            branchList[idx] = {
+              ...branchList[idx],
+              isInherited: true,
+              responseTimeLimit: sysDefault.responseTimeLimit,
+              resolutionTimeLimit: sysDefault.resolutionTimeLimit,
+              inUse: false,
+              activeTicketCount: 0,
+            };
+          }
+
+          const nextAll = { ...prev, [selectedBranch.id]: branchList };
+          setStoredBranchOverrides(nextAll);
+          return nextAll;
+        });
+
+        showSuccess(
+          'Override Removed',
+          `${override.name} Priority has been reverted to the system-wide default for ${selectedBranch.name}.`
+        );
+      },
+      {
+        confirmText: 'Remove Override',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  const handleResetBranchOverrides = () => {
+    showConfirm(
+      'Reset Branch Overrides?',
+      `Are you sure you want to reset all priority SLA overrides for ${selectedBranch.name} to the initial branch defaults?`,
+      () => {
+        closeNotif();
+        setBranchOverrideError(null);
+        setBranchOverrides((prev) => {
+          const initialBranchList = INITIAL_BRANCH_PRIORITY_OVERRIDES[selectedBranch.id] || [];
+          const nextAll = { ...prev, [selectedBranch.id]: initialBranchList };
+          setStoredBranchOverrides(nextAll);
+          return nextAll;
+        });
+        showSuccess('Reset Complete', `Priority SLA overrides for ${selectedBranch.name} restored to initial defaults.`);
+      },
+      {
+        confirmText: 'Reset Defaults',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  // ==========================================
+  // TS090: Branch-Specific Ticket Categories & SLA Policies Handlers
+  // ==========================================
+
+  // Active branch categories (system defaults + branch-added categories)
+  const currentBranchCategories = useMemo(() => {
+    const list = branchCategories[selectedBranch.id] || [];
+    if (list.length > 0) return list;
+    return SYSTEM_DEFAULT_CATEGORIES.map((name) => ({
+      id: `branch-${selectedBranch.id}-cat-${name.toLowerCase()}`,
+      branchId: selectedBranch.id,
+      name,
+      isSystemDefault: true,
+      inUse: false,
+      activeTicketCount: 0,
+    }));
+  }, [branchCategories, selectedBranch.id]);
+
+  // Base priorities list (Critical, High, Medium, Low)
+  const basePrioritiesList = useMemo(() => {
+    return items.priorities && items.priorities.length > 0
+      ? items.priorities
+      : [
+          { id: 4, name: 'Critical', color: 'bg-red-100 text-red-700' },
+          { id: 3, name: 'High', color: 'bg-orange-100 text-orange-700' },
+          { id: 2, name: 'Medium', color: 'bg-yellow-100 text-yellow-700' },
+          { id: 1, name: 'Low', color: 'bg-green-100 text-green-700' },
+        ];
+  }, [items.priorities]);
+
+  // Computed Category x Priority SLA matrix for active branch
+  const currentBranchSlaMatrix = useMemo(() => {
+    const policies = branchSlaPolicies[selectedBranch.id] || [];
+    const matrix = [];
+
+    currentBranchCategories.forEach((cat) => {
+      basePrioritiesList.forEach((pri) => {
+        const existing = policies.find(
+          (p) =>
+            p.categoryName?.toLowerCase() === cat.name.toLowerCase() &&
+            p.priorityName?.toLowerCase() === pri.name.toLowerCase() &&
+            !p.isInherited
+        );
+        const sysDefaultRes = SYSTEM_DEFAULT_CATEGORY_SLAS[pri.name] || 1440;
+
+        if (existing) {
+          matrix.push({
+            id: existing.id || `branch-${selectedBranch.id}-sla-${cat.name}-${pri.name}`,
+            branchId: selectedBranch.id,
+            categoryName: cat.name,
+            priorityName: pri.name,
+            resolutionTimeLimit: existing.resolutionTimeLimit,
+            isInherited: false,
+            priorityColor: pri.color,
+            sysDefaultResolution: sysDefaultRes,
+          });
+        } else {
+          matrix.push({
+            id: `branch-${selectedBranch.id}-sla-${cat.name.toLowerCase().replace(/\s+/g, '-')}-${pri.name.toLowerCase()}`,
+            branchId: selectedBranch.id,
+            categoryName: cat.name,
+            priorityName: pri.name,
+            resolutionTimeLimit: sysDefaultRes,
+            isInherited: true,
+            priorityColor: pri.color,
+            sysDefaultResolution: sysDefaultRes,
+          });
+        }
+      });
+    });
+
+    return matrix;
+  }, [branchSlaPolicies, selectedBranch.id, currentBranchCategories, basePrioritiesList]);
+
+  // Open modal to add a new category for this branch
+  const handleOpenAddCategoryModal = () => {
+    setCategoryError(null);
+    setCategoryModalError('');
+    setEditingCategory({
+      isNew: true,
+      name: '',
+    });
+  };
+
+  // Open modal to edit an existing custom category
+  const handleOpenEditCategoryModal = (cat) => {
+    setCategoryError(null);
+    setCategoryModalError('');
+    setEditingCategory({
+      isNew: false,
+      id: cat.id,
+      name: cat.name,
+      originalName: cat.name,
+    });
+  };
+
+  // Save new or edited category
+  const handleSaveCategory = () => {
+    if (!editingCategory) return;
+    const trimmed = (editingCategory.name || '').trim();
+    if (!trimmed) {
+      setCategoryModalError('Please enter a category name.');
+      return;
+    }
+
+    // Check duplicate name within the active branch
+    const duplicate = currentBranchCategories.find(
+      (c) =>
+        c.name.toLowerCase() === trimmed.toLowerCase() &&
+        (!editingCategory.isNew ? c.id !== editingCategory.id : true)
+    );
+    if (duplicate) {
+      setCategoryModalError(`A category named "${trimmed}" already exists for ${selectedBranch.name}.`);
+      return;
+    }
+
+    if (editingCategory.isNew) {
+      // Creating a new branch-specific category for the first time: no confirmation modal
+      setBranchCategories((prev) => {
+        const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [...currentBranchCategories];
+        const newCat = {
+          id: `branch-${selectedBranch.id}-cat-${Date.now()}`,
+          branchId: selectedBranch.id,
+          name: trimmed,
+          isSystemDefault: false,
+          inUse: false,
+          activeTicketCount: 0,
+        };
+        const nextAll = { ...prev, [selectedBranch.id]: [...branchList, newCat] };
+        setStoredBranchCategories(nextAll);
+        return nextAll;
+      });
+      setEditingCategory(null);
+      showSuccess('Category Added', `Category "${trimmed}" created for ${selectedBranch.name}.`);
+      return;
+    }
+
+    // Renaming existing category
+    setBranchCategories((prev) => {
+      const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [...currentBranchCategories];
+      const idx = branchList.findIndex((c) => c.id === editingCategory.id);
+      if (idx >= 0) {
+        branchList[idx] = { ...branchList[idx], name: trimmed };
+      }
+      const nextAll = { ...prev, [selectedBranch.id]: branchList };
+      setStoredBranchCategories(nextAll);
+      return nextAll;
+    });
+
+    // Update any SLA policies referencing the old category name
+    setBranchSlaPolicies((prev) => {
+      const policies = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
+      const updated = policies.map((p) =>
+        p.categoryName?.toLowerCase() === editingCategory.originalName?.toLowerCase()
+          ? { ...p, categoryName: trimmed }
+          : p
+      );
+      const nextAll = { ...prev, [selectedBranch.id]: updated };
+      setStoredBranchSlaPolicies(nextAll);
+      return nextAll;
+    });
+
+    setEditingCategory(null);
+    showSuccess('Category Renamed', `Category updated to "${trimmed}".`);
+  };
+
+  // Remove a branch-specific category
+  const handleRemoveCategory = (cat) => {
+    setCategoryError(null);
+
+    // SIMULATED: no real branch-tagged ticket data exists yet. Replace with a real query once tickets support branch tagging.
+    if (cat.inUse || (cat.activeTicketCount && cat.activeTicketCount > 0)) {
+      setCategoryError({
+        categoryName: cat.name,
+        message: `This category is in use by ${cat.activeTicketCount || 1} open ticket(s) in this branch and cannot be removed until they are recategorized or closed.`,
+      });
+      return;
+    }
+
+    showConfirm(
+      `Remove "${cat.name}" Category?`,
+      'This action cannot be undone and may affect ticket routing in this branch.',
+      () => {
+        closeNotif();
+        setBranchCategories((prev) => {
+          const branchList = (prev[selectedBranch.id] || currentBranchCategories).filter((c) => c.id !== cat.id);
+          const nextAll = { ...prev, [selectedBranch.id]: branchList };
+          setStoredBranchCategories(nextAll);
+          return nextAll;
+        });
+
+        // Also clean up any branch SLA policies configured for this category
+        setBranchSlaPolicies((prev) => {
+          const policies = (prev[selectedBranch.id] || []).filter(
+            (p) => p.categoryName?.toLowerCase() !== cat.name?.toLowerCase()
+          );
+          const nextAll = { ...prev, [selectedBranch.id]: policies };
+          setStoredBranchSlaPolicies(nextAll);
+          return nextAll;
+        });
+
+        showSuccess('Category Removed', `Category "${cat.name}" has been removed from ${selectedBranch.name}.`);
+      },
+      {
+        confirmText: 'Remove Category',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  // Open modal to set or edit an SLA policy
+  const handleOpenSlaPolicyModal = (item) => {
+    setSlaPolicyModalError('');
+    setEditingSlaPolicy({
+      isNew: item.isInherited,
+      categoryName: item.categoryName,
+      priorityName: item.priorityName,
+      priorityColor: item.priorityColor,
+      resolutionTimeLimit: String(item.resolutionTimeLimit),
+      originalResolutionTimeLimit: item.resolutionTimeLimit,
+      sysDefaultResolution: item.sysDefaultResolution,
+    });
+  };
+
+  // Confirmed save for an SLA policy
+  const handleSaveSlaPolicyConfirmed = (categoryName, priorityName, resolutionMinutes, isNew) => {
+    setBranchSlaPolicies((prev) => {
+      const policies = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
+      const idx = policies.findIndex(
+        (p) =>
+          p.categoryName?.toLowerCase() === categoryName.toLowerCase() &&
+          p.priorityName?.toLowerCase() === priorityName.toLowerCase()
+      );
+      const updatedRecord = {
+        id: idx >= 0 ? policies[idx].id : `branch-${selectedBranch.id}-sla-${categoryName.toLowerCase().replace(/\s+/g, '-')}-${priorityName.toLowerCase()}`,
+        branchId: selectedBranch.id,
+        categoryName,
+        priorityName,
+        resolutionTimeLimit: resolutionMinutes,
+        isInherited: false,
+      };
+
+      if (idx >= 0) {
+        policies[idx] = updatedRecord;
+      } else {
+        policies.push(updatedRecord);
+      }
+
+      const nextAll = { ...prev, [selectedBranch.id]: policies };
+      setStoredBranchSlaPolicies(nextAll);
+      return nextAll;
+    });
+
+    setEditingSlaPolicy(null);
+    showSuccess(
+      isNew ? 'SLA Policy Created' : 'SLA Policy Updated',
+      `Resolution SLA for ${categoryName} (${priorityName} Priority) set to ${formatMinutes(resolutionMinutes)} at ${selectedBranch.name}.`
+    );
+  };
+
+  // Save SLA Policy handler
+  const handleSaveSlaPolicy = () => {
+    if (!editingSlaPolicy) return;
+
+    const resMinutes = parseInt(editingSlaPolicy.resolutionTimeLimit, 10);
+    if (isNaN(resMinutes) || resMinutes <= 0) {
+      setSlaPolicyModalError('Please enter a valid resolution time limit (greater than 0 minutes).');
+      return;
+    }
+
+    setSlaPolicyModalError('');
+
+    // Creating a new SLA policy for a category/priority combo for the first time: no confirmation modal
+    if (editingSlaPolicy.isNew) {
+      handleSaveSlaPolicyConfirmed(
+        editingSlaPolicy.categoryName,
+        editingSlaPolicy.priorityName,
+        resMinutes,
+        true
+      );
+      return;
+    }
+
+    // Editing an existing SLA policy's resolution time: confirmation modal
+    // ASSUMPTION: This affects new tickets going forward; existing open tickets' due dates are not recalculated (consistent with TS090/TS100 pattern, pending explicit backend confirmation).
+    showConfirm(
+      'Confirm SLA Policy Modification',
+      'This will affect due-date calculations for tickets in this branch going forward.',
+      () => {
+        closeNotif();
+        handleSaveSlaPolicyConfirmed(
+          editingSlaPolicy.categoryName,
+          editingSlaPolicy.priorityName,
+          resMinutes,
+          false
+        );
+      },
+      {
+        confirmText: 'Confirm & Save',
+        confirmClassName: 'bg-[#252578] hover:bg-[#1f1f60]',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  // Revert SLA policy override back to system-wide default
+  const handleRemoveSlaPolicy = (item) => {
+    showConfirm(
+      `Revert SLA for ${item.categoryName} (${item.priorityName})?`,
+      `Are you sure you want to revert the resolution SLA for ${item.categoryName} (${item.priorityName} Priority) to the system-wide default (${formatMinutes(item.sysDefaultResolution)}) for ${selectedBranch.name}?`,
+      () => {
+        closeNotif();
+        setBranchSlaPolicies((prev) => {
+          const policies = (prev[selectedBranch.id] || []).filter(
+            (p) =>
+              !(
+                p.categoryName?.toLowerCase() === item.categoryName.toLowerCase() &&
+                p.priorityName?.toLowerCase() === item.priorityName.toLowerCase()
+              )
+          );
+          const nextAll = { ...prev, [selectedBranch.id]: policies };
+          setStoredBranchSlaPolicies(nextAll);
+          return nextAll;
+        });
+        showSuccess(
+          'SLA Policy Reverted',
+          `Resolution SLA for ${item.categoryName} (${item.priorityName}) reverted to system default.`
+        );
+      },
+      {
+        confirmText: 'Revert to Default',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
+  // Reset categories and SLA policies to seeded defaults
+  const handleResetBranchCategories = () => {
+    showConfirm(
+      'Reset Branch Categories & SLAs?',
+      `Are you sure you want to reset all custom categories and SLA policies for ${selectedBranch.name} to the initial seeded defaults?`,
+      () => {
+        closeNotif();
+        setCategoryError(null);
+        setBranchCategories((prev) => {
+          const initialBranchList = INITIAL_BRANCH_CATEGORIES[selectedBranch.id] || [];
+          const nextAll = { ...prev, [selectedBranch.id]: initialBranchList };
+          setStoredBranchCategories(nextAll);
+          return nextAll;
+        });
+        setBranchSlaPolicies((prev) => {
+          const initialPolicies = INITIAL_BRANCH_SLA_POLICIES[selectedBranch.id] || [];
+          const nextAll = { ...prev, [selectedBranch.id]: initialPolicies };
+          setStoredBranchSlaPolicies(nextAll);
+          return nextAll;
+        });
+        showSuccess('Reset Complete', `Categories and SLA policies for ${selectedBranch.name} restored to seeded defaults.`);
+      },
+      {
+        confirmText: 'Reset Defaults',
+        confirmClassName: 'bg-red-600 hover:bg-red-700',
+        cancelText: 'Cancel',
+      }
+    );
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {/* Interactive Hierarchical Breadcrumbs */}
@@ -2723,19 +3439,14 @@ export default function SuperAdminTicketConfig() {
         <button
           type="button"
           onClick={() => handleSelectGroup(currentGroup.id)}
-          className={`hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors ${currentGroup.subTabs.length <= 1 ? 'text-gray-900 font-semibold cursor-default hover:no-underline' : ''
-            }`}
+          className="hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors"
         >
           {currentGroup.label}
         </button>
-        {currentGroup.subTabs.length > 1 && (
-          <>
-            <ChevronRight size={13} className="text-gray-400 shrink-0" />
-            <span className="text-gray-900 font-semibold cursor-default select-none" aria-current="page">
-              {currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}
-            </span>
-          </>
-        )}
+        <ChevronRight size={13} className="text-gray-400 shrink-0" />
+        <span className="text-gray-900 font-semibold cursor-default select-none" aria-current="page">
+          {currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}
+        </span>
       </nav>
 
       <div>
@@ -2765,39 +3476,43 @@ export default function SuperAdminTicketConfig() {
         })}
       </div>
 
-      {/* Level 2: Secondary Sub-Tab Strip (reusing Notifications sub-tab styling) */}
-      {currentGroup.subTabs.length > 1 && (
-        <div className="flex items-center justify-between border-b border-gray-200 overflow-x-auto">
-          <div className="flex items-center gap-2 ml-3 min-w-max">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
-              <span>{currentGroup.label}</span>
-              <ChevronRight size={13} className="text-gray-300" />
-            </div>
-
-            <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
-              {currentGroup.subTabs.map((sub) => {
-                const isSubActive = currentSubTab === sub.id;
-                return (
-                  <button
-                    key={sub.id}
-                    type="button"
-                    onClick={() => handleSelectSubTab(sub.id)}
-                    className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
-                        ? 'border-[#252578] text-[#252578]'
-                        : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                      }`}
-                  >
-                    {sub.label}
-                  </button>
-                );
-              })}
-            </nav>
+      {/* Level 2: Secondary Sub-Tab Strip (consistently rendered for all groups to prevent layout shifts) */}
+      <div className="flex items-center border-b border-gray-200 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
+        <div className="flex items-center gap-2 ml-3 min-w-max">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
+            <span>{currentGroup.label}</span>
+            <ChevronRight size={13} className="text-gray-300" />
           </div>
-        </div>
-      )}
 
-      {tab === TAB_WORKFLOW ? (
-        <div className="flex flex-col gap-6">
+          <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
+            {currentGroup.subTabs.map((sub) => {
+              const isSubActive = currentSubTab === sub.id;
+              return (
+                <button
+                  key={sub.id}
+                  type="button"
+                  onClick={() => handleSelectSubTab(sub.id)}
+                  className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
+                      ? 'border-[#252578] text-[#252578]'
+                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    }`}
+                >
+                  {sub.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
+
+      {/* Level 3: Tab Content Area with Smooth Entry Transition */}
+      <div
+        ref={tabContentRef}
+        key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
+        className="animate-fade-slide-in min-h-[400px] flex flex-col gap-6 scroll-mt-36"
+      >
+        {tab === TAB_WORKFLOW ? (
+          <div className="flex flex-col gap-6">
           {/* Page Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -3413,7 +4128,7 @@ export default function SuperAdminTicketConfig() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Feature 1: Customer Ticket Reopen Window */}
             <div className={`rounded-2xl border bg-white p-6 shadow-sm flex flex-col justify-between transition-all ${windowConfig.reopenEnabled ? 'border-gray-100' : 'border-gray-200 bg-gray-50/40'
               }`}>
@@ -3619,6 +4334,90 @@ export default function SuperAdminTicketConfig() {
 
               <div className="mt-6 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
                 System default: 2 days (48h). Processed by the scheduled backend worker (`tickets:auto-close-internal`).
+              </div>
+            </div>
+
+            {/* Feature 3: Archive Message Thread on Closure (TS067) */}
+            <div className={`rounded-2xl border bg-white p-6 shadow-sm flex flex-col justify-between transition-all ${windowConfig.archiveOnClosureEnabled ? 'border-gray-100' : 'border-gray-200 bg-gray-50/40'
+              }`}>
+              <div>
+                {/* Header with Switch */}
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-gray-100">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-gray-900">Archive Message Thread on Closure</h3>
+                      <div className="relative group inline-flex items-center">
+                        <Info size={15} className="text-gray-400 hover:text-[#252578] cursor-pointer" />
+                        <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-72 rounded-xl bg-gray-900 p-3 text-center text-xs text-white shadow-xl group-hover:block z-50 leading-relaxed">
+                          When enabled, a ticket's message thread is automatically locked and archived (read-only) the moment it's closed. No user, including CS and the Assigned Employee, can edit, delete, or add messages to an archived thread.
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Automatically lock and archive ticket chat threads into read-only mode upon ticket closure.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    {windowConfig.archiveOnClosureEnabled ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 border border-green-200">
+                        <CheckCircle2 size={12} />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600 border border-gray-200">
+                        <Lock size={12} />
+                        Disabled
+                      </span>
+                    )}
+
+                    {/* iOS-style slider switch */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={windowConfig.archiveOnClosureEnabled}
+                      onClick={handleToggleArchiveOnClosure}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer ${windowConfig.archiveOnClosureEnabled ? 'bg-green-500' : 'bg-gray-300'
+                        }`}
+                      title={windowConfig.archiveOnClosureEnabled ? 'Click to disable thread archival' : 'Click to enable thread archival'}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${windowConfig.archiveOnClosureEnabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Description & Operational Status */}
+                <div className="mt-5">
+                  {windowConfig.archiveOnClosureEnabled ? (
+                    <div className="rounded-xl border border-green-100 bg-green-50/50 p-4 text-xs text-gray-600 flex items-start gap-2.5">
+                      <ShieldCheck size={16} className="text-green-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-gray-800">Thread Archival Active</p>
+                        <p className="mt-0.5 text-gray-500 leading-relaxed">
+                          Closed tickets are immediately read-only across all roles. Conversations are moved to the Archive tab to preserve the historical audit trail.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500 flex items-start gap-2.5">
+                      <Lock size={15} className="text-gray-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-gray-700">Thread Archival Disabled</p>
+                        <p className="mt-0.5 text-gray-500 leading-relaxed">
+                          Closed tickets will not be automatically locked or moved to the Archive tab. Communication remains accessible unless manually restricted.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-6 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                System policy: TS067 thread archival applies strictly on ticket closure (Closed status). Reopening restores active chat.
               </div>
             </div>
           </div>
@@ -6039,6 +6838,882 @@ export default function SuperAdminTicketConfig() {
             </div>
           </div>
         </div>
+      ) : (tab === TAB_BRANCH_CONFIG || tab === TAB_BRANCH_PRIORITY || tab === TAB_BRANCH_CATEGORIES) ? (
+        <div className="flex flex-col gap-6">
+          {/* Header & Prominent Branch Scope */}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-xl font-bold text-gray-900">Branch Configuration</h2>
+                  <div className="relative group inline-flex items-center">
+                    <Info size={16} className="text-gray-400 hover:text-[#252578] cursor-pointer" />
+                    <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-80 rounded-xl bg-gray-900 p-3 text-center text-xs text-white shadow-xl group-hover:block z-50 leading-relaxed">
+                      Branch-specific categories, priority levels, and SLA policies only apply to the selected branch and override system-wide defaults. If no override is defined, the system-wide default applies.
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+                    <AlertCircle size={13} className="shrink-0" />
+                    <span>Changes are not yet saved — persistence coming soon</span>
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  {branchSubSection === BRANCH_SUBTAB_CATEGORIES
+                    ? 'Manage branch-specific ticket categories and override Category × Priority resolution SLAs for this physical location.'
+                    : 'Configure branch-specific response and resolution SLAs per priority level. Settings override system defaults for this physical location.'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {branchSubSection === BRANCH_SUBTAB_CATEGORIES ? (
+                  <button
+                    type="button"
+                    onClick={handleResetBranchCategories}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw size={14} />
+                    Reset to Seeded
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResetBranchOverrides}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw size={14} />
+                    Reset to Seeded
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Prominent Branch Selector Banner - Rendered ONCE */}
+            <BranchSelector variant="banner" />
+
+            {/* Secondary Pill Toggle: Categories | Priorities & SLA */}
+            <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit shadow-xs">
+              <button
+                type="button"
+                onClick={() => setBranchSubSection(BRANCH_SUBTAB_CATEGORIES)}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+                  branchSubSection === BRANCH_SUBTAB_CATEGORIES
+                    ? 'bg-white text-[#252578] shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <Tag size={15} />
+                <span>Categories</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBranchSubSection(BRANCH_SUBTAB_PRIORITIES)}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+                  branchSubSection === BRANCH_SUBTAB_PRIORITIES
+                    ? 'bg-white text-[#252578] shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <Clock size={15} />
+                <span>Priorities & SLA</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-Section Content: Categories (TS090) */}
+          {branchSubSection === BRANCH_SUBTAB_CATEGORIES ? (
+            <div className="flex flex-col gap-8">
+              {/* Section 1: Category Management */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col gap-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Tag size={16} className="text-[#252578]" />
+                  1. Branch Ticket Categories
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  System defaults ({SYSTEM_DEFAULT_CATEGORIES.join(', ')}) apply everywhere. Define supplementary categories exclusive to {selectedBranch.name}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenAddCategoryModal}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#1f1f60] transition-all cursor-pointer shrink-0"
+              >
+                <Plus size={14} />
+                Add Category
+              </button>
+            </div>
+
+            {/* Inline Simulation Blocked Error Banner */}
+            {categoryError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-800 flex items-start justify-between gap-3 shadow-xs animate-fade-slide-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle size={17} className="shrink-0 text-red-600 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-red-900">
+                      Cannot Remove "{categoryError.categoryName}" Category
+                    </p>
+                    <p className="mt-0.5 text-red-700 leading-relaxed">
+                      {categoryError.message}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCategoryError(null)}
+                  className="text-red-400 hover:text-red-700 text-xs font-bold px-2 py-1 rounded cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Categories Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {currentBranchCategories.map((cat) => (
+                <div
+                  key={cat.id || cat.name}
+                  className={`rounded-xl border p-4.5 flex flex-col justify-between gap-4 transition-all hover:shadow-xs ${
+                    cat.isSystemDefault
+                      ? 'border-gray-200 bg-gray-50/50'
+                      : 'border-indigo-100 bg-white ring-1 ring-indigo-50'
+                  }`}
+                >
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-sm font-bold text-gray-900 leading-snug break-words">
+                        {cat.name}
+                      </h4>
+                      {cat.isSystemDefault ? (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200">
+                          System Default
+                        </span>
+                      ) : (
+                        <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-200">
+                          Branch Custom
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {cat.inUse ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          {cat.activeTicketCount || 1} Open Ticket(s) in Branch
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                          0 open tickets
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-gray-400">
+                      {cat.isSystemDefault ? 'Applies system-wide' : `Scoped to ${selectedBranch.name}`}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      {cat.isSystemDefault ? (
+                        <span className="text-[11px] font-medium text-gray-400 italic">
+                          Protected default
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCategory(cat)}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                            title="Remove category from this branch"
+                          >
+                            <Trash2 size={13} />
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCategoryModal(cat)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer shadow-xs"
+                          >
+                            <Edit3 size={13} />
+                            Edit
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 2: SLA Policy Management */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col gap-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Clock size={16} className="text-[#252578]" />
+                  2. Category × Priority SLA Policies
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Resolution time limits per Category and Priority combination for {selectedBranch.name}. Combos with no override inherit the system-wide baseline.
+                </p>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setSlaCategoryFilter('ALL')}
+                  className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer ${
+                    slaCategoryFilter === 'ALL'
+                      ? 'bg-[#252578] text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  All ({currentBranchCategories.length})
+                </button>
+                {currentBranchCategories.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => setSlaCategoryFilter(c.name)}
+                    className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer ${
+                      slaCategoryFilter === c.name
+                        ? 'bg-[#252578] text-white shadow-xs'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Matrix grouped by Category */}
+            <div className="flex flex-col gap-5">
+              {currentBranchCategories
+                .filter((c) => slaCategoryFilter === 'ALL' || slaCategoryFilter === c.name)
+                .map((cat) => {
+                  const combos = currentBranchSlaMatrix.filter(
+                    (m) => m.categoryName.toLowerCase() === cat.name.toLowerCase()
+                  );
+                  const overrideCount = combos.filter((m) => !m.isInherited).length;
+
+                  return (
+                    <div
+                      key={cat.name}
+                      className="rounded-xl border border-gray-200 bg-white p-5 shadow-xs flex flex-col gap-4"
+                    >
+                      {/* Category Header */}
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-3 flex-wrap gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <h4 className="text-sm font-bold text-gray-900">{cat.name}</h4>
+                          {cat.isSystemDefault ? (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 border border-gray-200">
+                              System Default Category
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 border border-indigo-200">
+                              Branch Custom Category
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {overrideCount > 0 ? (
+                            <span className="text-indigo-700 font-semibold">
+                              {overrideCount} Override{overrideCount > 1 ? 's' : ''} Active
+                            </span>
+                          ) : (
+                            'All 4 priorities using system-wide defaults'
+                          )}
+                        </span>
+                      </div>
+
+                      {/* 4 Priorities Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        {combos.map((item) => (
+                          <div
+                            key={item.priorityName}
+                            className={`rounded-xl border p-4 flex flex-col justify-between gap-3.5 transition-all ${
+                              item.isInherited
+                                ? 'border-gray-200 bg-gray-50/60'
+                                : 'border-indigo-200 bg-indigo-50/30 ring-1 ring-indigo-100'
+                            }`}
+                          >
+                            <div className="flex flex-col gap-2.5">
+                              {/* Priority Badge + Inherited Status Badge */}
+                              <div className="flex items-center justify-between gap-1 flex-wrap">
+                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.priorityColor}`}>
+                                  {item.priorityName}
+                                </span>
+                                {item.isInherited ? (
+                                  <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                                    System default
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#252578] bg-[#252578]/10 px-2 py-0.5 rounded-full border border-[#252578]/20">
+                                    <Sparkles size={10} />
+                                    Override
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Target Resolution Time */}
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider font-bold text-gray-400">
+                                  Resolution Target
+                                </span>
+                                <div className="mt-0.5 flex items-baseline gap-1.5">
+                                  <span className="text-base font-bold text-gray-900">
+                                    {formatMinutes(item.resolutionTimeLimit)}
+                                  </span>
+                                  <span className="text-[11px] text-gray-400">
+                                    ({item.resolutionTimeLimit}m)
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Baseline Reference */}
+                              <div className="text-[11px] text-gray-500 pt-2 border-t border-gray-100/80">
+                                <span className="text-gray-400">System default: </span>
+                                <span className="font-semibold text-gray-700">
+                                  {formatMinutes(item.sysDefaultResolution)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="pt-2 border-t border-gray-100 flex items-center justify-end gap-1.5">
+                              {item.isInherited ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSlaPolicyModal(item)}
+                                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#252578] px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#1f1f60] transition-all cursor-pointer"
+                                >
+                                  <Plus size={12} />
+                                  Set Override
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveSlaPolicy(item)}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                                    title="Revert to system default"
+                                  >
+                                    <RotateCcw size={12} />
+                                    Revert
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSlaPolicyModal(item)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <Edit3 size={12} />
+                                    Edit
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* TS090: Add / Edit Category Modal */}
+          {editingCategory && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-fade-slide-in">
+              <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-5">
+                <div className="flex items-start justify-between border-b border-gray-100 pb-3">
+                  <div>
+                    <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                      {selectedBranch.name}
+                    </span>
+                    <h3 className="text-lg font-bold text-gray-900 mt-1">
+                      {editingCategory.isNew ? 'Add Branch Ticket Category' : 'Edit Branch Ticket Category'}
+                    </h3>
+                  </div>
+                </div>
+
+                {categoryModalError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                    <AlertCircle size={15} className="shrink-0 text-red-600" />
+                    <span>{categoryModalError}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-600">
+                    Category Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editingCategory.name}
+                    onChange={(e) => {
+                      setEditingCategory({ ...editingCategory, name: e.target.value });
+                      setCategoryModalError('');
+                    }}
+                    placeholder="e.g. Biomedical Facility Maintenance"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-[#252578] focus:ring-1 focus:ring-[#252578] outline-none"
+                    autoFocus
+                  />
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    This category will only apply to tickets assigned to {selectedBranch.name}.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCategory(null)}
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveCategory}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
+                  >
+                    {editingCategory.isNew ? 'Create Category' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TS090: Set / Edit SLA Policy Modal */}
+          {editingSlaPolicy && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-fade-slide-in">
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-5">
+                <div className="flex items-start justify-between border-b border-gray-100 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md">
+                        {editingSlaPolicy.categoryName}
+                      </span>
+                      <span className="text-xs font-bold text-gray-400">•</span>
+                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${editingSlaPolicy.priorityColor}`}>
+                        {editingSlaPolicy.priorityName} Priority
+                      </span>
+                      <span className="text-xs font-bold text-gray-400">•</span>
+                      <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                        {selectedBranch.name}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mt-1">
+                      {editingSlaPolicy.isNew ? 'Set Category SLA Override' : 'Edit Category SLA Policy'}
+                    </h3>
+                  </div>
+                </div>
+
+                {/* Precedence & Due-Date Info Callout */}
+                <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-3.5 text-xs text-blue-900 flex items-start gap-2.5">
+                  <Info size={16} className="shrink-0 text-blue-600 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <p className="font-semibold text-blue-950">Resolution Target Policy</p>
+                    <p className="mt-0.5 text-blue-800">
+                      This affects new tickets going forward. Existing open tickets' due dates are not recalculated.
+                    </p>
+                  </div>
+                </div>
+
+                {slaPolicyModalError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                    <AlertCircle size={15} className="shrink-0 text-red-600" />
+                    <span>{slaPolicyModalError}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                      <Clock size={13} className="text-[#252578]" />
+                      Resolution Time Limit (Minutes) <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-xs font-bold text-[#252578]">
+                      {formatMinutes(parseInt(editingSlaPolicy.resolutionTimeLimit, 10) || 0) || '0 mins'}
+                    </span>
+                  </div>
+
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editingSlaPolicy.resolutionTimeLimit}
+                    onChange={(e) => {
+                      setEditingSlaPolicy({ ...editingSlaPolicy, resolutionTimeLimit: e.target.value });
+                      setSlaPolicyModalError('');
+                    }}
+                    placeholder="e.g. 480"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-[#252578] focus:ring-1 focus:ring-[#252578] outline-none"
+                    autoFocus
+                  />
+
+                  {/* Preset Chips */}
+                  <div>
+                    <span className="text-[11px] font-semibold text-gray-500">Quick Presets:</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {[
+                        { label: '1 hour', mins: 60 },
+                        { label: '2 hours', mins: 120 },
+                        { label: '4 hours', mins: 240 },
+                        { label: '6 hours', mins: 360 },
+                        { label: '8 hours', mins: 480 },
+                        { label: '24 hours', mins: 1440 },
+                        { label: '48 hours', mins: 2880 },
+                        { label: '72 hours', mins: 4320 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.mins}
+                          type="button"
+                          onClick={() => {
+                            setEditingSlaPolicy({ ...editingSlaPolicy, resolutionTimeLimit: String(preset.mins) });
+                            setSlaPolicyModalError('');
+                          }}
+                          className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition-all cursor-pointer ${
+                            String(editingSlaPolicy.resolutionTimeLimit) === String(preset.mins)
+                              ? 'bg-[#252578] text-white border-[#252578]'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-gray-50 p-2.5 text-xs text-gray-500 flex items-center justify-between border border-gray-100">
+                    <span>System default for {editingSlaPolicy.priorityName}:</span>
+                    <span className="font-semibold text-gray-800">
+                      {formatMinutes(editingSlaPolicy.sysDefaultResolution)} ({editingSlaPolicy.sysDefaultResolution}m)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSlaPolicy(null)}
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveSlaPolicy}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
+                  >
+                    {editingSlaPolicy.isNew ? 'Create SLA Override' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+            </div>
+          ) : (
+            /* Sub-Section Content: Priorities & SLA (TS092) */
+            <div className="flex flex-col gap-6">
+              {/* Inline Simulation Blocked Error Banner */}
+          {branchOverrideError && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs text-red-800 flex items-start justify-between gap-3 shadow-xs animate-fade-slide-in">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle size={17} className="shrink-0 text-red-600 mt-0.5" />
+                <div>
+                  <p className="font-bold text-red-900">
+                    Cannot Remove {branchOverrideError.priorityName} Priority Override
+                  </p>
+                  <p className="mt-0.5 text-red-700 leading-relaxed">
+                    {branchOverrideError.message}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBranchOverrideError(null)}
+                className="text-red-400 hover:text-red-700 text-xs font-bold px-2 py-1 rounded cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Priority Level Overrides Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {currentBranchOverrides.map((override) => {
+              const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+
+              return (
+                <div
+                  key={override.name}
+                  className={`rounded-2xl border bg-white p-6 shadow-sm flex flex-col justify-between gap-5 transition-all hover:shadow-md ${
+                    override.isInherited ? 'border-gray-200' : 'border-indigo-200 ring-1 ring-indigo-100'
+                  }`}
+                >
+                  <div>
+                    {/* Top Row: Priority Badge + Scope Indicator Badge */}
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-4 gap-3 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        <span className={`inline-block rounded-full px-3.5 py-1 text-xs font-semibold ${override.color}`}>
+                          {override.name} Priority
+                        </span>
+                        {override.inUse && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            {override.activeTicketCount} Active Tickets
+                          </span>
+                        )}
+                      </div>
+
+                      {override.isInherited ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600 border border-gray-200">
+                          <span>Using system-wide default</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#252578]/10 px-3 py-1 text-xs font-bold text-[#252578] border border-[#252578]/20">
+                          <Sparkles size={12} />
+                          <span>Branch Override</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Middle: Active Response & Resolution SLAs */}
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      {/* Response Time Card */}
+                      <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-3.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
+                          <Clock size={12} className="text-[#252578]" />
+                          First Response
+                        </span>
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className="text-lg font-bold text-gray-900">
+                            {formatMinutes(override.responseTimeLimit)}
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            ({override.responseTimeLimit}m)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Resolution Time Card */}
+                      <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-3.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
+                          <Clock size={12} className="text-[#252578]" />
+                          Resolution Target
+                        </span>
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className="text-lg font-bold text-gray-900">
+                            {formatMinutes(override.resolutionTimeLimit)}
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            ({override.resolutionTimeLimit}m)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Read-only System-wide Baseline Reference */}
+                    <div className="mt-3.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-[11px] text-gray-500 flex items-center justify-between flex-wrap gap-2">
+                      <span className="font-medium text-gray-600">System-wide Reference:</span>
+                      <span className="font-semibold text-gray-700">
+                        {formatMinutes(sysDefault.responseTimeLimit)} response / {formatMinutes(sysDefault.resolutionTimeLimit)} resolution
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions Footer */}
+                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-gray-400">
+                      Scope: {selectedBranch.name} ({selectedBranch.code})
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      {override.isInherited ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenBranchOverrideModal(override)}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#1f1f60] transition-all cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          Set Override
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBranchOverride(override)}
+                            className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                            title="Remove override and revert to system-wide default"
+                          >
+                            <Trash2 size={13} />
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBranchOverrideModal(override)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-800 shadow-xs hover:bg-gray-50 transition-all cursor-pointer"
+                          >
+                            <Edit3 size={13} />
+                            Edit
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* TS092: Edit / Set Override Modal */}
+          {editingBranchOverride && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-fade-slide-in">
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-5">
+                {/* Modal Header */}
+                <div className="flex items-start justify-between border-b border-gray-100 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${editingBranchOverride.color}`}>
+                        {editingBranchOverride.priorityName} Priority
+                      </span>
+                      <span className="text-xs font-bold text-gray-400">•</span>
+                      <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                        {selectedBranch.name}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mt-1">
+                      {editingBranchOverride.isNew ? 'Set Branch Priority Override' : 'Edit Branch Priority Override'}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingBranchOverride(null)}
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Form Fields */}
+                <div className="flex flex-col gap-4">
+                  {/* Response Time Limit */}
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5 mb-1">
+                      <Clock size={14} className="text-[#252578]" />
+                      Response Time Limit (Minutes)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingBranchOverride.responseTimeLimit}
+                      onChange={(e) =>
+                        setEditingBranchOverride((prev) => ({
+                          ...prev,
+                          responseTimeLimit: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 15"
+                      className={`w-full rounded-xl border px-4 py-2.5 text-sm font-semibold outline-none transition-all ${
+                        branchModalErrors.responseTimeLimit
+                          ? 'border-red-300 bg-red-50/40 text-red-900 focus:ring-2 focus:ring-red-400'
+                          : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:bg-white focus:ring-2 focus:ring-[#252578]'
+                      }`}
+                    />
+                    <div className="mt-1 flex items-center justify-between text-xs">
+                      <span className="text-[#252578] font-medium flex items-center gap-1">
+                        <Clock size={12} />
+                        {formatMinutes(editingBranchOverride.responseTimeLimit) || '0 mins'}
+                      </span>
+                      <span className="text-gray-400 text-[11px]">
+                        System default: {formatMinutes(SYSTEM_DEFAULT_PRIORITY_SLAS[editingBranchOverride.priorityName]?.responseTimeLimit)}
+                      </span>
+                    </div>
+                    {branchModalErrors.responseTimeLimit && (
+                      <p className="text-xs text-red-600 font-semibold mt-1">
+                        {branchModalErrors.responseTimeLimit}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Resolution Time Limit */}
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5 mb-1">
+                      <Clock size={14} className="text-[#252578]" />
+                      Resolution Time Limit (Minutes)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingBranchOverride.resolutionTimeLimit}
+                      onChange={(e) =>
+                        setEditingBranchOverride((prev) => ({
+                          ...prev,
+                          resolutionTimeLimit: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 240"
+                      className={`w-full rounded-xl border px-4 py-2.5 text-sm font-semibold outline-none transition-all ${
+                        branchModalErrors.resolutionTimeLimit
+                          ? 'border-red-300 bg-red-50/40 text-red-900 focus:ring-2 focus:ring-red-400'
+                          : 'border-gray-200 bg-gray-50/50 text-gray-900 focus:bg-white focus:ring-2 focus:ring-[#252578]'
+                      }`}
+                    />
+                    <div className="mt-1 flex items-center justify-between text-xs">
+                      <span className="text-[#252578] font-medium flex items-center gap-1">
+                        <Clock size={12} />
+                        {formatMinutes(editingBranchOverride.resolutionTimeLimit) || '0 mins'}
+                      </span>
+                      <span className="text-gray-400 text-[11px]">
+                        System default: {formatMinutes(SYSTEM_DEFAULT_PRIORITY_SLAS[editingBranchOverride.priorityName]?.resolutionTimeLimit)}
+                      </span>
+                    </div>
+                    {branchModalErrors.resolutionTimeLimit && (
+                      <p className="text-xs text-red-600 font-semibold mt-1">
+                        {branchModalErrors.resolutionTimeLimit}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Operational Impact Notice with Tooltip */}
+                  {/* ASSUMPTION: This affects new tickets going forward; existing open tickets' due dates are not recalculated (consistent with TS090/TS100 pattern, pending explicit backend confirmation). */}
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 text-xs text-indigo-900 flex items-start gap-2">
+                    <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">
+                      <span className="font-bold">Due-Date Calculation Impact:</span>{' '}
+                      This affects new tickets created in <strong>{selectedBranch.name}</strong> going forward. Existing open tickets' due dates are not recalculated.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingBranchOverride(null)}
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveBranchOverride}
+                    className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
+                  >
+                    {editingBranchOverride.isNew ? 'Create Override' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+            </div>
+          )}
+        </div>
       ) : tab === TAB_ESCALATION ? (
         <div className="flex flex-col gap-6">
           {/* Page Header */}
@@ -6375,6 +8050,7 @@ export default function SuperAdminTicketConfig() {
           </div>
         </>
       )}
+      </div>
 
       {openMenuId && menuPos && createPortal(
         (() => {

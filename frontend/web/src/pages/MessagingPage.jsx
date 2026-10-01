@@ -16,6 +16,7 @@ import {
   updateTicket,
 } from '@/services/ticketService';
 import { formatDisplayDate } from '@/utils/dateUtils';
+import { isMessageArchivalOnClosureEnabled } from '@/data/messageArchivalConfig';
 
 // ─── Badge Styling Helpers ──────────────────────────────────────────────────
 const statusBadges = {
@@ -108,6 +109,30 @@ export default function MessagingPage() {
   const [conversationTab, setConversationTab] = useState('active'); // 'active' | 'archived'
   const [reopening, setReopening] = useState(false);
 
+  // TS067: Message archival gate from Super Admin config
+  // TEMPORARY: localStorage is used here only as a same-session demo bridge between
+  // Super Admin and Customer/Employee/CS portals for this sprint's frontend-only scope.
+  // This must be replaced with a real backend-persisted setting, read by all portals
+  // via API, before this is production-ready — localStorage does not sync across
+  // different users/devices/browsers.
+  const [archiveOnClosureEnabled, setArchiveOnClosureEnabled] = useState(() => isMessageArchivalOnClosureEnabled());
+
+  useEffect(() => {
+    const handleToggleChanged = (e) => {
+      if (e?.detail?.enabled !== undefined) {
+        setArchiveOnClosureEnabled(Boolean(e.detail.enabled));
+      } else {
+        setArchiveOnClosureEnabled(isMessageArchivalOnClosureEnabled());
+      }
+    };
+    window.addEventListener('message_archival_toggle_changed', handleToggleChanged);
+    window.addEventListener('storage', handleToggleChanged);
+    return () => {
+      window.removeEventListener('message_archival_toggle_changed', handleToggleChanged);
+      window.removeEventListener('storage', handleToggleChanged);
+    };
+  }, []);
+
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
@@ -198,14 +223,10 @@ export default function MessagingPage() {
       const statusName = t.status || t.status_name || 'Open';
       const isClosed = statusName === 'Closed';
 
-      const hasAssignment = (t.assigned_to !== undefined && t.assigned_to !== null)
-        ? true
-        : (Array.isArray(t.assigned) && t.assigned.length > 0);
-
-      // Delegated check — if ticket is assigned or moved past Open/Pending/Reopened phase
-      const isDelegated = (hasAssignment || (statusName !== 'Open' && statusName !== 'Pending Assignment' && statusName !== 'Pending' && statusName !== 'Reopened')) && !isClosed;
-
-      const isArchived = isClosed || isDelegated;
+      // TS067: Real behavior change — removed "Delegated" condition entirely.
+      // Threads now remain active throughout the active lifecycle (Open, Assigned, In Progress, On Hold, etc.).
+      // Archival only triggers when the ticket status is "Closed" AND the Super Admin toggle is ON.
+      const isArchived = isClosed && archiveOnClosureEnabled;
 
       return {
         id: ticketId,
@@ -216,7 +237,6 @@ export default function MessagingPage() {
         type,
         status: statusName,
         isClosed,
-        isDelegated,
         isArchived,
         requested_by: t.requested_by,
         description: t.description || 'No description provided.',
@@ -226,7 +246,7 @@ export default function MessagingPage() {
         priority: t.priority || t.priority_name || 'Low',
       };
     });
-  }, [tickets, isCS, isEmployee]);
+  }, [tickets, isCS, isEmployee, archiveOnClosureEnabled]);
 
   // 3. Separate Active and Archived contact lists
   const activeContacts = useMemo(() => {
@@ -660,7 +680,7 @@ export default function MessagingPage() {
                   <div className="flex items-center gap-2 text-xs text-amber-900 font-medium">
                     <Archive size={16} className="text-amber-600 shrink-0" />
                     <span>
-                      <strong>Archived Conversation:</strong> Ticket is {selectedContact.isClosed ? 'Closed' : 'Delegated'}. Chat is read-only.
+                      <strong>Archived Conversation:</strong> This ticket is Closed. The message thread is locked and read-only.
                     </span>
                   </div>
                 </div>
@@ -842,12 +862,12 @@ export default function MessagingPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input / Delegated & Archived Banner */}
+              {/* Input / Closed & Archived Banner */}
               {selectedContact.isArchived ? (
                 <div className="flex items-center justify-center gap-2 px-6 py-5 border-t border-gray-100 bg-amber-50/50 flex-shrink-0">
                   <AlertCircle className="text-amber-600 shrink-0" size={18} />
                   <p className="text-xs text-amber-900 font-medium">
-                    This conversation is archived because the ticket is {selectedContact.isClosed ? 'Closed' : 'Delegated'}.
+                    This conversation is archived because the ticket is Closed. The message thread is locked and read-only.
                   </p>
                 </div>
               ) : isCS && Number(selectedContact.requested_by) === Number(user?.emp_id ?? user?.id) ? (
@@ -939,7 +959,7 @@ export default function MessagingPage() {
                         <span>Archived Conversation</span>
                       </div>
                       <p className="text-[11px] text-amber-800 leading-normal">
-                        This conversation is stored in Archive because the ticket is {selectedContact.isClosed ? 'closed' : 'delegated'}.
+                        This conversation is stored in Archive because the ticket is Closed. The message thread is locked and read-only.
                       </p>
                     </div>
                   )}
