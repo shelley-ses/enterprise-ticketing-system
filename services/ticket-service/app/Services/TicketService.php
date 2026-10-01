@@ -1012,9 +1012,17 @@ class TicketService
 
         if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 2 || $validated['ticket_status_ID'] == 8)) {
             if ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4) {
-                $resolvedAt = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : null;
-                if ($resolvedAt && $resolvedAt->diffInHours(now()) > 48) {
-                    return ['status' => 422, 'data' => ['message' => 'Cannot reopen ticket: More than 48 hours have passed since resolution.']];
+                $windowConfig = \App\Services\TicketConfigurationService::getWindowConfig();
+                if (!($windowConfig['reopenEnabled'] ?? true)) {
+                    return ['status' => 422, 'data' => ['message' => 'Cannot reopen ticket: Reopening tickets is disabled by administrative operational policy.']];
+                }
+
+                $reopenDays = (int) ($windowConfig['reopenWindowDays'] ?? 2);
+                $allowedHours = $reopenDays * 24;
+                $resolvedAt = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : ($ticket->closed_at ? Carbon::parse($ticket->closed_at) : null);
+                if ($resolvedAt && $resolvedAt->diffInHours(now()) > $allowedHours) {
+                    $dayLabel = $reopenDays === 1 ? '1 day' : "{$reopenDays} days";
+                    return ['status' => 422, 'data' => ['message' => "Cannot reopen ticket: More than {$dayLabel} ({$allowedHours} hours) have passed since resolution."]];
                 }
             }
         }

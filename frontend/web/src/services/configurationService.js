@@ -404,3 +404,76 @@ export async function disableFeedbackCategory(category) {
   const response = await configClient.post('/feedback-form/disable-category', { category });
   return response.data;
 }
+
+export const TS100_WINDOW_CONFIG_CACHE_KEY = 'ts100_ticket_window_config';
+
+/**
+ * Retrieve cached ticket window configuration from localStorage for instant, zero-latency rendering.
+ */
+export function getCachedWindowConfiguration() {
+  try {
+    const raw = localStorage.getItem(TS100_WINDOW_CONFIG_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.reopenWindowDays !== 'undefined') {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Store updated ticket window configuration in localStorage cache.
+ */
+export function setCachedWindowConfiguration(config) {
+  try {
+    if (config) {
+      localStorage.setItem(TS100_WINDOW_CONFIG_CACHE_KEY, JSON.stringify(config));
+      window.dispatchEvent(new CustomEvent('ticket_window_config_updated', { detail: config }));
+    } else {
+      localStorage.removeItem(TS100_WINDOW_CONFIG_CACHE_KEY);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+/**
+ * Get ticket lifecycle window configurations (reopen and auto-close).
+ */
+export async function getWindowConfiguration() {
+  const response = await configClient.get('/ticket-configurations/windows');
+  const val = response.data?.value || response.data;
+  if (val) {
+    setCachedWindowConfiguration(val);
+  }
+  return val;
+}
+
+/**
+ * Update ticket lifecycle window configurations (reopen and auto-close).
+ */
+export async function updateWindowConfiguration(payload) {
+  const response = await configClient.put('/ticket-configurations/windows', payload);
+  const val = response.data?.value || response.data;
+  if (val) {
+    setCachedWindowConfiguration(val);
+  }
+  return val;
+}
+
+/**
+ * Reset ticket lifecycle window configurations to system defaults.
+ */
+export async function resetWindowConfiguration() {
+  const response = await configClient.post('/ticket-configurations/windows/reset');
+  const val = response.data?.value || response.data;
+  if (val) {
+    setCachedWindowConfiguration(val);
+  }
+  return val;
+}
+

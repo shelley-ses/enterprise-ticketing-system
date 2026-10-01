@@ -195,6 +195,9 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::delete('/superadmin/priority/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminPriority']);
     Route::get('/superadmin/audit-logs', [SuperAdminConfigController::class, 'getSuperAdminAuditLogs']);
     Route::get('/superadmin/history', [SuperAdminConfigController::class, 'getSuperAdminHistory']);
+    Route::get('/superadmin/window-config', [SuperAdminConfigController::class, 'getWindowConfig']);
+    Route::put('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
+    Route::patch('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
 
     // ─── SuperAdmin SLA Rules ─────────────────────────────────────────────────
     Route::get('/superadmin/sla-rules', [SLARuleController::class, 'index']);

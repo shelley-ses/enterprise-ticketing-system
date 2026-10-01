@@ -454,4 +454,129 @@ class SuperAdminConfigController extends Controller
 
         return response()->json($formattedLogs);
     }
+
+    /**
+     * Retrieve the ticket lifecycle window configuration (reopen & auto-close).
+     */
+    public function getWindowConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $config = \App\Services\TicketConfigurationService::getWindowConfig();
+
+        return response()->json(array_merge([
+            'key' => 'windows',
+            'value' => $config,
+        ], $config));
+    }
+
+    /**
+     * Update the ticket lifecycle window configuration independently with strict validation.
+     */
+    public function updateWindowConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $payload = $request->input('value', $request->all());
+
+        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+            'reopenEnabled' => 'sometimes|boolean',
+            'reopenWindowDays' => [
+                'sometimes',
+                'required',
+                function ($attribute, $value, $fail) {
+                    if (!is_numeric($value)) {
+                        $fail('The reopen window duration must be a valid numeric value.');
+                        return;
+                    }
+                    $num = (float) $value;
+                    if ($num <= 0) {
+                        $fail('The reopen window duration must be a positive number greater than zero.');
+                        return;
+                    }
+                    if ((int) $value != $num) {
+                        $fail('The reopen window duration must be a whole integer number of days.');
+                    }
+                },
+            ],
+            'autoCloseEnabled' => 'sometimes|boolean',
+            'autoCloseWindowDays' => [
+                'sometimes',
+                'required',
+                function ($attribute, $value, $fail) {
+                    if (!is_numeric($value)) {
+                        $fail('The auto-close window duration must be a valid numeric value.');
+                        return;
+                    }
+                    $num = (float) $value;
+                    if ($num <= 0) {
+                        $fail('The auto-close window duration must be a positive number greater than zero.');
+                        return;
+                    }
+                    if ((int) $value != $num) {
+                        $fail('The auto-close window duration must be a whole integer number of days.');
+                    }
+                },
+            ],
+        ], [
+            'reopenEnabled.boolean' => 'The reopen enabled setting must be true or false.',
+            'autoCloseEnabled.boolean' => 'The auto-close enabled setting must be true or false.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid window configuration values.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateWindowConfig($validated, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $reopenText = ($updated['reopenEnabled'] ?? true)
+            ? "Enabled ({$updated['reopenWindowDays']} days)"
+            : "Disabled";
+        $autoCloseText = ($updated['autoCloseEnabled'] ?? true)
+            ? "Enabled ({$updated['autoCloseWindowDays']} days)"
+            : "Disabled";
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Lifecycle Window Configuration',
+                'target' => 'Reopen & Auto-Close Windows',
+                'text' => "Updated ticket lifecycle windows: Customer Reopen is {$reopenText}, Auto-Close is {$autoCloseText}. Changes apply only to subsequent lifecycle actions.",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'windows',
+            'data' => $updated,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(array_merge([
+            'message' => 'Ticket lifecycle window configuration updated successfully.',
+            'key' => 'windows',
+            'value' => $updated,
+        ], $updated));
+    }
 }
+

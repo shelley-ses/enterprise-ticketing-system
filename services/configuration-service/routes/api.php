@@ -70,6 +70,19 @@ $registerRoutes = function () {
     Route::post('/feedback-form/category-toggle', [\App\Http\Controllers\FeedbackQuestionController::class, 'setCategoryToggle']);
     Route::put('/feedback-form/category-toggle', [\App\Http\Controllers\FeedbackQuestionController::class, 'setCategoryToggle']);
     Route::post('/feedback-form/disable-category', [\App\Http\Controllers\FeedbackQuestionController::class, 'disableCategory']);
+
+    // Ticket lifecycle windows & configurations
+    Route::get('/ticket-configurations', [\App\Http\Controllers\TicketConfigurationController::class, 'index']);
+    Route::get('/ticket-configurations/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'showWindows']);
+    Route::put('/ticket-configurations/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
+    Route::patch('/ticket-configurations/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
+    Route::get('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'showWindows']);
+    Route::put('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
+    Route::patch('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
+    Route::get('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'show']);
+    Route::put('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
+    Route::patch('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
+    Route::post('/ticket-configurations/{key}/reset', [\App\Http\Controllers\TicketConfigurationController::class, 'reset']);
 };
 
 // Public RSA encryption key endpoint (no prefix)

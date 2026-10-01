@@ -7,7 +7,7 @@ import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBan
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
-import { getFeedbackFormStatus } from '@/services/configurationService';
+import { getFeedbackFormStatus, getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const getFileName = (file, fallback = 'Attachment') => {
@@ -64,6 +64,34 @@ export default function CustomerTicketDetailModal({
       isMounted = false;
       window.removeEventListener('storage', handleToggleChange);
       window.removeEventListener('feedback_master_toggle_changed', handleToggleChange);
+    };
+  }, []);
+
+  const [windowConfig, setWindowConfig] = useState(() => {
+    const cached = getCachedWindowConfiguration();
+    if (cached && typeof cached.reopenWindowDays !== 'undefined') {
+      return {
+        reopenEnabled: Boolean(cached.reopenEnabled ?? true),
+        reopenWindowDays: Number(cached.reopenWindowDays ?? 2),
+      };
+    }
+    return { reopenEnabled: true, reopenWindowDays: 2 };
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    getWindowConfiguration()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setWindowConfig({
+            reopenEnabled: Boolean(cfg.reopenEnabled ?? true),
+            reopenWindowDays: Number(cfg.reopenWindowDays ?? 2),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
     };
   }, []);
 
@@ -194,10 +222,12 @@ export default function CustomerTicketDetailModal({
   if (!ticket) return null;
 
   const resolvedAt = ticket.resolved_at ? new Date(ticket.resolved_at) : null;
-  const isReopenableStandard = ticket.status === 'Closed'
+  const reopenDurationMs = (Number(windowConfig.reopenWindowDays) || 2) * 24 * 60 * 60 * 1000;
+  const isReopenableStandard = Boolean(windowConfig.reopenEnabled)
+    && ticket.status === 'Closed'
     && resolvedAt
     && !Number.isNaN(resolvedAt.getTime())
-    && (new Date() - resolvedAt) < (48 * 60 * 60 * 1000);
+    && (new Date() - resolvedAt) < reopenDurationMs;
   const isReopenableHistory = isHistoryView && ticket.status === 'Closed';
   const isReopenable = isReopenableHistory || isReopenableStandard;
   const canShowReopenAction = allowReopen && isReopenable && typeof onReopen === 'function';
