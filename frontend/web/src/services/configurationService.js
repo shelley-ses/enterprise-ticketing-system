@@ -444,3 +444,48 @@ export async function resetTicketConfiguration(key) {
   const response = await configClient.post(`/ticket-config/${key}/reset`);
   return response.data;
 }
+
+// ---------------------------------------------------------------------------
+// System Settings Configurations (company_info, system_status, log_level)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all SuperAdmin system configuration sections.
+ * @returns {Promise<Object>}
+ */
+export async function getAllSystemConfigurations() {
+  const response = await configClient.get('/system-config');
+  return response.data;
+}
+
+/**
+ * Fetch a specific system configuration section by key.
+ * @param {string} key
+ * @returns {Promise<Object>}
+ */
+export async function getSystemConfiguration(key) {
+  const response = await configClient.get(`/system-config/${key}`);
+  return response.data;
+}
+
+/**
+ * Save / update a specific system configuration section in the database.
+ * @param {string} key
+ * @param {Object} data
+ * @returns {Promise<Object>}
+ */
+export async function saveSystemConfiguration(key, data) {
+  const response = await configClient.put(`/system-config/${key}`, data);
+  return response.data;
+}
+
+/**
+ * Reset a specific system configuration section to baseline defaults.
+ * @param {string} key
+ * @returns {Promise<Object>}
+ */
+export async function resetSystemConfiguration(key) {
+  const response = await configClient.post(`/system-config/${key}/reset`);
+  return response.data;
+}
+

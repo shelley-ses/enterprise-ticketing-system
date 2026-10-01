@@ -77,6 +77,13 @@ $registerRoutes = function () {
     Route::post('/ticket-config/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
     Route::put('/ticket-config/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
     Route::post('/ticket-config/{key}/reset', [\App\Http\Controllers\TicketConfigurationController::class, 'reset']);
+
+    // SuperAdmin System configurations (company_info, system_status, log_level)
+    Route::get('/system-config', [\App\Http\Controllers\SystemConfigurationController::class, 'index']);
+    Route::get('/system-config/{key}', [\App\Http\Controllers\SystemConfigurationController::class, 'show']);
+    Route::post('/system-config/{key}', [\App\Http\Controllers\SystemConfigurationController::class, 'update']);
+    Route::put('/system-config/{key}', [\App\Http\Controllers\SystemConfigurationController::class, 'update']);
+    Route::post('/system-config/{key}/reset', [\App\Http\Controllers\SystemConfigurationController::class, 'reset']);
 };
 
 // Public RSA encryption key endpoint (no prefix)
