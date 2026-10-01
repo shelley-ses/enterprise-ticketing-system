@@ -179,12 +179,13 @@ export default function EmployeeHistoryDetail() {
 
   const isImage = (name) => /\.(png|jpg|jpeg|gif|webp)$/i.test(name || '');
 
-  const equipmentTypeDisplay =
+  const ticketCategoryDisplay =
+    ticket.ticket_category ||
+    ticket.category ||
+    ticket.category_name ||
     ticket.equipment_type ||
-    ticket.equipmentType ||
     ticket.machine_category ||
-    ticket.machine?.category_name ||
-    (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment');
+    'General';
 
   const assignedEmployeeDisplay =
     ticket.assigned_employee ||
@@ -255,8 +256,7 @@ export default function EmployeeHistoryDetail() {
         <h1 className="text-2xl font-bold text-gray-900 mb-1">{ticket.title}</h1>
         <p className="text-sm text-gray-500 mb-4">
           {machineDisplay !== '—' && `${machineDisplay} · `}
-          <span className="font-medium text-gray-700">{equipmentTypeDisplay}</span>
-          {ticket.category && ` · ${ticket.category}`}
+          <span className="font-medium text-gray-700">{ticketCategoryDisplay}</span>
         </p>
 
         <ReassignmentDisapprovalBanner ticket={ticket} className="mb-5" />
@@ -277,9 +277,9 @@ export default function EmployeeHistoryDetail() {
             </p>
           </div>
           <div className="bg-gray-50 rounded-xl p-3">
-            <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Equipment Type</p>
-            <p className="text-sm font-semibold text-gray-800 truncate" title={equipmentTypeDisplay}>
-              {equipmentTypeDisplay}
+            <p className="text-[10px] uppercase font-bold text-gray-400 mb-0.5">Ticket Category</p>
+            <p className="text-sm font-semibold text-gray-800 truncate" title={ticketCategoryDisplay}>
+              {ticketCategoryDisplay}
             </p>
           </div>
           <div className="bg-gray-50 rounded-xl p-3">

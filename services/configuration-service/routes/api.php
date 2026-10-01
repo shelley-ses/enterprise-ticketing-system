@@ -70,6 +70,13 @@ $registerRoutes = function () {
     Route::post('/feedback-form/category-toggle', [\App\Http\Controllers\FeedbackQuestionController::class, 'setCategoryToggle']);
     Route::put('/feedback-form/category-toggle', [\App\Http\Controllers\FeedbackQuestionController::class, 'setCategoryToggle']);
     Route::post('/feedback-form/disable-category', [\App\Http\Controllers\FeedbackQuestionController::class, 'disableCategory']);
+
+    // System / Ticket configurations (number_format, defaults, limits, transitions, windows, file_limits, routing)
+    Route::get('/ticket-config', [\App\Http\Controllers\TicketConfigurationController::class, 'index']);
+    Route::get('/ticket-config/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'show']);
+    Route::post('/ticket-config/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
+    Route::put('/ticket-config/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
+    Route::post('/ticket-config/{key}/reset', [\App\Http\Controllers\TicketConfigurationController::class, 'reset']);
 };
 
 // Public RSA encryption key endpoint (no prefix)

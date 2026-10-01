@@ -151,11 +151,13 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     return [];
   }, [assignedEmployees, ticket]);
 
-  const equipmentTypeDisplay =
+  const ticketCategoryDisplay =
+    ticket.ticket_category ||
+    ticket.category ||
+    ticket.category_name ||
     ticket.equipment_type ||
-    ticket.equipmentType ||
     ticket.machine_category ||
-    (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment');
+    'General';
 
   const summaryRemarksList = useMemo(() => {
     const raw = ticket.remarks || ticket.remarks_history || [];
@@ -224,8 +226,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
-                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                    <span className="text-xs font-medium text-gray-500">Ticket Category</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticketCategoryDisplay}</span>
                   </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
@@ -395,8 +397,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
-                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                    <span className="text-xs font-medium text-gray-500">Ticket Category</span>
+                    <span className="text-xs font-semibold text-gray-800">{ticketCategoryDisplay}</span>
                   </div>
                   <div className="bg-gray-50 rounded-xl px-4 py-3">
                     <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>

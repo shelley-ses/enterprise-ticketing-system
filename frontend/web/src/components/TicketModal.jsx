@@ -336,7 +336,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Category</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Ticket Category</label>
               <select
                 name="problem_category_ID"
                 required
@@ -346,7 +346,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
                 disabled={loadingOptions || isSubmitting}
                 className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.category && categoryError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
               >
-                <option value="">Select Category</option>
+                <option value="">Select Ticket Category</option>
                 {categoryOptions.map((category) => (
                   <option key={category.value} value={category.value}>
                     {category.label}

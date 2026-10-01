@@ -44,10 +44,153 @@ class SuperAdminConfigController extends Controller
             ->orderBy('priority_ID')
             ->get();
 
+        // Ensure default ticket categories 'IT', 'Service', and 'Others' exist
+        $defaultCategories = [
+            ['name' => 'IT', 'description' => 'Information technology, software, and hardware support'],
+            ['name' => 'Service', 'description' => 'Equipment servicing, repairs, and maintenance'],
+            ['name' => 'Others', 'description' => 'General inquiries and miscellaneous requests'],
+        ];
+        foreach ($defaultCategories as $defaultCat) {
+            if (!DB::table('problem_categories')->where('category_name', $defaultCat['name'])->exists()) {
+                DB::table('problem_categories')->insert([
+                    'category_name' => $defaultCat['name'],
+                    'description' => $defaultCat['description'],
+                    'is_active' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        }
+
+        $ticketCategories = DB::table('problem_categories')
+            ->select('problem_category_ID as id', 'category_name as name', 'description', 'is_active')
+            ->orderBy('problem_category_ID', 'asc')
+            ->get();
+
         return response()->json([
             'equipment' => $equipment,
             'priorities' => $priorities,
+            'ticketCategories' => $ticketCategories,
         ]);
+    }
+
+    public function createSuperAdminTicketCategory(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $id = DB::table('problem_categories')->insertGetId([
+            'category_name' => $validated['name'],
+            'description' => $validated['description'] ?? null,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_create',
+            'action_by_ID' => $user->emp_id,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Category Configuration',
+                'target' => $validated['name'],
+                'text' => "Created ticket category '{$validated['name']}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new TicketChanged(['type' => 'config']));
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Ticket category created successfully.',
+            'id' => $id,
+        ], 201);
+    }
+
+    public function updateSuperAdminTicketCategory(Request $request, int $id)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $category = DB::table('problem_categories')->where('problem_category_ID', $id)->first();
+        if (!$category) {
+            return response()->json(['message' => 'Ticket category not found'], 404);
+        }
+
+        DB::table('problem_categories')
+            ->where('problem_category_ID', $id)
+            ->update([
+                'category_name' => $validated['name'],
+                'description' => $validated['description'] ?? $category->description,
+                'updated_at' => now(),
+            ]);
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Category Configuration',
+                'target' => $validated['name'],
+                'text' => "Updated ticket category from '{$category->category_name}' to '{$validated['name']}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new TicketChanged(['type' => 'config']));
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(['message' => 'Ticket category updated successfully.']);
+    }
+
+    public function deleteSuperAdminTicketCategory(Request $request, int $id)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $category = DB::table('problem_categories')->where('problem_category_ID', $id)->first();
+        if (!$category) {
+            return response()->json(['message' => 'Ticket category not found'], 404);
+        }
+
+        DB::table('problem_categories')->where('problem_category_ID', $id)->delete();
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_delete',
+            'action_by_ID' => $user->emp_id,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Category Configuration',
+                'target' => $category->category_name,
+                'text' => "Deleted ticket category '{$category->category_name}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new TicketChanged(['type' => 'config']));
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(['message' => 'Ticket category deleted successfully.']);
     }
 
     public function createSuperAdminEquipment(Request $request)
@@ -67,16 +210,6 @@ class SuperAdminConfigController extends Controller
             'updated_at' => now(),
         ]);
 
-        // Keep problem_categories in sync!
-        $exists = DB::table('problem_categories')->where('category_name', $validated['name'])->exists();
-        if (!$exists) {
-            DB::table('problem_categories')->insert([
-                'category_name' => $validated['name'],
-                'is_active' => true,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
 
         // Audit Log entry
         DB::table('ticket_audit_logs')->insert([
@@ -124,12 +257,6 @@ class SuperAdminConfigController extends Controller
                 'updated_at' => now(),
             ]);
 
-        DB::table('problem_categories')
-            ->where('category_name', $category->category_name)
-            ->update([
-                'category_name' => $validated['name'],
-                'updated_at' => now(),
-            ]);
 
         DB::table('ticket_audit_logs')->insert([
             'ticket_ID' => null,
@@ -163,7 +290,6 @@ class SuperAdminConfigController extends Controller
         }
 
         DB::table('machine_categories')->where('category_ID', $id)->delete();
-        DB::table('problem_categories')->where('category_name', $category->category_name)->delete();
 
         DB::table('ticket_audit_logs')->insert([
             'ticket_ID' => null,

@@ -351,7 +351,7 @@ export default function TicketCreation() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Ticket Category</label>
               <select 
                 name="problem_category_ID"
                 required 
@@ -360,7 +360,7 @@ export default function TicketCreation() {
                 disabled={loadingOptions}
                 className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
               >
-                <option value="">Select Category</option>
+                <option value="">Select Ticket Category</option>
                 {categoryOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}

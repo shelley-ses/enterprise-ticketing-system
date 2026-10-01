@@ -404,3 +404,43 @@ export async function disableFeedbackCategory(category) {
   const response = await configClient.post('/feedback-form/disable-category', { category });
   return response.data;
 }
+
+/**
+ * Fetch all system ticket configuration sections (number_format, defaults, limits, transitions, windows, file_limits, routing).
+ * @returns {Promise<Object>}
+ */
+export async function getAllTicketConfigurations() {
+  const response = await configClient.get('/ticket-config');
+  return response.data;
+}
+
+/**
+ * Fetch a specific ticket configuration section by key.
+ * @param {string} key
+ * @returns {Promise<Object>}
+ */
+export async function getTicketConfiguration(key) {
+  const response = await configClient.get(`/ticket-config/${key}`);
+  return response.data;
+}
+
+/**
+ * Save / update a specific ticket configuration section in the database.
+ * @param {string} key
+ * @param {Object} data
+ * @returns {Promise<Object>}
+ */
+export async function saveTicketConfiguration(key, data) {
+  const response = await configClient.put(`/ticket-config/${key}`, data);
+  return response.data;
+}
+
+/**
+ * Reset a specific ticket configuration section to system defaults.
+ * @param {string} key
+ * @returns {Promise<Object>}
+ */
+export async function resetTicketConfiguration(key) {
+  const response = await configClient.post(`/ticket-config/${key}/reset`);
+  return response.data;
+}

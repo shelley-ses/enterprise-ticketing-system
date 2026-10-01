@@ -6,6 +6,9 @@ import NotificationModal from '@/components/NotificationModal';
 import { useAuth } from '@/context/AuthContext';
 import {
   getSuperAdminConfig,
+  createSuperAdminTicketCategory,
+  updateSuperAdminTicketCategory,
+  deleteSuperAdminTicketCategory,
   createSuperAdminEquipment,
   updateSuperAdminEquipment,
   deleteSuperAdminEquipment,
@@ -55,6 +58,9 @@ import {
   getCategoryFeedbackToggles,
   setCategoryFeedbackToggle,
   disableFeedbackCategory,
+  getAllTicketConfigurations,
+  saveTicketConfiguration,
+  resetTicketConfiguration,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -68,6 +74,7 @@ export const GROUP_SLA_ESCALATION = 'sla-escalation';
 export const GROUP_NOTIFICATIONS = 'notifications';
 export const GROUP_SECURITY = 'security';
 
+export const TAB_TICKET_CATEGORY = 'ticket-category';
 export const TAB_EQUIPMENT = 'equipment';
 export const TAB_PRIORITY = 'priority';
 export const TAB_DEFAULTS = 'defaults';
@@ -91,8 +98,9 @@ export const GROUPS_CONFIG = [
   {
     id: GROUP_CLASSIFICATION,
     label: 'Classification',
-    defaultSubTab: TAB_EQUIPMENT,
+    defaultSubTab: TAB_TICKET_CATEGORY,
     subTabs: [
+      { id: TAB_TICKET_CATEGORY, label: 'Ticket Category' },
       { id: TAB_EQUIPMENT, label: 'Equipment Categories' },
       { id: TAB_PRIORITY, label: 'Priority Levels' },
       { id: TAB_DEFAULTS, label: 'Ticket Defaults' },
@@ -619,7 +627,7 @@ export default function SuperAdminTicketConfig() {
 
   const [activeSubTabs, setActiveSubTabs] = useState(() => {
     return {
-      [GROUP_CLASSIFICATION]: TAB_EQUIPMENT,
+      [GROUP_CLASSIFICATION]: TAB_TICKET_CATEGORY,
       [GROUP_LIFECYCLE]: TAB_WORKFLOW,
       [GROUP_SLA_ESCALATION]: TAB_SLA,
       [GROUP_NOTIFICATIONS]: NOTIF_SUBTAB_RECIPIENTS,
@@ -635,7 +643,7 @@ export default function SuperAdminTicketConfig() {
 
   // Current active sub-tab for the active group
   const currentSubTab = useMemo(() => {
-    return activeSubTabs[activeGroup] || currentGroup?.defaultSubTab || TAB_EQUIPMENT;
+    return activeSubTabs[activeGroup] || currentGroup?.defaultSubTab || TAB_TICKET_CATEGORY;
   }, [activeSubTabs, activeGroup, currentGroup]);
 
   // Backward-compatible aliases for existing internal expressions
@@ -664,7 +672,7 @@ export default function SuperAdminTicketConfig() {
     const validGroup = normalizeGroupId(rawGroup);
     if (!validGroup) {
       const fallbackGroup = GROUP_CLASSIFICATION;
-      const fallbackSubTab = TAB_EQUIPMENT;
+      const fallbackSubTab = TAB_TICKET_CATEGORY;
       setActiveGroup(fallbackGroup);
       setActiveSubTabs((prev) => ({ ...prev, [fallbackGroup]: fallbackSubTab }));
       navigate(`/superadmin/ticket-config/${fallbackGroup}/${fallbackSubTab}`, { replace: true });
@@ -713,7 +721,7 @@ export default function SuperAdminTicketConfig() {
   }, [activeGroup, navigate]);
 
   const setNotifSubtab = handleSelectSubTab;
-  const [items, setItems] = useState({ equipment: [], priorities: [], slaRules: [], departments: [], slas: [] });
+  const [items, setItems] = useState({ ticketCategories: [], equipment: [], priorities: [], slaRules: [], departments: [], slas: [] });
   const [loading, setLoading] = useState(true);
   const [savingSla, setSavingSla] = useState(false);
   const [search, setSearch] = useState('');
@@ -774,15 +782,14 @@ export default function SuperAdminTicketConfig() {
   // Feedback Form Configuration state
   // feedbackQuestions is keyed by category name from the DB (dynamic, not hardcoded)
   const [feedbackQuestions, setFeedbackQuestions] = useState(TS104_DEFAULT_QUESTIONS);
-  // feedbackCategories is derived from items.equipment names UNION any categories present in the DB
-  // (ensures IT/Service/Others from the initial seed also appear even before machine categories are renamed)
+  // feedbackCategories is derived from items.ticketCategories names UNION any categories present in the DB
   const [knownFeedbackCategories, setKnownFeedbackCategories] = useState([]);
   const feedbackCategories = useMemo(() => {
-    const equipmentNames = (items.equipment || []).map((e) => e.name);
-    // Union: all equipment names + any DB-backed categories not yet in equipment
-    const all = Array.from(new Set([...equipmentNames, ...knownFeedbackCategories]));
+    const ticketCatNames = (items.ticketCategories || []).map((c) => c.name);
+    // Union: all ticket category names + any DB-backed categories not yet in ticketCategories
+    const all = Array.from(new Set([...ticketCatNames, ...knownFeedbackCategories]));
     return all.length > 0 ? all : FEEDBACK_CATEGORIES;
-  }, [items.equipment, knownFeedbackCategories]);
+  }, [items.ticketCategories, knownFeedbackCategories]);
   const [activeFeedbackCategory, setActiveFeedbackCategory] = useState(FEEDBACK_CATEGORIES[0]);
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [feedbackInlineError, setFeedbackInlineError] = useState('');
@@ -902,7 +909,7 @@ export default function SuperAdminTicketConfig() {
     setTemplatesLoading(true);
     setChannelsLoading(true);
     try {
-      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes] = await Promise.all([
+      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes, ticketConfigsRes] = await Promise.all([
         getSuperAdminConfig().catch(() => ({ equipment: [], priorities: [] })),
         getSLARules().catch(() => ({ sla_rules: [] })),
         getDepartments().catch(() => ({ departments: [] })),
@@ -915,6 +922,7 @@ export default function SuperAdminTicketConfig() {
         getFeedbackQuestions().catch(() => null),
         getFeedbackFormStatus().catch(() => null),
         getCategoryFeedbackToggles().catch(() => null),
+        getAllTicketConfigurations().catch(() => null),
       ]);
 
       const depts = deptsData.departments || deptsData || [];
@@ -927,6 +935,7 @@ export default function SuperAdminTicketConfig() {
         ];
 
       setItems({
+        ticketCategories: configData.ticketCategories || [],
         equipment: configData.equipment || [],
         priorities: configData.priorities || [],
         slaRules: rules,
@@ -1037,6 +1046,41 @@ export default function SuperAdminTicketConfig() {
         setFeedbackMasterEnabled(isMasterOn);
         setFeedbackFormEnabled(isMasterOn);
       }
+
+      if (ticketConfigsRes) {
+        if (ticketConfigsRes.transitions) {
+          setTransitionRules(ticketConfigsRes.transitions);
+        }
+        if (ticketConfigsRes.file_limits) {
+          setFileConfig(ticketConfigsRes.file_limits);
+        }
+        if (ticketConfigsRes.windows) {
+          setWindowConfig(ticketConfigsRes.windows);
+        }
+        if (ticketConfigsRes.routing) {
+          setRoutingConfig(ticketConfigsRes.routing);
+          const configured = {};
+          Object.keys(ticketConfigsRes.routing).forEach((k) => {
+            configured[k] = true;
+          });
+          setConfiguredAlerts(configured);
+        }
+        if (ticketConfigsRes.defaults) {
+          setDefaultsConfig(ticketConfigsRes.defaults);
+          setConfiguredDefaults({ priority: true, slaPolicy: true });
+        }
+        if (ticketConfigsRes.number_format) {
+          setNumberFormatConfig(ticketConfigsRes.number_format);
+          setSavedNumberFormat(ticketConfigsRes.number_format);
+          setHasEverSavedFormat(true);
+        }
+        if (ticketConfigsRes.limits) {
+          setTicketLimitConfigState(ticketConfigsRes.limits);
+          setSavedTicketLimit(ticketConfigsRes.limits);
+          setMaxOpenTicketsLimit(ticketConfigsRes.limits);
+          setHasEverSavedLimit(true);
+        }
+      }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
     } finally {
@@ -1095,7 +1139,11 @@ export default function SuperAdminTicketConfig() {
     return () => document.removeEventListener('mousedown', handler);
   }, [openMenuId]);
 
-  const list = tab === TAB_EQUIPMENT ? items.equipment : items.priorities;
+  const list = tab === TAB_TICKET_CATEGORY
+    ? (items.ticketCategories || [])
+    : tab === TAB_EQUIPMENT
+    ? items.equipment
+    : items.priorities;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return list;
@@ -1120,16 +1168,15 @@ export default function SuperAdminTicketConfig() {
   const handleSaveItem = async () => {
     if (!editName.trim()) return;
     try {
-      if (tab === TAB_EQUIPMENT) {
+      if (tab === TAB_TICKET_CATEGORY) {
         const isNew = editingItem.id === null;
         if (isNew) {
-          await createSuperAdminEquipment({ name: editName.trim() });
+          await createSuperAdminTicketCategory({ name: editName.trim() });
         } else {
-          await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
+          await updateSuperAdminTicketCategory(editingItem.id, { name: editName.trim() });
         }
-        showSuccess('Saved', 'Category has been saved.');
-        // After creating a new equipment category, automatically seed default feedback questions for it
-        // (idempotent: backend skips if questions already exist for that category)
+        showSuccess('Saved', 'Ticket category has been saved.');
+        // After creating a new ticket category, automatically seed default feedback questions for it
         if (isNew) {
           try {
             const seedRes = await seedFeedbackCategory(editName.trim());
@@ -1140,9 +1187,16 @@ export default function SuperAdminTicketConfig() {
               }));
             }
           } catch (seedErr) {
-            console.warn('Failed to seed feedback questions for new category (non-critical):', seedErr);
+            console.warn('Failed to seed feedback questions for new ticket category (non-critical):', seedErr);
           }
         }
+      } else if (tab === TAB_EQUIPMENT) {
+        if (editingItem.id === null) {
+          await createSuperAdminEquipment({ name: editName.trim() });
+        } else {
+          await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
+        }
+        showSuccess('Saved', 'Equipment category has been saved.');
       } else {
         if (editingItem.id === null) {
           await createSuperAdminPriority({ name: editName.trim(), color: editColor });
@@ -1162,32 +1216,40 @@ export default function SuperAdminTicketConfig() {
   const handleDelete = (item) => {
     setOpenMenuId(null);
     setMenuPos(null);
-    const label = tab === TAB_EQUIPMENT ? 'category' : 'priority';
-    if (tab === TAB_EQUIPMENT) {
+    if (tab === TAB_TICKET_CATEGORY) {
       showConfirm(
-        `Delete Equipment Category?`,
+        `Delete Ticket Category?`,
         `Are you sure you want to delete "${item.name}"?\n\n⚠️ Feedback Impact: The feedback form for the "${item.name}" category will be disabled. Existing feedback questions and historical responses for this category will not be deleted — they remain in the system for reporting. You can re-enable feedback for this category if it is recreated.`,
         () => confirmDelete(item),
         { confirmText: 'Delete Category', confirmClassName: 'bg-red-600 hover:bg-red-700' }
       );
+    } else if (tab === TAB_EQUIPMENT) {
+      showConfirm(
+        `Delete Equipment Category?`,
+        `Are you sure you want to delete "${item.name}"?`,
+        () => confirmDelete(item),
+        { confirmText: 'Delete Category', confirmClassName: 'bg-red-600 hover:bg-red-700' }
+      );
     } else {
-      showConfirm(`Delete ${label}?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
+      showConfirm(`Delete Priority?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
     }
   };
 
   const confirmDelete = async (item) => {
     closeNotif();
     try {
-      if (tab === TAB_EQUIPMENT) {
-        await deleteSuperAdminEquipment(item.id);
-        // Auto-disable feedback for this category — preserves historical data
+      if (tab === TAB_TICKET_CATEGORY) {
+        await deleteSuperAdminTicketCategory(item.id);
         try {
           await disableFeedbackCategory(item.name);
           setCategoryFeedbackToggles((prev) => ({ ...prev, [item.name]: false }));
         } catch (fbErr) {
           console.warn('Could not disable category feedback (non-critical):', fbErr);
         }
-        showSuccess('Deleted', `${item.name} has been deleted. Feedback collection for this category has been disabled.`);
+        showSuccess('Deleted', `${item.name} ticket category has been deleted. Feedback collection for this category has been disabled.`);
+      } else if (tab === TAB_EQUIPMENT) {
+        await deleteSuperAdminEquipment(item.id);
+        showSuccess('Deleted', `${item.name} equipment category has been deleted.`);
       } else {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
@@ -1376,9 +1438,43 @@ export default function SuperAdminTicketConfig() {
     });
   };
 
+  const handleSaveTransitions = async () => {
+    try {
+      const res = await saveTicketConfiguration('transitions', { transitions: transitionRules });
+      if (res?.value) {
+        setTransitionRules(res.value);
+      }
+      showSuccess('Transition Rules Saved', 'Ticket status transition matrix rules have been saved to the database successfully.');
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to save transition rules.';
+      showSuccess('Save Failed', msg);
+    }
+  };
+
   const handleResetTransitions = () => {
-    setTransitionRules(TS093_DEFAULT_RULES);
-    showSuccess('Reset Complete', 'Transition rules have been restored to system defaults.');
+    showConfirm(
+      'Reset Transition Rules to Defaults?',
+      'Are you sure you want to restore all status transition rules to system defaults in the database?',
+      async () => {
+        closeNotif();
+        try {
+          const res = await resetTicketConfiguration('transitions');
+          if (res?.value) {
+            setTransitionRules(res.value);
+          } else {
+            setTransitionRules(TS093_DEFAULT_RULES);
+          }
+          showSuccess('Reset Complete', 'Transition rules have been restored to system defaults in the database.');
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to reset transition rules.';
+          showSuccess('Reset Failed', msg);
+        }
+      },
+      {
+        confirmText: 'Reset to Defaults',
+        confirmClassName: 'bg-amber-600 hover:bg-amber-700',
+      }
+    );
   };
 
   // TS098 File Config Handlers
@@ -1459,12 +1555,33 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleResetFileConfig = () => {
-    setFileConfig(TS098_DEFAULT_FILE_CONFIG);
-    setFileConfigErrors({});
-    showSuccess('Reset Complete', 'File upload settings have been restored to system defaults.');
+    showConfirm(
+      'Reset File Settings to Defaults?',
+      'Are you sure you want to restore file upload limits and security settings to system defaults in the database?',
+      async () => {
+        closeNotif();
+        try {
+          const res = await resetTicketConfiguration('file_limits');
+          if (res?.value) {
+            setFileConfig(res.value);
+          } else {
+            setFileConfig(TS098_DEFAULT_FILE_CONFIG);
+          }
+          setFileConfigErrors({});
+          showSuccess('Reset Complete', 'File upload settings have been restored to system defaults in the database.');
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to reset file settings.';
+          showSuccess('Reset Failed', msg);
+        }
+      },
+      {
+        confirmText: 'Reset to Defaults',
+        confirmClassName: 'bg-amber-600 hover:bg-amber-700',
+      }
+    );
   };
 
-  const handleSaveFileConfig = () => {
+  const handleSaveFileConfig = async () => {
     const sizeNum = parseFloat(fileConfig.maxFileSizeMB);
     const countNum = parseInt(fileConfig.maxFileCount, 10);
 
@@ -1486,7 +1603,21 @@ export default function SuperAdminTicketConfig() {
     }
 
     setFileConfigErrors({});
-    showSuccess('Settings Saved (Session)', 'File upload limits and security settings updated for this session. Persistence coming soon.');
+    try {
+      const res = await saveTicketConfiguration('file_limits', {
+        maxFileSizeMB: sizeNum,
+        maxFileCount: countNum,
+        allowedFileTypes: fileConfig.allowedFileTypes,
+        malwareScanningEnabled: Boolean(fileConfig.malwareScanningEnabled),
+      });
+      if (res?.value) {
+        setFileConfig(res.value);
+      }
+      showSuccess('Settings Saved', 'File upload limits and security settings have been saved to the database successfully.');
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to save file settings.';
+      showSuccess('Save Failed', msg);
+    }
   };
 
   // TS100 Reopen & Auto-Close Handlers
@@ -1557,12 +1688,33 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleResetWindowConfig = () => {
-    setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
-    setWindowConfigErrors({});
-    showSuccess('Reset Complete', 'Reopen and auto-close window rules have been restored to system defaults.');
+    showConfirm(
+      'Reset Window Rules to Defaults?',
+      'Are you sure you want to restore reopen and auto-close window rules to system defaults in the database?',
+      async () => {
+        closeNotif();
+        try {
+          const res = await resetTicketConfiguration('windows');
+          if (res?.value) {
+            setWindowConfig(res.value);
+          } else {
+            setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
+          }
+          setWindowConfigErrors({});
+          showSuccess('Reset Complete', 'Reopen and auto-close window rules have been restored to system defaults in the database.');
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to reset window rules.';
+          showSuccess('Reset Failed', msg);
+        }
+      },
+      {
+        confirmText: 'Reset to Defaults',
+        confirmClassName: 'bg-amber-600 hover:bg-amber-700',
+      }
+    );
   };
 
-  const handleSaveWindowConfig = () => {
+  const handleSaveWindowConfig = async () => {
     const errors = {};
     if (windowConfig.reopenEnabled) {
       const num = parseInt(windowConfig.reopenWindowDays, 10);
@@ -1584,7 +1736,21 @@ export default function SuperAdminTicketConfig() {
     }
 
     setWindowConfigErrors({});
-    showSuccess('Settings Saved (Session)', 'Reopen and auto-close window rules updated in session state. Persistence coming soon.');
+    try {
+      const res = await saveTicketConfiguration('windows', {
+        reopenEnabled: Boolean(windowConfig.reopenEnabled),
+        reopenWindowDays: parseInt(windowConfig.reopenWindowDays, 10),
+        autoCloseEnabled: Boolean(windowConfig.autoCloseEnabled),
+        autoCloseWindowDays: parseInt(windowConfig.autoCloseWindowDays, 10),
+      });
+      if (res?.value) {
+        setWindowConfig(res.value);
+      }
+      showSuccess('Settings Saved', 'Reopen and auto-close window rules have been saved to the database successfully.');
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to save window rules.';
+      showSuccess('Save Failed', msg);
+    }
   };
 
   // TS099: Compute full recipient options combining contextual actors, static roles, and dynamic departments
@@ -1686,13 +1852,23 @@ export default function SuperAdminTicketConfig() {
   const handleResetRoutingConfig = () => {
     showConfirm(
       'Reset Recipient Routing to Defaults?',
-      'Are you sure you want to restore all notification routing rules to their system defaults? Any recipient customizations will be reverted.',
-      () => {
+      'Are you sure you want to restore all notification routing rules to their system defaults in the database? Any recipient customizations will be reverted.',
+      async () => {
         closeNotif();
-        setRoutingConfig(TS099_DEFAULT_ROUTING);
-        setConfiguredAlerts({});
-        setRoutingErrors({});
-        showSuccess('Reset to Defaults', 'Notification recipient routing has been restored to defaults.');
+        try {
+          const res = await resetTicketConfiguration('routing');
+          if (res?.value) {
+            setRoutingConfig(res.value);
+          } else {
+            setRoutingConfig(TS099_DEFAULT_ROUTING);
+          }
+          setConfiguredAlerts({});
+          setRoutingErrors({});
+          showSuccess('Reset to Defaults', 'Notification recipient routing has been restored to defaults in the database.');
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to reset recipient routing.';
+          showSuccess('Reset Failed', msg);
+        }
       },
       {
         confirmText: 'Reset to Defaults',
@@ -1701,7 +1877,7 @@ export default function SuperAdminTicketConfig() {
     );
   };
 
-  const handleSaveRoutingConfig = () => {
+  const handleSaveRoutingConfig = async () => {
     const errors = {};
     for (const alert of TS099_ALERT_TYPES) {
       const list = routingConfig[alert.key] || [];
@@ -1717,15 +1893,24 @@ export default function SuperAdminTicketConfig() {
     }
 
     setRoutingErrors({});
-    setConfiguredAlerts({
-      new_ticket: true,
-      new_message: true,
-      overdue_ticket: true,
-    });
-    showSuccess(
-      'Settings Saved (Preview)',
-      'Notification recipient routing settings updated in local state.'
-    );
+    try {
+      const res = await saveTicketConfiguration('routing', { routing: routingConfig });
+      if (res?.value) {
+        setRoutingConfig(res.value);
+      }
+      setConfiguredAlerts({
+        new_ticket: true,
+        new_message: true,
+        overdue_ticket: true,
+      });
+      showSuccess(
+        'Routing Saved',
+        'Notification recipient routing settings have been saved to the database successfully.'
+      );
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to save recipient routing.';
+      showSuccess('Save Failed', msg);
+    }
   };
 
   // TS103 Notification Channel Handlers
@@ -1826,6 +2011,17 @@ export default function SuperAdminTicketConfig() {
   };
 
   // TS095 Ticket Defaults Handlers
+  const persistDefaults = async (updatedDefaults) => {
+    try {
+      const res = await saveTicketConfiguration('defaults', updatedDefaults);
+      if (res?.value) {
+        setDefaultsConfig(res.value);
+      }
+    } catch (err) {
+      console.error('Failed to persist ticket defaults:', err);
+    }
+  };
+
   const handlePriorityChange = (newPriority) => {
     if (!newPriority) {
       setDefaultsErrors((prev) => ({ ...prev, priority: 'Please select a valid default priority level.' }));
@@ -1838,16 +2034,18 @@ export default function SuperAdminTicketConfig() {
     });
 
     if (newPriority === defaultsConfig.priority) return;
+    const nextConfig = { ...defaultsConfig, priority: newPriority };
 
     if (configuredDefaults.priority || defaultsConfig.priority) {
       showConfirm(
         'Change Default Priority?',
-        'This affects all new tickets going forward across the system.',
-        () => {
+        'This affects all new tickets going forward across the system and will be saved to the database.',
+        async () => {
           closeNotif();
-          setDefaultsConfig((prev) => ({ ...prev, priority: newPriority }));
+          setDefaultsConfig(nextConfig);
           setConfiguredDefaults((prev) => ({ ...prev, priority: true }));
-          showSuccess('Default Priority Updated', `Default priority has been updated to "${newPriority}" for new tickets.`);
+          await persistDefaults(nextConfig);
+          showSuccess('Default Priority Saved', `Default priority has been updated to "${newPriority}" in the database.`);
         },
         {
           confirmText: 'Change Priority',
@@ -1855,10 +2053,10 @@ export default function SuperAdminTicketConfig() {
         }
       );
     } else {
-      // First-time configuration: no confirmation modal required
-      setDefaultsConfig((prev) => ({ ...prev, priority: newPriority }));
+      setDefaultsConfig(nextConfig);
       setConfiguredDefaults((prev) => ({ ...prev, priority: true }));
-      showSuccess('Default Priority Set', `Default priority set to "${newPriority}".`);
+      persistDefaults(nextConfig);
+      showSuccess('Default Priority Set', `Default priority set to "${newPriority}" in the database.`);
     }
   };
 
@@ -1871,16 +2069,18 @@ export default function SuperAdminTicketConfig() {
       return found?.sla_name || key;
     };
     const newLabel = getPolicyLabel(newSlaPolicy);
+    const nextConfig = { ...defaultsConfig, slaPolicy: newSlaPolicy };
 
     if (configuredDefaults.slaPolicy || defaultsConfig.slaPolicy) {
       showConfirm(
         'Change Default SLA Policy?',
-        'This affects all new tickets going forward across the system.',
-        () => {
+        'This affects all new tickets going forward across the system and will be saved to the database.',
+        async () => {
           closeNotif();
-          setDefaultsConfig((prev) => ({ ...prev, slaPolicy: newSlaPolicy }));
+          setDefaultsConfig(nextConfig);
           setConfiguredDefaults((prev) => ({ ...prev, slaPolicy: true }));
-          showSuccess('Default SLA Policy Updated', `Default SLA policy has been updated to "${newLabel}" for new tickets.`);
+          await persistDefaults(nextConfig);
+          showSuccess('Default SLA Policy Saved', `Default SLA policy has been updated to "${newLabel}" in the database.`);
         },
         {
           confirmText: 'Change SLA Policy',
@@ -1888,22 +2088,28 @@ export default function SuperAdminTicketConfig() {
         }
       );
     } else {
-      // First-time configuration: no confirmation modal required
-      setDefaultsConfig((prev) => ({ ...prev, slaPolicy: newSlaPolicy }));
+      setDefaultsConfig(nextConfig);
       setConfiguredDefaults((prev) => ({ ...prev, slaPolicy: true }));
-      showSuccess('Default SLA Policy Set', `Default SLA policy set to "${newLabel}".`);
+      persistDefaults(nextConfig);
+      showSuccess('Default SLA Policy Set', `Default SLA policy set to "${newLabel}" in the database.`);
     }
   };
 
   const handleResetDefaults = () => {
     showConfirm(
       'Reset Ticket Defaults?',
-      'This will restore default ticket values (Open status, Low priority, Dynamic SLA Policy).',
-      () => {
+      'This will restore default ticket values (Open status, Low priority, Dynamic SLA Policy) in the database.',
+      async () => {
         closeNotif();
-        setDefaultsConfig({ status: 'Open', priority: 'Low', slaPolicy: 'dynamic' });
-        setDefaultsErrors({});
-        showSuccess('Reset Complete', 'Ticket defaults have been reset to system baseline.');
+        try {
+          const res = await resetTicketConfiguration('defaults');
+          const resetVal = res?.value || { status: 'Open', priority: 'Low', slaPolicy: 'dynamic' };
+          setDefaultsConfig(resetVal);
+          setDefaultsErrors({});
+          showSuccess('Reset Complete', 'Ticket defaults have been reset to system baseline in the database.');
+        } catch (err) {
+          showSuccess('Reset Failed', 'Failed to reset ticket defaults.');
+        }
       },
       { confirmText: 'Reset Defaults', confirmClassName: 'bg-red-600 hover:bg-red-700' }
     );
@@ -2032,27 +2238,33 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       'Save Ticket Number Format?',
-      'This will change how all tickets are numbered going forward, across all branches.',
-      () => {
+      'This will change how all tickets are numbered going forward, across all branches. This will be saved to the database.',
+      async () => {
         closeNotif();
         const normalized = {
           prefix: numberFormatConfig.prefix.trim().toUpperCase(),
-          includeDeptCode: numberFormatConfig.includeDeptCode,
+          includeDeptCode: Boolean(numberFormatConfig.includeDeptCode),
           deptCode: numberFormatConfig.includeDeptCode ? numberFormatConfig.deptCode.trim().toUpperCase() : '',
           dateSegment: numberFormatConfig.dateSegment,
           digitLength: parseInt(String(numberFormatConfig.digitLength).trim(), 10),
         };
-        setNumberFormatConfig(normalized);
-        setSavedNumberFormat(normalized);
-        setHasEverSavedFormat(true);
-        showSuccess('Ticket Format Saved', 'Ticket number format has been saved. New tickets will use this format going forward.');
+        try {
+          const res = await saveTicketConfiguration('number_format', normalized);
+          const saved = res?.value || normalized;
+          setNumberFormatConfig(saved);
+          setSavedNumberFormat(saved);
+          setHasEverSavedFormat(true);
+          showSuccess('Ticket Format Saved', 'Ticket number format has been saved to the database. New tickets will use this format going forward.');
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to save ticket number format.';
+          showSuccess('Save Failed', msg);
+        }
       },
       {
         confirmText: 'Save Format',
         confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
         onCancel: () => {
           closeNotif();
-          // If cancelled, revert to prior saved format
           setNumberFormatConfig({ ...savedNumberFormat });
           setNumberFormatErrors({});
         },
@@ -2063,14 +2275,20 @@ export default function SuperAdminTicketConfig() {
   const handleResetNumberFormat = () => {
     showConfirm(
       'Reset Ticket Number Format?',
-      'This will restore the ticket number format to default (TKT-0001).',
-      () => {
+      'This will restore the ticket number format to default (TKT-0001) in the database.',
+      async () => {
         closeNotif();
-        setNumberFormatConfig(TS094_DEFAULT_FORMAT);
-        setSavedNumberFormat(TS094_DEFAULT_FORMAT);
-        setHasEverSavedFormat(false);
-        setNumberFormatErrors({});
-        showSuccess('Reset to Defaults', 'Ticket number format has been reset to system default (TKT-0001).');
+        try {
+          const res = await resetTicketConfiguration('number_format');
+          const resetVal = res?.value || TS094_DEFAULT_FORMAT;
+          setNumberFormatConfig(resetVal);
+          setSavedNumberFormat(resetVal);
+          setHasEverSavedFormat(false);
+          setNumberFormatErrors({});
+          showSuccess('Reset to Defaults', 'Ticket number format has been reset to system default (TKT-0001) in the database.');
+        } catch (err) {
+          showSuccess('Reset Failed', 'Failed to reset ticket number format.');
+        }
       },
       {
         confirmText: 'Reset Format',
@@ -2117,19 +2335,26 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       'Save Max Open Tickets Limit?',
-      'This will affect ticket submission for all Customers and Requestors going forward.',
-      () => {
+      'This will affect ticket submission for all Customers and Requestors going forward and will be saved to the database.',
+      async () => {
         closeNotif();
-        setMaxOpenTicketsLimit(normalized);
-        setTicketLimitConfigState(normalized);
-        setSavedTicketLimit(normalized);
-        setHasEverSavedLimit(true);
-        showSuccess(
-          'Limit Saved',
-          normalized.isUnlimited
-            ? 'Max open tickets limit set to Unlimited. Ticket creation will not be restricted.'
-            : `Max open tickets limit updated to ${normalized.limit}. Ticket creation blocking will use this value.`
-        );
+        try {
+          const res = await saveTicketConfiguration('limits', normalized);
+          const saved = res?.value || normalized;
+          setMaxOpenTicketsLimit(saved);
+          setTicketLimitConfigState(saved);
+          setSavedTicketLimit(saved);
+          setHasEverSavedLimit(true);
+          showSuccess(
+            'Limit Saved',
+            saved.isUnlimited
+              ? 'Max open tickets limit set to Unlimited and saved in the database.'
+              : `Max open tickets limit updated to ${saved.limit} and saved in the database.`
+          );
+        } catch (err) {
+          const msg = err?.response?.data?.message || err.message || 'Failed to save ticket limit.';
+          showSuccess('Save Failed', msg);
+        }
       },
       {
         confirmText: 'Save Limit',
@@ -2146,16 +2371,21 @@ export default function SuperAdminTicketConfig() {
   const handleResetTicketLimit = () => {
     showConfirm(
       'Reset Max Open Tickets Limit?',
-      'This will restore the ticket limit to system default (Unlimited).',
-      () => {
+      'This will restore the ticket limit to system default (Unlimited) in the database.',
+      async () => {
         closeNotif();
-        const def = { isUnlimited: true, limit: 5 };
-        setMaxOpenTicketsLimit(def);
-        setTicketLimitConfigState(def);
-        setSavedTicketLimit(def);
-        setHasEverSavedLimit(false);
-        setLimitError('');
-        showSuccess('Reset to Defaults', 'Max open tickets limit has been restored to Unlimited.');
+        try {
+          const res = await resetTicketConfiguration('limits');
+          const def = res?.value || { isUnlimited: true, limit: 5 };
+          setMaxOpenTicketsLimit(def);
+          setTicketLimitConfigState(def);
+          setSavedTicketLimit(def);
+          setHasEverSavedLimit(false);
+          setLimitError('');
+          showSuccess('Reset to Defaults', 'Max open tickets limit has been restored to Unlimited in the database.');
+        } catch (err) {
+          showSuccess('Reset Failed', 'Failed to reset ticket limit.');
+        }
       },
       {
         confirmText: 'Reset Limit',
@@ -2863,22 +3093,33 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">Ticket Status Transition Rules</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
                 Configure valid next-status transitions and lifecycle guardrails for tickets.
               </p>
             </div>
-            <button
-              onClick={handleResetTransitions}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-            >
-              <RotateCcw size={14} />
-              Reset to Defaults
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleResetTransitions}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={14} />
+                Reset to Defaults
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTransitions}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#1a1a5e] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <Save size={14} />
+                Save Rules
+              </button>
+            </div>
           </div>
 
           {/* Status Selector & Summary Card */}
@@ -3118,9 +3359,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -3386,9 +3627,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -4101,10 +4342,10 @@ export default function SuperAdminTicketConfig() {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
-                <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 text-sm text-indigo-900 flex items-start gap-3">
+                <Info size={18} className="text-[#252578] shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
-                  Changes are local preview only and are not yet persisted. System Alerts are excluded because they always route to Super Admin.
+                  Configured recipient routing rules are saved in the database and govern real-time notifications and email alerts. System Alerts are excluded because they always route to Super Admin.
                 </p>
               </div>
 
@@ -5289,9 +5530,9 @@ export default function SuperAdminTicketConfig() {
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -5546,9 +5787,9 @@ export default function SuperAdminTicketConfig() {
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -5883,13 +6124,13 @@ export default function SuperAdminTicketConfig() {
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                The limit value itself is not yet saved system-wide, but ticket submission blocking uses this value live within your current session for testing.
+                Configure the maximum number of concurrent unresolved tickets a single requester can hold. Persisted in the database.
               </p>
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
@@ -6308,12 +6549,12 @@ export default function SuperAdminTicketConfig() {
       ) : (
         <>
           <div className="flex items-center justify-between gap-4">
-            {tab === TAB_EQUIPMENT && (
+            {(tab === TAB_TICKET_CATEGORY || tab === TAB_EQUIPMENT) && (
               <div className="relative w-full max-w-none flex-1">
                 <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search categories..."
+                  placeholder={tab === TAB_TICKET_CATEGORY ? "Search ticket categories..." : "Search equipment categories..."}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
@@ -6323,7 +6564,7 @@ export default function SuperAdminTicketConfig() {
             {tab === TAB_PRIORITY && <div className="flex-1" />}
             <button onClick={handleAdd} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0">
               <Plus size={18} />
-              Add {tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}
+              Add {tab === TAB_TICKET_CATEGORY ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Equipment Category' : 'Priority'}
             </button>
           </div>
 
@@ -6340,7 +6581,7 @@ export default function SuperAdminTicketConfig() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan="3" className="px-5 py-8 text-center text-sm text-gray-500">
-                      No {tab === TAB_EQUIPMENT ? 'categories' : 'priorities'} found.
+                      No {tab === TAB_TICKET_CATEGORY ? 'ticket categories' : tab === TAB_EQUIPMENT ? 'equipment categories' : 'priorities'} found.
                     </td>
                   </tr>
                 )}
@@ -6396,12 +6637,12 @@ export default function SuperAdminTicketConfig() {
         document.body
       )}
 
-      {/* Equipment / Priority Modal */}
+      {/* Equipment / Priority / Ticket Category Modal */}
       {editingItem !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
           <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
-              <h2 className="text-lg font-bold text-gray-900">{editingItem.id === null ? 'Add' : 'Edit'} {tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}</h2>
+              <h2 className="text-lg font-bold text-gray-900">{editingItem.id === null ? 'Add' : 'Edit'} {tab === TAB_TICKET_CATEGORY ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Equipment Category' : 'Priority'}</h2>
               <button type="button" onClick={() => setEditingItem(null)} className="p-2 text-gray-400 hover:text-gray-600">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -6415,7 +6656,7 @@ export default function SuperAdminTicketConfig() {
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  placeholder={`Enter ${tab === TAB_EQUIPMENT ? 'category' : 'priority'} name`}
+                  placeholder={`Enter ${tab === TAB_TICKET_CATEGORY ? 'ticket category' : tab === TAB_EQUIPMENT ? 'equipment category' : 'priority'} name`}
                   className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
                 />
               </div>

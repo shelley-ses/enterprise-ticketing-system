@@ -193,6 +193,9 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/superadmin/priority', [SuperAdminConfigController::class, 'createSuperAdminPriority']);
     Route::put('/superadmin/priority/{id}', [SuperAdminConfigController::class, 'updateSuperAdminPriority']);
     Route::delete('/superadmin/priority/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminPriority']);
+    Route::post('/superadmin/ticket-category', [SuperAdminConfigController::class, 'createSuperAdminTicketCategory']);
+    Route::put('/superadmin/ticket-category/{id}', [SuperAdminConfigController::class, 'updateSuperAdminTicketCategory']);
+    Route::delete('/superadmin/ticket-category/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminTicketCategory']);
     Route::get('/superadmin/audit-logs', [SuperAdminConfigController::class, 'getSuperAdminAuditLogs']);
     Route::get('/superadmin/history', [SuperAdminConfigController::class, 'getSuperAdminHistory']);
 

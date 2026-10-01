@@ -17,7 +17,7 @@ export default function FeedbackModal({ ticket, onClose }) {
   const modalRef = useRef(null);
 
   // Derive ticket category
-  const ticketCategory = ticket?.category || ticket?.department?.name || ticket?.department || 'IT';
+  const ticketCategory = ticket?.ticket_category || ticket?.category || ticket?.category_name || ticket?.department?.name || ticket?.department || 'IT';
 
   // Fetch enabled questions for category at form open time and freeze snapshot in state
   useEffect(() => {

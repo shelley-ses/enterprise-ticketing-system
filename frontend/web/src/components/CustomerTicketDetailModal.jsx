@@ -262,9 +262,9 @@ export default function CustomerTicketDetailModal({
               <p className="mt-1 text-field-value text-gray-800">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Equipment Type</p>
+              <p className="text-field-label uppercase text-gray-400">Ticket Category</p>
               <p className="mt-1 text-field-value text-gray-800">
-                {ticket.equipment_type || ticket.equipmentType || ticket.machine_category || ticket.machine?.category_name || (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment')}
+                {ticket.ticket_category || ticket.category || ticket.category_name || ticket.equipment_type || 'General'}
               </p>
             </div>
             <div>

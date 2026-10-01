@@ -881,6 +881,21 @@ export const deleteSuperAdminPriority = async (id) => {
   return response.data;
 };
 
+export const createSuperAdminTicketCategory = async (payload) => {
+  const response = await ticketClient.post('/superadmin/ticket-category', payload);
+  return response.data;
+};
+
+export const updateSuperAdminTicketCategory = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/ticket-category/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSuperAdminTicketCategory = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/ticket-category/${id}`);
+  return response.data;
+};
+
 export const getSuperAdminAuditLogs = async () => {
   const response = await ticketClient.get('/superadmin/audit-logs');
   return response.data;
