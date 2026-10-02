@@ -14,9 +14,35 @@ export default function SuperAdminAuditLogs() {
     setLoading(true);
     try {
       const data = await getSuperAdminAuditLogs();
-      setLogs(data || []);
+      const serverLogs = Array.isArray(data) ? data : [];
+
+      // SIMULATED: this entry is stored in localStorage as a placeholder since the Knowledge Base backend doesn't yet write to the real audit log table. Remove this merge once KB deletion is logged server-side.
+      let simulatedLogs = [];
+      try {
+        const stored = localStorage.getItem('superadmin_simulated_audit_logs');
+        if (stored) {
+          simulatedLogs = JSON.parse(stored);
+        }
+      } catch (e) {
+        console.error('Failed to parse simulated audit logs:', e);
+      }
+
+      const merged = [...simulatedLogs, ...serverLogs].sort((a, b) => {
+        const timeA = new Date(a.timestamp || 0).getTime();
+        const timeB = new Date(b.timestamp || 0).getTime();
+        return timeB - timeA;
+      });
+
+      setLogs(merged);
     } catch (err) {
       console.error('Failed to load superadmin audit logs:', err);
+      // Fallback: still show simulated logs if backend request fails
+      try {
+        const stored = localStorage.getItem('superadmin_simulated_audit_logs');
+        if (stored) {
+          setLogs(JSON.parse(stored));
+        }
+      } catch {}
     } finally {
       setLoading(false);
     }
