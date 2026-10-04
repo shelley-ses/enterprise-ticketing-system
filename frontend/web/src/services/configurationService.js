@@ -583,3 +583,60 @@ export async function resetLogLevel() {
   return response.data?.level || response.data?.value?.level || 'Info';
 }
 
+// ---------------------------------------------------------------------------
+// Ticket State Machine: Transition Rules
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch transition rules configuration.
+ */
+export async function getTransitionRulesConfig() {
+  const response = await configClient.get('/ticket-configurations/transitions');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Update transition rules configuration.
+ */
+export async function updateTransitionRulesConfig(payload) {
+  const response = await configClient.put('/ticket-configurations/transitions', payload);
+  return response.data?.value || response.data;
+}
+
+/**
+ * Reset transition rules configuration to defaults.
+ */
+export async function resetTransitionRulesConfig() {
+  const response = await configClient.post('/ticket-configurations/transitions/reset');
+  return response.data?.value || response.data;
+}
+
+// ---------------------------------------------------------------------------
+// File Upload Limits & Security Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch file upload limits and security configuration.
+ * Returns { maxFileSizeMB: number, allowedFileTypes: string[], maxFileCount: number, malwareScanningEnabled: boolean }
+ */
+export async function getFileLimitsConfig() {
+  const response = await configClient.get('/ticket-configurations/file_limits');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Update file upload limits and security configuration.
+ */
+export async function updateFileLimitsConfig(payload) {
+  const response = await configClient.put('/ticket-configurations/file_limits', payload);
+  return response.data?.value || response.data;
+}
+
+/**
+ * Reset file upload limits and security configuration to factory defaults.
+ */
+export async function resetFileLimitsConfig() {
+  const response = await configClient.post('/ticket-configurations/file_limits/reset');
+  return response.data?.value || response.data;
+}
+

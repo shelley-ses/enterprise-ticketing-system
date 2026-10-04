@@ -8,6 +8,8 @@ use App\Models\ProofOfCompletion;
 use App\Services\ClamAVScanner;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class AttachmentController extends Controller
@@ -20,25 +22,120 @@ class AttachmentController extends Controller
     }
 
     /**
-     * Upload and scan files.
+     * Retrieve active file upload constraints and malware scanning toggle from configuration-service.
+     * Caches locally for 30s for ultra-fast performance with seamless fallback.
+     */
+    protected function getFileLimitsConfig(): array
+    {
+        $defaults = [
+            'maxFileSizeMB' => 15,
+            'allowedFileTypes' => ['PDF', 'DOCX', 'DOC', 'JPG', 'JPEG', 'PNG'],
+            'maxFileCount' => 5,
+            'malwareScanningEnabled' => true,
+        ];
+
+        try {
+            return Cache::remember('ticket:config:file_limits', 30, function () use ($defaults) {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $response = Http::timeout(5)->get("{$configUrl}/api/ticket-configurations/file_limits");
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $val = $json['value'] ?? $json;
+                    if (is_array($val)) {
+                        return [
+                            'maxFileSizeMB' => isset($val['maxFileSizeMB']) ? (float)$val['maxFileSizeMB'] : $defaults['maxFileSizeMB'],
+                            'allowedFileTypes' => isset($val['allowedFileTypes']) && is_array($val['allowedFileTypes'])
+                                ? array_values(array_unique(array_map('strtoupper', $val['allowedFileTypes'])))
+                                : $defaults['allowedFileTypes'],
+                            'maxFileCount' => isset($val['maxFileCount']) ? (int)$val['maxFileCount'] : $defaults['maxFileCount'],
+                            'malwareScanningEnabled' => isset($val['malwareScanningEnabled']) ? (bool)$val['malwareScanningEnabled'] : $defaults['malwareScanningEnabled'],
+                        ];
+                    }
+                }
+
+                return $defaults;
+            });
+        } catch (\Throwable $e) {
+            Log::warning("Failed to fetch file limits from configuration-service: " . $e->getMessage());
+            return $defaults;
+        }
+    }
+
+    /**
+     * Upload and scan files enforcing system-wide file upload limits.
+     * Applies only to new file uploads; historical ticket attachments are preserved.
      */
     public function upload(Request $request)
     {
+        $config = $this->getFileLimitsConfig();
+        $maxFileSizeMB = (float) ($config['maxFileSizeMB'] ?? 15);
+        $maxFileCount = (int) ($config['maxFileCount'] ?? 5);
+        $allowedFileTypes = $config['allowedFileTypes'] ?? ['PDF', 'DOCX', 'DOC', 'JPG', 'JPEG', 'PNG'];
+        $malwareScanningEnabled = (bool) ($config['malwareScanningEnabled'] ?? true);
+
         $request->validate([
             'attachments' => 'required|array',
-            'attachments.*' => 'file|max:15360', // Max 15MB
             'is_proof' => 'nullable|string' // 'true' or 'false'
         ]);
+
+        $files = $request->file('attachments');
+        if (!is_array($files)) {
+            return response()->json([
+                'message' => 'Attachments must be provided as an array.',
+                'errors' => ['attachments' => ['Attachments must be provided as an array.']]
+            ], 422);
+        }
+
+        // 1. Enforce file count restriction
+        if (count($files) > $maxFileCount) {
+            return response()->json([
+                'message' => "Upload limit exceeded: You can upload a maximum of {$maxFileCount} files at a time.",
+                'errors' => [
+                    'attachments' => ["A maximum of {$maxFileCount} files can be uploaded at a time."]
+                ]
+            ], 422);
+        }
+
+        $maxFileSizeBytes = (int) round($maxFileSizeMB * 1024 * 1024);
+        $allowedUpper = array_map('strtoupper', $allowedFileTypes);
+
+        // 2. Pre-validate size and allowed types on each file before saving or scanning
+        foreach ($files as $file) {
+            if (!$file || !$file->isValid()) {
+                return response()->json([
+                    'message' => 'Invalid file upload encountered.',
+                    'errors' => ['attachments' => ['One or more files failed to upload cleanly.']]
+                ], 422);
+            }
+
+            if ($file->getSize() > $maxFileSizeBytes) {
+                $fileName = $file->getClientOriginalName();
+                return response()->json([
+                    'message' => "File '{$fileName}' exceeds the maximum allowed size of {$maxFileSizeMB} MB.",
+                    'errors' => [
+                        'attachments' => ["File '{$fileName}' exceeds the limit of {$maxFileSizeMB} MB."]
+                    ]
+                ], 422);
+            }
+
+            $ext = strtoupper($file->getClientOriginalExtension());
+            if (!in_array($ext, $allowedUpper, true)) {
+                $fileName = $file->getClientOriginalName();
+                return response()->json([
+                    'message' => "File type '.{$ext}' is not permitted for '{$fileName}'. Allowed formats: " . implode(', ', $allowedFileTypes) . ".",
+                    'errors' => [
+                        'attachments' => ["File extension '.{$ext}' is not permitted."]
+                    ]
+                ], 422);
+            }
+        }
 
         $isProof = filter_var($request->input('is_proof', false), FILTER_VALIDATE_BOOLEAN);
         $uploaded = [];
 
         try {
-            foreach ($request->file('attachments') as $file) {
-                if (!$file->isValid()) {
-                    return response()->json(['message' => 'Invalid file upload.'], 422);
-                }
-
+            foreach ($files as $file) {
                 $origName = $file->getClientOriginalName();
                 $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
                 $uuid = Str::uuid()->toString();
@@ -47,26 +144,28 @@ class AttachmentController extends Controller
                 $tempPath = $file->storeAs("temp-scans", "{$uuid}_{$safeName}", 'local');
                 $fullTempPath = storage_path("app/{$tempPath}");
 
-                // Scan the file
-                try {
-                    $isClean = $this->scanner->scan($fullTempPath);
-                } catch (\Exception $e) {
-                    // Cleanup temp file
-                    @unlink($fullTempPath);
-                    Log::error("ClamAV Scanning failed with exception: " . $e->getMessage());
-                    return response()->json([
-                        'message' => 'Unable to verify file security. Please try again later.'
-                    ], 500);
-                }
+                // 3. Conditional Malware Scanning via ClamAV
+                if ($malwareScanningEnabled) {
+                    try {
+                        $isClean = $this->scanner->scan($fullTempPath);
+                    } catch (\Exception $e) {
+                        @unlink($fullTempPath);
+                        Log::error("ClamAV Scanning failed with exception: " . $e->getMessage());
+                        return response()->json([
+                            'message' => 'Unable to verify file security. Please try again later.'
+                        ], 500);
+                    }
 
-                if (!$isClean) {
-                    // Cleanup temp file
-                    @unlink($fullTempPath);
-                    return response()->json([
-                        'message' => 'Security threat detected: We detected a potential virus or malware in the uploaded file: "' . $origName . '". This upload has been blocked for safety.',
-                        'virus_detected' => true,
-                        'file_name' => $origName
-                    ], 422);
+                    if (!$isClean) {
+                        @unlink($fullTempPath);
+                        return response()->json([
+                            'message' => 'Security threat detected: We detected a potential virus or malware in the uploaded file: "' . $origName . '". This upload has been blocked for safety.',
+                            'virus_detected' => true,
+                            'file_name' => $origName
+                        ], 422);
+                    }
+                } else {
+                    Log::info("Malware scanning disabled by system configuration. Bypassing ClamAV scan for {$origName}");
                 }
 
                 // Move from local temp scan to public disk pending folder
