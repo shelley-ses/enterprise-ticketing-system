@@ -7,6 +7,7 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
+import { getSystemStatus } from '@/services/configurationService';
 
 export default function Header({ sidebarHovered }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -21,6 +22,17 @@ export default function Header({ sidebarHovered }) {
   const [activeNotificationId, setActiveNotificationId] = useState(null);
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [activeTicketLoading, setActiveTicketLoading] = useState(false);
+  const [systemStatus, setSystemStatus] = useState('Operational');
+
+  useEffect(() => {
+    let isMounted = true;
+    getSystemStatus().then((st) => {
+      if (isMounted && st) setSystemStatus(st);
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const basePath = location.pathname.startsWith('/cs')
     ? '/cs'
@@ -233,7 +245,12 @@ export default function Header({ sidebarHovered }) {
 
     return (
     <>
-      <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-30 px-6 py-4 flex items-center justify-between shadow-sm">
+      {systemStatus === 'Under Maintenance' && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-500 text-white text-[11px] font-semibold px-4 py-1 flex items-center justify-center gap-2 shadow-sm text-center">
+          <span>⚠ System Notice: Platform is currently in Maintenance Mode. Non-admin operations may be restricted.</span>
+        </div>
+      )}
+      <header className={`fixed ${systemStatus === 'Under Maintenance' ? 'top-6' : 'top-0'} left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-30 px-6 py-4 flex items-center justify-between shadow-sm transition-all`}>
         <div className="hidden sm:block w-20 shrink-0" aria-hidden="true" />
 
         <div className="flex items-center gap-6">

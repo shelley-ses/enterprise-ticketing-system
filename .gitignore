@@ -32,3 +32,7 @@ Homestead.json
 .env.production
 .phpactor.json
 auth.json
+
+# Agent tasks and scratch
+.agents/tasks/
+scratch/

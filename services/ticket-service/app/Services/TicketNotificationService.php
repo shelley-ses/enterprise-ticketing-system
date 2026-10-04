@@ -127,6 +127,230 @@ class TicketNotificationService
     }
 
     /**
+     * Resolves concrete recipients for a given alert event at send time.
+     * Evaluates active routing configuration from TicketConfigurationService (cached in Redis).
+     *
+     * HARD-CODED INVARIANT: system_alert is explicitly locked to Super Admin
+     * and will NEVER route to other roles or configurable scopes.
+     */
+    public function resolveRecipientsForAlert(string $alertKey, ?int $ticketId = null, array $context = []): array
+    {
+        // 1. HARD-CODED DISPATCH: system_alert ALWAYS and ONLY routes to Super Admin
+        if ($alertKey === 'system_alert') {
+            $superAdminIds = DB::table('employees')
+                ->whereRaw('LOWER(REPLACE(role, " ", "")) = ?', ['superadmin'])
+                ->pluck('emp_id')
+                ->all();
+
+            return array_map(fn($id) => ['id' => (int) $id, 'type' => 'employee'], $superAdminIds);
+        }
+
+        // 2. Fetch routing configuration from configuration-service / Redis
+        $routing = TicketConfigurationService::getRoutingConfig();
+        $tokens = $routing[$alertKey] ?? (TicketConfigurationService::DEFAULT_ROUTING[$alertKey] ?? ['role_cs']);
+
+        $recipients = [];
+        $excludeUserId = $context['exclude_user_id'] ?? null;
+        $excludeUserType = $context['exclude_user_type'] ?? 'employee';
+
+        $ticket = null;
+        if ($ticketId) {
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        }
+
+        foreach ($tokens as $token) {
+            // Dynamic Contextual: Assigned Employee(s)
+            if ($token === 'contextual_assigned' && $ticketId) {
+                $assignedIds = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->pluck('employee_ID')
+                    ->map(fn($id) => (int) $id)
+                    ->all();
+
+                if (!empty($ticket?->assigned_to)) {
+                    $assignedIds[] = (int) $ticket->assigned_to;
+                }
+
+                foreach (array_unique($assignedIds) as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+
+            // Dynamic Contextual: Requester / Creator
+            elseif ($token === 'contextual_requester' && $ticket) {
+                if (!empty($ticket->is_internal) && !empty($ticket->requested_by)) {
+                    $reqId = (int) $ticket->requested_by;
+                    if (!($excludeUserId && $excludeUserType === 'employee' && $reqId === (int) $excludeUserId)) {
+                        $recipients[] = ['id' => $reqId, 'type' => 'employee'];
+                    }
+                } elseif (!empty($ticket->created_by)) {
+                    $cId = (int) $ticket->created_by;
+                    if (!($excludeUserId && $excludeUserType === 'client' && $cId === (int) $excludeUserId)) {
+                        $recipients[] = ['id' => $cId, 'type' => 'client'];
+                    }
+                }
+            }
+
+            // Static Role: Customer Service
+            elseif ($token === 'role_cs') {
+                $csIds = DB::table('employees')
+                    ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                    ->pluck('emp_id')
+                    ->all();
+
+                foreach ($csIds as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+
+            // Static Role: Service Engineers / Technicians
+            elseif ($token === 'role_service') {
+                $serviceIds = DB::table('employees')
+                    ->whereRaw('LOWER(role) IN (?, ?, ?)', ['service', 'service engineer', 'technician'])
+                    ->pluck('emp_id')
+                    ->all();
+
+                foreach ($serviceIds as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+
+            // Static Role: IT Admin
+            elseif ($token === 'role_it_admin') {
+                $itIds = DB::table('employees')
+                    ->whereRaw('LOWER(role) IN (?, ?, ?)', ['it admin', 'it_admin', 'it administrator'])
+                    ->pluck('emp_id')
+                    ->all();
+
+                foreach ($itIds as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+
+            // Static Role: Super Admin
+            elseif ($token === 'role_superadmin') {
+                $adminIds = DB::table('employees')
+                    ->whereRaw('LOWER(REPLACE(role, " ", "")) = ?', ['superadmin'])
+                    ->pluck('emp_id')
+                    ->all();
+
+                foreach ($adminIds as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+
+            // Dynamic Department: dept_{id}
+            elseif (str_starts_with($token, 'dept_')) {
+                $deptId = (int) substr($token, 5);
+                $deptEmpIds = DB::table('employees')
+                    ->where('department_id', $deptId)
+                    ->pluck('emp_id')
+                    ->all();
+
+                foreach ($deptEmpIds as $empId) {
+                    if ($excludeUserId && $excludeUserType === 'employee' && (int) $empId === (int) $excludeUserId) {
+                        continue;
+                    }
+                    $recipients[] = ['id' => (int) $empId, 'type' => 'employee'];
+                }
+            }
+        }
+
+        // Deduplicate recipients by type + id
+        $unique = [];
+        foreach ($recipients as $r) {
+            $key = $r['type'] . ':' . $r['id'];
+            $unique[$key] = $r;
+        }
+
+        return array_values($unique);
+    }
+
+    /**
+     * Dispatch alert notifications across configured channels to resolved recipients at send time.
+     */
+    public function dispatchAlert(
+        string $alertKey,
+        string $title,
+        string $message,
+        ?int $ticketId = null,
+        array $data = [],
+        array $context = []
+    ): void {
+        $recipients = $this->resolveRecipientsForAlert($alertKey, $ticketId, $context);
+
+        // Fetch ticket details for email templates if ticketId is provided
+        $ticketTitle = '';
+        $categoryName = '';
+        $priorityName = '';
+        if ($ticketId) {
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+            if ($ticket) {
+                $ticketTitle = $ticket->title ?? '';
+                $categoryName = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
+                $priorityName = DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID ?? 1)->value('priority_name') ?? '';
+            }
+        }
+
+        foreach ($recipients as $r) {
+            // 1. In-app notification
+            $this->notifyRecipient(
+                $r['id'],
+                $r['type'],
+                $title,
+                $message,
+                $ticketId,
+                $data,
+                $alertKey
+            );
+
+            // 2. Email notification
+            if ($ticketId) {
+                if ($r['type'] === 'employee') {
+                    $this->sendTicketEmail(
+                        $r['id'],
+                        $title,
+                        $message,
+                        $ticketId,
+                        $ticketTitle,
+                        $categoryName,
+                        $priorityName,
+                        $alertKey,
+                        $data
+                    );
+                } else {
+                    $this->sendCustomerEmail(
+                        $r['id'],
+                        $title,
+                        $message,
+                        $ticketId,
+                        $ticketTitle,
+                        $categoryName,
+                        $priorityName,
+                        $alertKey,
+                        $data
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Notify all customer service employees.
      */
     public function notifyCS(string $title, string $message, ?int $ticketId = null, ?array $data = null, ?int $excludeUserId = null, ?string $alertKey = null): void

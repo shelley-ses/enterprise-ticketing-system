@@ -12,6 +12,7 @@ import {
   verifyPasswordResetOtp,
   resetPassword,
 } from '@/services/authService';
+import { getSystemStatus } from '@/services/configurationService';
 // import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
 import './Loginpage.css';
 
@@ -421,11 +422,25 @@ function Loginpage({ mode = 'customer' }) {
   const [lockTimer, setLockTimer] = useState(LOCKOUT_SECONDS);
   const [loginError, setLoginError] = useState('');
 
-  // Forgot password modal
   const [showForgot, setShowForgot] = useState(false);
 
   // First-login: force the user to change their password before entering the app
   const [showForceChangePassword, setShowForceChangePassword] = useState(false);
+
+  // System maintenance status
+  const [isMaintenance, setIsMaintenance] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    getSystemStatus().then((status) => {
+      if (isMounted && status === 'Under Maintenance') {
+        setIsMaintenance(true);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Prevent browsing back to login if already authenticated
   useEffect(() => {
@@ -630,6 +645,29 @@ function Loginpage({ mode = 'customer' }) {
             <p className="subtitle">
               {isEmployeeLogin ? 'Sign in to the employee portal' : 'Sign in to the Ticketing Management System'}
             </p>
+
+            {/* Maintenance advisory banner */}
+            {isMaintenance && (
+              <div
+                style={{
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  color: '#92400e',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  lineHeight: '1.4',
+                }}
+                role="alert"
+              >
+                <span>⚠ System is currently Under Maintenance. Customer logins are restricted to administrative personnel.</span>
+              </div>
+            )}
 
             {/* Lockout banner */}
             {lockedOut && (

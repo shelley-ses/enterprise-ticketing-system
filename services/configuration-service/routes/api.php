@@ -79,6 +79,35 @@ $registerRoutes = function () {
     Route::get('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'showWindows']);
     Route::put('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
     Route::patch('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
+
+    Route::get('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'showRouting']);
+    Route::put('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'updateRouting']);
+    Route::patch('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'updateRouting']);
+    Route::post('/ticket-configurations/routing/reset', function () {
+        return app(\App\Http\Controllers\TicketConfigurationController::class)->reset('routing');
+    });
+
+    Route::get('/ticket-configurations/company-info', [\App\Http\Controllers\TicketConfigurationController::class, 'showCompanyInfo']);
+    Route::put('/ticket-configurations/company-info', [\App\Http\Controllers\TicketConfigurationController::class, 'updateCompanyInfo']);
+    Route::patch('/ticket-configurations/company-info', [\App\Http\Controllers\TicketConfigurationController::class, 'updateCompanyInfo']);
+    Route::get('/ticket-configurations/company_info', [\App\Http\Controllers\TicketConfigurationController::class, 'showCompanyInfo']);
+    Route::put('/ticket-configurations/company_info', [\App\Http\Controllers\TicketConfigurationController::class, 'updateCompanyInfo']);
+    Route::patch('/ticket-configurations/company_info', [\App\Http\Controllers\TicketConfigurationController::class, 'updateCompanyInfo']);
+
+    Route::get('/ticket-configurations/system-status', [\App\Http\Controllers\TicketConfigurationController::class, 'showSystemStatus']);
+    Route::put('/ticket-configurations/system-status', [\App\Http\Controllers\TicketConfigurationController::class, 'updateSystemStatus']);
+    Route::patch('/ticket-configurations/system-status', [\App\Http\Controllers\TicketConfigurationController::class, 'updateSystemStatus']);
+    Route::get('/ticket-configurations/system_status', [\App\Http\Controllers\TicketConfigurationController::class, 'showSystemStatus']);
+    Route::put('/ticket-configurations/system_status', [\App\Http\Controllers\TicketConfigurationController::class, 'updateSystemStatus']);
+    Route::patch('/ticket-configurations/system_status', [\App\Http\Controllers\TicketConfigurationController::class, 'updateSystemStatus']);
+
+    Route::get('/ticket-configurations/log-level', [\App\Http\Controllers\TicketConfigurationController::class, 'showLogLevel']);
+    Route::put('/ticket-configurations/log-level', [\App\Http\Controllers\TicketConfigurationController::class, 'updateLogLevel']);
+    Route::patch('/ticket-configurations/log-level', [\App\Http\Controllers\TicketConfigurationController::class, 'updateLogLevel']);
+    Route::get('/ticket-configurations/log_level', [\App\Http\Controllers\TicketConfigurationController::class, 'showLogLevel']);
+    Route::put('/ticket-configurations/log_level', [\App\Http\Controllers\TicketConfigurationController::class, 'updateLogLevel']);
+    Route::patch('/ticket-configurations/log_level', [\App\Http\Controllers\TicketConfigurationController::class, 'updateLogLevel']);
+
     Route::get('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'show']);
     Route::put('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);
     Route::patch('/ticket-configurations/{key}', [\App\Http\Controllers\TicketConfigurationController::class, 'update']);

@@ -90,6 +90,36 @@ class AuthController extends Controller
             ], 401);
         }
 
+        // System status check: if Under Maintenance, reject non-superadmin authenticated users
+        try {
+            $systemStatus = Cache::remember('system:config:status', 15, function () {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $response = \Illuminate\Support\Facades\Http::timeout(2)->get("{$configUrl}/api/ticket-configurations/system-status");
+                if ($response->successful()) {
+                    $data = $response->json();
+                    return $data['value']['status'] ?? $data['status'] ?? 'Operational';
+                }
+                return 'Operational';
+            });
+
+            if ($systemStatus === 'Under Maintenance') {
+                $authUser = $result['user'] ?? null;
+                $isSuperAdmin = false;
+                if ($authUser instanceof Employee && strtolower(str_replace(' ', '', $authUser->role ?? '')) === 'superadmin') {
+                    $isSuperAdmin = true;
+                }
+
+                if (!$isSuperAdmin) {
+                    return response()->json([
+                        'message' => 'The system is currently undergoing scheduled maintenance. Regular access is temporarily suspended. Please try again later.',
+                        'maintenance' => true,
+                    ], 503);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('System status maintenance check failed: ' . $e->getMessage());
+        }
+
         $isFirstLogin = false;
         if ($result['user']) {
             if ($result['user'] instanceof Employee) {

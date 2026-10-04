@@ -248,6 +248,36 @@ export async function resetNotificationChannels() {
 }
 
 // ---------------------------------------------------------------------------
+// Notification Recipient Routing
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch active notification recipient routing for configurable alert types.
+ * Returns { key: 'routing', value: { new_ticket: [], new_message: [], overdue_ticket: [] }, immutable_scope: {...} }
+ */
+export async function getNotificationRouting() {
+  const response = await configClient.get('/ticket-configurations/routing');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Update notification recipient routing with zero-recipient validation.
+ * @param {Object} routing - Map of { [alertKey]: string[] }
+ */
+export async function updateNotificationRouting(routing) {
+  const response = await configClient.put('/ticket-configurations/routing', { routing });
+  return response.data?.value || response.data;
+}
+
+/**
+ * Reset notification recipient routing to system defaults.
+ */
+export async function resetNotificationRouting() {
+  const response = await configClient.post('/ticket-configurations/routing/reset');
+  return response.data?.value || response.data;
+}
+
+// ---------------------------------------------------------------------------
 // Feedback Form Questions (TS104 Category-Scoped Questions)
 // ---------------------------------------------------------------------------
 
@@ -475,5 +505,81 @@ export async function resetWindowConfiguration() {
     setCachedWindowConfiguration(val);
   }
   return val;
+}
+
+// ---------------------------------------------------------------------------
+// SuperAdmin Settings: Company Info, System Status, Log Level
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch company information.
+ */
+export async function getCompanyInfo() {
+  const response = await configClient.get('/ticket-configurations/company-info');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Update company information with format validation on backend.
+ */
+export async function updateCompanyInfo(payload) {
+  const response = await configClient.put('/ticket-configurations/company-info', payload);
+  return response.data?.value || response.data;
+}
+
+/**
+ * Reset company info to defaults.
+ */
+export async function resetCompanyInfo() {
+  const response = await configClient.post('/ticket-configurations/company-info/reset');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Fetch current system operational status.
+ */
+export async function getSystemStatus() {
+  const response = await configClient.get('/ticket-configurations/system-status');
+  return response.data?.status || response.data?.value?.status || 'Operational';
+}
+
+/**
+ * Update system status (Operational vs Under Maintenance).
+ */
+export async function updateSystemStatus(status) {
+  const response = await configClient.put('/ticket-configurations/system-status', { status });
+  return response.data?.status || response.data?.value?.status || status;
+}
+
+/**
+ * Reset system status to Operational.
+ */
+export async function resetSystemStatus() {
+  const response = await configClient.post('/ticket-configurations/system-status/reset');
+  return response.data?.status || response.data?.value?.status || 'Operational';
+}
+
+/**
+ * Fetch current logging verbosity level.
+ */
+export async function getLogLevel() {
+  const response = await configClient.get('/ticket-configurations/log-level');
+  return response.data?.level || response.data?.value?.level || 'Info';
+}
+
+/**
+ * Update logging verbosity (Error, Warning, Info, Debug).
+ */
+export async function updateLogLevel(level) {
+  const response = await configClient.put('/ticket-configurations/log-level', { level });
+  return response.data?.level || response.data?.value?.level || level;
+}
+
+/**
+ * Reset logging verbosity to Info.
+ */
+export async function resetLogLevel() {
+  const response = await configClient.post('/ticket-configurations/log-level/reset');
+  return response.data?.level || response.data?.value?.level || 'Info';
 }
 

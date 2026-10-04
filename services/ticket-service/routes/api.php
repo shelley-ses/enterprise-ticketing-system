@@ -21,7 +21,6 @@ Route::middleware('auth.subsystem')->get('/user', function (Request $request) {
 
 // ─── Core Ticket Public / Common Endpoints ────────────────────────────────────
 Route::get('/ticket-form-options', [TicketController::class, 'formOptions']);
-Route::post('/tickets', [TicketController::class, 'store']);
 
 // ─── Dashboards & Feed Endpoints ─────────────────────────────────────────────
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);
@@ -175,6 +174,7 @@ Route::middleware('auth.subsystem')->group(function () {
     });
 
     // ─── Core Ticket Lifecycle ────────────────────────────────────────────────
+    Route::post('/tickets', [TicketController::class, 'store']);
     Route::post('/tickets/internal', [TicketController::class, 'storeInternalTicket']);
     Route::get('/tickets/{ticketId}', [TicketController::class, 'show']);
     Route::patch('/tickets/{ticketId}', [TicketController::class, 'updateTicket']);
@@ -187,6 +187,10 @@ Route::middleware('auth.subsystem')->group(function () {
 
     // ─── SuperAdmin Configuration & Audit Logs ────────────────────────────────
     Route::get('/superadmin/config', [SuperAdminConfigController::class, 'getSuperAdminConfig']);
+    Route::get('/superadmin/ticket-limit', [SuperAdminConfigController::class, 'getTicketLimit']);
+    Route::put('/superadmin/ticket-limit', [SuperAdminConfigController::class, 'updateTicketLimit']);
+    Route::patch('/superadmin/ticket-limit', [SuperAdminConfigController::class, 'updateTicketLimit']);
+    Route::post('/superadmin/ticket-limit/reset', [SuperAdminConfigController::class, 'resetTicketLimit']);
     Route::post('/superadmin/equipment', [SuperAdminConfigController::class, 'createSuperAdminEquipment']);
     Route::put('/superadmin/equipment/{id}', [SuperAdminConfigController::class, 'updateSuperAdminEquipment']);
     Route::delete('/superadmin/equipment/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminEquipment']);
@@ -198,6 +202,22 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::get('/superadmin/window-config', [SuperAdminConfigController::class, 'getWindowConfig']);
     Route::put('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
     Route::patch('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
+    Route::get('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'getNotificationRouting']);
+    Route::put('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'updateNotificationRouting']);
+    Route::patch('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'updateNotificationRouting']);
+    Route::post('/superadmin/recipient-routing/reset', [SuperAdminConfigController::class, 'resetNotificationRouting']);
+
+    Route::get('/superadmin/company-info', [SuperAdminConfigController::class, 'getCompanyInfo']);
+    Route::put('/superadmin/company-info', [SuperAdminConfigController::class, 'updateCompanyInfo']);
+    Route::patch('/superadmin/company-info', [SuperAdminConfigController::class, 'updateCompanyInfo']);
+
+    Route::get('/superadmin/system-status', [SuperAdminConfigController::class, 'getSystemStatus']);
+    Route::put('/superadmin/system-status', [SuperAdminConfigController::class, 'updateSystemStatus']);
+    Route::patch('/superadmin/system-status', [SuperAdminConfigController::class, 'updateSystemStatus']);
+
+    Route::get('/superadmin/log-level', [SuperAdminConfigController::class, 'getLogLevel']);
+    Route::put('/superadmin/log-level', [SuperAdminConfigController::class, 'updateLogLevel']);
+    Route::patch('/superadmin/log-level', [SuperAdminConfigController::class, 'updateLogLevel']);
 
     // ─── SuperAdmin SLA Rules ─────────────────────────────────────────────────
     Route::get('/superadmin/sla-rules', [SLARuleController::class, 'index']);

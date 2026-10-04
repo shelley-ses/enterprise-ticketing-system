@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LogLevelUpdated;
+use App\Events\NotificationRoutingUpdated;
+use App\Events\SystemStatusUpdated;
 use App\Events\TicketWindowConfigUpdated;
 use App\Models\TicketConfiguration;
 use Illuminate\Http\JsonResponse;
@@ -108,24 +111,38 @@ class TicketConfigurationController extends Controller
             'new_message' => ['contextual_assigned'],
             'overdue_ticket' => ['role_cs'],
         ],
+        'company_info' => [
+            'address' => 'SBSI Building, 28 East Capitol Drive, Kapitolyo, Pasig City, Metro Manila, Philippines 1603',
+            'contactNumber' => '+63 2 8635 9999',
+            'contactEmail' => 'support@sbsi.com.ph',
+            'socialLinks' => [
+                ['id' => 'soc-1', 'platform' => 'LinkedIn', 'url' => 'https://www.linkedin.com/company/scientific-biotech-specialties-inc'],
+                ['id' => 'soc-2', 'platform' => 'Facebook', 'url' => 'https://www.facebook.com/ScientificBiotechSpecialties'],
+                ['id' => 'soc-3', 'platform' => 'Twitter / X', 'url' => 'https://x.com/sbsi_ph'],
+            ],
+        ],
+        'system_status' => [
+            'status' => 'Operational',
+        ],
+        'log_level' => [
+            'level' => 'Info',
+        ],
     ];
 
-    /**
-     * Helper to write configuration audit logs to ticket_audit_logs.
     /**
      * Verify that the request is authorized to modify system configuration.
      * Enforces superadmin authentication or trusted internal microservice origin.
      */
     protected function checkAuthorized(Request $request): ?JsonResponse
     {
-        // 1. Allow internal Docker network / microservice calls with internal header or private IP
-        $clientIp = $request->ip();
-        $isInternal = in_array($clientIp, ['127.0.0.1', '::1'])
-            || str_starts_with($clientIp, '172.')
-            || str_starts_with($clientIp, '10.')
-            || $request->header('X-Internal-Call') === 'ticket-service';
-
-        if ($isInternal) {
+        // 1. Allow trusted internal microservice calls that present matching INTERNAL_TOKEN
+        $expectedToken = (string) env('INTERNAL_TOKEN', '');
+        $providedToken = (string) $request->header('X-Internal-Token', '');
+        if (
+            $expectedToken !== ''
+            && $request->header('X-Internal-Call') === 'ticket-service'
+            && hash_equals($expectedToken, $providedToken)
+        ) {
             return null;
         }
 
@@ -133,9 +150,6 @@ class TicketConfigurationController extends Controller
         $authHeader = $request->header('Authorization');
         if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
             $token = substr($authHeader, 7);
-            if ($token === 'frontend-dev-token' && app()->environment('local')) {
-                return null;
-            }
             $tokenHash = hash('sha256', $token);
             $cachedEmpId = Cache::get('sso_auth_cache:' . $tokenHash);
             if ($cachedEmpId) {
@@ -147,19 +161,33 @@ class TicketConfigurationController extends Controller
             }
         }
 
-        // 3. Check X-User-Role header
-        $roleHeader = $request->header('X-User-Role');
-        if ($roleHeader && strtolower(str_replace(' ', '', $roleHeader)) === 'superadmin') {
-            return null;
-        }
-
         return response()->json(['message' => 'Unauthorized: Authentication required.'], 401);
     }
 
     /**
-     * Helper to write configuration audit logs to ticket_audit_logs.
+     * Limit writes are accepted only from ticket-service after it has authenticated
+     * and authorized the acting super administrator.
      */
-    protected function logAudit(?Request $request, string $actionType, string $module, string $target, string $text): void
+    protected function checkTrustedTicketService(Request $request): ?JsonResponse
+    {
+        $expectedToken = (string) env('INTERNAL_TOKEN', '');
+        $providedToken = (string) $request->header('X-Internal-Token', '');
+
+        if (
+            $expectedToken !== ''
+            && $request->header('X-Internal-Call') === 'ticket-service'
+            && hash_equals($expectedToken, $providedToken)
+        ) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Unauthorized internal service request.'], 401);
+    }
+
+    /**
+     * Helper to write configuration audit logs to ticket_audit_logs capturing acting super admin and before/after values.
+     */
+    protected function logAudit(?Request $request, string $actionType, string $module, string $target, string $text, mixed $before = null, mixed $after = null): void
     {
         try {
             $userId = $request?->header('X-User-Id')
@@ -169,20 +197,49 @@ class TicketConfigurationController extends Controller
                 ?? DB::table('employees')->value('emp_id')
                 ?? 1;
 
+            $details = [
+                'module' => $module,
+                'target' => $target,
+                'text'   => $text,
+            ];
+
+            if ($before !== null) {
+                $details['before'] = $before;
+            }
+            if ($after !== null) {
+                $details['after'] = $after;
+            }
+
             DB::table('ticket_audit_logs')->insert([
                 'ticket_ID'    => null,
                 'action_type'  => $actionType,
                 'action_by_ID' => $userId,
                 'actor_type'   => 'superadmin',
-                'details'      => json_encode([
-                    'module' => $module,
-                    'target' => $target,
-                    'text'   => $text,
-                ]),
+                'details'      => json_encode($details),
                 'created_at'   => now(),
             ]);
         } catch (\Throwable $e) {
             Log::warning("Failed to record configuration audit log: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Non-blocking Redis cache invalidation for arbitrary config key using SCAN chunking.
+     */
+    protected function clearConfigCache(string $key): void
+    {
+        try {
+            Cache::forget("ticket:config:{$key}");
+            Cache::forget("ticket_configuration:{$key}");
+            $cursor = 0;
+            do {
+                [$cursor, $keys] = Redis::scan($cursor, ['match' => "*{$key}*", 'count' => 100]);
+                if (!empty($keys)) {
+                    Redis::del($keys);
+                }
+            } while ($cursor != 0);
+        } catch (\Throwable $e) {
+            Log::warning("Redis cache clearing failed for {$key}: " . $e->getMessage());
         }
     }
 
@@ -203,6 +260,26 @@ class TicketConfigurationController extends Controller
             } while ($cursor != 0);
         } catch (\Throwable $e) {
             Log::warning('Redis cache clearing failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Non-blocking Redis cache invalidation for notification recipient routing using SCAN chunking.
+     */
+    protected function clearRoutingCache(): void
+    {
+        try {
+            Cache::forget('ticket:config:routing');
+            Cache::forget('ticket_configuration:routing');
+            $cursor = 0;
+            do {
+                [$cursor, $keys] = Redis::scan($cursor, ['match' => '*ticket*routing*', 'count' => 100]);
+                if (!empty($keys)) {
+                    Redis::del($keys);
+                }
+            } while ($cursor != 0);
+        } catch (\Throwable $e) {
+            Log::warning('Redis cache clearing for routing failed: ' . $e->getMessage());
         }
     }
 
@@ -244,6 +321,102 @@ class TicketConfigurationController extends Controller
     }
 
     /**
+     * Dedicated endpoint to view active notification recipient routing.
+     * Explicitly marks system_alert as non-configurable and hard-coded to Super Admin.
+     */
+    public function showRouting(): JsonResponse
+    {
+        $value = TicketConfiguration::getByKey('routing', $this->defaults['routing']);
+
+        return response()->json([
+            'key' => 'routing',
+            'value' => $value,
+            'immutable_scope' => [
+                'system_alert' => [
+                    'locked' => true,
+                    'recipients' => ['role_superadmin'],
+                    'description' => 'System alerts are strictly hard-coded to Super Admin at the dispatch level and cannot be modified.',
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Dedicated endpoint to update notification recipient routing independently.
+     */
+    public function updateRouting(Request $request): JsonResponse
+    {
+        return $this->update($request, 'routing');
+    }
+
+    /**
+     * Dedicated endpoint to view company information.
+     */
+    public function showCompanyInfo(): JsonResponse
+    {
+        $value = TicketConfiguration::getByKey('company_info', $this->defaults['company_info']);
+
+        return response()->json([
+            'key' => 'company_info',
+            'value' => $value,
+        ]);
+    }
+
+    /**
+     * Dedicated endpoint to update company information independently.
+     */
+    public function updateCompanyInfo(Request $request): JsonResponse
+    {
+        return $this->update($request, 'company_info');
+    }
+
+    /**
+     * Dedicated endpoint to view current system status.
+     */
+    public function showSystemStatus(): JsonResponse
+    {
+        $value = TicketConfiguration::getByKey('system_status', $this->defaults['system_status']);
+        $status = is_array($value) ? ($value['status'] ?? 'Operational') : ($value ?: 'Operational');
+
+        return response()->json([
+            'key' => 'system_status',
+            'value' => ['status' => $status],
+            'status' => $status,
+        ]);
+    }
+
+    /**
+     * Dedicated endpoint to update system status independently.
+     */
+    public function updateSystemStatus(Request $request): JsonResponse
+    {
+        return $this->update($request, 'system_status');
+    }
+
+    /**
+     * Dedicated endpoint to view current logging verbosity.
+     */
+    public function showLogLevel(): JsonResponse
+    {
+        $value = TicketConfiguration::getByKey('log_level', $this->defaults['log_level']);
+        $level = is_array($value) ? ($value['level'] ?? 'Info') : ($value ?: 'Info');
+
+        return response()->json([
+            'key' => 'log_level',
+            'value' => ['level' => $level],
+            'level' => $level,
+        ]);
+    }
+
+    /**
+     * Dedicated endpoint to update logging verbosity independently.
+     */
+    public function updateLogLevel(Request $request): JsonResponse
+    {
+        return $this->update($request, 'log_level');
+    }
+
+    /**
      * Get a specific configuration section.
      */
     public function show(string $key): JsonResponse
@@ -266,11 +439,13 @@ class TicketConfigurationController extends Controller
      */
     public function update(Request $request, string $key): JsonResponse
     {
-        if ($authErr = $this->checkAuthorized($request)) {
+        $normalizedKey = str_replace('-', '_', $key);
+        $authErr = $normalizedKey === 'limits'
+            ? $this->checkTrustedTicketService($request)
+            : $this->checkAuthorized($request);
+        if ($authErr) {
             return $authErr;
         }
-
-        $normalizedKey = str_replace('-', '_', $key);
 
         if (!array_key_exists($normalizedKey, $this->defaults)) {
             return response()->json(['message' => "Invalid configuration section '{$key}'."], 422);
@@ -452,14 +627,100 @@ class TicketConfigurationController extends Controller
                 break;
 
             case 'routing':
-                $validated = $request->validate([
-                    'routing' => 'sometimes|array',
-                    'new_ticket' => 'sometimes|array|min:1',
-                    'new_message' => 'sometimes|array|min:1',
-                    'overdue_ticket' => 'sometimes|array|min:1',
+                $rawPayload = $request->all();
+                $routingPayload = $request->input('routing', $request->input('value', $rawPayload));
+
+                // 1. Explicitly exclude system_alert from configurable scope
+                if (isset($routingPayload['system_alert']) || isset($rawPayload['system_alert'])) {
+                    return response()->json([
+                        'message' => 'Validation Error: system_alert cannot be configured. System alerts are strictly hard-coded to Super Admin at dispatch level.',
+                        'errors' => [
+                            'system_alert' => ['System alerts are restricted to Super Admin and cannot be customized via recipient routing.'],
+                        ],
+                    ], 422);
+                }
+
+                $titles = [
+                    'new_ticket' => 'New Ticket Alert',
+                    'new_message' => 'New Message Alert',
+                    'overdue_ticket' => 'Overdue Ticket Alert',
+                ];
+
+                $validTokens = [
+                    'contextual_assigned',
+                    'contextual_requester',
+                    'role_cs',
+                    'role_service',
+                    'role_it_admin',
+                    'role_superadmin',
+                ];
+
+                $currentRouting = TicketConfiguration::getByKey('routing', $this->defaults['routing']);
+                $errors = [];
+                $sanitizedRouting = [];
+
+                foreach (['new_ticket', 'new_message', 'overdue_ticket'] as $scopeKey) {
+                    if (array_key_exists($scopeKey, $routingPayload)) {
+                        $recipients = $routingPayload[$scopeKey];
+
+                        // Reject save with 0 recipients
+                        if (!is_array($recipients) || count($recipients) === 0) {
+                            $errors[$scopeKey] = ["At least one recipient is required for {$titles[$scopeKey]}."];
+                            continue;
+                        }
+
+                        $validList = [];
+                        foreach ($recipients as $token) {
+                            if (!is_string($token) || trim($token) === '') continue;
+                            $token = trim($token);
+                            if (in_array($token, $validTokens, true) || preg_match('/^dept_\d+$/', $token)) {
+                                $validList[] = $token;
+                            }
+                        }
+
+                        if (count($validList) === 0) {
+                            $errors[$scopeKey] = ["At least one valid recipient is required for {$titles[$scopeKey]}."];
+                        } else {
+                            $sanitizedRouting[$scopeKey] = array_values(array_unique($validList));
+                        }
+                    } else {
+                        // Preserve existing if omitted in partial update
+                        $sanitizedRouting[$scopeKey] = $currentRouting[$scopeKey] ?? $this->defaults['routing'][$scopeKey];
+                    }
+                }
+
+                if (!empty($errors)) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid recipient routing configuration.',
+                        'errors' => $errors,
+                    ], 422);
+                }
+
+                $value = $sanitizedRouting;
+                $record = TicketConfiguration::setByKey('routing', $value);
+                $this->clearRoutingCache();
+
+                $actingUserId = $request->user()?->emp_id ?? $request->user()?->id ?? 1;
+
+                try {
+                    event(new NotificationRoutingUpdated($value, $actingUserId));
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to dispatch NotificationRoutingUpdated: ' . $e->getMessage());
+                }
+
+                $this->logAudit(
+                    $request,
+                    'config_update',
+                    'Notification Recipient Routing',
+                    'Recipient Routing Rules',
+                    'Updated notification recipient routing for ' . implode(', ', array_keys($value))
+                );
+
+                return response()->json([
+                    'message' => "Notification recipient routing updated successfully.",
+                    'key' => 'routing',
+                    'value' => $record->value,
                 ]);
-                $value = $request->has('routing') ? $request->input('routing') : $request->only(['new_ticket', 'new_message', 'overdue_ticket']);
-                break;
 
             case 'transitions':
                 $request->validate([
@@ -468,6 +729,207 @@ class TicketConfigurationController extends Controller
                 $value = $request->has('transitions') ? $request->input('transitions') : $payload;
                 break;
 
+            case 'company_info':
+                $validator = Validator::make($payload, [
+                    'address' => 'required|string|min:5|max:500',
+                    'contactNumber' => [
+                        'required',
+                        'string',
+                        'regex:/^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.\/0-9]{6,25}$/'
+                    ],
+                    'contactEmail' => 'required|email|max:255',
+                    'socialLinks' => 'nullable|array',
+                    'socialLinks.*.id' => 'sometimes|string|max:64',
+                    'socialLinks.*.platform' => 'required|string|in:LinkedIn,Facebook,Twitter / X,Twitter,YouTube,Instagram,Other',
+                    'socialLinks.*.url' => [
+                        'required',
+                        'string',
+                        function ($attribute, $value, $fail) {
+                            if (!filter_var($value, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//i', $value)) {
+                                $fail('Please provide a valid web URL starting with http:// or https://.');
+                            }
+                        }
+                    ],
+                ], [
+                    'address.required' => 'Headquarters address is required.',
+                    'address.min' => 'Headquarters address must be at least 5 characters.',
+                    'contactNumber.required' => 'Contact phone number is required.',
+                    'contactNumber.regex' => 'Please provide a valid phone number (e.g. +63 2 8635 9999).',
+                    'contactEmail.required' => 'Contact email is required.',
+                    'contactEmail.email' => 'Please provide a valid contact email address.',
+                    'socialLinks.*.platform.in' => 'Selected social platform is not supported.',
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid company information values.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $validated = $validator->validated();
+                $before = TicketConfiguration::getByKey('company_info', $this->defaults['company_info']);
+
+                $cleanSocial = [];
+                if (!empty($validated['socialLinks'])) {
+                    foreach ($validated['socialLinks'] as $idx => $link) {
+                        $cleanSocial[] = [
+                            'id' => $link['id'] ?? ('soc-' . ($idx + 1)),
+                            'platform' => $link['platform'],
+                            'url' => trim($link['url']),
+                        ];
+                    }
+                }
+
+                $value = [
+                    'address' => trim($validated['address']),
+                    'contactNumber' => trim($validated['contactNumber']),
+                    'contactEmail' => trim($validated['contactEmail']),
+                    'socialLinks' => $cleanSocial,
+                ];
+
+                $record = TicketConfiguration::setByKey('company_info', $value);
+                $this->clearConfigCache('company_info');
+
+                $this->logAudit(
+                    $request,
+                    'config_update',
+                    'Company Information',
+                    'Corporate Profile',
+                    'Updated corporate profile, contact lines, and social links.',
+                    $before,
+                    $value
+                );
+
+                return response()->json([
+                    'message' => "Company information updated successfully.",
+                    'key' => 'company_info',
+                    'value' => $record->value,
+                ]);
+
+            case 'system_status':
+                $statusInput = is_array($payload) ? ($payload['status'] ?? null) : $payload;
+                $validator = Validator::make(['status' => $statusInput], [
+                    'status' => 'required|string|in:Operational,Under Maintenance',
+                ], [
+                    'status.in' => 'System status must be either Operational or Under Maintenance.',
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid system status.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $newStatus = $validator->validated()['status'];
+                $before = TicketConfiguration::getByKey('system_status', $this->defaults['system_status']);
+                $oldStatus = is_array($before) ? ($before['status'] ?? 'Operational') : ($before ?: 'Operational');
+
+                $value = ['status' => $newStatus];
+                $record = TicketConfiguration::setByKey('system_status', $value);
+
+                // Set in Redis for instantaneous multi-service access
+                try {
+                    Cache::forever('system:config:status', $newStatus);
+                    Redis::set('system:config:status', $newStatus);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed setting Redis status: ' . $e->getMessage());
+                }
+                $this->clearConfigCache('system_status');
+
+                // Broadcast event
+                $actingUserId = $request->user()?->emp_id ?? $request->user()?->id ?? 1;
+                try {
+                    event(new SystemStatusUpdated($newStatus, $actingUserId));
+                } catch (\Throwable $e) {
+                    Log::warning('Broadcasting SystemStatusUpdated failed: ' . $e->getMessage());
+                }
+
+                $auditText = "Updated system status from '{$oldStatus}' to '{$newStatus}'. Advisory banners and login restrictions are now " . ($newStatus === 'Under Maintenance' ? 'active.' : 'cleared.');
+                $this->logAudit(
+                    $request,
+                    'config_update',
+                    'System Status',
+                    'Platform Operating State',
+                    $auditText,
+                    ['status' => $oldStatus],
+                    ['status' => $newStatus]
+                );
+
+                return response()->json([
+                    'message' => "System status updated successfully to '{$newStatus}'.",
+                    'key' => 'system_status',
+                    'value' => $record->value,
+                    'status' => $newStatus,
+                ]);
+
+            case 'log_level':
+                $levelInput = is_array($payload) ? ($payload['level'] ?? null) : $payload;
+                $normalizedInput = ucfirst(strtolower(trim($levelInput ?? '')));
+                $validator = Validator::make(['level' => $normalizedInput], [
+                    'level' => 'required|string|in:Error,Warning,Info,Debug',
+                ], [
+                    'level.in' => 'Log level must be one of: Error, Warning, Info, Debug.',
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid log level.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $newLevel = $validator->validated()['level'];
+                $before = TicketConfiguration::getByKey('log_level', $this->defaults['log_level']);
+                $oldLevel = is_array($before) ? ($before['level'] ?? 'Info') : ($before ?: 'Info');
+
+                $value = ['level' => $newLevel];
+                $record = TicketConfiguration::setByKey('log_level', $value);
+
+                // Set in Redis for immediate dynamic runtime logging across services
+                try {
+                    Cache::forever('system:config:log_level', $newLevel);
+                    Redis::set('system:config:log_level', $newLevel);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed setting Redis log level: ' . $e->getMessage());
+                }
+
+                // Wire active request logging level dynamically without container restart
+                $normLower = strtolower($newLevel);
+                config([
+                    'logging.channels.single.level' => $normLower,
+                    'logging.channels.daily.level' => $normLower,
+                ]);
+
+                $this->clearConfigCache('log_level');
+
+                // Broadcast event
+                $actingUserId = $request->user()?->emp_id ?? $request->user()?->id ?? 1;
+                try {
+                    event(new LogLevelUpdated($newLevel, $actingUserId));
+                } catch (\Throwable $e) {
+                    Log::warning('Broadcasting LogLevelUpdated failed: ' . $e->getMessage());
+                }
+
+                $auditText = "Updated diagnostic log level from '{$oldLevel}' to '{$newLevel}'. Runtime HTTP requests adopt this verbosity immediately.";
+                $this->logAudit(
+                    $request,
+                    'config_update',
+                    'Log Level Configuration',
+                    'Logging Verbosity',
+                    $auditText,
+                    ['level' => $oldLevel],
+                    ['level' => $newLevel]
+                );
+
+                return response()->json([
+                    'message' => "Log level updated successfully to '{$newLevel}'.",
+                    'key' => 'log_level',
+                    'value' => $record->value,
+                    'level' => $newLevel,
+                ]);
+
             default:
                 $value = $payload;
                 break;
@@ -475,13 +937,17 @@ class TicketConfigurationController extends Controller
 
         $record = TicketConfiguration::setByKey($normalizedKey, $value);
 
-        $this->logAudit(
-            $request,
-            'config_update',
-            'Ticket Configuration',
-            ucwords(str_replace('_', ' ', $normalizedKey)),
-            "Updated configuration section '{$normalizedKey}'."
-        );
+        if ($normalizedKey === 'limits') {
+            $this->clearConfigCache('limits');
+        } else {
+            $this->logAudit(
+                $request,
+                'config_update',
+                'Ticket Configuration',
+                ucwords(str_replace('_', ' ', $normalizedKey)),
+                "Updated configuration section '{$normalizedKey}'."
+            );
+        }
 
         return response()->json([
             'message' => "Configuration for '{$normalizedKey}' updated successfully.",
@@ -495,16 +961,19 @@ class TicketConfigurationController extends Controller
      */
     public function reset(string $key): JsonResponse
     {
-        if ($authErr = $this->checkAuthorized(request())) {
+        $normalizedKey = str_replace('-', '_', $key);
+        $authErr = $normalizedKey === 'limits'
+            ? $this->checkTrustedTicketService(request())
+            : $this->checkAuthorized(request());
+        if ($authErr) {
             return $authErr;
         }
-
-        $normalizedKey = str_replace('-', '_', $key);
 
         if (!array_key_exists($normalizedKey, $this->defaults)) {
             return response()->json(['message' => "Invalid configuration section '{$key}'."], 422);
         }
 
+        $before = TicketConfiguration::getByKey($normalizedKey, $this->defaults[$normalizedKey]);
         $defaultValue = $this->defaults[$normalizedKey];
         $record = TicketConfiguration::setByKey($normalizedKey, $defaultValue);
 
@@ -516,13 +985,53 @@ class TicketConfigurationController extends Controller
             } catch (\Throwable $e) {}
         }
 
-        $this->logAudit(
-            request(),
-            'config_reset',
-            'Lifecycle Window Configuration',
-            ucwords(str_replace('_', ' ', $normalizedKey)),
-            "Reset configuration section '{$normalizedKey}' to system defaults."
-        );
+        if ($normalizedKey === 'routing') {
+            $this->clearRoutingCache();
+
+            try {
+                event(new NotificationRoutingUpdated($defaultValue, null));
+            } catch (\Throwable $e) {}
+        }
+
+        if ($normalizedKey === 'system_status') {
+            try {
+                Cache::forever('system:config:status', 'Operational');
+                Redis::set('system:config:status', 'Operational');
+                event(new SystemStatusUpdated('Operational', null));
+            } catch (\Throwable $e) {}
+            $this->clearConfigCache('system_status');
+        }
+
+        if ($normalizedKey === 'log_level') {
+            try {
+                Cache::forever('system:config:log_level', 'Info');
+                Redis::set('system:config:log_level', 'Info');
+                config([
+                    'logging.channels.single.level' => 'info',
+                    'logging.channels.daily.level' => 'info',
+                ]);
+                event(new LogLevelUpdated('Info', null));
+            } catch (\Throwable $e) {}
+            $this->clearConfigCache('log_level');
+        }
+
+        if ($normalizedKey === 'company_info') {
+            $this->clearConfigCache('company_info');
+        }
+
+        if ($normalizedKey === 'limits') {
+            $this->clearConfigCache('limits');
+        } else {
+            $this->logAudit(
+                request(),
+                'config_reset',
+                ucwords(str_replace('_', ' ', $normalizedKey)),
+                ucwords(str_replace('_', ' ', $normalizedKey)),
+                "Reset configuration section '{$normalizedKey}' to system defaults.",
+                $before,
+                $defaultValue
+            );
+        }
 
         return response()->json([
             'message' => "Configuration for '{$normalizedKey}' reset to defaults.",

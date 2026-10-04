@@ -851,6 +851,21 @@ export const getSuperAdminConfig = async () => {
   return response.data;
 };
 
+export const getTicketLimitConfig = async () => {
+  const response = await ticketClient.get('/superadmin/ticket-limit');
+  return response.data?.value || response.data;
+};
+
+export const updateTicketLimitConfig = async (payload) => {
+  const response = await ticketClient.put('/superadmin/ticket-limit', payload);
+  return response.data?.value || response.data;
+};
+
+export const resetTicketLimitConfig = async () => {
+  const response = await ticketClient.post('/superadmin/ticket-limit/reset');
+  return response.data?.value || response.data;
+};
+
 export const createSuperAdminEquipment = async (payload) => {
   const response = await ticketClient.post('/superadmin/equipment', payload);
   return response.data;
@@ -971,4 +986,4 @@ export const getWindowConfig = async () => {
 export const updateWindowConfig = async (payload) => {
   const response = await ticketClient.put('/superadmin/window-config', payload);
   return response.data?.value || response.data;
-};
+};

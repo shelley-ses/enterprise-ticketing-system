@@ -501,9 +501,36 @@ function AISupportPage() {
 
   // Store per-conversation state
   const conversationStateRef = useRef({});
+  const conversationsRef = useRef(conversations);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   // Load conversation state
   const loadConversation = useCallback((convId) => {
+    if (!convId) return;
+
+    // Handle local draft conversations that have not been persisted to the backend yet
+    if (String(convId).startsWith('conv-')) {
+      const saved = conversationStateRef.current[convId];
+      if (saved) {
+        setMessages(saved.messages);
+        setShowSuggestionChips(saved.showSuggestionChips);
+        setShowTicketCard(saved.showTicketCard);
+        setConversationPhase(saved.conversationPhase);
+        setEscalationTicketData(saved.escalationTicketData || null);
+      } else {
+        setMessages([welcomeMessage, gatherDetailsMessage]);
+        setShowSuggestionChips(true);
+        setShowTicketCard(false);
+        setConversationPhase(0);
+        setEscalationTicketData(null);
+      }
+      setActiveConversationId(convId);
+      return;
+    }
+
     axiosInstance.get(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
       .then(res => {
         if (res.data.success && res.data.conversation) {
@@ -597,21 +624,39 @@ function AISupportPage() {
   }, []);
 
   const handleNewChat = useCallback(() => {
-    // Prevent creating multiple duplicate "New Conversation" entries in sidebar
-    const existingUnused = conversations.find(c => (c.title === 'New Conversation' || c.title === 'New Chat') && c.messageCount <= 2);
+    const list = conversationsRef.current || [];
+    // If active conversation or an existing list item is already an unused conversation, just navigate to it
+    const existingUnused = list.find(c =>
+      (c.title === 'New Conversation' || c.title === 'New Chat') &&
+      (!c.messageCount || c.messageCount <= 2)
+    );
     if (existingUnused && existingUnused.id) {
       loadConversation(existingUnused.id);
       return;
     }
 
     const id = `conv-${Date.now()}`;
-    setConversations(prev => [{ id, title: 'New Conversation', timestamp: new Date().toISOString(), messageCount: 2 }, ...prev]);
+    const newConv = {
+      id,
+      title: 'New Conversation',
+      timestamp: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      messageCount: 2,
+    };
+
+    setConversations(prev => {
+      // Remove any prior empty local draft
+      const filtered = prev.filter(c => !(String(c.id).startsWith('conv-') && c.title === 'New Conversation' && (!c.messageCount || c.messageCount <= 2)));
+      return [newConv, ...filtered];
+    });
+
     setActiveConversationId(id);
     setMessages([welcomeMessage, gatherDetailsMessage]);
     setShowSuggestionChips(true);
     setShowTicketCard(false);
     setConversationPhase(0);
     setEscalationTicketData(null);
+
     conversationStateRef.current[id] = {
       messages: [welcomeMessage, gatherDetailsMessage],
       conversationPhase: 0,
@@ -619,16 +664,19 @@ function AISupportPage() {
       showTicketCard: false,
       escalationTicketData: null,
     };
-  }, [conversations, loadConversation]);
+  }, [loadConversation]);
 
-  // Load all conversations from MongoDB
+  // Load all conversations from MongoDB / MySQL
   const fetchConversationsListOnly = useCallback(() => {
+    if (!currentUserId) return;
     axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
       .then(res => {
-        if (res.data.success && res.data.conversations) {
+        if (res.data.success && Array.isArray(res.data.conversations)) {
           const cleanConvs = res.data.conversations.map(c => ({
             ...c,
-            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : c.title
+            timestamp: c.updated_at || c.created_at || new Date().toISOString(),
+            messageCount: c.message_count !== undefined ? c.message_count : (Array.isArray(c.messages) ? c.messages.length : (c.messageCount || 2)),
+            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : 'Support Inquiry'
           }));
           setConversations(cleanConvs);
         }
@@ -638,13 +686,19 @@ function AISupportPage() {
       });
   }, [currentUserId]);
 
-  const fetchConversations = useCallback(() => {
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    let isMounted = true;
     axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
       .then(res => {
-        if (res.data.success && res.data.conversations) {
+        if (!isMounted) return;
+        if (res.data.success && Array.isArray(res.data.conversations)) {
           const fetched = res.data.conversations.map(c => ({
             ...c,
-            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : c.title
+            timestamp: c.updated_at || c.created_at || new Date().toISOString(),
+            messageCount: c.message_count !== undefined ? c.message_count : (Array.isArray(c.messages) ? c.messages.length : (c.messageCount || 2)),
+            title: c.title ? c.title.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim() : 'Support Inquiry'
           }));
           setConversations(fetched);
           if (fetched.length > 0 && fetched[0].id) {
@@ -657,14 +711,18 @@ function AISupportPage() {
         }
       })
       .catch(err => {
+        if (!isMounted) return;
         console.error("Failed to load conversations:", err);
-        handleNewChat();
+        const list = conversationsRef.current || [];
+        if (list.length === 0) {
+          handleNewChat();
+        }
       });
-  }, [currentUserId, loadConversation, handleNewChat]);
 
-  useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations]);
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUserId, loadConversation, handleNewChat]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -832,34 +890,40 @@ function AISupportPage() {
 
   const handleDeleteConversation = useCallback((e, convId) => {
     e.stopPropagation();
+    delete conversationStateRef.current[convId];
+
+    if (String(convId).startsWith('conv-')) {
+      setConversations(prev => {
+        const nextList = prev.filter(c => c.id !== convId);
+        if (activeConversationId === convId) {
+          if (nextList.length > 0 && nextList[0].id) {
+            loadConversation(nextList[0].id);
+          } else {
+            handleNewChat();
+          }
+        }
+        return nextList;
+      });
+      return;
+    }
+
     axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
       .then(() => {
-        axiosInstance.get(`${AI_API_URL}/conversations`, { baseURL: '', params: { user_id: currentUserId } })
-          .then(res => {
-            if (res.data.success && res.data.conversations) {
-              const fetched = res.data.conversations;
-              setConversations(fetched);
-              if (activeConversationId === convId) {
-                if (fetched.length > 0 && fetched[0].id) {
-                  loadConversation(fetched[0].id);
-                } else {
-                  handleNewChat();
-                }
-              }
-            } else {
-              setConversations([]);
-              if (activeConversationId === convId) handleNewChat();
-            }
-          })
-          .catch(() => {
-            setConversations(prev => prev.filter(c => c.id !== convId));
-            if (activeConversationId === convId) handleNewChat();
-          });
+        fetchConversationsListOnly();
+        if (activeConversationId === convId) {
+          const list = conversationsRef.current || [];
+          const remaining = list.filter(c => c.id !== convId);
+          if (remaining.length > 0 && remaining[0].id) {
+            loadConversation(remaining[0].id);
+          } else {
+            handleNewChat();
+          }
+        }
       })
       .catch(err => {
         console.error("Failed to delete conversation from backend:", err);
       });
-  }, [activeConversationId, loadConversation, handleNewChat, currentUserId]);
+  }, [activeConversationId, loadConversation, handleNewChat, fetchConversationsListOnly]);
 
   const [duplicateModal, setDuplicateModal] = useState({
     isOpen: false,
@@ -1279,9 +1343,9 @@ function AISupportPage() {
                       {conv.title}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-gray-400">{formatShortTime(conv.timestamp)}</span>
+                      <span className="text-[10px] text-gray-400">{formatShortTime(conv.timestamp || conv.updated_at || conv.created_at)}</span>
                       <span className="text-[10px] text-gray-300">·</span>
-                      <span className="text-[10px] text-gray-400">{conv.messageCount} msgs</span>
+                      <span className="text-[10px] text-gray-400">{conv.message_count !== undefined ? conv.message_count : (conv.messageCount || 0)} msgs</span>
                     </div>
                   </div>
                   <button
