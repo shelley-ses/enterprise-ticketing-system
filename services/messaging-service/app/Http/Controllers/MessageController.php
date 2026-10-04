@@ -177,7 +177,22 @@ class MessageController extends Controller
                 }
 
                 $recipients = []; // array of ['id' => X, 'type' => 'client'|'employee']
-                
+
+                // Read active routing configuration at send time
+                $routingTokens = ['contextual_assigned'];
+                try {
+                    $routingRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                        ->table('ticket_configurations')
+                        ->where('key', 'routing')
+                        ->value('value');
+                    if ($routingRow) {
+                        $parsed = is_string($routingRow) ? json_decode($routingRow, true) : $routingRow;
+                        if (is_array($parsed) && !empty($parsed['new_message'])) {
+                            $routingTokens = $parsed['new_message'];
+                        }
+                    }
+                } catch (\Throwable $e) {}
+
                 // Get assigned employee IDs
                 $assignedEmpIds = [];
                 if ($ticket->assigned_to) {
@@ -191,60 +206,117 @@ class MessageController extends Controller
                     ->all();
                 $assignedEmpIds = array_unique(array_merge($assignedEmpIds, $dbAssigned));
 
-                if ($senderType === 'customer') {
-                    // Message from customer -> notify all assigned employees, or CS if none assigned
-                    if (empty($assignedEmpIds)) {
-                        $assignedEmpIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                foreach ($routingTokens as $token) {
+                    if ($token === 'contextual_assigned') {
+                        if ($senderType === 'customer' && empty($assignedEmpIds)) {
+                            // Fallback to CS if no employee assigned so customer message is never lost
+                            $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('employees')
+                                ->where('role', 'customer service')
+                                ->pluck('emp_id')
+                                ->map(fn($id) => (int)$id)
+                                ->all();
+                            foreach ($csIds as $empId) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                            }
+                        } else {
+                            foreach ($assignedEmpIds as $empId) {
+                                if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                    $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                                }
+                            }
+                        }
+                    } elseif ($token === 'contextual_requester') {
+                        if ($ticket->is_internal) {
+                            $requesterId = (int)$ticket->requested_by;
+                            if (!($senderType !== 'customer' && (int)$senderId === $requesterId)) {
+                                $recipients[] = ['id' => $requesterId, 'type' => 'employee'];
+                            }
+                        } else {
+                            if ($senderType !== 'customer') {
+                                $recipients[] = ['id' => (int)$ticket->created_by, 'type' => 'client'];
+                            }
+                        }
+                    } elseif ($token === 'role_cs') {
+                        $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                             ->table('employees')
                             ->where('role', 'customer service')
                             ->pluck('emp_id')
                             ->map(fn($id) => (int)$id)
                             ->all();
-                    }
-                    
-                    foreach ($assignedEmpIds as $empId) {
-                        $recipients[] = [
-                            'id' => $empId,
-                            'type' => 'employee'
-                        ];
-                    }
-                } else {
-                    // Message from employee or CS agent -> notify customer/requester AND other assigned employees
-                    if ($ticket->is_internal) {
-                        // Internal ticket: notify requester (if not sender) AND other assigned employees
-                        $requesterId = (int)$ticket->requested_by;
-                        if ($senderId !== $requesterId) {
-                            $recipients[] = [
-                                'id' => $requesterId,
-                                'type' => 'employee'
-                            ];
-                        }
-                        
-                        foreach ($assignedEmpIds as $empId) {
-                            if ($senderId !== $empId) {
-                                $recipients[] = [
-                                    'id' => $empId,
-                                    'type' => 'employee'
-                                ];
+                        foreach ($csIds as $empId) {
+                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
                             }
                         }
-                    } else {
-                        // External ticket: notify customer AND other assigned employees
-                        $recipients[] = [
-                            'id' => (int)$ticket->created_by,
-                            'type' => 'client'
-                        ];
-
-                        foreach ($assignedEmpIds as $empId) {
-                            if ($senderId !== $empId) {
-                                $recipients[] = [
-                                    'id' => $empId,
-                                    'type' => 'employee'
-                                ];
+                    } elseif ($token === 'role_service') {
+                        $svcIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('employees')
+                            ->whereIn('role', ['service', 'service engineer', 'technician'])
+                            ->pluck('emp_id')
+                            ->map(fn($id) => (int)$id)
+                            ->all();
+                        foreach ($svcIds as $empId) {
+                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                            }
+                        }
+                    } elseif ($token === 'role_it_admin') {
+                        $itIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('employees')
+                            ->whereIn('role', ['it admin', 'it_admin', 'it administrator'])
+                            ->pluck('emp_id')
+                            ->map(fn($id) => (int)$id)
+                            ->all();
+                        foreach ($itIds as $empId) {
+                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                            }
+                        }
+                    } elseif ($token === 'role_superadmin') {
+                        $adminIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('employees')
+                            ->whereRaw('LOWER(REPLACE(role, " ", "")) = ?', ['superadmin'])
+                            ->pluck('emp_id')
+                            ->map(fn($id) => (int)$id)
+                            ->all();
+                        foreach ($adminIds as $empId) {
+                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                            }
+                        }
+                    } elseif (str_starts_with($token, 'dept_')) {
+                        $deptId = (int) substr($token, 5);
+                        $deptEmpIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('employees')
+                            ->where('department_id', $deptId)
+                            ->pluck('emp_id')
+                            ->map(fn($id) => (int)$id)
+                            ->all();
+                        foreach ($deptEmpIds as $empId) {
+                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
+                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
                             }
                         }
                     }
                 }
+
+                // If sender is employee/CS and no recipients resolved, always ensure customer/requester gets notified
+                if ($senderType !== 'customer' && empty($recipients)) {
+                    if ($ticket->is_internal) {
+                        $recipients[] = ['id' => (int)$ticket->requested_by, 'type' => 'employee'];
+                    } else {
+                        $recipients[] = ['id' => (int)$ticket->created_by, 'type' => 'client'];
+                    }
+                }
+
+                // Deduplicate recipients
+                $uniqueRecipients = [];
+                foreach ($recipients as $r) {
+                    $key = $r['type'] . ':' . $r['id'];
+                    $uniqueRecipients[$key] = $r;
+                }
+                $recipients = array_values($uniqueRecipients);
 
                 // Insert notifications in MySQL DB
                 foreach ($recipients as $recipient) {

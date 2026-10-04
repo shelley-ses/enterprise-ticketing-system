@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\TicketLimitConfigurationUnavailableException;
+use App\Exceptions\TicketLimitExceededException;
 use App\Services\TicketCacheService;
 use App\Services\TicketDashboardService;
 use App\Services\TicketNotificationService;
@@ -44,25 +46,38 @@ class TicketController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        if (!$user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Only authenticated customers can create external tickets.'], 403);
+        }
+
         $validated = $request->validate([
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
-            'created_by' => ['nullable', 'integer', 'exists:clients,id'],
-            'assigned_to' => ['nullable', 'integer', 'exists:employees,emp_id'],
-            'ticket_type_ID' => ['nullable', 'integer', 'exists:ticket_types,ticket_type_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
-            'ticket_status_ID' => ['nullable', 'integer', 'exists:ticket_statuses,ticket_status_ID'],
-            'sla_ID' => ['nullable', 'integer', 'exists:slas,sla_ID'],
             'title' => ['required', 'string', 'max:255', $this->ticketService->validateProperCasing()],
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['integer'],
         ]);
 
-        $user = auth('api')->user() ?? $request->user();
         $deptId = (int) $request->input('department_id', 2);
 
-        $result = $this->ticketService->createTicket($validated, $user, $deptId);
+        try {
+            $result = $this->ticketService->createTicket($validated, $user, $deptId);
+        } catch (TicketLimitExceededException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => 'MAX_OPEN_TICKETS_REACHED',
+                'limit' => $e->limit,
+                'open_ticket_count' => $e->openTicketCount,
+            ], 422);
+        } catch (TicketLimitConfigurationUnavailableException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => 'TICKET_LIMIT_CONFIGURATION_UNAVAILABLE',
+            ], 503);
+        }
 
         return response()->json($result, 201);
     }
@@ -89,7 +104,21 @@ class TicketController extends Controller
 
         $deptId = $request->input('department_id') ? (int) $request->input('department_id') : null;
 
-        $result = $this->ticketService->createInternalTicket($validated, $user, $deptId);
+        try {
+            $result = $this->ticketService->createInternalTicket($validated, $user, $deptId);
+        } catch (TicketLimitExceededException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => 'MAX_OPEN_TICKETS_REACHED',
+                'limit' => $e->limit,
+                'open_ticket_count' => $e->openTicketCount,
+            ], 422);
+        } catch (TicketLimitConfigurationUnavailableException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => 'TICKET_LIMIT_CONFIGURATION_UNAVAILABLE',
+            ], 503);
+        }
 
         return response()->json($result, 201);
     }

@@ -17,6 +17,27 @@ class AiChatController extends Controller
     }
 
     /**
+     * Resolves the authenticated user or verifies internal microservice tokens.
+     */
+    protected function getAuthenticatedUser(Request $request): ?object
+    {
+        // 1. Check Passport / Default Auth Guard
+        $user = auth('api')->user() ?? $request->user();
+        if ($user) {
+            return $user;
+        }
+
+        // 2. Check trusted internal microservice token
+        $internalToken = $request->header('X-Internal-Token');
+        $expectedToken = env('INTERNAL_TOKEN');
+        if (!empty($internalToken) && !empty($expectedToken) && hash_equals((string) $expectedToken, (string) $internalToken)) {
+            return (object) ['is_internal' => true];
+        }
+
+        return null;
+    }
+
+    /**
      * POST /api/chat
      * Handles conversation chat with Google Gemini.
      */
@@ -28,16 +49,33 @@ class AiChatController extends Controller
             'user_id' => 'nullable|numeric',
         ]);
 
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
+        $userId = $isInternal ? ($validated['user_id'] ?? null) : ($auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier());
+
         $convId = $validated['conversation_id'] ?? Str::uuid()->toString();
-        $userId = $validated['user_id'] ?? null;
         $incomingMessages = $validated['messages'];
+
+        // Retrieve or initialize conversation record and verify ownership
+        $conversation = AiConversation::find($convId);
+        if ($conversation && !$isInternal && $userId && !empty($conversation->user_id)) {
+            if ((string) $conversation->user_id !== (string) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: Conversation belongs to another user',
+                ], 403);
+            }
+        }
 
         // Call Gemini Service
         $result = $this->geminiService->generateResponse($incomingMessages, $convId);
 
         // Retrieve or initialize conversation record and persist
         try {
-            $conversation = AiConversation::find($convId);
             if (!$conversation) {
                 $title = $this->extractMeaningfulTitle($incomingMessages);
 
@@ -92,19 +130,29 @@ class AiChatController extends Controller
 
     /**
      * GET /api/conversations
-     * Returns conversations list for a user.
+     * Returns conversations list for an authenticated user.
      */
     public function conversations(Request $request)
     {
-        $userId = $request->query('user_id');
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
 
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
         $query = AiConversation::query();
-        if ($userId) {
+
+        if ($isInternal) {
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->query('user_id'));
+            }
+        } else {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
             $query->where('user_id', $userId);
         }
 
         $conversations = $query->orderBy('updated_at', 'desc')
-            ->select(['id', 'user_id', 'title', 'status', 'created_at', 'updated_at'])
+            ->select(['id', 'user_id', 'title', 'status', 'messages', 'created_at', 'updated_at'])
             ->get()
             ->map(function ($c) {
                 $cleaned = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $c->title ?? '');
@@ -113,6 +161,8 @@ class AiChatController extends Controller
                     $c->title = ucfirst($cleaned);
                     $c->save();
                 }
+                $c->message_count = is_array($c->messages) ? count($c->messages) : 0;
+                unset($c->messages);
                 return $c;
             });
 
@@ -126,8 +176,13 @@ class AiChatController extends Controller
      * GET /api/conversations/{id}
      * Returns full conversation details and message history.
      */
-    public function showConversation(string $id)
+    public function showConversation(Request $request, string $id)
     {
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
         $conversation = AiConversation::find($id);
 
         if (!$conversation) {
@@ -135,6 +190,17 @@ class AiChatController extends Controller
                 'success' => false,
                 'message' => 'Conversation not found',
             ], 404);
+        }
+
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
+        if (!$isInternal) {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
+            if (!empty($conversation->user_id) && (string) $conversation->user_id !== (string) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: You do not have permission to view this conversation',
+                ], 403);
+            }
         }
 
         return response()->json([
@@ -147,13 +213,34 @@ class AiChatController extends Controller
      * DELETE /api/conversations/{id}
      * Deletes a conversation record.
      */
-    public function deleteConversation(string $id)
+    public function deleteConversation(Request $request, string $id)
     {
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
         $conversation = AiConversation::find($id);
 
-        if ($conversation) {
-            $conversation->delete();
+        if (!$conversation) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Conversation not found',
+            ], 404);
         }
+
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
+        if (!$isInternal) {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
+            if (!empty($conversation->user_id) && (string) $conversation->user_id !== (string) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: You do not have permission to delete this conversation',
+                ], 403);
+            }
+        }
+
+        $conversation->delete();
 
         return response()->json([
             'success' => true,
@@ -167,10 +254,25 @@ class AiChatController extends Controller
      */
     public function createTicket(Request $request)
     {
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
         $convId = $request->input('conversation_id');
         if ($convId) {
             $conversation = AiConversation::find($convId);
             if ($conversation) {
+                $isInternal = isset($auth->is_internal) && $auth->is_internal;
+                if (!$isInternal) {
+                    $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
+                    if (!empty($conversation->user_id) && (string) $conversation->user_id !== (string) $userId) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Forbidden: You do not have permission to update this conversation',
+                        ], 403);
+                    }
+                }
                 $conversation->status = 'ticket_created';
                 $conversation->save();
             }
@@ -180,6 +282,11 @@ class AiChatController extends Controller
             'success' => true,
             'message' => 'Ticket created link confirmed',
         ]);
+    }
+
+    public function markTicketCreated(Request $request)
+    {
+        return $this->createTicket($request);
     }
 
     /**

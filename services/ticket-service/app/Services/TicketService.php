@@ -12,15 +12,18 @@ class TicketService
     protected TicketNotificationService $notificationService;
     protected TicketCacheService $cacheService;
     protected SLAService $slaService;
+    protected TicketLimitService $ticketLimitService;
 
     public function __construct(
         TicketNotificationService $notificationService,
         TicketCacheService $cacheService,
-        SLAService $slaService
+        SLAService $slaService,
+        TicketLimitService $ticketLimitService
     ) {
         $this->notificationService = $notificationService;
         $this->cacheService = $cacheService;
         $this->slaService = $slaService;
+        $this->ticketLimitService = $ticketLimitService;
     }
 
     /**
@@ -210,35 +213,39 @@ class TicketService
      */
     public function createTicket(array $validated, $user, ?int $departmentId = 2): array
     {
-        $clientId = 1;
-        if ($user && ($user instanceof \App\Models\Client)) {
-            $clientId = $user->id;
+        if (!$user instanceof \App\Models\Client) {
+            throw new \LogicException('Only authenticated customers can create external tickets.');
         }
 
+        $clientId = (int) $user->id;
         $rawTitle = strip_tags($validated['title']);
         $cleanedTitle = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $rawTitle);
         $finalTitle = !empty(trim($cleanedTitle)) ? trim($cleanedTitle) : $rawTitle;
 
         $externalTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID') ?? 2;
 
-        $ticketId = DB::table('tickets')->insertGetId([
-            'machine_ID' => $validated['machine_ID'],
-            'problem_category_ID' => $validated['problem_category_ID'],
-            'created_by' => $validated['created_by'] ?? $clientId,
-            'requested_by' => null,
-            'assigned_to' => $validated['assigned_to'] ?? null,
-            'ticket_type_ID' => $validated['ticket_type_ID'] ?? $externalTypeId,
-            'is_internal' => false,
-            'priority_ID' => $validated['priority_ID'] ?? null,
-            'ticket_status_ID' => $validated['ticket_status_ID'] ?? 1,
-            'sla_ID' => $validated['sla_ID'] ?? null,
-            'title' => $finalTitle,
-            'description' => strip_tags($validated['description']),
-            'resolved_at' => null,
-            'closed_at' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $ticketId = $this->ticketLimitService->createWithinLimit(
+            $clientId,
+            false,
+            fn () => DB::table('tickets')->insertGetId([
+                'machine_ID' => $validated['machine_ID'],
+                'problem_category_ID' => $validated['problem_category_ID'],
+                'created_by' => $clientId,
+                'requested_by' => null,
+                'assigned_to' => null,
+                'ticket_type_ID' => $externalTypeId,
+                'is_internal' => false,
+                'priority_ID' => $validated['priority_ID'] ?? null,
+                'ticket_status_ID' => 1,
+                'sla_ID' => null,
+                'title' => $finalTitle,
+                'description' => strip_tags($validated['description']),
+                'resolved_at' => null,
+                'closed_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ])
+        );
 
         try {
             $priorityName = 'Low';
@@ -289,18 +296,23 @@ class TicketService
             ->where('t.ticket_ID', $ticketId)
             ->first();
 
-        $customerId = $validated['created_by'] ?? 1;
+        $customerId = $clientId;
         $clientName = DB::table('clients')->where('id', $customerId)->value('client_name') ?? 'Customer';
-        $this->notificationService->notifyCS(
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+
+        // Send-time notification routing: dispatch new_ticket alert according to active recipient routing configuration
+        $this->notificationService->dispatchAlert(
+            'new_ticket',
             'New Ticket Created',
-            "New Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created by " . $clientName . ".",
-            $ticketId
+            "New Ticket {$ticketRef}: \"" . $validated['title'] . "\" has been created by {$clientName}.",
+            $ticketId,
+            ['ticket_id' => $ticketId, 'title' => $validated['title']]
         );
 
         $this->notificationService->notifyCustomer(
             $customerId,
             'Ticket Created',
-            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created successfully. Our team will review it shortly.",
+            "Your ticket {$ticketRef}: \"" . $validated['title'] . "\" has been created successfully. Our team will review it shortly.",
             $ticketId
         );
 
@@ -319,7 +331,7 @@ class TicketService
         DB::table('ticket_audit_logs')->insert([
             'ticket_ID' => $ticketId,
             'action_type' => 'create',
-            'action_by_ID' => 2,
+            'action_by_ID' => $clientId,
             'actor_type' => 'customer',
             'details' => json_encode([
                 'machine_ID' => $validated['machine_ID'],
@@ -367,26 +379,30 @@ class TicketService
     public function createInternalTicket(array $validated, $user, ?int $requestedDepartmentId = null): array
     {
         $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
-        $empId = $user->emp_id;
+        $empId = (int) $user->emp_id;
 
-        $ticketId = DB::table('tickets')->insertGetId([
-            'machine_ID' => $validated['machine_ID'],
-            'problem_category_ID' => $validated['problem_category_ID'],
-            'created_by' => 1,
-            'requested_by' => $empId,
-            'assigned_to' => null,
-            'ticket_type_ID' => $internalTypeId,
-            'is_internal' => true,
-            'priority_ID' => $validated['priority_ID'] ?? null,
-            'ticket_status_ID' => 1,
-            'sla_ID' => null,
-            'title' => strip_tags($validated['title']),
-            'description' => strip_tags($validated['description']),
-            'resolved_at' => null,
-            'closed_at' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $ticketId = $this->ticketLimitService->createWithinLimit(
+            $empId,
+            true,
+            fn () => DB::table('tickets')->insertGetId([
+                'machine_ID' => $validated['machine_ID'],
+                'problem_category_ID' => $validated['problem_category_ID'],
+                'created_by' => 1,
+                'requested_by' => $empId,
+                'assigned_to' => null,
+                'ticket_type_ID' => $internalTypeId,
+                'is_internal' => true,
+                'priority_ID' => $validated['priority_ID'] ?? null,
+                'ticket_status_ID' => 1,
+                'sla_ID' => null,
+                'title' => strip_tags($validated['title']),
+                'description' => strip_tags($validated['description']),
+                'resolved_at' => null,
+                'closed_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ])
+        );
 
         try {
             $deptId = $requestedDepartmentId;
@@ -448,10 +464,17 @@ class TicketService
         }
 
         $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
-        $this->notificationService->notifyCS(
+        // Send-time notification routing: dispatch new_ticket alert according to active recipient routing configuration
+        $this->notificationService->dispatchAlert(
+            'new_ticket',
             'New Internal Ticket Created',
-            "New internal ticket {$ticketRef}: \"" . $validated['title'] . "\" has been created and awaits CSR delegation.",
-            $ticketId
+            "New internal ticket {$ticketRef}: \"" . $validated['title'] . "\" has been created and awaits delegation.",
+            $ticketId,
+            [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'title' => $validated['title'],
+            ]
         );
 
         $this->notificationService->notifyRecipient(
@@ -1012,9 +1035,17 @@ class TicketService
 
         if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 2 || $validated['ticket_status_ID'] == 8)) {
             if ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4) {
-                $resolvedAt = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : null;
-                if ($resolvedAt && $resolvedAt->diffInHours(now()) > 48) {
-                    return ['status' => 422, 'data' => ['message' => 'Cannot reopen ticket: More than 48 hours have passed since resolution.']];
+                $windowConfig = \App\Services\TicketConfigurationService::getWindowConfig();
+                if (!($windowConfig['reopenEnabled'] ?? true)) {
+                    return ['status' => 422, 'data' => ['message' => 'Cannot reopen ticket: Reopening tickets is disabled by administrative operational policy.']];
+                }
+
+                $reopenDays = (int) ($windowConfig['reopenWindowDays'] ?? 2);
+                $allowedHours = $reopenDays * 24;
+                $resolvedAt = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : ($ticket->closed_at ? Carbon::parse($ticket->closed_at) : null);
+                if ($resolvedAt && $resolvedAt->diffInHours(now()) > $allowedHours) {
+                    $dayLabel = $reopenDays === 1 ? '1 day' : "{$reopenDays} days";
+                    return ['status' => 422, 'data' => ['message' => "Cannot reopen ticket: More than {$dayLabel} ({$allowedHours} hours) have passed since resolution."]];
                 }
             }
         }

@@ -12,6 +12,9 @@ import {
   createSuperAdminPriority,
   updateSuperAdminPriority,
   deleteSuperAdminPriority,
+  getTicketLimitConfig,
+  updateTicketLimitConfig,
+  resetTicketLimitConfig,
   getSLARules,
   saveDepartmentSLARules,
   getDepartments,
@@ -55,6 +58,13 @@ import {
   getCategoryFeedbackToggles,
   setCategoryFeedbackToggle,
   disableFeedbackCategory,
+  getCachedWindowConfiguration,
+  getWindowConfiguration,
+  updateWindowConfiguration,
+  resetWindowConfiguration,
+  getNotificationRouting,
+  updateNotificationRouting,
+  resetNotificationRouting,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -607,20 +617,15 @@ export default function SuperAdminTicketConfig() {
     return user?.id ? `superadmin_ticket_config_state_${user.id}` : 'superadmin_ticket_config_state';
   }, [user?.id]);
 
-  // Read initial state from localStorage if available
   const initialSavedState = useMemo(() => {
     try {
       const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        return JSON.parse(saved);
-      }
+      return saved ? JSON.parse(saved) : null;
     } catch {
-      // ignore
+      return null;
     }
-    return null;
   }, [storageKey]);
 
-  // Helper to normalize group IDs (handling dashes vs underscores)
   const normalizeGroupId = useCallback((rawGroup) => {
     if (!rawGroup) return null;
     const g = rawGroup.toLowerCase();
@@ -633,7 +638,6 @@ export default function SuperAdminTicketConfig() {
     return null;
   }, []);
 
-  // Helper to normalize sub-tab IDs within a group
   const normalizeSubTabId = useCallback((groupId, rawSubTab) => {
     if (!rawSubTab) return null;
     const s = rawSubTab.toLowerCase();
@@ -652,108 +656,75 @@ export default function SuperAdminTicketConfig() {
     }
     const groupDef = GROUPS_CONFIG.find((g) => g.id === groupId);
     if (!groupDef) return null;
-    const matched = groupDef.subTabs.find((st) => st.id.toLowerCase() === s);
-    return matched ? matched.id : null;
+    return groupDef.subTabs.find((st) => st.id.toLowerCase() === s)?.id || null;
   }, []);
 
-  const [activeGroup, setActiveGroup] = useState(() => {
-    return initialSavedState?.activeGroup || GROUP_CLASSIFICATION;
-  });
+  // The URL is the sole source of truth for what is rendered. Local storage only
+  // remembers each group's last valid sub-tab for the next group navigation.
+  const [activeSubTabs, setActiveSubTabs] = useState(() => ({
+    [GROUP_CLASSIFICATION]: TAB_EQUIPMENT,
+    [GROUP_LIFECYCLE]: TAB_WORKFLOW,
+    [GROUP_SLA_ESCALATION]: TAB_SLA,
+    [GROUP_NOTIFICATIONS]: NOTIF_SUBTAB_RECIPIENTS,
+    [GROUP_SECURITY]: TAB_FILES,
+    ...(initialSavedState?.activeSubTabs || {}),
+  }));
 
-  const [activeSubTabs, setActiveSubTabs] = useState(() => {
-    return {
-      [GROUP_CLASSIFICATION]: TAB_EQUIPMENT,
-      [GROUP_LIFECYCLE]: TAB_WORKFLOW,
-      [GROUP_SLA_ESCALATION]: TAB_SLA,
-      [GROUP_NOTIFICATIONS]: NOTIF_SUBTAB_RECIPIENTS,
-      [GROUP_SECURITY]: TAB_FILES,
-      ...(initialSavedState?.activeSubTabs || {}),
-    };
-  });
+  const normalizedRouteGroup = normalizeGroupId(params.group);
+  const savedGroup = normalizeGroupId(initialSavedState?.activeGroup);
+  const activeGroup = params.group
+    ? (normalizedRouteGroup || GROUP_CLASSIFICATION)
+    : (savedGroup || GROUP_CLASSIFICATION);
 
-  // Current active group definition
   const currentGroup = useMemo(() => {
     return GROUPS_CONFIG.find((g) => g.id === activeGroup) || GROUPS_CONFIG[0];
   }, [activeGroup]);
 
-  // Current active sub-tab for the active group
-  const currentSubTab = useMemo(() => {
-    return activeSubTabs[activeGroup] || currentGroup?.defaultSubTab || TAB_EQUIPMENT;
-  }, [activeSubTabs, activeGroup, currentGroup]);
+  const normalizedRouteSubTab = normalizeSubTabId(activeGroup, params.subtab);
+  const rememberedSubTab = normalizeSubTabId(activeGroup, activeSubTabs[activeGroup]);
+  const currentSubTab = params.subtab
+    ? (normalizedRouteSubTab || currentGroup.defaultSubTab)
+    : (rememberedSubTab || currentGroup.defaultSubTab);
 
-  // Backward-compatible aliases for existing internal expressions
   const tab = currentSubTab;
   const notifSubtab = currentSubTab;
 
-  // Persist state to localStorage on update
   useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify({ activeGroup, activeSubTabs }));
     } catch {
-      // ignore
+      // Navigation remains URL-driven if storage is unavailable.
     }
   }, [storageKey, activeGroup, activeSubTabs]);
 
-  // Synchronize route params with activeGroup / activeSubTabs + fallback normalization
   useEffect(() => {
-    const rawGroup = params.group;
-    const rawSubTab = params.subtab;
-
-    if (!rawGroup) {
+    if (params.group !== activeGroup || params.subtab !== currentSubTab) {
       navigate(`/superadmin/ticket-config/${activeGroup}/${currentSubTab}`, { replace: true });
-      return;
     }
+  }, [params.group, params.subtab, activeGroup, currentSubTab, navigate]);
 
-    const validGroup = normalizeGroupId(rawGroup);
-    if (!validGroup) {
-      const fallbackGroup = GROUP_CLASSIFICATION;
-      const fallbackSubTab = TAB_EQUIPMENT;
-      setActiveGroup(fallbackGroup);
-      setActiveSubTabs((prev) => ({ ...prev, [fallbackGroup]: fallbackSubTab }));
-      navigate(`/superadmin/ticket-config/${fallbackGroup}/${fallbackSubTab}`, { replace: true });
-      return;
-    }
+  useEffect(() => {
+    if (!normalizedRouteGroup || !normalizedRouteSubTab) return;
+    setActiveSubTabs((prev) => (
+      prev[normalizedRouteGroup] === normalizedRouteSubTab
+        ? prev
+        : { ...prev, [normalizedRouteGroup]: normalizedRouteSubTab }
+    ));
+  }, [normalizedRouteGroup, normalizedRouteSubTab]);
 
-    const expectedSubTab = activeSubTabs[validGroup] || GROUPS_CONFIG.find((g) => g.id === validGroup)?.defaultSubTab;
-    if (!rawSubTab) {
-      if (activeGroup !== validGroup) {
-        setActiveGroup(validGroup);
-      }
-      navigate(`/superadmin/ticket-config/${validGroup}/${expectedSubTab}`, { replace: true });
-      return;
-    }
-
-    const validSubTab = normalizeSubTabId(validGroup, rawSubTab);
-    if (!validSubTab) {
-      if (activeGroup !== validGroup) {
-        setActiveGroup(validGroup);
-      }
-      navigate(`/superadmin/ticket-config/${validGroup}/${expectedSubTab}`, { replace: true });
-      return;
-    }
-
-    if (activeGroup !== validGroup) {
-      setActiveGroup(validGroup);
-    }
-    if (activeSubTabs[validGroup] !== validSubTab) {
-      setActiveSubTabs((prev) => ({ ...prev, [validGroup]: validSubTab }));
-    }
-  }, [params.group, params.subtab, activeGroup, currentSubTab, activeSubTabs, normalizeGroupId, normalizeSubTabId, navigate]);
-
-  // Unified Group Navigation: Option A (Restores remembered sub-tab everywhere)
   const handleSelectGroup = useCallback((groupId) => {
     const validGroup = normalizeGroupId(groupId) || GROUP_CLASSIFICATION;
-    const targetSubTab = activeSubTabs[validGroup] || GROUPS_CONFIG.find((g) => g.id === validGroup)?.defaultSubTab;
-    setActiveGroup(validGroup);
+    const groupDef = GROUPS_CONFIG.find((g) => g.id === validGroup) || GROUPS_CONFIG[0];
+    const targetSubTab = normalizeSubTabId(validGroup, activeSubTabs[validGroup]) || groupDef.defaultSubTab;
     setSelectedDeptId(null);
     navigate(`/superadmin/ticket-config/${validGroup}/${targetSubTab}`);
-  }, [activeSubTabs, normalizeGroupId, navigate]);
+  }, [activeSubTabs, normalizeGroupId, normalizeSubTabId, navigate]);
 
   const handleSelectSubTab = useCallback((subTabId) => {
-    setActiveSubTabs((prev) => ({ ...prev, [activeGroup]: subTabId }));
+    const validSubTab = normalizeSubTabId(activeGroup, subTabId) || currentGroup.defaultSubTab;
     setSelectedDeptId(null);
-    navigate(`/superadmin/ticket-config/${activeGroup}/${subTabId}`);
-  }, [activeGroup, navigate]);
+    navigate(`/superadmin/ticket-config/${activeGroup}/${validSubTab}`);
+  }, [activeGroup, currentGroup.defaultSubTab, normalizeSubTabId, navigate]);
 
   const setNotifSubtab = handleSelectSubTab;
   const [items, setItems] = useState({ equipment: [], priorities: [], slaRules: [], departments: [], slas: [] });
@@ -798,19 +769,53 @@ export default function SuperAdminTicketConfig() {
   const [fileConfigErrors, setFileConfigErrors] = useState({});
 
   // Reopen & Auto-Close Windows state (local component state for this sprint)
-  const [windowConfig, setWindowConfig] = useState(() => ({
-    ...TS100_DEFAULT_WINDOW_CONFIG,
-    archiveOnClosureEnabled: isMessageArchivalOnClosureEnabled(),
-  }));
+  const [windowConfig, setWindowConfig] = useState(() => {
+    const cached = getCachedWindowConfiguration();
+    if (cached && typeof cached.reopenWindowDays !== 'undefined') {
+      return {
+        reopenEnabled: Boolean(cached.reopenEnabled ?? true),
+        reopenWindowDays: Number(cached.reopenWindowDays ?? 2),
+        autoCloseEnabled: Boolean(cached.autoCloseEnabled ?? true),
+        autoCloseWindowDays: Number(cached.autoCloseWindowDays ?? 2),
+        archiveOnClosureEnabled: isMessageArchivalOnClosureEnabled(),
+      };
+    }
+    return {
+      ...TS100_DEFAULT_WINDOW_CONFIG,
+      archiveOnClosureEnabled: isMessageArchivalOnClosureEnabled(),
+    };
+  });
   const [windowConfigErrors, setWindowConfigErrors] = useState({});
+
+  // Fast independent fetch for window configuration to avoid waiting on other heavy endpoints
+  useEffect(() => {
+    let isMounted = true;
+    getWindowConfiguration()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setWindowConfig({
+            reopenEnabled: Boolean(cfg.reopenEnabled ?? true),
+            reopenWindowDays: Number(cfg.reopenWindowDays ?? 2),
+            autoCloseEnabled: Boolean(cfg.autoCloseEnabled ?? true),
+            autoCloseWindowDays: Number(cfg.autoCloseWindowDays ?? 2),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Notifications state (managed via two-level activeGroup / activeSubTabs state)
 
-  // Notification Recipient Routing state (local component state for this sprint)
+  // Notification Recipient Routing state
   const [routingConfig, setRoutingConfig] = useState(TS099_DEFAULT_ROUTING);
   const [configuredAlerts, setConfiguredAlerts] = useState({});
   const [routingErrors, setRoutingErrors] = useState({});
   const [expandedRecipientAlert, setExpandedRecipientAlert] = useState(null);
+  const [routingLoading, setRoutingLoading] = useState(true);
+  const [routingSaving, setRoutingSaving] = useState(false);
 
   // TS103: Notification Channel Configuration state
   const [channelConfig, setChannelConfig] = useState(TS103_DEFAULT_CHANNELS);
@@ -864,7 +869,11 @@ export default function SuperAdminTicketConfig() {
   // TS096: Max Open Tickets per Requester state (shared with ticket creation flows)
   const [ticketLimitConfig, setTicketLimitConfigState] = useState(() => getMaxOpenTicketsLimit());
   const [savedTicketLimit, setSavedTicketLimit] = useState(() => getMaxOpenTicketsLimit());
-  const [hasEverSavedLimit, setHasEverSavedLimit] = useState(false);
+  const savedTicketLimitRef = useRef(savedTicketLimit);
+  const ticketLimitDraftDirtyRef = useRef(false);
+  const [ticketLimitDraftDirty, setTicketLimitDraftDirty] = useState(false);
+  const [ticketLimitConflict, setTicketLimitConflict] = useState(null);
+  const [savingTicketLimit, setSavingTicketLimit] = useState(false);
   const [limitError, setLimitError] = useState('');
 
   // Email Delivery Configuration state
@@ -923,7 +932,11 @@ export default function SuperAdminTicketConfig() {
   const [slaCategoryFilter, setSlaCategoryFilter] = useState('ALL');
 
   const closeNotif = () => setNotification(null);
-  const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
+  const showError = (title, message) => setNotification({ type: 'error', title, message });
+  const showSuccess = (title, message) => {
+    const isErr = /error|fail|invalid|warning/i.test(String(title || ''));
+    setNotification({ type: isErr ? 'error' : 'success', title, message });
+  };
   const showConfirm = (title, message, onConfirm, opts = {}) => setNotification({ type: 'confirm', title, message, onConfirm, onCancel: closeNotif, ...opts });
 
   const handleTestTemplate = async (template, draft) => {
@@ -967,13 +980,17 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
-  const loadConfig = useCallback(async () => {
-    setLoading(true);
-    setEmailConfigLoading(true);
-    setTemplatesLoading(true);
-    setChannelsLoading(true);
+  const loadConfig = useCallback(async (context = {}) => {
+    const isBackgroundRefresh = Boolean(context?.source);
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+      setEmailConfigLoading(true);
+      setTemplatesLoading(true);
+      setChannelsLoading(true);
+      setRoutingLoading(true);
+    }
     try {
-      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes] = await Promise.all([
+      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes, windowRes, routingRes, limitRes] = await Promise.all([
         getSuperAdminConfig().catch(() => ({ equipment: [], priorities: [] })),
         getSLARules().catch(() => ({ sla_rules: [] })),
         getDepartments().catch(() => ({ departments: [] })),
@@ -986,6 +1003,9 @@ export default function SuperAdminTicketConfig() {
         getFeedbackQuestions().catch(() => null),
         getFeedbackFormStatus().catch(() => null),
         getCategoryFeedbackToggles().catch(() => null),
+        getWindowConfiguration().catch(() => null),
+        getNotificationRouting().catch(() => null),
+        getTicketLimitConfig().catch(() => null),
       ]);
 
       const depts = deptsData.departments || deptsData || [];
@@ -1108,13 +1128,60 @@ export default function SuperAdminTicketConfig() {
         setFeedbackMasterEnabled(isMasterOn);
         setFeedbackFormEnabled(isMasterOn);
       }
+
+      if (windowRes) {
+        setWindowConfig({
+          reopenEnabled: Boolean(windowRes.reopenEnabled ?? true),
+          reopenWindowDays: Number(windowRes.reopenWindowDays ?? 2),
+          autoCloseEnabled: Boolean(windowRes.autoCloseEnabled ?? true),
+          autoCloseWindowDays: Number(windowRes.autoCloseWindowDays ?? 2),
+        });
+      }
+
+      if (routingRes) {
+        const val = routingRes?.value || routingRes;
+        if (typeof val === 'object' && val !== null) {
+          setRoutingConfig((prev) => ({
+            ...prev,
+            ...val,
+          }));
+        }
+      }
+
+      if (limitRes) {
+        const normalizedLimit = {
+          isUnlimited: Boolean(limitRes.isUnlimited ?? true),
+          limit: Number(limitRes.limit ?? 5),
+        };
+        const previousSavedLimit = savedTicketLimitRef.current;
+        const serverLimitChanged = previousSavedLimit.isUnlimited !== normalizedLimit.isUnlimited
+          || Number(previousSavedLimit.limit) !== normalizedLimit.limit;
+
+        savedTicketLimitRef.current = normalizedLimit;
+        setSavedTicketLimit(normalizedLimit);
+        setMaxOpenTicketsLimit(normalizedLimit);
+
+        if (isBackgroundRefresh && ticketLimitDraftDirtyRef.current) {
+          if (serverLimitChanged) {
+            setTicketLimitConflict(normalizedLimit);
+          }
+        } else {
+          ticketLimitDraftDirtyRef.current = false;
+          setTicketLimitDraftDirty(false);
+          setTicketLimitConflict(null);
+          setTicketLimitConfigState(normalizedLimit);
+        }
+      }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
     } finally {
-      setLoading(false);
-      setEmailConfigLoading(false);
-      setTemplatesLoading(false);
-      setChannelsLoading(false);
+      if (!isBackgroundRefresh) {
+        setLoading(false);
+        setEmailConfigLoading(false);
+        setTemplatesLoading(false);
+        setChannelsLoading(false);
+        setRoutingLoading(false);
+      }
     }
   }, []);
 
@@ -1150,7 +1217,11 @@ export default function SuperAdminTicketConfig() {
 
   useRealtimeRefresh({
     refresh: loadConfig,
-    channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
+    channels: [
+      { name: 'ticket-updates', event: 'ticket.changed' },
+      { name: 'ticket-updates', event: 'ticket.limit.config.updated' },
+    ],
+    shouldRefresh: ({ source, payload }) => source !== 'websocket' || payload?.type === 'config',
     intervalMs: 15000,
   });
 
@@ -1248,7 +1319,7 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showSuccess('Error', 'Failed to save configuration settings.');
+      showError('Error', 'Failed to save configuration settings.');
     }
   };
 
@@ -1288,7 +1359,7 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showSuccess('Error', 'Failed to delete item.');
+      showError('Error', 'Failed to delete item.');
     }
   };
 
@@ -1322,7 +1393,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to save workflow status:', err);
-      showSuccess('Error', 'Failed to save workflow status.');
+      showError('Error', 'Failed to save workflow status.');
     }
   };
 
@@ -1335,7 +1406,7 @@ export default function SuperAdminTicketConfig() {
         await loadConfig();
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
-        showSuccess('Error', 'Failed to delete workflow status.');
+        showError('Error', 'Failed to delete workflow status.');
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1355,7 +1426,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to toggle escalation rule:', err);
-      showSuccess('Error', 'Failed to update escalation rule status.');
+      showError('Error', 'Failed to update escalation rule status.');
     }
   };
 
@@ -1382,7 +1453,7 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to save escalation rule:', err);
-      showSuccess('Error', 'Failed to save escalation rule.');
+      showError('Error', 'Failed to save escalation rule.');
     }
   };
 
@@ -1395,7 +1466,7 @@ export default function SuperAdminTicketConfig() {
         await loadConfig();
       } catch (err) {
         console.error('Failed to delete escalation rule:', err);
-        showSuccess('Error', 'Failed to delete escalation rule.');
+        showError('Error', 'Failed to delete escalation rule.');
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1416,7 +1487,7 @@ export default function SuperAdminTicketConfig() {
     for (const p of priorityList) {
       const data = departmentSlaForm[p.name];
       if (!data?.response_time_limit || !data?.resolution_time_limit || isNaN(data.response_time_limit) || isNaN(data.resolution_time_limit)) {
-        showSuccess('Validation Error', `Please fill out valid response and resolution time limits for ${p.name} priority.`);
+        showError('Validation Error', `Please fill out valid response and resolution time limits for ${p.name} priority.`);
         return;
       }
     }
@@ -1437,7 +1508,7 @@ export default function SuperAdminTicketConfig() {
       setSelectedDeptId(null);
     } catch (err) {
       console.error('Failed to save department SLA rules:', err);
-      showSuccess('Error', 'Failed to save SLA rules for this department.');
+      showError('Error', 'Failed to save SLA rules for this department.');
     } finally {
       setSavingSla(false);
     }
@@ -1508,7 +1579,7 @@ export default function SuperAdminTicketConfig() {
       const isAllowed = prev.allowedFileTypes.includes(ext);
       if (isAllowed) {
         if (prev.allowedFileTypes.length <= 1) {
-          showSuccess('Validation Warning', 'At least one file type must remain allowed.');
+          showError('Validation Warning', 'At least one file type must remain allowed.');
           setFileConfigErrors((e) => ({ ...e, allowedFileTypes: 'At least one file type must remain allowed.' }));
           return prev;
         }
@@ -1574,7 +1645,7 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setFileConfigErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors before saving.');
+      showError('Validation Error', 'Please correct the errors before saving.');
       return;
     }
 
@@ -1671,14 +1742,22 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
-  const handleResetWindowConfig = () => {
-    setWindowConfig(TS100_DEFAULT_WINDOW_CONFIG);
-    setWindowConfigErrors({});
-    setMessageArchivalOnClosureEnabled(TS100_DEFAULT_WINDOW_CONFIG.archiveOnClosureEnabled);
-    showSuccess('Reset Complete', 'Reopen, auto-close, and message archival window rules have been restored to system defaults.');
+  const handleResetWindowConfig = async () => {
+    try {
+      await resetWindowConfiguration();
+      setWindowConfig({
+        ...TS100_DEFAULT_WINDOW_CONFIG,
+        archiveOnClosureEnabled: TS100_DEFAULT_WINDOW_CONFIG.archiveOnClosureEnabled ?? false,
+      });
+      setWindowConfigErrors({});
+      setMessageArchivalOnClosureEnabled(TS100_DEFAULT_WINDOW_CONFIG.archiveOnClosureEnabled ?? false);
+      showSuccess('Reset Complete', 'Reopen, auto-close, and message archival window rules have been restored to system defaults.');
+    } catch (err) {
+      showError('Reset Error', err.response?.data?.message || 'Failed to reset window rules.');
+    }
   };
 
-  const handleSaveWindowConfig = () => {
+  const handleSaveWindowConfig = async () => {
     const errors = {};
     if (windowConfig.reopenEnabled) {
       const num = parseInt(windowConfig.reopenWindowDays, 10);
@@ -1695,13 +1774,36 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setWindowConfigErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors before saving.');
+      showError('Validation Error', 'Please correct the errors before saving.');
       return;
     }
 
-    setWindowConfigErrors({});
-    setMessageArchivalOnClosureEnabled(windowConfig.archiveOnClosureEnabled);
-    showSuccess('Settings Saved (Session)', 'Closure window policies and message thread archival rules updated in session state. Persistence coming soon.');
+    try {
+      const updated = await updateWindowConfiguration({
+        reopenEnabled: Boolean(windowConfig.reopenEnabled),
+        reopenWindowDays: parseInt(windowConfig.reopenWindowDays, 10),
+        autoCloseEnabled: Boolean(windowConfig.autoCloseEnabled),
+        autoCloseWindowDays: parseInt(windowConfig.autoCloseWindowDays, 10),
+      });
+
+      setWindowConfigErrors({});
+      setMessageArchivalOnClosureEnabled(windowConfig.archiveOnClosureEnabled);
+      if (updated) {
+        setWindowConfig((prev) => ({
+          ...prev,
+          reopenEnabled: Boolean(updated.reopenEnabled ?? prev.reopenEnabled),
+          reopenWindowDays: Number(updated.reopenWindowDays ?? prev.reopenWindowDays),
+          autoCloseEnabled: Boolean(updated.autoCloseEnabled ?? prev.autoCloseEnabled),
+          autoCloseWindowDays: Number(updated.autoCloseWindowDays ?? prev.autoCloseWindowDays),
+        }));
+      }
+      showSuccess('Settings Saved', 'Closure window policies and message thread archival rules updated and saved successfully.');
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.errors
+        ? Object.values(err.response?.data?.errors || {}).flat().join(' ')
+        : 'Failed to save window configuration.';
+      showError('Save Error', msg);
+    }
   };
 
   // TS099: Compute full recipient options combining contextual actors, static roles, and dynamic departments
@@ -1804,12 +1906,18 @@ export default function SuperAdminTicketConfig() {
     showConfirm(
       'Reset Recipient Routing to Defaults?',
       'Are you sure you want to restore all notification routing rules to their system defaults? Any recipient customizations will be reverted.',
-      () => {
+      async () => {
         closeNotif();
-        setRoutingConfig(TS099_DEFAULT_ROUTING);
-        setConfiguredAlerts({});
-        setRoutingErrors({});
-        showSuccess('Reset to Defaults', 'Notification recipient routing has been restored to defaults.');
+        try {
+          const res = await resetNotificationRouting();
+          const nextRouting = res?.value || res || TS099_DEFAULT_ROUTING;
+          setRoutingConfig(nextRouting);
+          setConfiguredAlerts({});
+          setRoutingErrors({});
+          showSuccess('Reset to Defaults', 'Notification recipient routing has been restored to defaults.');
+        } catch (err) {
+          showError('Reset Failed', err.response?.data?.message || 'Failed to reset recipient routing to defaults.');
+        }
       },
       {
         confirmText: 'Reset to Defaults',
@@ -1818,7 +1926,7 @@ export default function SuperAdminTicketConfig() {
     );
   };
 
-  const handleSaveRoutingConfig = () => {
+  const handleSaveRoutingConfig = async () => {
     const errors = {};
     for (const alert of TS099_ALERT_TYPES) {
       const list = routingConfig[alert.key] || [];
@@ -1829,20 +1937,43 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setRoutingErrors(errors);
-      showSuccess('Validation Error', 'Please ensure all alert types have at least one recipient selected.');
+      showError('Validation Error', 'Please ensure all alert types have at least one recipient selected.');
       return;
     }
 
     setRoutingErrors({});
-    setConfiguredAlerts({
-      new_ticket: true,
-      new_message: true,
-      overdue_ticket: true,
-    });
-    showSuccess(
-      'Settings Saved (Preview)',
-      'Notification recipient routing settings updated in local state.'
-    );
+    setRoutingSaving(true);
+    try {
+      const res = await updateNotificationRouting({
+        new_ticket: routingConfig.new_ticket,
+        new_message: routingConfig.new_message,
+        overdue_ticket: routingConfig.overdue_ticket,
+      });
+      const savedRouting = res?.value || res || routingConfig;
+      setRoutingConfig(savedRouting);
+      setConfiguredAlerts({
+        new_ticket: true,
+        new_message: true,
+        overdue_ticket: true,
+      });
+      showSuccess(
+        'Routing Saved',
+        'Notification recipient routing has been successfully saved and applied to subsequent alerts.'
+      );
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to save recipient routing.';
+      const backendErrors = err.response?.data?.errors;
+      if (backendErrors && typeof backendErrors === 'object') {
+        const mappedErrors = {};
+        for (const [k, v] of Object.entries(backendErrors)) {
+          mappedErrors[k] = Array.isArray(v) ? v[0] : v;
+        }
+        setRoutingErrors(mappedErrors);
+      }
+      showError('Save Failed', msg);
+    } finally {
+      setRoutingSaving(false);
+    }
   };
 
   // TS103 Notification Channel Handlers
@@ -1887,7 +2018,7 @@ export default function SuperAdminTicketConfig() {
           showSuccess('Reset to Defaults', res.message || 'Notification channel configuration has been restored to defaults.');
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Failed to reset notification channels.';
-          showSuccess('Reset Failed', msg);
+          showError('Reset Failed', msg);
         } finally {
           setChannelsSaving(false);
         }
@@ -1911,7 +2042,7 @@ export default function SuperAdminTicketConfig() {
 
     if (Object.keys(errors).length > 0) {
       setChannelErrors(errors);
-      showSuccess('Validation Error', 'Please select a delivery channel for all alert types.');
+      showError('Validation Error', 'Please select a delivery channel for all alert types.');
       return;
     }
 
@@ -1936,7 +2067,7 @@ export default function SuperAdminTicketConfig() {
       );
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to save notification channel configuration.';
-      showSuccess('Save Failed', msg);
+      showError('Save Failed', msg);
     } finally {
       setChannelsSaving(false);
     }
@@ -2141,7 +2272,7 @@ export default function SuperAdminTicketConfig() {
     const errors = validateNumberFormat(numberFormatConfig);
     if (Object.keys(errors).length > 0) {
       setNumberFormatErrors(errors);
-      showSuccess('Validation Error', 'Please correct the errors in the format configuration before saving.');
+      showError('Validation Error', 'Please correct the errors in the format configuration before saving.');
       return;
     }
 
@@ -2197,36 +2328,61 @@ export default function SuperAdminTicketConfig() {
   };
 
   // TS096 Max Open Tickets per Requester Handlers
+  const updateTicketLimitDraftState = (nextConfig) => {
+    const latestSaved = savedTicketLimitRef.current;
+    const isDirty = Boolean(nextConfig.isUnlimited) !== Boolean(latestSaved.isUnlimited)
+      || Number(nextConfig.limit) !== Number(latestSaved.limit);
+
+    ticketLimitDraftDirtyRef.current = isDirty;
+    setTicketLimitDraftDirty(isDirty);
+    if (!isDirty) {
+      setTicketLimitConflict(null);
+    }
+    setTicketLimitConfigState(nextConfig);
+  };
+
   const handleToggleUnlimited = (checked) => {
-    setTicketLimitConfigState((prev) => ({
-      ...prev,
+    updateTicketLimitDraftState({
+      ...ticketLimitConfig,
       isUnlimited: checked,
-    }));
+    });
     setLimitError('');
   };
 
   const handleLimitNumberChange = (val) => {
-    setTicketLimitConfigState((prev) => ({
-      ...prev,
+    updateTicketLimitDraftState({
+      ...ticketLimitConfig,
       limit: val,
-    }));
+    });
     if (limitError) {
       setLimitError('');
     }
   };
 
+  const handleReloadLatestTicketLimit = () => {
+    const latest = { ...savedTicketLimitRef.current };
+    ticketLimitDraftDirtyRef.current = false;
+    setTicketLimitDraftDirty(false);
+    setTicketLimitConflict(null);
+    setTicketLimitConfigState(latest);
+    setLimitError('');
+  };
+
   const handleSaveTicketLimit = () => {
+    if (ticketLimitConflict) {
+      showError('Reload Required', 'The saved max-open-ticket policy changed while you were editing. Reload the latest value before saving.');
+      return;
+    }
     if (!ticketLimitConfig.isUnlimited) {
       const parsed = parseInt(String(ticketLimitConfig.limit).trim(), 10);
-      if (isNaN(parsed) || parsed <= 0) {
-        setLimitError('Please enter a valid ticket limit greater than 0.');
-        showSuccess('Validation Error', 'Please enter a valid numeric limit greater than 0.');
+      if (isNaN(parsed) || parsed <= 0 || parsed > 1000) {
+        setLimitError('Please enter a whole-number ticket limit from 1 to 1000.');
+        showError('Validation Error', 'Please enter a whole-number ticket limit from 1 to 1000.');
         return;
       }
     }
 
     setLimitError('');
-
     const normalized = {
       isUnlimited: Boolean(ticketLimitConfig.isUnlimited),
       limit: parseInt(String(ticketLimitConfig.limit || 5).trim(), 10) || 5,
@@ -2234,26 +2390,49 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       'Save Max Open Tickets Limit?',
-      'This will affect ticket submission for all Customers and Requestors going forward.',
-      () => {
+      'This will affect ticket submission for all customers and requestors going forward.',
+      async () => {
         closeNotif();
-        setMaxOpenTicketsLimit(normalized);
-        setTicketLimitConfigState(normalized);
-        setSavedTicketLimit(normalized);
-        setHasEverSavedLimit(true);
-        showSuccess(
-          'Limit Saved',
-          normalized.isUnlimited
-            ? 'Max open tickets limit set to Unlimited. Ticket creation will not be restricted.'
-            : `Max open tickets limit updated to ${normalized.limit}. Ticket creation blocking will use this value.`
-        );
+        setSavingTicketLimit(true);
+        try {
+          const updated = await updateTicketLimitConfig(normalized);
+          setMaxOpenTicketsLimit(updated);
+          savedTicketLimitRef.current = updated;
+          ticketLimitDraftDirtyRef.current = false;
+          setTicketLimitDraftDirty(false);
+          setTicketLimitConflict(null);
+          setTicketLimitConfigState(updated);
+          setSavedTicketLimit(updated);
+          showSuccess(
+            'Limit Saved',
+            updated.isUnlimited
+              ? 'Max open tickets is now Unlimited.'
+              : `Each customer or requestor can now have up to ${updated.limit} tickets that count toward the limit.`
+          );
+        } catch (err) {
+          ticketLimitDraftDirtyRef.current = false;
+          setTicketLimitDraftDirty(false);
+          setTicketLimitConflict(null);
+          setTicketLimitConfigState({ ...savedTicketLimitRef.current });
+          const backendErrors = err.response?.data?.errors;
+          const message = backendErrors
+            ? Object.values(backendErrors).flat().join(' ')
+            : err.response?.data?.message || 'Failed to save the max open tickets limit.';
+          setLimitError(message);
+          showError('Save Failed', message);
+        } finally {
+          setSavingTicketLimit(false);
+        }
       },
       {
         confirmText: 'Save Limit',
         confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
         onCancel: () => {
           closeNotif();
-          setTicketLimitConfigState({ ...savedTicketLimit });
+          ticketLimitDraftDirtyRef.current = false;
+          setTicketLimitDraftDirty(false);
+          setTicketLimitConflict(null);
+          setTicketLimitConfigState({ ...savedTicketLimitRef.current });
           setLimitError('');
         },
       }
@@ -2261,18 +2440,33 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleResetTicketLimit = () => {
+    if (ticketLimitConflict) {
+      showError('Reload Required', 'The saved max-open-ticket policy changed while you were editing. Reload the latest value before resetting.');
+      return;
+    }
+
     showConfirm(
       'Reset Max Open Tickets Limit?',
-      'This will restore the ticket limit to system default (Unlimited).',
-      () => {
+      'This will restore the system default of Unlimited.',
+      async () => {
         closeNotif();
-        const def = { isUnlimited: true, limit: 5 };
-        setMaxOpenTicketsLimit(def);
-        setTicketLimitConfigState(def);
-        setSavedTicketLimit(def);
-        setHasEverSavedLimit(false);
-        setLimitError('');
-        showSuccess('Reset to Defaults', 'Max open tickets limit has been restored to Unlimited.');
+        setSavingTicketLimit(true);
+        try {
+          const updated = await resetTicketLimitConfig();
+          setMaxOpenTicketsLimit(updated);
+          savedTicketLimitRef.current = updated;
+          ticketLimitDraftDirtyRef.current = false;
+          setTicketLimitDraftDirty(false);
+          setTicketLimitConflict(null);
+          setTicketLimitConfigState(updated);
+          setSavedTicketLimit(updated);
+          setLimitError('');
+          showSuccess('Reset to Defaults', 'Max open tickets has been restored to Unlimited.');
+        } catch (err) {
+          showError('Reset Failed', err.response?.data?.message || 'Failed to reset the max open tickets limit.');
+        } finally {
+          setSavingTicketLimit(false);
+        }
       },
       {
         confirmText: 'Reset Limit',
@@ -2298,7 +2492,7 @@ export default function SuperAdminTicketConfig() {
             setFeedbackMasterEnabled(true);
             setFeedbackFormEnabled(true);
             const msg = err.response?.data?.message || 'Failed to update feedback form status.';
-            showSuccess('Update Failed', msg);
+            showError('Update Failed', msg);
           }
         },
         {
@@ -2315,7 +2509,7 @@ export default function SuperAdminTicketConfig() {
         setFeedbackMasterEnabled(false);
         setFeedbackFormEnabled(false);
         const msg = err.response?.data?.message || 'Failed to update feedback form status.';
-        showSuccess('Update Failed', msg);
+        showError('Update Failed', msg);
       });
     }
   };
@@ -2376,7 +2570,7 @@ export default function SuperAdminTicketConfig() {
       }));
       const msg = err.response?.data?.message || 'Failed to toggle feedback question.';
       setFeedbackInlineError(msg);
-      showSuccess('Action Failed', msg);
+      showError('Action Failed', msg);
     }
   };
 
@@ -2469,7 +2663,7 @@ export default function SuperAdminTicketConfig() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save feedback question.';
       setFeedbackInlineError(msg);
-      showSuccess('Save Failed', msg);
+      showError('Save Failed', msg);
     }
   };
 
@@ -2499,7 +2693,7 @@ export default function SuperAdminTicketConfig() {
         } catch (err) {
           const msg = err.response?.data?.message || 'Failed to remove question.';
           setFeedbackInlineError(msg);
-          showSuccess('Removal Blocked', msg);
+          showError('Removal Blocked', msg);
         }
       },
       { confirmText: 'Remove', confirmClassName: 'bg-red-600 hover:bg-red-700' }
@@ -2522,7 +2716,7 @@ export default function SuperAdminTicketConfig() {
         } catch (err) {
           const msg = err.response?.data?.message || 'Failed to reset questions.';
           setFeedbackInlineError(msg);
-          showSuccess('Reset Failed', msg);
+          showError('Reset Failed', msg);
         }
       },
       { confirmText: 'Reset', confirmClassName: 'bg-red-600 hover:bg-red-700' }
@@ -2550,7 +2744,7 @@ export default function SuperAdminTicketConfig() {
           } catch (err) {
             setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: true }));
             const msg = err.response?.data?.message || 'Failed to update category feedback state.';
-            showSuccess('Update Failed', msg);
+            showError('Update Failed', msg);
           }
         },
         { confirmText: 'Disable', confirmClassName: 'bg-amber-600 hover:bg-amber-700', cancelText: 'Cancel' }
@@ -2563,7 +2757,7 @@ export default function SuperAdminTicketConfig() {
         .catch((err) => {
           setCategoryFeedbackToggles((prev) => ({ ...prev, [cat]: false }));
           const msg = err.response?.data?.message || 'Failed to enable category feedback.';
-          showSuccess('Update Failed', msg);
+          showError('Update Failed', msg);
         });
     }
   };
@@ -4101,9 +4295,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0" />
+                  <span>Active Operational Policy</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -4900,10 +5094,10 @@ export default function SuperAdminTicketConfig() {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 flex items-start gap-3">
-                <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-900 flex items-start gap-3">
+                <Info size={18} className="text-blue-600 shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
-                  Changes are local preview only and are not yet persisted. System Alerts are excluded because they always route to Super Admin.
+                  Configure notification recipient routing for creation, messaging, and SLA escalation alerts. Changes apply to subsequent alerts and do not affect queued or sent notifications. System Alerts are excluded because they are hard-coded to Super Admin at dispatch level.
                 </p>
               </div>
 
@@ -5098,18 +5292,31 @@ export default function SuperAdminTicketConfig() {
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
                 <button
+                  type="button"
+                  disabled={routingSaving}
                   onClick={handleResetRoutingConfig}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCcw size={14} />
                   Reset to Defaults
                 </button>
                 <button
+                  type="button"
+                  disabled={routingSaving}
                   onClick={handleSaveRoutingConfig}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save size={14} />
-                  Save Recipients
+                  {routingSaving ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      Saving Recipients...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      Save Recipients
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -6678,24 +6885,25 @@ export default function SuperAdminTicketConfig() {
                     <Info size={16} />
                   </button>
                   <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-80 rounded-xl bg-gray-900 p-3 text-center text-xs text-white shadow-xl group-hover:block z-50 leading-relaxed animate-in fade-in zoom-in-95 duration-150">
-                    Open tickets include Open, Pending Assignment, In Progress, Pending, Pending Evaluation, On Hold, Escalated, and Reopened. Closed, Resolved, Discarded, and Cancelled tickets do not count.
+                    Active workflow statuses count toward the limit. Closed tickets also count while they remain eligible for reopening; resolved, discarded/cancelled, and closed tickets outside that window do not count.
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <ShieldCheck size={13} className="shrink-0" />
+                  <span>Persisted and enforced server-side</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                The limit value itself is not yet saved system-wide, but ticket submission blocking uses this value live within your current session for testing.
+                The policy is stored system-wide and checked atomically whenever a customer or employee requestor creates a ticket.
               </p>
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={handleResetTicketLimit}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                disabled={savingTicketLimit || Boolean(ticketLimitConflict)}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RotateCcw size={14} />
                 Reset to Defaults
@@ -6703,13 +6911,36 @@ export default function SuperAdminTicketConfig() {
               <button
                 type="button"
                 onClick={handleSaveTicketLimit}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#1a1a5e] transition-all cursor-pointer shadow-xs"
+                disabled={savingTicketLimit || Boolean(ticketLimitConflict)}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#1a1a5e] transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Save size={14} />
-                Save Limit
+                {savingTicketLimit ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                {savingTicketLimit ? 'Saving…' : ticketLimitDraftDirty ? 'Save Changes' : 'Save Limit'}
               </button>
             </div>
           </div>
+
+          {ticketLimitConflict && (
+            <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3.5 shadow-xs">
+              <div className="flex items-start gap-3.5 flex-1">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-600/10 text-amber-700 shrink-0 mt-0.5">
+                  <AlertCircle size={18} />
+                </div>
+                <div className="text-xs sm:text-sm text-amber-950 leading-relaxed">
+                  <span className="font-semibold">Configuration changed elsewhere. </span>
+                  Your unsaved draft was preserved, but the saved policy is now {ticketLimitConflict.isUnlimited ? 'Unlimited' : `${ticketLimitConflict.limit} tickets`}. Reload the latest value before saving or resetting.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleReloadLatestTicketLimit}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-all cursor-pointer shrink-0"
+              >
+                <RefreshCw size={14} />
+                Reload Latest
+              </button>
+            </div>
+          )}
 
           {/* Informational Non-Retroactive Callout Card */}
           <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 sm:p-5 flex items-start gap-3.5 shadow-xs">
@@ -6770,7 +7001,7 @@ export default function SuperAdminTicketConfig() {
                     id="max-tickets-input"
                     type="number"
                     min={1}
-                    max={100}
+                    max={1000}
                     step={1}
                     disabled={ticketLimitConfig.isUnlimited}
                     value={ticketLimitConfig.limit}
@@ -6790,14 +7021,14 @@ export default function SuperAdminTicketConfig() {
                   </p>
                 ) : (
                   <p className="text-xs text-gray-500">
-                    Once a requester reaches this count of open tickets, new submissions are blocked with an informative message until an existing ticket is resolved or closed.
+                    New submissions are blocked at the limit until a counted ticket becomes exempt or a recently closed ticket leaves the configured reopen window.
                   </p>
                 )}
               </div>
 
               <div className="pt-4 border-t border-gray-100 text-xs text-gray-500 flex items-center justify-between flex-wrap gap-2">
                 <span>Customer tickets and Employee internal tickets are counted separately.</span>
-                <span className="font-semibold text-indigo-700">Enforced live in current session</span>
+                <span className="font-semibold text-indigo-700">Enforced atomically by ticket-service</span>
               </div>
             </div>
 
@@ -6823,11 +7054,22 @@ export default function SuperAdminTicketConfig() {
               </div>
 
               <div className="pt-3 border-t border-gray-100 space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
+                  Conditionally Counts
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 border border-amber-200">
+                    <Clock size={11} /> Closed — inside reopen window
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 space-y-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block">
                   Exempt / Terminal (Do Not Count)
                 </span>
                 <div className="flex flex-wrap gap-1.5">
-                  {['Closed', 'Resolved', 'Discarded', 'Cancelled'].map((st) => (
+                  {['Resolved', 'Discarded / Cancelled', 'Closed — outside reopen window'].map((st) => (
                     <span key={st} className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-500 border border-gray-200">
                       <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
                       {st}

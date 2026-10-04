@@ -30,6 +30,15 @@ import {
 import NotificationModal from '@/components/NotificationModal';
 import BranchSelector from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
+import {
+  getCompanyInfo,
+  updateCompanyInfo,
+  resetCompanyInfo,
+  getSystemStatus,
+  updateSystemStatus,
+  getLogLevel,
+  updateLogLevel,
+} from '@/services/configurationService';
 
 // =========================================================================
 // TS097 Initial Baseline Data (Branch-Scoped Company Info & System Status)
@@ -249,6 +258,47 @@ export default function SuperAdminSettings() {
   // 3. Log Level State (global, untouched)
   const [logLevel, setLogLevel] = useState('Info');
 
+  // Loading & Action States
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
+  const [isSavingLogLevel, setIsSavingLogLevel] = useState(false);
+
+  // Initial load from configuration-service
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      getCompanyInfo().catch(() => null),
+      getSystemStatus().catch(() => null),
+      getLogLevel().catch(() => null),
+    ]).then(([comp, stat, log]) => {
+      if (!isMounted) return;
+      if (comp) {
+        setBranchCompanyInfo((prev) => ({
+          ...prev,
+          main: {
+            address: comp.address || INITIAL_COMPANY_INFO.address,
+            contactNumber: comp.contactNumber || INITIAL_COMPANY_INFO.contactNumber,
+            contactEmail: comp.contactEmail || INITIAL_COMPANY_INFO.contactEmail,
+            socialLinks: Array.isArray(comp.socialLinks) ? comp.socialLinks : INITIAL_COMPANY_INFO.socialLinks,
+          },
+        }));
+      }
+      if (stat) {
+        setBranchSystemStatus((prev) => ({
+          ...prev,
+          main: stat,
+        }));
+      }
+      if (log) {
+        const match = LOG_LEVELS.find((l) => l.level.toLowerCase() === (log || '').toLowerCase());
+        setLogLevel(match ? match.level : log);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // 4. TS102 Email Templates State
   const [emailTemplates, setEmailTemplates] = useState(INITIAL_EMAIL_TEMPLATES);
   const [selectedTemplateId, setSelectedTemplateId] = useState(INITIAL_EMAIL_TEMPLATES[0].id);
@@ -412,48 +462,103 @@ export default function SuperAdminSettings() {
     }
 
     setCompanyErrors({});
-    showSuccess(
-      'Company Information Saved',
-      `Company profile, contact lines, and social links updated for ${selectedBranch.name} in local state.`
-    );
+    setIsSavingCompany(true);
+
+    try {
+      if (selectedBranch.id === 'main') {
+        const res = await updateCompanyInfo(currentCompanyInfo);
+        if (res) {
+          const updated = {
+            address: res.address || currentCompanyInfo.address,
+            contactNumber: res.contactNumber || currentCompanyInfo.contactNumber,
+            contactEmail: res.contactEmail || currentCompanyInfo.contactEmail,
+            socialLinks: Array.isArray(res.socialLinks) ? res.socialLinks : currentCompanyInfo.socialLinks,
+          };
+          setBranchCompanyInfo((prev) => ({
+            ...prev,
+            [selectedBranch.id]: updated,
+          }));
+        }
+      }
+      showSuccess(
+        'Company Information Saved',
+        `Company profile, contact lines, and social links updated for ${selectedBranch.name} successfully.`
+      );
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update company information.';
+      const serverErrors = err.response?.data?.errors;
+      if (serverErrors && typeof serverErrors === 'object') {
+        setCompanyErrors(serverErrors);
+      }
+      showError('Save Failed', msg);
+    } finally {
+      setIsSavingCompany(false);
+    }
   };
 
   const handleResetCompanyInfo = () => {
-    const resetTarget = selectedBranch.id === 'main' ? { ...INITIAL_COMPANY_INFO } : {
-      address: '',
-      contactNumber: '',
-      contactEmail: '',
-      socialLinks: [],
-    };
-    setBranchCompanyInfo((prev) => ({
-      ...prev,
-      [selectedBranch.id]: resetTarget,
-    }));
-    setCompanyErrors({});
-    showSuccess(
-      'Company Information Reset',
-      `Values for ${selectedBranch.name} have been restored to ${selectedBranch.id === 'main' ? 'initial defaults' : 'empty state'}.`
+    showConfirm(
+      `Restore Default Company Information for ${selectedBranch.name}?`,
+      `This will reset contact lines and profile information for ${selectedBranch.name} back to default values.`,
+      async () => {
+        closeNotif();
+        setIsSavingCompany(true);
+        try {
+          if (selectedBranch.id === 'main') {
+            await resetCompanyInfo();
+          }
+          const resetTarget = selectedBranch.id === 'main' ? { ...INITIAL_COMPANY_INFO } : {
+            address: '',
+            contactNumber: '',
+            contactEmail: '',
+            socialLinks: [],
+          };
+          setBranchCompanyInfo((prev) => ({
+            ...prev,
+            [selectedBranch.id]: resetTarget,
+          }));
+          setCompanyErrors({});
+          showSuccess(
+            'Company Information Reset',
+            `Values for ${selectedBranch.name} have been restored to ${selectedBranch.id === 'main' ? 'initial defaults' : 'empty state'}.`
+          );
+        } catch (err) {
+          showError('Reset Failed', err.response?.data?.message || 'Failed to reset company information.');
+        } finally {
+          setIsSavingCompany(false);
+        }
+      }
     );
   };
 
   // ── System Status Handlers (Branch-Scoped) ────────────────────────────────
-  const handleSelectSystemStatus = (newStatus) => {
-    if (newStatus === currentBranchStatus) return;
+  const handleSelectSystemStatus = async (newStatus) => {
+    if (newStatus === currentBranchStatus || isSavingStatus) return;
 
     if (newStatus === 'Under Maintenance') {
       showConfirm(
         `Set ${selectedBranch.name} to Under Maintenance?`,
         `Setting ${selectedBranch.name} to Under Maintenance may restrict or affect access for users at this location. Are you sure?`,
-        () => {
+        async () => {
           closeNotif();
-          setBranchSystemStatus((prev) => ({
-            ...prev,
-            [selectedBranch.id]: 'Under Maintenance',
-          }));
-          showSuccess(
-            'System Status Updated',
-            `Platform status for ${selectedBranch.name} set to "Under Maintenance". Advisory banners will be presented to non-admin users at this location.`
-          );
+          setIsSavingStatus(true);
+          try {
+            if (selectedBranch.id === 'main') {
+              await updateSystemStatus('Under Maintenance');
+            }
+            setBranchSystemStatus((prev) => ({
+              ...prev,
+              [selectedBranch.id]: 'Under Maintenance',
+            }));
+            showSuccess(
+              'System Status Updated',
+              `Platform status for ${selectedBranch.name} set to "Under Maintenance". Advisory banners will be presented to non-admin users at this location.`
+            );
+          } catch (err) {
+            showError('Status Update Failed', err.response?.data?.message || 'Unable to change system status.');
+          } finally {
+            setIsSavingStatus(false);
+          }
         },
         {
           confirmText: 'Set to Maintenance',
@@ -461,25 +566,44 @@ export default function SuperAdminSettings() {
         }
       );
     } else {
-      setBranchSystemStatus((prev) => ({
-        ...prev,
-        [selectedBranch.id]: newStatus,
-      }));
-      showSuccess(
-        'System Status Restored',
-        `Platform status for ${selectedBranch.name} has been restored to "Operational".`
-      );
+      setIsSavingStatus(true);
+      try {
+        if (selectedBranch.id === 'main') {
+          await updateSystemStatus('Operational');
+        }
+        setBranchSystemStatus((prev) => ({
+          ...prev,
+          [selectedBranch.id]: newStatus,
+        }));
+        showSuccess(
+          'System Status Restored',
+          `Platform status for ${selectedBranch.name} has been restored to "Operational".`
+        );
+      } catch (err) {
+        showError('Status Update Failed', err.response?.data?.message || 'Unable to restore operational status.');
+      } finally {
+        setIsSavingStatus(false);
+      }
     }
   };
 
   // ── Log Level Handlers (Global Infrastructure) ────────────────────────────
-  const handleSaveLogLevel = (newLevel) => {
+  const handleSaveLogLevel = async (newLevel) => {
     const levelToSet = newLevel || logLevel;
-    setLogLevel(levelToSet);
-    showSuccess(
-      'Log Level Saved',
-      `Diagnostic log verbosity set to "${levelToSet}" in local state.`
-    );
+    setIsSavingLogLevel(true);
+    try {
+      const updated = await updateLogLevel(levelToSet);
+      const match = LOG_LEVELS.find((l) => l.level.toLowerCase() === (updated || '').toLowerCase());
+      setLogLevel(match ? match.level : levelToSet);
+      showSuccess(
+        'Log Level Saved',
+        `Diagnostic log verbosity set to "${levelToSet}". Changes apply immediately to runtime requests via dynamic Redis cache wiring.`
+      );
+    } catch (err) {
+      showError('Save Failed', err.response?.data?.message || 'Failed to update diagnostic log level.');
+    } finally {
+      setIsSavingLogLevel(false);
+    }
   };
 
   // ── TS102 Email Templates Handlers ───────────────────────────────────────

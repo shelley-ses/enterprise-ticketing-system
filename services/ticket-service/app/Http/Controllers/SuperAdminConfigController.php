@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Events\TicketChanged;
+use App\Events\TicketLimitsUpdated;
 use App\Services\TicketCacheService;
+use App\Services\TicketConfigurationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SuperAdminConfigController extends Controller
 {
@@ -453,5 +456,489 @@ class SuperAdminConfigController extends Controller
         });
 
         return response()->json($formattedLogs);
+    }
+
+    /**
+     * Retrieve the system-wide max-open-ticket configuration.
+     */
+    public function getTicketLimit(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $config = TicketConfigurationService::getLimitConfig();
+
+        return response()->json([
+            'key' => 'limits',
+            'value' => $config,
+        ]);
+    }
+
+    /**
+     * Update the max-open-ticket policy and record the authenticated actor.
+     */
+    public function updateTicketLimit(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $payload = $request->input('value', $request->all());
+        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+            'isUnlimited' => ['required', 'boolean'],
+            'limit' => ['required', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid max open tickets configuration.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $user = $request->user();
+        $before = TicketConfigurationService::getLimitConfig();
+
+        try {
+            $updated = TicketConfigurationService::updateLimitConfig($validator->validated(), $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->recordTicketLimitChange($user, $before, $updated, 'config_update');
+
+        return response()->json([
+            'message' => 'Max open tickets configuration updated successfully.',
+            'key' => 'limits',
+            'value' => $updated,
+        ]);
+    }
+
+    /**
+     * Reset the max-open-ticket policy to Unlimited.
+     */
+    public function resetTicketLimit(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $user = $request->user();
+        $before = TicketConfigurationService::getLimitConfig();
+
+        try {
+            $updated = TicketConfigurationService::resetLimitConfig($user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->recordTicketLimitChange($user, $before, $updated, 'config_reset');
+
+        return response()->json([
+            'message' => 'Max open tickets configuration reset to Unlimited.',
+            'key' => 'limits',
+            'value' => $updated,
+        ]);
+    }
+
+    private function recordTicketLimitChange($user, array $before, array $after, string $actionType): void
+    {
+        if ($before === $after) {
+            return;
+        }
+
+        $changedAt = now();
+        $actorId = (int) ($user->emp_id ?? $user->id);
+        $previousLimit = $before['isUnlimited'] ? 'unlimited' : (int) $before['limit'];
+        $newLimit = $after['isUnlimited'] ? 'unlimited' : (int) $after['limit'];
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => $actionType,
+            'action_by_ID' => $actorId,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Limit Configuration',
+                'target' => 'Max Open Tickets per Requester',
+                'text' => "Changed max open tickets from {$previousLimit} to {$newLimit}.",
+                'previous_limit' => $previousLimit,
+                'new_limit' => $newLimit,
+                'previous_value' => $before,
+                'new_value' => $after,
+                'changed_at' => $changedAt->toIso8601String(),
+            ]),
+            'created_at' => $changedAt,
+        ]);
+
+        try {
+            event(new TicketLimitsUpdated(
+                $before,
+                $after,
+                $actorId,
+                $changedAt->toIso8601String()
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Broadcasting TicketLimitsUpdated failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Retrieve the ticket lifecycle window configuration (reopen & auto-close).
+     */
+    public function getWindowConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $config = \App\Services\TicketConfigurationService::getWindowConfig();
+
+        return response()->json(array_merge([
+            'key' => 'windows',
+            'value' => $config,
+        ], $config));
+    }
+
+    /**
+     * Update the ticket lifecycle window configuration independently with strict validation.
+     */
+    public function updateWindowConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $payload = $request->input('value', $request->all());
+
+        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+            'reopenEnabled' => 'sometimes|boolean',
+            'reopenWindowDays' => [
+                'sometimes',
+                'required',
+                function ($attribute, $value, $fail) {
+                    if (!is_numeric($value)) {
+                        $fail('The reopen window duration must be a valid numeric value.');
+                        return;
+                    }
+                    $num = (float) $value;
+                    if ($num <= 0) {
+                        $fail('The reopen window duration must be a positive number greater than zero.');
+                        return;
+                    }
+                    if ((int) $value != $num) {
+                        $fail('The reopen window duration must be a whole integer number of days.');
+                    }
+                },
+            ],
+            'autoCloseEnabled' => 'sometimes|boolean',
+            'autoCloseWindowDays' => [
+                'sometimes',
+                'required',
+                function ($attribute, $value, $fail) {
+                    if (!is_numeric($value)) {
+                        $fail('The auto-close window duration must be a valid numeric value.');
+                        return;
+                    }
+                    $num = (float) $value;
+                    if ($num <= 0) {
+                        $fail('The auto-close window duration must be a positive number greater than zero.');
+                        return;
+                    }
+                    if ((int) $value != $num) {
+                        $fail('The auto-close window duration must be a whole integer number of days.');
+                    }
+                },
+            ],
+        ], [
+            'reopenEnabled.boolean' => 'The reopen enabled setting must be true or false.',
+            'autoCloseEnabled.boolean' => 'The auto-close enabled setting must be true or false.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid window configuration values.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateWindowConfig($validated, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $reopenText = ($updated['reopenEnabled'] ?? true)
+            ? "Enabled ({$updated['reopenWindowDays']} days)"
+            : "Disabled";
+        $autoCloseText = ($updated['autoCloseEnabled'] ?? true)
+            ? "Enabled ({$updated['autoCloseWindowDays']} days)"
+            : "Disabled";
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Lifecycle Window Configuration',
+                'target' => 'Reopen & Auto-Close Windows',
+                'text' => "Updated ticket lifecycle windows: Customer Reopen is {$reopenText}, Auto-Close is {$autoCloseText}. Changes apply only to subsequent lifecycle actions.",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'windows',
+            'data' => $updated,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(array_merge([
+            'message' => 'Ticket lifecycle window configuration updated successfully.',
+            'key' => 'windows',
+            'value' => $updated,
+        ], $updated));
+    }
+
+    /**
+     * View active notification recipient routing.
+     */
+    public function getNotificationRouting(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $routing = \App\Services\TicketConfigurationService::getRoutingConfig();
+
+        return response()->json([
+            'key' => 'routing',
+            'value' => $routing,
+            'immutable_scope' => [
+                'system_alert' => [
+                    'locked' => true,
+                    'recipients' => ['role_superadmin'],
+                    'description' => 'System alerts are strictly hard-coded to Super Admin at dispatch level and cannot be modified.',
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Update notification recipient routing with strict validation:
+     * - Rejects any save with 0 recipients in a configurable scope
+     * - Explicitly excludes and rejects system_alert modification
+     * - Dispatches TicketChanged broadcast and writes audit log
+     */
+    public function updateNotificationRouting(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $rawPayload = $request->all();
+        $routingPayload = $request->input('routing', $request->input('value', $rawPayload));
+
+        // 1. Explicitly reject system_alert from configurable scope
+        if (isset($routingPayload['system_alert']) || isset($rawPayload['system_alert'])) {
+            return response()->json([
+                'message' => 'Validation Error: system_alert cannot be configured. System alerts are strictly hard-coded to Super Admin at dispatch level.',
+                'errors' => [
+                    'system_alert' => ['System alerts are restricted to Super Admin and cannot be customized via recipient routing.'],
+                ],
+            ], 422);
+        }
+
+        $titles = [
+            'new_ticket' => 'New Ticket Alert',
+            'new_message' => 'New Message Alert',
+            'overdue_ticket' => 'Overdue Ticket Alert',
+        ];
+
+        // 2. Reject zero recipients for any configurable scope
+        $errors = [];
+        foreach (['new_ticket', 'new_message', 'overdue_ticket'] as $scopeKey) {
+            if (array_key_exists($scopeKey, $routingPayload)) {
+                $recipients = $routingPayload[$scopeKey];
+                if (!is_array($recipients) || count($recipients) === 0) {
+                    $errors[$scopeKey] = ["At least one recipient is required for {$titles[$scopeKey]}."];
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid recipient routing configuration.',
+                'errors' => $errors,
+            ], 422);
+        }
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateRoutingConfig($routingPayload, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Notification Recipient Routing',
+                'target' => 'Recipient Routing Rules',
+                'text' => "Updated notification recipient routing for: " . implode(', ', array_keys($updated)),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Notification recipient routing updated successfully.',
+            'key' => 'routing',
+            'value' => $updated,
+        ]);
+    }
+
+    /**
+     * Reset notification recipient routing to factory defaults.
+     */
+    public function resetNotificationRouting(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $defaults = \App\Services\TicketConfigurationService::resetRoutingConfig($user);
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_reset',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Notification Recipient Routing',
+                'target' => 'Recipient Routing Rules',
+                'text' => "Reset notification recipient routing to system defaults.",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Notification recipient routing reset to defaults.',
+            'key' => 'routing',
+            'value' => $defaults,
+        ]);
+    }
+
+    public function getCompanyInfo(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $info = \App\Services\TicketConfigurationService::getCompanyInfo();
+        return response()->json([
+            'key' => 'company_info',
+            'value' => $info,
+        ]);
+    }
+
+    public function updateCompanyInfo(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+        $payload = $request->input('value', $request->all());
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateCompanyInfo($payload, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        return response()->json([
+            'message' => 'Company information updated successfully.',
+            'key' => 'company_info',
+            'value' => $updated,
+        ]);
+    }
+
+    public function getSystemStatus(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $status = \App\Services\TicketConfigurationService::getSystemStatus();
+        return response()->json([
+            'key' => 'system_status',
+            'status' => $status,
+            'value' => ['status' => $status],
+        ]);
+    }
+
+    public function updateSystemStatus(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+        $status = $request->input('status', $request->input('value.status', 'Operational'));
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateSystemStatus($status, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        return response()->json([
+            'message' => "System status updated successfully to '{$updated}'.",
+            'key' => 'system_status',
+            'status' => $updated,
+            'value' => ['status' => $updated],
+        ]);
+    }
+
+    public function getLogLevel(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $level = \App\Services\TicketConfigurationService::getLogLevel();
+        return response()->json([
+            'key' => 'log_level',
+            'level' => $level,
+            'value' => ['level' => $level],
+        ]);
+    }
+
+    public function updateLogLevel(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+        $level = $request->input('level', $request->input('value.level', 'Info'));
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateLogLevel($level, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        return response()->json([
+            'message' => "Log level updated successfully to '{$updated}'.",
+            'key' => 'log_level',
+            'level' => $updated,
+            'value' => ['level' => $updated],
+        ]);
     }
 }
