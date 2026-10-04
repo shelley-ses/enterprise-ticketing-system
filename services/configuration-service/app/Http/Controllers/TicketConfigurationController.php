@@ -422,6 +422,12 @@ class TicketConfigurationController extends Controller
     public function show(string $key): JsonResponse
     {
         $normalizedKey = str_replace('-', '_', $key);
+        if ($normalizedKey === 'ticket_defaults') {
+            $normalizedKey = 'defaults';
+        }
+        if ($normalizedKey === 'files') {
+            $normalizedKey = 'file_limits';
+        }
         $value = TicketConfiguration::getByKey($normalizedKey, $this->defaults[$normalizedKey] ?? null);
 
         if ($value === null) {
@@ -440,6 +446,12 @@ class TicketConfigurationController extends Controller
     public function update(Request $request, string $key): JsonResponse
     {
         $normalizedKey = str_replace('-', '_', $key);
+        if ($normalizedKey === 'ticket_defaults') {
+            $normalizedKey = 'defaults';
+        }
+        if ($normalizedKey === 'files') {
+            $normalizedKey = 'file_limits';
+        }
         $authErr = $normalizedKey === 'limits'
             ? $this->checkTrustedTicketService($request)
             : $this->checkAuthorized($request);
@@ -570,13 +582,46 @@ class TicketConfigurationController extends Controller
                 ], $record->value));
 
             case 'number_format':
-                $validated = $request->validate([
-                    'prefix' => 'required|string|max:16',
+                $validator = Validator::make($payload, [
+                    'prefix' => ['required', 'string', 'max:16', 'regex:/^[A-Za-z0-9_-]{1,16}$/'],
                     'includeDeptCode' => 'sometimes|boolean',
-                    'deptCode' => 'nullable|string|max:16',
+                    'deptCode' => [
+                        'nullable',
+                        'required_if:includeDeptCode,true,1',
+                        function ($attribute, $value, $fail) use ($payload) {
+                            $includeDept = filter_var($payload['includeDeptCode'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                            if ($includeDept) {
+                                $trimmed = trim((string)$value);
+                                if (empty($trimmed)) {
+                                    $fail('A branch or department code is required when the department code segment is enabled.');
+                                    return;
+                                }
+                                if (!preg_match('/^[A-Za-z0-9_-]{1,16}$/', $trimmed)) {
+                                    $fail('Department code can only contain alphanumeric characters, hyphens, and underscores.');
+                                }
+                            }
+                        },
+                    ],
                     'dateSegment' => 'required|string|in:none,YYYY,YYYYMM,YYYYMMDD',
                     'digitLength' => 'required|integer|min:3|max:8',
+                ], [
+                    'prefix.required' => 'A ticket prefix is required.',
+                    'prefix.regex' => 'Prefix can only contain alphanumeric characters, hyphens, and underscores.',
+                    'dateSegment.required' => 'A date segment pattern option must be selected.',
+                    'dateSegment.in' => 'Date segment must be one of: none, YYYY, YYYYMM, YYYYMMDD.',
+                    'digitLength.required' => 'A sequential component is strictly required to guarantee unique ticket numbers.',
+                    'digitLength.min' => 'Sequential digit length must be between 3 and 8 digits.',
+                    'digitLength.max' => 'Sequential digit length must be between 3 and 8 digits.',
                 ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid ticket number format configuration.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $validated = $validator->validated();
                 $value = [
                     'prefix' => strtoupper(trim($validated['prefix'])),
                     'includeDeptCode' => (bool) ($validated['includeDeptCode'] ?? false),
@@ -587,11 +632,42 @@ class TicketConfigurationController extends Controller
                 break;
 
             case 'defaults':
-                $validated = $request->validate([
-                    'status' => 'required|string|max:64',
+                $validator = Validator::make($payload, [
+                    'status' => [
+                        'required',
+                        'string',
+                        'max:64',
+                        function ($attribute, $value, $fail) {
+                            $trimmed = trim((string)$value);
+                            $validStartingStatuses = ['Open'];
+                            $isValidStarting = false;
+                            foreach ($validStartingStatuses as $startStatus) {
+                                if (strcasecmp($trimmed, $startStatus) === 0) {
+                                    $isValidStarting = true;
+                                    break;
+                                }
+                            }
+                            if (!$isValidStarting) {
+                                $fail("The default status must be a valid starting status per the ticket state machine (e.g., 'Open'). Status '{$value}' is not a valid initial state.");
+                            }
+                        },
+                    ],
                     'priority' => 'required|string|max:64',
                     'slaPolicy' => 'required|string|max:64',
+                ], [
+                    'status.required' => 'The default status is required.',
+                    'priority.required' => 'The default priority is required.',
+                    'slaPolicy.required' => 'The default SLA policy is required.',
                 ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid ticket defaults configuration.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $validated = $validator->validated();
                 $value = [
                     'status' => $validated['status'],
                     'priority' => $validated['priority'],
@@ -611,13 +687,32 @@ class TicketConfigurationController extends Controller
                 break;
 
             case 'file_limits':
-                $validated = $request->validate([
+                $validator = Validator::make($payload, [
                     'maxFileSizeMB' => 'required|numeric|min:1|max:500',
                     'allowedFileTypes' => 'required|array|min:1',
                     'allowedFileTypes.*' => 'string|max:16',
                     'maxFileCount' => 'required|integer|min:1|max:50',
                     'malwareScanningEnabled' => 'required|boolean',
+                ], [
+                    'maxFileSizeMB.required' => 'Maximum file size is required.',
+                    'maxFileSizeMB.min' => 'Maximum file size must be at least 1 MB.',
+                    'maxFileSizeMB.max' => 'Maximum file size cannot exceed 500 MB.',
+                    'allowedFileTypes.required' => 'At least one allowed file type must be specified.',
+                    'allowedFileTypes.min' => 'At least one allowed file type must be specified.',
+                    'maxFileCount.required' => 'Maximum file count is required.',
+                    'maxFileCount.min' => 'Maximum file count must be at least 1.',
+                    'maxFileCount.max' => 'Maximum file count cannot exceed 50.',
+                    'malwareScanningEnabled.required' => 'Malware scanning toggle must be specified.',
                 ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid file upload limits configuration.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $validated = $validator->validated();
                 $value = [
                     'maxFileSizeMB' => (float) $validated['maxFileSizeMB'],
                     'allowedFileTypes' => array_values(array_unique(array_map('strtoupper', $validated['allowedFileTypes']))),
@@ -939,6 +1034,37 @@ class TicketConfigurationController extends Controller
 
         if ($normalizedKey === 'limits') {
             $this->clearConfigCache('limits');
+        } elseif ($normalizedKey === 'number_format') {
+            $this->clearConfigCache('number_format');
+            $this->logAudit(
+                $request,
+                'config_update',
+                'Ticket Configuration',
+                'Ticket Number Format',
+                "Updated ticket number format configuration."
+            );
+        } elseif ($normalizedKey === 'defaults') {
+            $this->clearConfigCache('defaults');
+            $this->logAudit(
+                $request,
+                'config_update',
+                'Ticket Configuration',
+                'Ticket Defaults',
+                "Updated ticket defaults configuration."
+            );
+        } elseif ($normalizedKey === 'file_limits') {
+            $this->clearConfigCache('file_limits');
+            try {
+                Cache::forever('ticket:config:file_limits', $value);
+                Redis::set('ticket:config:file_limits', json_encode($value));
+            } catch (\Throwable $e) {}
+            $this->logAudit(
+                $request,
+                'config_update',
+                'Ticket Configuration',
+                'File Upload & Security Limits',
+                "Updated file upload limits: max file size {$value['maxFileSizeMB']}MB, max file count {$value['maxFileCount']}, malware scanning " . ($value['malwareScanningEnabled'] ? 'enabled' : 'disabled') . "."
+            );
         } else {
             $this->logAudit(
                 $request,
@@ -962,6 +1088,12 @@ class TicketConfigurationController extends Controller
     public function reset(string $key): JsonResponse
     {
         $normalizedKey = str_replace('-', '_', $key);
+        if ($normalizedKey === 'ticket_defaults') {
+            $normalizedKey = 'defaults';
+        }
+        if ($normalizedKey === 'files') {
+            $normalizedKey = 'file_limits';
+        }
         $authErr = $normalizedKey === 'limits'
             ? $this->checkTrustedTicketService(request())
             : $this->checkAuthorized(request());
@@ -1017,6 +1149,22 @@ class TicketConfigurationController extends Controller
 
         if ($normalizedKey === 'company_info') {
             $this->clearConfigCache('company_info');
+        }
+
+        if ($normalizedKey === 'number_format') {
+            $this->clearConfigCache('number_format');
+        }
+
+        if ($normalizedKey === 'defaults') {
+            $this->clearConfigCache('defaults');
+        }
+
+        if ($normalizedKey === 'file_limits') {
+            $this->clearConfigCache('file_limits');
+            try {
+                Cache::forever('ticket:config:file_limits', $defaultValue);
+                Redis::set('ticket:config:file_limits', json_encode($defaultValue));
+            } catch (\Throwable $e) {}
         }
 
         if ($normalizedKey === 'limits') {

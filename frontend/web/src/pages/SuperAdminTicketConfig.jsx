@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X, Sparkles } from 'lucide-react';
+import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X, Sparkles, Sliders, Settings, Table, ArrowUpDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +15,12 @@ import {
   getTicketLimitConfig,
   updateTicketLimitConfig,
   resetTicketLimitConfig,
+  getTicketNumberFormatConfig,
+  updateTicketNumberFormatConfig,
+  resetTicketNumberFormatConfig,
+  getTicketDefaultsConfig,
+  updateTicketDefaultsConfig,
+  resetTicketDefaultsConfig,
   getSLARules,
   saveDepartmentSLARules,
   getDepartments,
@@ -22,12 +28,24 @@ import {
   createWorkflowStatus,
   updateWorkflowStatus,
   deleteWorkflowStatus,
+  resetWorkflowStatuses,
   getEscalationRules,
   createEscalationRule,
   updateEscalationRule,
   toggleEscalationRule,
   deleteEscalationRule,
-  getTicketFormOptions
+  getTicketFormOptions,
+  getBranchPriorities,
+  createBranchPriority,
+  updateBranchPriority,
+  deleteBranchPriority,
+  getBranchCategoriesAndSla,
+  createBranchCategory,
+  updateBranchCategory,
+  deleteBranchCategory,
+  resetBranchCategoriesToDefaults,
+  saveBranchSlaPolicy,
+  deleteBranchSlaPolicy
 } from '@/services/ticketService';
 
 import {
@@ -65,6 +83,12 @@ import {
   getNotificationRouting,
   updateNotificationRouting,
   resetNotificationRouting,
+  getTransitionRulesConfig,
+  updateTransitionRulesConfig,
+  resetTransitionRulesConfig,
+  getFileLimitsConfig,
+  updateFileLimitsConfig,
+  resetFileLimitsConfig,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -77,12 +101,6 @@ import {
 } from '@/data/messageArchivalConfig';
 import BranchSelector from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
-import {
-  SYSTEM_DEFAULT_PRIORITY_SLAS,
-  INITIAL_BRANCH_PRIORITY_OVERRIDES,
-  getStoredBranchOverrides,
-  setStoredBranchOverrides,
-} from '@/data/branchPriorityConfig';
 import {
   SYSTEM_DEFAULT_CATEGORIES,
   SYSTEM_DEFAULT_CATEGORY_SLAS,
@@ -191,6 +209,48 @@ export const TS094_DEFAULT_FORMAT = {
   digitLength: 4,
 };
 
+export const TS095_DEFAULT_CONFIG = {
+  status: 'Open',
+  priority: 'Low',
+  slaPolicy: 'dynamic',
+};
+
+export const getCachedDefaultsConfig = () => {
+  try {
+    const saved = localStorage.getItem('superadmin_ticket_defaults_config');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          status: String(parsed.status || 'Open'),
+          priority: String(parsed.priority || 'Low'),
+          slaPolicy: String(parsed.slaPolicy || 'dynamic'),
+        };
+      }
+    }
+  } catch {}
+  return TS095_DEFAULT_CONFIG;
+};
+
+export const getCachedNumberFormatConfig = () => {
+  try {
+    const saved = localStorage.getItem('superadmin_ticket_number_format_config');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          prefix: String(parsed.prefix || 'TKT').toUpperCase(),
+          includeDeptCode: Boolean(parsed.includeDeptCode ?? false),
+          deptCode: String(parsed.deptCode || '').toUpperCase(),
+          dateSegment: String(parsed.dateSegment || 'none'),
+          digitLength: Number(parsed.digitLength ?? 4),
+        };
+      }
+    }
+  } catch {}
+  return TS094_DEFAULT_FORMAT;
+};
+
 export const TS094_DATE_OPTIONS = [
   { value: 'none', label: 'None (Omit date segment) — Current behavior' },
   { value: 'YYYY', label: 'YYYY (e.g. 2026)' },
@@ -269,75 +329,50 @@ export const TS104_DEFAULT_QUESTIONS = {
   ],
 };
 
-export const TS093_STATUSES = [
-  'Open',
-  'In Progress (CS-owned)',
-  'Assigned',
-  'Reassigned',
-  'In Progress (Employee-owned)',
-  'Resolved',
-  'Closed',
-  'Reopened',
-  'On Hold/Pending',
-  'Cancelled',
-];
-
-export const TS093_DEFAULT_RULES = {
-  'Open': {
-    allowed: ['In Progress (CS-owned)', 'Cancelled'],
+export const DEFAULT_WORKFLOW_TRANSITION_RULES = {
+  'New': {
+    allowed: ['Assigned', 'Closed'],
     type: 'editable',
-    description: 'Initial ticket state upon customer or internal creation.',
-  },
-  'In Progress (CS-owned)': {
-    allowed: ['On Hold/Pending', 'Assigned', 'Resolved'],
-    type: 'editable',
-    description: 'Ticket being triaged or actively handled directly by Customer Service.',
+    description: 'Initial ticket state upon customer or employee submission.',
   },
   'Assigned': {
-    allowed: ['Reassigned', 'In Progress (Employee-owned)'],
+    allowed: ['In Progress', 'Pending Parts', 'Closed'],
     type: 'editable',
-    description: 'Ticket dispatched to an engineer/technician and awaiting their acceptance.',
+    description: 'Ticket has been assigned to a technician and is awaiting action.',
   },
-  'Reassigned': {
-    allowed: ['In Progress (Employee-owned)', 'Assigned'],
+  'In Progress': {
+    allowed: ['Pending Parts', 'Resolved', 'Assigned'],
     type: 'editable',
-    description: 'Ticket reassignment requested or approved for re-dispatch.',
+    description: 'Technician is actively working to diagnose and resolve the issue.',
   },
-  'In Progress (Employee-owned)': {
-    allowed: ['On Hold/Pending', 'Reassigned', 'Resolved'],
+  'Pending Parts': {
+    allowed: ['In Progress', 'Assigned', 'Resolved'],
     type: 'editable',
-    description: 'Service engineer has accepted the assignment and is actively working on the machine.',
+    description: 'Waiting for replacement parts, external vendor, or requester response.',
   },
   'Resolved': {
-    allowed: ['Closed', 'In Progress (Employee-owned)'],
+    allowed: ['Closed', 'In Progress'],
     type: 'editable',
-    description: 'Work is marked complete with proof of completion pending evaluation.',
+    description: 'Service completed and pending confirmation from the requester.',
   },
   'Closed': {
-    allowed: ['Reopened'],
+    allowed: ['In Progress', 'New'],
     type: 'editable',
-    caption: 'Reopening is permitted only within the configured reopen window (e.g. 48h after resolution).',
-    description: 'Final confirmed state. Can transition to Reopened within the allowed reopen window.',
-  },
-  'Reopened': {
-    allowed: ['In Progress (CS-owned)'],
-    type: 'fixed',
-    caption: 'Automatic transition: Reopened tickets immediately route to Customer Service (CS-owned). This transition is system-automated and non-editable.',
-    description: 'Ticket reopened by customer within window; routes automatically to CS.',
-  },
-  'On Hold/Pending': {
-    allowed: [],
-    type: 'contextual',
-    caption: 'Contextual transition: Resumes back to whichever In Progress state it came from (CS-owned or Employee-owned). This is contextual rather than a fixed pair, so it is non-editable.',
-    description: 'Ticket paused awaiting parts, customer feedback, or external dependency.',
-  },
-  'Cancelled': {
-    allowed: [],
-    type: 'terminal',
-    caption: 'Terminal status: No further transitions permitted from Cancelled.',
-    description: 'Ticket discarded or cancelled before assignment.',
+    caption: 'Reopening is permitted within the configured reopen window (48h).',
+    description: 'Final confirmed state. Can transition back to In Progress or New if reopened.',
   },
 };
+
+export const TS093_STATUSES = [
+  'New',
+  'Assigned',
+  'In Progress',
+  'Pending Parts',
+  'Resolved',
+  'Closed',
+];
+
+export const TS093_DEFAULT_RULES = DEFAULT_WORKFLOW_TRANSITION_RULES;
 
 export const TS098_AVAILABLE_EXTENSIONS = [
   { ext: 'PDF', label: 'PDF Document', desc: 'Adobe Acrobat (.pdf)', mime: 'application/pdf' },
@@ -505,12 +540,12 @@ const priorityList = [
 ];
 
 const defaultWorkflowStatuses = [
-  { id: 1, name: 'New', description: 'Ticket has been submitted and is awaiting review', bgColor: '#DBEAFE', textColor: '#1D4ED8', order: 1 },
-  { id: 2, name: 'Assigned', description: 'Ticket has been assigned to a technician', bgColor: '#FFEDD5', textColor: '#C2410C', order: 2 },
-  { id: 3, name: 'In Progress', description: 'Technician is actively working on the ticket', bgColor: '#FEE2E2', textColor: '#B91C1C', order: 3 },
-  { id: 4, name: 'Pending Parts', description: 'Waiting for replacement parts to arrive', bgColor: '#F3E8FF', textColor: '#7E22CE', order: 4 },
-  { id: 5, name: 'Resolved', description: 'Issue has been resolved pending confirmation', bgColor: '#DCFCE7', textColor: '#15803D', order: 5 },
-  { id: 6, name: 'Closed', description: 'Ticket has been closed and confirmed by the requester', bgColor: '#F3F4F6', textColor: '#4B5563', order: 6 },
+  { id: 1, name: 'New', description: 'Ticket has been submitted and is awaiting review', bgColor: '#DBEAFE', textColor: '#1D4ED8', order: 1, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
+  { id: 2, name: 'Assigned', description: 'Ticket has been assigned to a technician', bgColor: '#FFEDD5', textColor: '#C2410C', order: 2, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 1 },
+  { id: 3, name: 'In Progress', description: 'Technician is actively working on the ticket', bgColor: '#FEE2E2', textColor: '#B91C1C', order: 3, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 2 },
+  { id: 4, name: 'Pending Parts', description: 'Waiting for replacement parts to arrive', bgColor: '#F3E8FF', textColor: '#7E22CE', order: 4, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
+  { id: 5, name: 'Resolved', description: 'Issue has been resolved pending confirmation', bgColor: '#DCFCE7', textColor: '#15803D', order: 5, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 3 },
+  { id: 6, name: 'Closed', description: 'Ticket has been closed and confirmed by the requester', bgColor: '#F3F4F6', textColor: '#4B5563', order: 6, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 5 },
 ];
 
 const defaultEscalationRules = [
@@ -756,17 +791,143 @@ export default function SuperAdminTicketConfig() {
   const [workflowStatuses, setWorkflowStatuses] = useState(defaultWorkflowStatuses);
   const [escalationRules, setEscalationRules] = useState(defaultEscalationRules);
 
+  // Active sorted workflow statuses (Sequence Order source of truth)
+  const activeWorkflowStatuses = useMemo(() => {
+    return (workflowStatuses || []).slice().sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  }, [workflowStatuses]);
+
   // Workflow / Escalation edit state
   const [editingWorkflow, setEditingWorkflow] = useState(null);
   const [editingEscalation, setEditingEscalation] = useState(null);
 
-  // Transition Rules state (local component state for this sprint)
-  const [transitionRules, setTransitionRules] = useState(TS093_DEFAULT_RULES);
-  const [selectedTransitionStatus, setSelectedTransitionStatus] = useState(TS093_STATUSES[0]);
+  // Transition Rules state (connected to active workflow statuses)
+  const [transitionRules, setTransitionRules] = useState(() => {
+    try {
+      const stored = localStorage.getItem('superadmin_ticket_transitions_config');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return DEFAULT_WORKFLOW_TRANSITION_RULES;
+  });
+  const [selectedTransitionStatus, setSelectedTransitionStatus] = useState('New');
+  const [savingTransitions, setSavingTransitions] = useState(false);
+  const [hasTransitionChanges, setHasTransitionChanges] = useState(false);
+  const transitionDraftDirtyRef = useRef(false);
 
-  // File Upload & Security Limits state (local component state for this sprint)
+  // Synchronize selected transition status when active workflow statuses change
+  useEffect(() => {
+    if (activeWorkflowStatuses.length > 0) {
+      const names = activeWorkflowStatuses.map((s) => s.name);
+      if (!selectedTransitionStatus || !names.includes(selectedTransitionStatus)) {
+        setSelectedTransitionStatus(names[0]);
+      }
+    }
+  }, [activeWorkflowStatuses, selectedTransitionStatus]);
+
+  // Ensure all active workflow statuses have rules and prune deleted targets
+  useEffect(() => {
+    if (activeWorkflowStatuses.length === 0) return;
+    setTransitionRules((prev) => {
+      const statusNames = activeWorkflowStatuses.map((s) => s.name);
+      const hasAnyMatch = statusNames.some((name) => Boolean(prev && prev[name]));
+      let next = hasAnyMatch ? { ...(prev || {}) } : { ...DEFAULT_WORKFLOW_TRANSITION_RULES };
+      let changed = false;
+
+      activeWorkflowStatuses.forEach((st, idx) => {
+        if (!next[st.name]) {
+          const nextInSeq = activeWorkflowStatuses[idx + 1]?.name;
+          next[st.name] = {
+            allowed: nextInSeq ? [nextInSeq] : [],
+            type: 'editable',
+            description: st.description || `Transitions originating from ${st.name}.`,
+          };
+          changed = true;
+        } else {
+          const currentAllowed = next[st.name].allowed || [];
+          const validAllowed = currentAllowed.filter((target) => statusNames.includes(target));
+          if (validAllowed.length !== currentAllowed.length) {
+            next[st.name] = {
+              ...next[st.name],
+              allowed: validAllowed,
+            };
+            changed = true;
+          }
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [activeWorkflowStatuses]);
+
+  // Fast independent fetch for transition rules
+  useEffect(() => {
+    let isMounted = true;
+    getTransitionRulesConfig()
+      .then((cfg) => {
+        if (isMounted && cfg && typeof cfg === 'object') {
+          const val = cfg.value || cfg;
+          if (Object.keys(val).length > 0) {
+            if (!transitionDraftDirtyRef.current) {
+              setTransitionRules((prev) => {
+                const statusNames = activeWorkflowStatuses.map((s) => s.name);
+                const hasMatch = statusNames.some((name) => Boolean(val[name]));
+                if (!hasMatch) {
+                  // Legacy rules returned from server (e.g. 'Open'), keep default workflow rules
+                  return prev && Object.keys(prev).length > 0 ? prev : DEFAULT_WORKFLOW_TRANSITION_RULES;
+                }
+                return val;
+              });
+            }
+            try {
+              localStorage.setItem('superadmin_ticket_transitions_config', JSON.stringify(val));
+            } catch {}
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [activeWorkflowStatuses]);
+
+  // File Upload & Security Limits state
   const [fileConfig, setFileConfig] = useState(TS098_DEFAULT_FILE_CONFIG);
   const [fileConfigErrors, setFileConfigErrors] = useState({});
+  const [fileConfigLoading, setFileConfigLoading] = useState(false);
+  const [fileConfigSaving, setFileConfigSaving] = useState(false);
+
+  // Fetch File Upload & Security Limits from backend
+  useEffect(() => {
+    let isMounted = true;
+    setFileConfigLoading(true);
+    getFileLimitsConfig()
+      .then((cfg) => {
+        if (isMounted && cfg && typeof cfg === 'object') {
+          const val = cfg.value || cfg;
+          setFileConfig({
+            maxFileSizeMB: Number(val.maxFileSizeMB ?? 15),
+            allowedFileTypes: Array.isArray(val.allowedFileTypes)
+              ? val.allowedFileTypes.map((t) => String(t).toUpperCase())
+              : TS098_DEFAULT_FILE_CONFIG.allowedFileTypes,
+            maxFileCount: Number(val.maxFileCount ?? 5),
+            malwareScanningEnabled: Boolean(val.malwareScanningEnabled ?? true),
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch file limits config:', err);
+      })
+      .finally(() => {
+        if (isMounted) setFileConfigLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Reopen & Auto-Close Windows state (local component state for this sprint)
   const [windowConfig, setWindowConfig] = useState(() => {
@@ -802,6 +963,52 @@ export default function SuperAdminTicketConfig() {
         }
       })
       .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Fast independent fetch for defaults and number format to render instantly without waiting for heavy background tabs
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      getTicketDefaultsConfig().catch(() => null),
+      getTicketNumberFormatConfig().catch(() => null),
+    ]).then(([defaultsRes, numberFormatRes]) => {
+      if (!isMounted) return;
+      if (defaultsRes) {
+        const val = defaultsRes.value || defaultsRes;
+        const normalizedDefaults = {
+          status: val.status || 'Open',
+          priority: val.priority || 'Low',
+          slaPolicy: val.slaPolicy || 'dynamic',
+        };
+        if (!defaultsDraftDirtyRef.current) {
+          setDefaultsConfig(normalizedDefaults);
+        }
+        try {
+          localStorage.setItem('superadmin_ticket_defaults_config', JSON.stringify(normalizedDefaults));
+        } catch {}
+      }
+      if (numberFormatRes) {
+        const val = numberFormatRes.value || numberFormatRes;
+        const loadedFormat = {
+          prefix: String(val.prefix || 'TKT').toUpperCase(),
+          includeDeptCode: Boolean(val.includeDeptCode ?? false),
+          deptCode: String(val.deptCode || '').toUpperCase(),
+          dateSegment: String(val.dateSegment || 'none'),
+          digitLength: Number(val.digitLength ?? 4),
+        };
+        setSavedNumberFormat(loadedFormat);
+        setHasEverSavedFormat(true);
+        if (!numberFormatDraftDirtyRef.current) {
+          setNumberFormatConfig(loadedFormat);
+        }
+        try {
+          localStorage.setItem('superadmin_ticket_number_format_config', JSON.stringify(loadedFormat));
+        } catch {}
+      }
+    });
     return () => {
       isMounted = false;
     };
@@ -849,11 +1056,8 @@ export default function SuperAdminTicketConfig() {
 
   //  Ticket Defaults state (local component state for this sprint)
   // Low priority and dynamic SLA policy are active system defaults, so they start as configured
-  const [defaultsConfig, setDefaultsConfig] = useState({
-    status: 'Open',
-    priority: 'Low',
-    slaPolicy: 'dynamic',
-  });
+  const [defaultsConfig, setDefaultsConfig] = useState(getCachedDefaultsConfig);
+  const defaultsDraftDirtyRef = useRef(false);
   const [configuredDefaults, setConfiguredDefaults] = useState({
     priority: true,
     slaPolicy: true,
@@ -861,8 +1065,11 @@ export default function SuperAdminTicketConfig() {
   const [defaultsErrors, setDefaultsErrors] = useState({});
 
   // TS094: Ticket Number Format state (local component state for this sprint)
-  const [numberFormatConfig, setNumberFormatConfig] = useState(TS094_DEFAULT_FORMAT);
-  const [savedNumberFormat, setSavedNumberFormat] = useState(TS094_DEFAULT_FORMAT);
+  const [numberFormatConfig, setNumberFormatConfig] = useState(getCachedNumberFormatConfig);
+  const [savedNumberFormat, setSavedNumberFormat] = useState(getCachedNumberFormatConfig);
+  const numberFormatDraftDirtyRef = useRef(false);
+  const [numberFormatDraftDirty, setNumberFormatDraftDirty] = useState(false);
+  const [savingNumberFormat, setSavingNumberFormat] = useState(false);
   const [hasEverSavedFormat, setHasEverSavedFormat] = useState(false);
   const [numberFormatErrors, setNumberFormatErrors] = useState({});
 
@@ -911,7 +1118,10 @@ export default function SuperAdminTicketConfig() {
   // TS092: Branch-Specific Priority Levels & SLA Overrides state
   const { selectedBranch } = useBranch();
   const [branchSubSection, setBranchSubSection] = useState(BRANCH_SUBTAB_CATEGORIES);
-  const [branchOverrides, setBranchOverrides] = useState(getStoredBranchOverrides);
+  // Server-backed branch priorities keyed by branch id (never persisted client-side)
+  const [branchPriorityData, setBranchPriorityData] = useState({});
+  const [branchPriorityLoading, setBranchPriorityLoading] = useState(true);
+  const [branchPrioritySaving, setBranchPrioritySaving] = useState(false);
   const [branchOverrideError, setBranchOverrideError] = useState(null);
   const [editingBranchOverride, setEditingBranchOverride] = useState(null);
   const [branchModalErrors, setBranchModalErrors] = useState({});
@@ -922,8 +1132,9 @@ export default function SuperAdminTicketConfig() {
   // same pattern already established for TS104's FEEDBACK_CATEGORIES.
   // This is a DIFFERENT concept from "Equipment Categories" (hardware types in machine_categories)
   // and "Problem Categories" (issue types in problem_categories).
-  const [branchCategories, setBranchCategories] = useState(getStoredBranchCategories);
-  const [branchSlaPolicies, setBranchSlaPolicies] = useState(getStoredBranchSlaPolicies);
+  const [branchCategoryData, setBranchCategoryData] = useState({});
+  const [branchCategoryLoading, setBranchCategoryLoading] = useState(true);
+  const [branchCategorySaving, setBranchCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null); // { isNew, id, name, originalName }
   const [categoryModalError, setCategoryModalError] = useState('');
@@ -990,7 +1201,7 @@ export default function SuperAdminTicketConfig() {
       setRoutingLoading(true);
     }
     try {
-      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes, windowRes, routingRes, limitRes] = await Promise.all([
+      const [configData, slaData, deptsData, workflowData, escalationData, formOptionsData, emailRes, tplRes, channelsRes, feedbackRes, feedbackStatusRes, catTogglesRes, windowRes, routingRes, limitRes, numberFormatRes, defaultsRes] = await Promise.all([
         getSuperAdminConfig().catch(() => ({ equipment: [], priorities: [] })),
         getSLARules().catch(() => ({ sla_rules: [] })),
         getDepartments().catch(() => ({ departments: [] })),
@@ -1006,6 +1217,8 @@ export default function SuperAdminTicketConfig() {
         getWindowConfiguration().catch(() => null),
         getNotificationRouting().catch(() => null),
         getTicketLimitConfig().catch(() => null),
+        getTicketNumberFormatConfig().catch(() => null),
+        getTicketDefaultsConfig().catch(() => null),
       ]);
 
       const depts = deptsData.departments || deptsData || [];
@@ -1034,6 +1247,10 @@ export default function SuperAdminTicketConfig() {
             bgColor: s.bg_color || '#DBEAFE',
             textColor: s.text_color || '#1D4ED8',
             order: s.order_position || 1,
+            isSystem: Boolean(s.is_system),
+            requiresPreviousFulfilled: Boolean(s.requires_previous_fulfilled),
+            prerequisiteStatusId: s.prerequisite_status_id || null,
+            prerequisite: s.prerequisite || null,
           }))
         );
       }
@@ -1138,6 +1355,25 @@ export default function SuperAdminTicketConfig() {
         });
       }
 
+      if (numberFormatRes) {
+        const val = numberFormatRes.value || numberFormatRes;
+        const loadedFormat = {
+          prefix: String(val.prefix || 'TKT').toUpperCase(),
+          includeDeptCode: Boolean(val.includeDeptCode ?? false),
+          deptCode: String(val.deptCode || '').toUpperCase(),
+          dateSegment: String(val.dateSegment || 'none'),
+          digitLength: Number(val.digitLength ?? 4),
+        };
+        setSavedNumberFormat(loadedFormat);
+        setHasEverSavedFormat(true);
+        if (!numberFormatDraftDirtyRef.current) {
+          setNumberFormatConfig(loadedFormat);
+        }
+        try {
+          localStorage.setItem('superadmin_ticket_number_format_config', JSON.stringify(loadedFormat));
+        } catch {}
+      }
+
       if (routingRes) {
         const val = routingRes?.value || routingRes;
         if (typeof val === 'object' && val !== null) {
@@ -1171,6 +1407,22 @@ export default function SuperAdminTicketConfig() {
           setTicketLimitConflict(null);
           setTicketLimitConfigState(normalizedLimit);
         }
+      }
+
+      if (defaultsRes) {
+        const val = defaultsRes.value || defaultsRes;
+        const normalizedDefaults = {
+          status: val.status || 'Open',
+          priority: val.priority || 'Low',
+          slaPolicy: val.slaPolicy || 'dynamic',
+        };
+        if (!defaultsDraftDirtyRef.current) {
+          setDefaultsConfig(normalizedDefaults);
+          setConfiguredDefaults({ priority: true, slaPolicy: true });
+        }
+        try {
+          localStorage.setItem('superadmin_ticket_defaults_config', JSON.stringify(normalizedDefaults));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to load superadmin config:', err);
@@ -1365,11 +1617,29 @@ export default function SuperAdminTicketConfig() {
 
   // Workflow CRUD
   const handleAddWorkflow = () => {
-    setEditingWorkflow({ id: null, name: '', description: '', bgColor: workflowColorOptions[0].bgColor, textColor: workflowColorOptions[0].textColor, order: workflowStatuses.length + 1 });
+    const nextOrder = workflowStatuses.length > 0
+      ? Math.max(...workflowStatuses.map((s) => s.order || 0)) + 1
+      : 1;
+    const preceding = workflowStatuses.slice().sort((a, b) => a.order - b.order).slice(-1)[0];
+    setEditingWorkflow({
+      id: null,
+      name: '',
+      description: '',
+      bgColor: workflowColorOptions[0].bgColor,
+      textColor: workflowColorOptions[0].textColor,
+      order: nextOrder,
+      isSystem: false,
+      requiresPreviousFulfilled: false,
+      prerequisiteStatusId: preceding ? preceding.id : '',
+    });
   };
 
   const handleEditWorkflow = (status) => {
-    setEditingWorkflow({ ...status });
+    setEditingWorkflow({
+      ...status,
+      requiresPreviousFulfilled: Boolean(status.requiresPreviousFulfilled),
+      prerequisiteStatusId: status.prerequisiteStatusId || '',
+    });
   };
 
   const handleSaveWorkflow = async () => {
@@ -1381,6 +1651,10 @@ export default function SuperAdminTicketConfig() {
         bg_color: editingWorkflow.bgColor,
         text_color: editingWorkflow.textColor,
         order_position: parseInt(editingWorkflow.order, 10) || 1,
+        requires_previous_fulfilled: Boolean(editingWorkflow.requiresPreviousFulfilled),
+        prerequisite_status_id: editingWorkflow.requiresPreviousFulfilled && editingWorkflow.prerequisiteStatusId
+          ? parseInt(editingWorkflow.prerequisiteStatusId, 10)
+          : null,
       };
 
       if (editingWorkflow.id === null) {
@@ -1393,11 +1667,16 @@ export default function SuperAdminTicketConfig() {
       await loadConfig();
     } catch (err) {
       console.error('Failed to save workflow status:', err);
-      showError('Error', 'Failed to save workflow status.');
+      const errMsg = err?.response?.data?.message || 'Failed to save workflow status.';
+      showError('Error', errMsg);
     }
   };
 
   const handleDeleteWorkflow = (status) => {
+    if (status.isSystem) {
+      showError('Protected Status', 'Core system workflow statuses cannot be deleted.');
+      return;
+    }
     showConfirm('Delete Status?', `Are you sure you want to delete "${status.name}"?`, async () => {
       closeNotif();
       try {
@@ -1406,9 +1685,25 @@ export default function SuperAdminTicketConfig() {
         await loadConfig();
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
-        showError('Error', 'Failed to delete workflow status.');
+        const errMsg = err?.response?.data?.message || 'Failed to delete workflow status.';
+        showError('Error', errMsg);
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
+  };
+
+  const handleResetDefaultWorkflow = () => {
+    showConfirm('Restore Workflow Defaults?', 'This will re-synchronize and restore the 6 canonical system workflow stages without removing custom statuses.', async () => {
+      closeNotif();
+      try {
+        await resetWorkflowStatuses();
+        showSuccess('Restored', 'Canonical workflow statuses restored.');
+        await loadConfig();
+      } catch (err) {
+        console.error('Failed to reset workflow statuses:', err);
+        const errMsg = err?.response?.data?.message || 'Failed to restore default workflow statuses.';
+        showError('Error', errMsg);
+      }
+    }, { confirmText: 'Restore Defaults', confirmClassName: 'bg-[#252578] hover:bg-[#1e1e62]' });
   };
 
   // Escalation CRUD
@@ -1523,13 +1818,19 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleToggleTransition = (targetStatus) => {
+    transitionDraftDirtyRef.current = true;
+    setHasTransitionChanges(true);
     setTransitionRules((prev) => {
-      const currentRule = prev[selectedTransitionStatus];
-      if (!currentRule || currentRule.type !== 'editable') return prev;
-      const isAllowed = currentRule.allowed.includes(targetStatus);
+      const currentRule = prev[selectedTransitionStatus] || {
+        allowed: [],
+        type: 'editable',
+        description: `Transitions originating from ${selectedTransitionStatus}`,
+      };
+      if (currentRule.type === 'terminal' || currentRule.type === 'fixed' || currentRule.type === 'contextual') return prev;
+      const isAllowed = (currentRule.allowed || []).includes(targetStatus);
       const newAllowed = isAllowed
         ? currentRule.allowed.filter((s) => s !== targetStatus)
-        : [...currentRule.allowed, targetStatus];
+        : [...(currentRule.allowed || []), targetStatus];
       return {
         ...prev,
         [selectedTransitionStatus]: {
@@ -1540,9 +1841,90 @@ export default function SuperAdminTicketConfig() {
     });
   };
 
-  const handleResetTransitions = () => {
-    setTransitionRules(TS093_DEFAULT_RULES);
-    showSuccess('Reset Complete', 'Transition rules have been restored to system defaults.');
+  const handleToggleMatrixTransition = (sourceStatus, targetStatus) => {
+    if (sourceStatus === targetStatus) return;
+    transitionDraftDirtyRef.current = true;
+    setHasTransitionChanges(true);
+    setTransitionRules((prev) => {
+      const currentRule = prev[sourceStatus] || {
+        allowed: [],
+        type: 'editable',
+        description: `Transitions originating from ${sourceStatus}`,
+      };
+      if (currentRule.type === 'terminal' || currentRule.type === 'fixed' || currentRule.type === 'contextual') return prev;
+      const isAllowed = (currentRule.allowed || []).includes(targetStatus);
+      const newAllowed = isAllowed
+        ? currentRule.allowed.filter((s) => s !== targetStatus)
+        : [...(currentRule.allowed || []), targetStatus];
+      return {
+        ...prev,
+        [sourceStatus]: {
+          ...currentRule,
+          allowed: newAllowed,
+        },
+      };
+    });
+  };
+
+  const handleSaveTransitions = async () => {
+    setSavingTransitions(true);
+    try {
+      await updateTransitionRulesConfig(transitionRules);
+      transitionDraftDirtyRef.current = false;
+      setHasTransitionChanges(false);
+      try {
+        localStorage.setItem('superadmin_ticket_transitions_config', JSON.stringify(transitionRules));
+      } catch {}
+      showSuccess('Saved Successfully', 'Ticket status transition rules have been saved and applied system-wide.');
+    } catch (err) {
+      showError('Save Failed', err.response?.data?.message || 'Failed to save transition rules.');
+    } finally {
+      setSavingTransitions(false);
+    }
+  };
+
+  const handleResetTransitions = async () => {
+    try {
+      const res = await resetTransitionRulesConfig();
+      const val = res?.value || res;
+      transitionDraftDirtyRef.current = false;
+      const baseRules = (val && typeof val === 'object' && Object.keys(val).length > 0)
+        ? val
+        : DEFAULT_WORKFLOW_TRANSITION_RULES;
+      const next = { ...baseRules };
+      activeWorkflowStatuses.forEach((st, idx) => {
+        if (!next[st.name]) {
+          const nextInSeq = activeWorkflowStatuses[idx + 1]?.name;
+          next[st.name] = {
+            allowed: nextInSeq ? [nextInSeq] : [],
+            type: 'editable',
+            description: st.description || `Transitions originating from ${st.name}.`,
+          };
+        }
+      });
+      setTransitionRules(next);
+      setHasTransitionChanges(false);
+      try {
+        localStorage.setItem('superadmin_ticket_transitions_config', JSON.stringify(next));
+      } catch {}
+      showSuccess('Reset Complete', 'Transition rules have been restored to system defaults.');
+    } catch {
+      transitionDraftDirtyRef.current = false;
+      const next = { ...DEFAULT_WORKFLOW_TRANSITION_RULES };
+      activeWorkflowStatuses.forEach((st, idx) => {
+        if (!next[st.name]) {
+          const nextInSeq = activeWorkflowStatuses[idx + 1]?.name;
+          next[st.name] = {
+            allowed: nextInSeq ? [nextInSeq] : [],
+            type: 'editable',
+            description: st.description || `Transitions originating from ${st.name}.`,
+          };
+        }
+      });
+      setTransitionRules(next);
+      setHasTransitionChanges(false);
+      showSuccess('Reset Complete', 'Transition rules have been restored to system defaults.');
+    }
   };
 
   // TS098 File Config Handlers
@@ -1623,21 +2005,55 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleResetFileConfig = () => {
-    setFileConfig(TS098_DEFAULT_FILE_CONFIG);
-    setFileConfigErrors({});
-    showSuccess('Reset Complete', 'File upload settings have been restored to system defaults.');
+    showConfirm(
+      'Restore Default File Upload Limits?',
+      'This will reset file size limits (15 MB), maximum file count (5 files), allowed extensions, and enable malware scanning to system defaults. Existing tickets and their attachments will remain unaffected.',
+      async () => {
+        closeNotif();
+        setFileConfigSaving(true);
+        try {
+          const res = await resetFileLimitsConfig();
+          const val = res?.value || res || TS098_DEFAULT_FILE_CONFIG;
+          setFileConfig({
+            maxFileSizeMB: Number(val.maxFileSizeMB ?? 15),
+            allowedFileTypes: Array.isArray(val.allowedFileTypes)
+              ? val.allowedFileTypes.map((t) => String(t).toUpperCase())
+              : TS098_DEFAULT_FILE_CONFIG.allowedFileTypes,
+            maxFileCount: Number(val.maxFileCount ?? 5),
+            malwareScanningEnabled: Boolean(val.malwareScanningEnabled ?? true),
+          });
+          setFileConfigErrors({});
+          showSuccess(
+            'Reset Complete',
+            'File upload settings have been restored to system defaults and persisted across services.'
+          );
+        } catch (err) {
+          showError('Reset Failed', err.response?.data?.message || 'Failed to restore default file settings.');
+        } finally {
+          setFileConfigSaving(false);
+        }
+      },
+      {
+        confirmText: 'Reset to Defaults',
+        confirmClassName: 'bg-[#252578] hover:bg-[#1b1b55]',
+      }
+    );
   };
 
-  const handleSaveFileConfig = () => {
+  const handleSaveFileConfig = async () => {
     const sizeNum = parseFloat(fileConfig.maxFileSizeMB);
     const countNum = parseInt(fileConfig.maxFileCount, 10);
 
     const errors = {};
     if (isNaN(sizeNum) || sizeNum <= 0) {
       errors.maxFileSizeMB = 'Please enter a valid max file size greater than 0 MB.';
+    } else if (sizeNum > 500) {
+      errors.maxFileSizeMB = 'Max file size cannot exceed 500 MB.';
     }
     if (isNaN(countNum) || countNum <= 0) {
       errors.maxFileCount = 'Please enter a valid max file count of at least 1.';
+    } else if (countNum > 50) {
+      errors.maxFileCount = 'Max file count cannot exceed 50.';
     }
     if (!fileConfig.allowedFileTypes || fileConfig.allowedFileTypes.length === 0) {
       errors.allowedFileTypes = 'At least one file type must be selected.';
@@ -1650,7 +2066,36 @@ export default function SuperAdminTicketConfig() {
     }
 
     setFileConfigErrors({});
-    showSuccess('Settings Saved (Session)', 'File upload limits and security settings updated for this session. Persistence coming soon.');
+    setFileConfigSaving(true);
+    try {
+      const payload = {
+        maxFileSizeMB: sizeNum,
+        maxFileCount: countNum,
+        allowedFileTypes: fileConfig.allowedFileTypes.map((t) => String(t).toUpperCase()),
+        malwareScanningEnabled: Boolean(fileConfig.malwareScanningEnabled),
+      };
+      const res = await updateFileLimitsConfig(payload);
+      const val = res?.value || res || payload;
+      setFileConfig({
+        maxFileSizeMB: Number(val.maxFileSizeMB ?? sizeNum),
+        allowedFileTypes: Array.isArray(val.allowedFileTypes)
+          ? val.allowedFileTypes.map((t) => String(t).toUpperCase())
+          : payload.allowedFileTypes,
+        maxFileCount: Number(val.maxFileCount ?? countNum),
+        malwareScanningEnabled: Boolean(val.malwareScanningEnabled ?? payload.malwareScanningEnabled),
+      });
+      showSuccess(
+        'File Security Settings Saved',
+        'File upload limits and malware scanning policies have been updated. These restrictions apply immediately to newly uploaded files across tickets, messages, and knowledge base articles without modifying existing tickets.'
+      );
+    } catch (err) {
+      showError(
+        'Save Failed',
+        err.response?.data?.message || err.response?.data?.errors?.attachments?.[0] || 'Failed to save file upload settings.'
+      );
+    } finally {
+      setFileConfigSaving(false);
+    }
   };
 
   // TS100 Reopen & Auto-Close Handlers
@@ -2087,26 +2532,60 @@ export default function SuperAdminTicketConfig() {
 
     if (newPriority === defaultsConfig.priority) return;
 
+    const previousPriority = defaultsConfig.priority;
+    defaultsDraftDirtyRef.current = true;
+    // Optimistically update UI so select doesn't immediately snap back
+    setDefaultsConfig((prev) => ({ ...prev, priority: newPriority }));
+
+    const performSave = async () => {
+      try {
+        const payload = {
+          status: defaultsConfig.status || 'Open',
+          priority: newPriority,
+          slaPolicy: defaultsConfig.slaPolicy || 'dynamic',
+        };
+        const res = await updateTicketDefaultsConfig(payload);
+        const updated = res.value || res;
+        const finalConfig = {
+          status: updated.status || defaultsConfig.status || 'Open',
+          priority: updated.priority || newPriority,
+          slaPolicy: updated.slaPolicy || defaultsConfig.slaPolicy || 'dynamic',
+        };
+        defaultsDraftDirtyRef.current = false;
+        setDefaultsConfig(finalConfig);
+        setConfiguredDefaults((prev) => ({ ...prev, priority: true }));
+        try {
+          localStorage.setItem('superadmin_ticket_defaults_config', JSON.stringify(finalConfig));
+        } catch {}
+        showSuccess('Default Priority Updated', `Default priority has been updated to "${newPriority}" for new tickets.`);
+      } catch (err) {
+        defaultsDraftDirtyRef.current = false;
+        setDefaultsConfig((prev) => ({ ...prev, priority: previousPriority }));
+        const msg = err.response?.data?.message || err.message || 'Failed to update default priority.';
+        showError('Update Failed', msg);
+      }
+    };
+
     if (configuredDefaults.priority || defaultsConfig.priority) {
       showConfirm(
         'Change Default Priority?',
-        'This affects all new tickets going forward across the system.',
+        'This affects all new tickets going forward across the system. Existing tickets will not be changed.',
         () => {
           closeNotif();
-          setDefaultsConfig((prev) => ({ ...prev, priority: newPriority }));
-          setConfiguredDefaults((prev) => ({ ...prev, priority: true }));
-          showSuccess('Default Priority Updated', `Default priority has been updated to "${newPriority}" for new tickets.`);
+          performSave();
         },
         {
           confirmText: 'Change Priority',
           confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
+          onCancel: () => {
+            closeNotif();
+            defaultsDraftDirtyRef.current = false;
+            setDefaultsConfig((prev) => ({ ...prev, priority: previousPriority }));
+          },
         }
       );
     } else {
-      // First-time configuration: no confirmation modal required
-      setDefaultsConfig((prev) => ({ ...prev, priority: newPriority }));
-      setConfiguredDefaults((prev) => ({ ...prev, priority: true }));
-      showSuccess('Default Priority Set', `Default priority set to "${newPriority}".`);
+      performSave();
     }
   };
 
@@ -2119,39 +2598,88 @@ export default function SuperAdminTicketConfig() {
       return found?.sla_name || key;
     };
     const newLabel = getPolicyLabel(newSlaPolicy);
+    const previousSlaPolicy = defaultsConfig.slaPolicy;
+    defaultsDraftDirtyRef.current = true;
+
+    // Optimistically update UI so select doesn't immediately snap back
+    setDefaultsConfig((prev) => ({ ...prev, slaPolicy: newSlaPolicy }));
+
+    const performSave = async () => {
+      try {
+        const payload = {
+          status: defaultsConfig.status || 'Open',
+          priority: defaultsConfig.priority || 'Low',
+          slaPolicy: newSlaPolicy,
+        };
+        const res = await updateTicketDefaultsConfig(payload);
+        const updated = res.value || res;
+        const finalConfig = {
+          status: updated.status || defaultsConfig.status || 'Open',
+          priority: updated.priority || defaultsConfig.priority || 'Low',
+          slaPolicy: updated.slaPolicy || newSlaPolicy,
+        };
+        defaultsDraftDirtyRef.current = false;
+        setDefaultsConfig(finalConfig);
+        setConfiguredDefaults((prev) => ({ ...prev, slaPolicy: true }));
+        try {
+          localStorage.setItem('superadmin_ticket_defaults_config', JSON.stringify(finalConfig));
+        } catch {}
+        showSuccess('Default SLA Policy Updated', `Default SLA policy has been updated to "${newLabel}" for new tickets.`);
+      } catch (err) {
+        defaultsDraftDirtyRef.current = false;
+        setDefaultsConfig((prev) => ({ ...prev, slaPolicy: previousSlaPolicy }));
+        const msg = err.response?.data?.message || err.message || 'Failed to update default SLA policy.';
+        showError('Update Failed', msg);
+      }
+    };
 
     if (configuredDefaults.slaPolicy || defaultsConfig.slaPolicy) {
       showConfirm(
         'Change Default SLA Policy?',
-        'This affects all new tickets going forward across the system.',
+        'This affects all new tickets going forward across the system. Existing tickets will not be changed.',
         () => {
           closeNotif();
-          setDefaultsConfig((prev) => ({ ...prev, slaPolicy: newSlaPolicy }));
-          setConfiguredDefaults((prev) => ({ ...prev, slaPolicy: true }));
-          showSuccess('Default SLA Policy Updated', `Default SLA policy has been updated to "${newLabel}" for new tickets.`);
+          performSave();
         },
         {
           confirmText: 'Change SLA Policy',
           confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
+          onCancel: () => {
+            closeNotif();
+            defaultsDraftDirtyRef.current = false;
+            setDefaultsConfig((prev) => ({ ...prev, slaPolicy: previousSlaPolicy }));
+          },
         }
       );
     } else {
-      // First-time configuration: no confirmation modal required
-      setDefaultsConfig((prev) => ({ ...prev, slaPolicy: newSlaPolicy }));
-      setConfiguredDefaults((prev) => ({ ...prev, slaPolicy: true }));
-      showSuccess('Default SLA Policy Set', `Default SLA policy set to "${newLabel}".`);
+      performSave();
     }
   };
 
   const handleResetDefaults = () => {
     showConfirm(
       'Reset Ticket Defaults?',
-      'This will restore default ticket values (Open status, Low priority, Dynamic SLA Policy).',
-      () => {
+      'This will restore default ticket values (Open status, Low priority, Dynamic SLA Policy). Already created tickets will remain untouched.',
+      async () => {
         closeNotif();
-        setDefaultsConfig({ status: 'Open', priority: 'Low', slaPolicy: 'dynamic' });
-        setDefaultsErrors({});
-        showSuccess('Reset Complete', 'Ticket defaults have been reset to system baseline.');
+        try {
+          const res = await resetTicketDefaultsConfig();
+          const val = res.value || res;
+          const resetConfig = {
+            status: val.status || 'Open',
+            priority: val.priority || 'Low',
+            slaPolicy: val.slaPolicy || 'dynamic',
+          };
+          setDefaultsConfig(resetConfig);
+          setDefaultsErrors({});
+          try {
+            localStorage.setItem('superadmin_ticket_defaults_config', JSON.stringify(resetConfig));
+          } catch {}
+          showSuccess('Reset Complete', 'Ticket defaults have been reset to system baseline.');
+        } catch (err) {
+          const msg = err.response?.data?.message || err.message || 'Failed to reset ticket defaults.';
+          showError('Reset Failed', msg);
+        }
       },
       { confirmText: 'Reset Defaults', confirmClassName: 'bg-red-600 hover:bg-red-700' }
     );
@@ -2221,6 +2749,8 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handlePrefixChange = (val) => {
+    numberFormatDraftDirtyRef.current = true;
+    setNumberFormatDraftDirty(true);
     setNumberFormatConfig((prev) => ({ ...prev, prefix: val }));
     if (numberFormatErrors.prefix) {
       setNumberFormatErrors((prev) => {
@@ -2232,6 +2762,8 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleIncludeDeptCodeChange = (checked) => {
+    numberFormatDraftDirtyRef.current = true;
+    setNumberFormatDraftDirty(true);
     setNumberFormatConfig((prev) => ({ ...prev, includeDeptCode: checked }));
     if (numberFormatErrors.deptCode) {
       setNumberFormatErrors((prev) => {
@@ -2243,6 +2775,8 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleDeptCodeChange = (val) => {
+    numberFormatDraftDirtyRef.current = true;
+    setNumberFormatDraftDirty(true);
     setNumberFormatConfig((prev) => ({ ...prev, deptCode: val }));
     if (numberFormatErrors.deptCode) {
       setNumberFormatErrors((prev) => {
@@ -2254,10 +2788,14 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleDateSegmentChange = (val) => {
+    numberFormatDraftDirtyRef.current = true;
+    setNumberFormatDraftDirty(true);
     setNumberFormatConfig((prev) => ({ ...prev, dateSegment: val }));
   };
 
   const handleDigitLengthChange = (val) => {
+    numberFormatDraftDirtyRef.current = true;
+    setNumberFormatDraftDirty(true);
     setNumberFormatConfig((prev) => ({ ...prev, digitLength: val }));
     if (numberFormatErrors.digitLength) {
       setNumberFormatErrors((prev) => {
@@ -2280,26 +2818,51 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       'Save Ticket Number Format?',
-      'This will change how all tickets are numbered going forward, across all branches.',
-      () => {
+      'This will change how all tickets are numbered going forward, across all branches. Existing tickets will remain unchanged.',
+      async () => {
         closeNotif();
+        setSavingNumberFormat(true);
         const normalized = {
-          prefix: numberFormatConfig.prefix.trim().toUpperCase(),
-          includeDeptCode: numberFormatConfig.includeDeptCode,
-          deptCode: numberFormatConfig.includeDeptCode ? numberFormatConfig.deptCode.trim().toUpperCase() : '',
+          prefix: (numberFormatConfig.prefix || 'TKT').trim().toUpperCase(),
+          includeDeptCode: Boolean(numberFormatConfig.includeDeptCode),
+          deptCode: numberFormatConfig.includeDeptCode ? (numberFormatConfig.deptCode || '').trim().toUpperCase() : '',
           dateSegment: numberFormatConfig.dateSegment,
           digitLength: parseInt(String(numberFormatConfig.digitLength).trim(), 10),
         };
-        setNumberFormatConfig(normalized);
-        setSavedNumberFormat(normalized);
-        setHasEverSavedFormat(true);
-        showSuccess('Ticket Format Saved', 'Ticket number format has been saved. New tickets will use this format going forward.');
+
+        try {
+          const res = await updateTicketNumberFormatConfig(normalized);
+          const saved = res?.value || res || normalized;
+          const cleanSaved = {
+            prefix: String(saved.prefix || normalized.prefix).toUpperCase(),
+            includeDeptCode: Boolean(saved.includeDeptCode ?? normalized.includeDeptCode),
+            deptCode: String(saved.deptCode || normalized.deptCode).toUpperCase(),
+            dateSegment: String(saved.dateSegment || normalized.dateSegment),
+            digitLength: Number(saved.digitLength || normalized.digitLength),
+          };
+          numberFormatDraftDirtyRef.current = false;
+          setNumberFormatDraftDirty(false);
+          setNumberFormatConfig(cleanSaved);
+          setSavedNumberFormat(cleanSaved);
+          setHasEverSavedFormat(true);
+          try {
+            localStorage.setItem('superadmin_ticket_number_format_config', JSON.stringify(cleanSaved));
+          } catch {}
+          showSuccess('Ticket Format Saved', 'Ticket number format has been saved. New tickets will use this format going forward.');
+        } catch (err) {
+          const errMsg = err?.response?.data?.message || err?.message || 'Failed to save ticket number format.';
+          showError('Save Failed', errMsg);
+        } finally {
+          setSavingNumberFormat(false);
+        }
       },
       {
         confirmText: 'Save Format',
         confirmClassName: 'bg-[#252578] hover:bg-[#1a1a5e]',
         onCancel: () => {
           closeNotif();
+          numberFormatDraftDirtyRef.current = false;
+          setNumberFormatDraftDirty(false);
           // If cancelled, revert to prior saved format
           setNumberFormatConfig({ ...savedNumberFormat });
           setNumberFormatErrors({});
@@ -2311,14 +2874,36 @@ export default function SuperAdminTicketConfig() {
   const handleResetNumberFormat = () => {
     showConfirm(
       'Reset Ticket Number Format?',
-      'This will restore the ticket number format to default (TKT-0001).',
-      () => {
+      'This will restore the ticket number format to default (TKT-0001). Existing tickets will remain unchanged.',
+      async () => {
         closeNotif();
-        setNumberFormatConfig(TS094_DEFAULT_FORMAT);
-        setSavedNumberFormat(TS094_DEFAULT_FORMAT);
-        setHasEverSavedFormat(false);
-        setNumberFormatErrors({});
-        showSuccess('Reset to Defaults', 'Ticket number format has been reset to system default (TKT-0001).');
+        setSavingNumberFormat(true);
+        try {
+          const res = await resetTicketNumberFormatConfig();
+          const saved = res?.value || res || TS094_DEFAULT_FORMAT;
+          const cleanSaved = {
+            prefix: String(saved.prefix || TS094_DEFAULT_FORMAT.prefix).toUpperCase(),
+            includeDeptCode: Boolean(saved.includeDeptCode ?? TS094_DEFAULT_FORMAT.includeDeptCode),
+            deptCode: String(saved.deptCode || TS094_DEFAULT_FORMAT.deptCode).toUpperCase(),
+            dateSegment: String(saved.dateSegment || TS094_DEFAULT_FORMAT.dateSegment),
+            digitLength: Number(saved.digitLength || TS094_DEFAULT_FORMAT.digitLength),
+          };
+          numberFormatDraftDirtyRef.current = false;
+          setNumberFormatDraftDirty(false);
+          setNumberFormatConfig(cleanSaved);
+          setSavedNumberFormat(cleanSaved);
+          setHasEverSavedFormat(false);
+          setNumberFormatErrors({});
+          try {
+            localStorage.setItem('superadmin_ticket_number_format_config', JSON.stringify(cleanSaved));
+          } catch {}
+          showSuccess('Reset to Defaults', 'Ticket number format has been reset to system default (TKT-0001).');
+        } catch (err) {
+          const errMsg = err?.response?.data?.message || err?.message || 'Failed to reset ticket number format.';
+          showError('Reset Failed', errMsg);
+        } finally {
+          setSavingNumberFormat(false);
+        }
       },
       {
         confirmText: 'Reset Format',
@@ -3023,105 +3608,114 @@ export default function SuperAdminTicketConfig() {
   // TS092: Branch-Specific Priority Levels & SLA Overrides Handlers
   // ==========================================
 
-  // Computed branch priority SLA overrides for active branch
-  const currentBranchOverrides = useMemo(() => {
-    const list = branchOverrides[selectedBranch.id] || [];
-    const basePriorities = items.priorities && items.priorities.length > 0
-      ? items.priorities
-      : [
-          { id: 4, name: 'Critical', color: 'bg-red-100 text-red-700' },
-          { id: 3, name: 'High', color: 'bg-orange-100 text-orange-700' },
-          { id: 2, name: 'Medium', color: 'bg-yellow-100 text-yellow-700' },
-          { id: 1, name: 'Low', color: 'bg-green-100 text-green-700' },
-        ];
+  const BRANCH_SLA_POLICY_FALLBACK = {
+    mode: 'new_tickets_only',
+    recalculatesExistingOpenTickets: false,
+    tooltip: 'Changes to a branch SLA apply to tickets created after the change. Existing open tickets keep the response and resolution deadlines they were created with.',
+  };
 
-    return basePriorities.map((base) => {
-      const existing = list.find(
-        (o) => o.basePriorityId === base.id || o.name?.toLowerCase() === base.name?.toLowerCase()
-      );
-      const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[base.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+  const branchSlaPolicy = branchPriorityData[selectedBranch.id]?.slaChangePolicy || BRANCH_SLA_POLICY_FALLBACK;
 
-      if (existing) {
-        return {
-          ...existing,
-          basePriorityId: base.id,
-          name: base.name,
-          color: base.color || existing.color,
-        };
-      }
+  // Always read from the API so the UI is correct immediately after a reload.
+  const loadBranchPriorities = useCallback(async () => {
+    const branchId = selectedBranch.id;
+    try {
+      const data = await getBranchPriorities(branchId);
+      setBranchPriorityData((prev) => ({ ...prev, [branchId]: data }));
+    } catch (err) {
+      console.error('Failed to load branch priorities:', err);
+    } finally {
+      setBranchPriorityLoading(false);
+    }
+  }, [selectedBranch.id]);
 
-      return {
-        id: `branch-${selectedBranch.id}-${base.name.toLowerCase()}`,
-        basePriorityId: base.id,
-        branchId: selectedBranch.id,
-        name: base.name,
-        color: base.color || 'bg-gray-100 text-gray-700',
-        responseTimeLimit: sysDefault.responseTimeLimit,
-        resolutionTimeLimit: sysDefault.resolutionTimeLimit,
-        isInherited: true,
-        inUse: false,
-        activeTicketCount: 0,
-      };
-    });
-  }, [branchOverrides, selectedBranch.id, items.priorities]);
+  useEffect(() => {
+    setBranchPriorityLoading(true);
+    loadBranchPriorities();
+  }, [loadBranchPriorities]);
+
+  // Live updates from other admins/tabs via the event bus (poll is only a safety net)
+  useRealtimeRefresh({
+    refresh: loadBranchPriorities,
+    channels: [{ name: 'ticket-updates', event: 'branch.priority.changed' }],
+    intervalMs: 30000,
+  });
+
+  const currentBranchOverrides = useMemo(
+    () => branchPriorityData[selectedBranch.id]?.priorities || [],
+    [branchPriorityData, selectedBranch.id]
+  );
+
+  const applyBranchPriorityResponse = (data) => {
+    if (data?.priorities) {
+      setBranchPriorityData((prev) => ({
+        ...prev,
+        [selectedBranch.id]: {
+          branch: data.branch,
+          priorities: data.priorities,
+          slaChangePolicy: data.slaChangePolicy || prev[selectedBranch.id]?.slaChangePolicy,
+        },
+      }));
+    }
+  };
 
   const handleOpenBranchOverrideModal = (override) => {
     setBranchOverrideError(null);
     setBranchModalErrors({});
-    const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
     setEditingBranchOverride({
+      overrideId: override.id,
       priorityName: override.name,
       basePriorityId: override.basePriorityId,
-      responseTimeLimit: String(override.isInherited ? sysDefault.responseTimeLimit : override.responseTimeLimit),
-      resolutionTimeLimit: String(override.isInherited ? sysDefault.resolutionTimeLimit : override.resolutionTimeLimit),
+      responseTimeLimit: String(override.responseTimeLimit),
+      resolutionTimeLimit: String(override.resolutionTimeLimit),
       isNew: override.isInherited,
-      originalResponse: override.responseTimeLimit,
-      originalResolution: override.resolutionTimeLimit,
       color: override.color,
+      systemDefault: override.systemDefault,
       inUse: override.inUse,
       activeTicketCount: override.activeTicketCount,
     });
   };
 
-  const handleSaveBranchOverrideConfirmed = (targetPriorityName, resp, res, isNew) => {
-    setBranchOverrides((prev) => {
-      const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
-      const idx = branchList.findIndex((o) => o.name?.toLowerCase() === targetPriorityName.toLowerCase());
-      const basePri = items.priorities?.find((p) => p.name?.toLowerCase() === targetPriorityName.toLowerCase());
-
-      const updatedRecord = {
-        id: idx >= 0 ? branchList[idx].id : `branch-${selectedBranch.id}-${targetPriorityName.toLowerCase()}`,
-        basePriorityId: basePri?.id || (idx >= 0 ? branchList[idx].basePriorityId : 1),
-        branchId: selectedBranch.id,
-        name: targetPriorityName,
-        color: basePri?.color || (idx >= 0 ? branchList[idx].color : 'bg-indigo-100 text-indigo-700'),
-        responseTimeLimit: resp,
-        resolutionTimeLimit: res,
-        isInherited: false,
-        inUse: idx >= 0 ? Boolean(branchList[idx].inUse) : false,
-        activeTicketCount: idx >= 0 ? (branchList[idx].activeTicketCount || 0) : 0,
+  const handleSaveBranchOverrideConfirmed = async (editing, resp, res) => {
+    setBranchPrioritySaving(true);
+    try {
+      const payload = {
+        name: editing.priorityName,
+        color: editing.color || null,
+        response_time_limit: resp,
+        resolution_time_limit: res,
       };
+      const data = editing.isNew
+        ? await createBranchPriority(selectedBranch.id, { ...payload, base_priority_id: editing.basePriorityId })
+        : await updateBranchPriority(selectedBranch.id, editing.overrideId, payload);
 
-      if (idx >= 0) {
-        branchList[idx] = updatedRecord;
+      applyBranchPriorityResponse(data);
+      setEditingBranchOverride(null);
+      showSuccess(
+        editing.isNew ? 'Override Created' : 'Override Updated',
+        `${editing.priorityName} Priority SLA override for ${selectedBranch.name} set to ${formatMinutes(resp)} response / ${formatMinutes(res)} resolution. ${branchSlaPolicy.tooltip}`
+      );
+    } catch (err) {
+      const body = err.response?.data;
+      if (body?.errors) {
+        setBranchModalErrors({
+          responseTimeLimit: body.errors.response_time_limit?.[0],
+          resolutionTimeLimit: body.errors.resolution_time_limit?.[0] || body.errors.name?.[0] || body.errors.color?.[0],
+        });
       } else {
-        branchList.push(updatedRecord);
+        showError('Could not save override', body?.message || 'Something went wrong. Please try again.');
       }
-
-      const nextAll = { ...prev, [selectedBranch.id]: branchList };
-      setStoredBranchOverrides(nextAll);
-      return nextAll;
-    });
-
-    setEditingBranchOverride(null);
-    showSuccess(
-      isNew ? 'Override Created' : 'Override Updated',
-      `${targetPriorityName} Priority SLA override for ${selectedBranch.name} set to ${formatMinutes(resp)} response / ${formatMinutes(res)} resolution.`
-    );
+      // Re-sync in case another admin changed this record (409 / 404)
+      if (err.response?.status === 404 || err.response?.status === 409) {
+        loadBranchPriorities();
+      }
+    } finally {
+      setBranchPrioritySaving(false);
+    }
   };
 
   const handleSaveBranchOverride = () => {
-    if (!editingBranchOverride) return;
+    if (!editingBranchOverride || branchPrioritySaving) return;
 
     const resp = parseInt(editingBranchOverride.responseTimeLimit, 10);
     const res = parseInt(editingBranchOverride.resolutionTimeLimit, 10);
@@ -3142,31 +3736,21 @@ export default function SuperAdminTicketConfig() {
     }
 
     setBranchModalErrors({});
+    const editing = editingBranchOverride;
 
     // First-time creation for a given priority in this branch: no confirmation modal
-    if (editingBranchOverride.isNew) {
-      handleSaveBranchOverrideConfirmed(
-        editingBranchOverride.priorityName,
-        resp,
-        res,
-        true
-      );
+    if (editing.isNew) {
+      handleSaveBranchOverrideConfirmed(editing, resp, res);
       return;
     }
 
-    // Editing an existing override's SLA values: confirmation modal
-    // ASSUMPTION: This affects new tickets going forward; existing open tickets' due dates are not recalculated (consistent with TS090/TS100 pattern, pending explicit backend confirmation).
+    // Editing an existing override's SLA values: confirmation modal (new tickets only, per server policy)
     showConfirm(
       'Confirm SLA Modification',
-      'This will affect due-date calculations for tickets using this priority level in this branch going forward.',
+      branchSlaPolicy.tooltip,
       () => {
         closeNotif();
-        handleSaveBranchOverrideConfirmed(
-          editingBranchOverride.priorityName,
-          resp,
-          res,
-          false
-        );
+        handleSaveBranchOverrideConfirmed(editing, resp, res);
       },
       {
         confirmText: 'Confirm & Save',
@@ -3179,71 +3763,42 @@ export default function SuperAdminTicketConfig() {
   const handleRemoveBranchOverride = (override) => {
     setBranchOverrideError(null);
 
-    // SIMULATED: no real branch-tagged ticket data exists yet. Replace inUse/activeTicketCount with a real query once tickets support branch tagging.
-    if (override.inUse || (override.activeTicketCount && override.activeTicketCount > 0)) {
+    // Fast client-side hint; the server enforces this check authoritatively.
+    if (override.inUse || (override.referencedTicketCount && override.referencedTicketCount > 0)) {
       setBranchOverrideError({
         priorityName: override.name,
-        message: `This priority level is currently in use by ${override.activeTicketCount || 1} ticket(s) in this branch and cannot be removed.`,
+        message: `This priority level is currently referenced by ${override.referencedTicketCount || override.activeTicketCount || 1} ticket(s) in this branch and cannot be removed.`,
       });
       return;
     }
 
     showConfirm(
       `Remove ${override.name} Override?`,
-      `Are you sure you want to remove the custom SLA override for ${override.name} Priority at ${selectedBranch.name}? It will revert to the system-wide default SLA.`,
-      () => {
+      `Are you sure you want to remove the custom SLA override for ${override.name} Priority at ${selectedBranch.name}? It will revert to the system-wide default SLA for new tickets.`,
+      async () => {
         closeNotif();
-        setBranchOverrides((prev) => {
-          const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
-          const idx = branchList.findIndex((o) => o.name?.toLowerCase() === override.name?.toLowerCase());
-          const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
-
-          if (idx >= 0) {
-            branchList[idx] = {
-              ...branchList[idx],
-              isInherited: true,
-              responseTimeLimit: sysDefault.responseTimeLimit,
-              resolutionTimeLimit: sysDefault.resolutionTimeLimit,
-              inUse: false,
-              activeTicketCount: 0,
-            };
+        try {
+          const data = await deleteBranchPriority(selectedBranch.id, override.id);
+          applyBranchPriorityResponse(data);
+          showSuccess(
+            'Override Removed',
+            `${override.name} Priority has been reverted to the system-wide default for ${selectedBranch.name}.`
+          );
+        } catch (err) {
+          const body = err.response?.data;
+          if (err.response?.status === 409) {
+            setBranchOverrideError({
+              priorityName: override.name,
+              message: body?.message || 'This priority level is referenced by tickets in this branch and cannot be removed.',
+            });
+          } else {
+            showError('Could not remove override', body?.message || 'Something went wrong. Please try again.');
           }
-
-          const nextAll = { ...prev, [selectedBranch.id]: branchList };
-          setStoredBranchOverrides(nextAll);
-          return nextAll;
-        });
-
-        showSuccess(
-          'Override Removed',
-          `${override.name} Priority has been reverted to the system-wide default for ${selectedBranch.name}.`
-        );
+          loadBranchPriorities();
+        }
       },
       {
         confirmText: 'Remove Override',
-        confirmClassName: 'bg-red-600 hover:bg-red-700',
-        cancelText: 'Cancel',
-      }
-    );
-  };
-
-  const handleResetBranchOverrides = () => {
-    showConfirm(
-      'Reset Branch Overrides?',
-      `Are you sure you want to reset all priority SLA overrides for ${selectedBranch.name} to the initial branch defaults?`,
-      () => {
-        closeNotif();
-        setBranchOverrideError(null);
-        setBranchOverrides((prev) => {
-          const initialBranchList = INITIAL_BRANCH_PRIORITY_OVERRIDES[selectedBranch.id] || [];
-          const nextAll = { ...prev, [selectedBranch.id]: initialBranchList };
-          setStoredBranchOverrides(nextAll);
-          return nextAll;
-        });
-        showSuccess('Reset Complete', `Priority SLA overrides for ${selectedBranch.name} restored to initial defaults.`);
-      },
-      {
-        confirmText: 'Reset Defaults',
         confirmClassName: 'bg-red-600 hover:bg-red-700',
         cancelText: 'Cancel',
       }
@@ -3254,75 +3809,70 @@ export default function SuperAdminTicketConfig() {
   // TS090: Branch-Specific Ticket Categories & SLA Policies Handlers
   // ==========================================
 
-  // Active branch categories (system defaults + branch-added categories)
+  const loadBranchCategoriesAndSla = useCallback(async () => {
+    const branchId = selectedBranch.id;
+    try {
+      const data = await getBranchCategoriesAndSla(branchId);
+      setBranchCategoryData((prev) => ({ ...prev, [branchId]: data }));
+    } catch (err) {
+      console.error('Failed to load branch categories and SLA policies:', err);
+    } finally {
+      setBranchCategoryLoading(false);
+    }
+  }, [selectedBranch.id]);
+
+  useEffect(() => {
+    setBranchCategoryLoading(true);
+    loadBranchCategoriesAndSla();
+  }, [loadBranchCategoriesAndSla]);
+
+  useRealtimeRefresh({
+    refresh: loadBranchCategoriesAndSla,
+    channels: [
+      { name: 'ticket-updates', event: 'branch.category.changed' },
+      { name: 'ticket-updates', event: 'branch.sla_policy.changed' },
+    ],
+    intervalMs: 30000,
+  });
+
+  // Active branch categories (system defaults + branch-added categories) from backend
   const currentBranchCategories = useMemo(() => {
-    const list = branchCategories[selectedBranch.id] || [];
-    if (list.length > 0) return list;
-    return SYSTEM_DEFAULT_CATEGORIES.map((name) => ({
-      id: `branch-${selectedBranch.id}-cat-${name.toLowerCase()}`,
-      branchId: selectedBranch.id,
-      name,
-      isSystemDefault: true,
-      inUse: false,
-      activeTicketCount: 0,
-    }));
-  }, [branchCategories, selectedBranch.id]);
+    return branchCategoryData[selectedBranch.id]?.categories || [];
+  }, [branchCategoryData, selectedBranch.id]);
 
-  // Base priorities list (Critical, High, Medium, Low)
-  const basePrioritiesList = useMemo(() => {
-    return items.priorities && items.priorities.length > 0
-      ? items.priorities
-      : [
-          { id: 4, name: 'Critical', color: 'bg-red-100 text-red-700' },
-          { id: 3, name: 'High', color: 'bg-orange-100 text-orange-700' },
-          { id: 2, name: 'Medium', color: 'bg-yellow-100 text-yellow-700' },
-          { id: 1, name: 'Low', color: 'bg-green-100 text-green-700' },
-        ];
-  }, [items.priorities]);
-
-  // Computed Category x Priority SLA matrix for active branch
+  // Computed Category x Priority SLA matrix for active branch from backend
   const currentBranchSlaMatrix = useMemo(() => {
-    const policies = branchSlaPolicies[selectedBranch.id] || [];
-    const matrix = [];
+    const policies = branchCategoryData[selectedBranch.id]?.slaPolicies || [];
+    const colorMap = {
+      Critical: 'bg-red-100 text-red-700',
+      High: 'bg-orange-100 text-orange-700',
+      Medium: 'bg-yellow-100 text-yellow-700',
+      Low: 'bg-green-100 text-green-700',
+    };
+    return policies.map((p) => ({
+      id: p.id,
+      key: p.key,
+      branchId: p.branchId,
+      categoryId: p.categoryId,
+      categoryName: p.categoryName,
+      priorityName: p.priority,
+      isOverride: p.isOverride,
+      isInherited: !p.isOverride,
+      resolutionTimeLimit: p.resolutionTimeLimit,
+      responseTimeLimit: p.responseTimeLimit,
+      systemDefaultResolution: p.systemDefaultResolution,
+      sysDefaultResponse: p.systemDefaultResponse,
+      priorityColor: colorMap[p.priority] || 'bg-gray-100 text-gray-700',
+    }));
+  }, [branchCategoryData, selectedBranch.id]);
 
-    currentBranchCategories.forEach((cat) => {
-      basePrioritiesList.forEach((pri) => {
-        const existing = policies.find(
-          (p) =>
-            p.categoryName?.toLowerCase() === cat.name.toLowerCase() &&
-            p.priorityName?.toLowerCase() === pri.name.toLowerCase() &&
-            !p.isInherited
-        );
-        const sysDefaultRes = SYSTEM_DEFAULT_CATEGORY_SLAS[pri.name] || 1440;
-
-        if (existing) {
-          matrix.push({
-            id: existing.id || `branch-${selectedBranch.id}-sla-${cat.name}-${pri.name}`,
-            branchId: selectedBranch.id,
-            categoryName: cat.name,
-            priorityName: pri.name,
-            resolutionTimeLimit: existing.resolutionTimeLimit,
-            isInherited: false,
-            priorityColor: pri.color,
-            sysDefaultResolution: sysDefaultRes,
-          });
-        } else {
-          matrix.push({
-            id: `branch-${selectedBranch.id}-sla-${cat.name.toLowerCase().replace(/\s+/g, '-')}-${pri.name.toLowerCase()}`,
-            branchId: selectedBranch.id,
-            categoryName: cat.name,
-            priorityName: pri.name,
-            resolutionTimeLimit: sysDefaultRes,
-            isInherited: true,
-            priorityColor: pri.color,
-            sysDefaultResolution: sysDefaultRes,
-          });
-        }
-      });
-    });
-
-    return matrix;
-  }, [branchSlaPolicies, selectedBranch.id, currentBranchCategories, basePrioritiesList]);
+  const branchCatSlaPolicy = useMemo(() => {
+    return branchCategoryData[selectedBranch.id]?.slaChangePolicy || {
+      mode: 'new_tickets_only',
+      recalculatesExistingOpenTickets: false,
+      tooltip: 'Changes to branch category SLA policies apply to tickets created after the update. Existing open tickets retain the deadlines calculated at creation.',
+    };
+  }, [branchCategoryData, selectedBranch.id]);
 
   // Open modal to add a new category for this branch
   const handleOpenAddCategoryModal = () => {
@@ -3331,6 +3881,7 @@ export default function SuperAdminTicketConfig() {
     setEditingCategory({
       isNew: true,
       name: '',
+      description: '',
     });
   };
 
@@ -3342,116 +3893,80 @@ export default function SuperAdminTicketConfig() {
       isNew: false,
       id: cat.id,
       name: cat.name,
+      description: cat.description || '',
       originalName: cat.name,
     });
   };
 
   // Save new or edited category
-  const handleSaveCategory = () => {
-    if (!editingCategory) return;
+  const handleSaveCategory = async () => {
+    if (!editingCategory || branchCategorySaving) return;
     const trimmed = (editingCategory.name || '').trim();
     if (!trimmed) {
       setCategoryModalError('Please enter a category name.');
       return;
     }
 
-    // Check duplicate name within the active branch
-    const duplicate = currentBranchCategories.find(
-      (c) =>
-        c.name.toLowerCase() === trimmed.toLowerCase() &&
-        (!editingCategory.isNew ? c.id !== editingCategory.id : true)
-    );
-    if (duplicate) {
-      setCategoryModalError(`A category named "${trimmed}" already exists for ${selectedBranch.name}.`);
-      return;
-    }
-
-    if (editingCategory.isNew) {
-      // Creating a new branch-specific category for the first time: no confirmation modal
-      setBranchCategories((prev) => {
-        const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [...currentBranchCategories];
-        const newCat = {
-          id: `branch-${selectedBranch.id}-cat-${Date.now()}`,
-          branchId: selectedBranch.id,
-          name: trimmed,
-          isSystemDefault: false,
-          inUse: false,
-          activeTicketCount: 0,
-        };
-        const nextAll = { ...prev, [selectedBranch.id]: [...branchList, newCat] };
-        setStoredBranchCategories(nextAll);
-        return nextAll;
-      });
-      setEditingCategory(null);
-      showSuccess('Category Added', `Category "${trimmed}" created for ${selectedBranch.name}.`);
-      return;
-    }
-
-    // Renaming existing category
-    setBranchCategories((prev) => {
-      const branchList = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [...currentBranchCategories];
-      const idx = branchList.findIndex((c) => c.id === editingCategory.id);
-      if (idx >= 0) {
-        branchList[idx] = { ...branchList[idx], name: trimmed };
+    setCategoryModalError('');
+    setBranchCategorySaving(true);
+    try {
+      if (editingCategory.isNew) {
+        const res = await createBranchCategory(selectedBranch.id, {
+          category_name: trimmed,
+          description: editingCategory.description || null,
+        });
+        showSuccess('Category Created', res.message || `Category "${trimmed}" created for ${selectedBranch.name}.`);
+      } else {
+        const res = await updateBranchCategory(selectedBranch.id, editingCategory.id, {
+          category_name: trimmed,
+          description: editingCategory.description || null,
+        });
+        showSuccess('Category Updated', res.message || `Category "${trimmed}" updated.`);
       }
-      const nextAll = { ...prev, [selectedBranch.id]: branchList };
-      setStoredBranchCategories(nextAll);
-      return nextAll;
-    });
-
-    // Update any SLA policies referencing the old category name
-    setBranchSlaPolicies((prev) => {
-      const policies = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
-      const updated = policies.map((p) =>
-        p.categoryName?.toLowerCase() === editingCategory.originalName?.toLowerCase()
-          ? { ...p, categoryName: trimmed }
-          : p
-      );
-      const nextAll = { ...prev, [selectedBranch.id]: updated };
-      setStoredBranchSlaPolicies(nextAll);
-      return nextAll;
-    });
-
-    setEditingCategory(null);
-    showSuccess('Category Renamed', `Category updated to "${trimmed}".`);
+      setEditingCategory(null);
+      await loadBranchCategoriesAndSla();
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save category.';
+      setCategoryModalError(msg);
+    } finally {
+      setBranchCategorySaving(false);
+    }
   };
 
   // Remove a branch-specific category
   const handleRemoveCategory = (cat) => {
     setCategoryError(null);
 
-    // SIMULATED: no real branch-tagged ticket data exists yet. Replace with a real query once tickets support branch tagging.
-    if (cat.inUse || (cat.activeTicketCount && cat.activeTicketCount > 0)) {
+    // Fast client-side hint; backend authoritatively enforces open ticket block
+    if (cat.inUse || (cat.openTicketCount && cat.openTicketCount > 0)) {
       setCategoryError({
         categoryName: cat.name,
-        message: `This category is in use by ${cat.activeTicketCount || 1} open ticket(s) in this branch and cannot be removed until they are recategorized or closed.`,
+        message: `Cannot remove "${cat.name}": it is referenced by ${cat.openTicketCount || 1} active open ticket(s) in this branch. Resolve or reassign active tickets before deleting.`,
       });
       return;
     }
 
     showConfirm(
       `Remove "${cat.name}" Category?`,
-      'This action cannot be undone and may affect ticket routing in this branch.',
-      () => {
+      `Are you sure you want to remove the "${cat.name}" category from ${selectedBranch.name}? This action cannot be undone.`,
+      async () => {
         closeNotif();
-        setBranchCategories((prev) => {
-          const branchList = (prev[selectedBranch.id] || currentBranchCategories).filter((c) => c.id !== cat.id);
-          const nextAll = { ...prev, [selectedBranch.id]: branchList };
-          setStoredBranchCategories(nextAll);
-          return nextAll;
-        });
-
-        // Also clean up any branch SLA policies configured for this category
-        setBranchSlaPolicies((prev) => {
-          const policies = (prev[selectedBranch.id] || []).filter(
-            (p) => p.categoryName?.toLowerCase() !== cat.name?.toLowerCase()
-          );
-          const nextAll = { ...prev, [selectedBranch.id]: policies };
-          setStoredBranchSlaPolicies(nextAll);
-          return nextAll;
-        });
-
-        showSuccess('Category Removed', `Category "${cat.name}" has been removed from ${selectedBranch.name}.`);
+        try {
+          const res = await deleteBranchCategory(selectedBranch.id, cat.id);
+          showSuccess('Category Removed', res.message || `Category "${cat.name}" removed.`);
+          await loadBranchCategoriesAndSla();
+        } catch (err) {
+          const body = err.response?.data;
+          if (err.response?.status === 409 || err.response?.status === 422) {
+            setCategoryError({
+              categoryName: cat.name,
+              message: body?.message || `Cannot remove "${cat.name}": open tickets currently reference this category.`,
+            });
+          } else {
+            showError('Could Not Remove Category', body?.message || 'Something went wrong. Please try again.');
+          }
+          loadBranchCategoriesAndSla();
+        }
       },
       {
         confirmText: 'Remove Category',
@@ -3476,39 +3991,26 @@ export default function SuperAdminTicketConfig() {
   };
 
   // Confirmed save for an SLA policy
-  const handleSaveSlaPolicyConfirmed = (categoryName, priorityName, resolutionMinutes, isNew) => {
-    setBranchSlaPolicies((prev) => {
-      const policies = prev[selectedBranch.id] ? [...prev[selectedBranch.id]] : [];
-      const idx = policies.findIndex(
-        (p) =>
-          p.categoryName?.toLowerCase() === categoryName.toLowerCase() &&
-          p.priorityName?.toLowerCase() === priorityName.toLowerCase()
+  const handleSaveSlaPolicyConfirmed = async (categoryName, priorityName, resolutionMinutes, isNew) => {
+    setBranchCategorySaving(true);
+    try {
+      const res = await saveBranchSlaPolicy(selectedBranch.id, {
+        category_name: categoryName,
+        priority: priorityName,
+        resolution_time_limit: resolutionMinutes,
+      });
+      setEditingSlaPolicy(null);
+      showSuccess(
+        isNew ? 'SLA Policy Created' : 'SLA Policy Updated',
+        res.message || `Resolution SLA for ${categoryName} (${priorityName} Priority) set to ${formatMinutes(resolutionMinutes)} at ${selectedBranch.name}. ${branchCatSlaPolicy.tooltip}`
       );
-      const updatedRecord = {
-        id: idx >= 0 ? policies[idx].id : `branch-${selectedBranch.id}-sla-${categoryName.toLowerCase().replace(/\s+/g, '-')}-${priorityName.toLowerCase()}`,
-        branchId: selectedBranch.id,
-        categoryName,
-        priorityName,
-        resolutionTimeLimit: resolutionMinutes,
-        isInherited: false,
-      };
-
-      if (idx >= 0) {
-        policies[idx] = updatedRecord;
-      } else {
-        policies.push(updatedRecord);
-      }
-
-      const nextAll = { ...prev, [selectedBranch.id]: policies };
-      setStoredBranchSlaPolicies(nextAll);
-      return nextAll;
-    });
-
-    setEditingSlaPolicy(null);
-    showSuccess(
-      isNew ? 'SLA Policy Created' : 'SLA Policy Updated',
-      `Resolution SLA for ${categoryName} (${priorityName} Priority) set to ${formatMinutes(resolutionMinutes)} at ${selectedBranch.name}.`
-    );
+      await loadBranchCategoriesAndSla();
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save SLA policy.';
+      setSlaPolicyModalError(msg);
+    } finally {
+      setBranchCategorySaving(false);
+    }
   };
 
   // Save SLA Policy handler
@@ -3534,11 +4036,10 @@ export default function SuperAdminTicketConfig() {
       return;
     }
 
-    // Editing an existing SLA policy's resolution time: confirmation modal
-    // ASSUMPTION: This affects new tickets going forward; existing open tickets' due dates are not recalculated (consistent with TS090/TS100 pattern, pending explicit backend confirmation).
+    // Editing an existing SLA policy's resolution time: confirmation modal with explicit tooltip
     showConfirm(
       'Confirm SLA Policy Modification',
-      'This will affect due-date calculations for tickets in this branch going forward.',
+      branchCatSlaPolicy.tooltip,
       () => {
         closeNotif();
         handleSaveSlaPolicyConfirmed(
@@ -3561,24 +4062,23 @@ export default function SuperAdminTicketConfig() {
     showConfirm(
       `Revert SLA for ${item.categoryName} (${item.priorityName})?`,
       `Are you sure you want to revert the resolution SLA for ${item.categoryName} (${item.priorityName} Priority) to the system-wide default (${formatMinutes(item.sysDefaultResolution)}) for ${selectedBranch.name}?`,
-      () => {
+      async () => {
         closeNotif();
-        setBranchSlaPolicies((prev) => {
-          const policies = (prev[selectedBranch.id] || []).filter(
-            (p) =>
-              !(
-                p.categoryName?.toLowerCase() === item.categoryName.toLowerCase() &&
-                p.priorityName?.toLowerCase() === item.priorityName.toLowerCase()
-              )
+        try {
+          const res = await deleteBranchSlaPolicy(selectedBranch.id, {
+            category_name: item.categoryName,
+            priority: item.priorityName,
+          });
+          showSuccess(
+            'SLA Policy Reverted',
+            res.message || `Resolution SLA for ${item.categoryName} (${item.priorityName}) reverted to system default.`
           );
-          const nextAll = { ...prev, [selectedBranch.id]: policies };
-          setStoredBranchSlaPolicies(nextAll);
-          return nextAll;
-        });
-        showSuccess(
-          'SLA Policy Reverted',
-          `Resolution SLA for ${item.categoryName} (${item.priorityName}) reverted to system default.`
-        );
+          await loadBranchCategoriesAndSla();
+        } catch (err) {
+          const msg = err.response?.data?.message || err.message || 'Failed to revert SLA policy.';
+          showError('Revert Failed', msg);
+          loadBranchCategoriesAndSla();
+        }
       },
       {
         confirmText: 'Revert to Default',
@@ -3592,23 +4092,18 @@ export default function SuperAdminTicketConfig() {
   const handleResetBranchCategories = () => {
     showConfirm(
       'Reset Branch Categories & SLAs?',
-      `Are you sure you want to reset all custom categories and SLA policies for ${selectedBranch.name} to the initial seeded defaults?`,
-      () => {
+      `Are you sure you want to reset all custom categories and SLA policies for ${selectedBranch.name} to the system defaults?`,
+      async () => {
         closeNotif();
         setCategoryError(null);
-        setBranchCategories((prev) => {
-          const initialBranchList = INITIAL_BRANCH_CATEGORIES[selectedBranch.id] || [];
-          const nextAll = { ...prev, [selectedBranch.id]: initialBranchList };
-          setStoredBranchCategories(nextAll);
-          return nextAll;
-        });
-        setBranchSlaPolicies((prev) => {
-          const initialPolicies = INITIAL_BRANCH_SLA_POLICIES[selectedBranch.id] || [];
-          const nextAll = { ...prev, [selectedBranch.id]: initialPolicies };
-          setStoredBranchSlaPolicies(nextAll);
-          return nextAll;
-        });
-        showSuccess('Reset Complete', `Categories and SLA policies for ${selectedBranch.name} restored to seeded defaults.`);
+        try {
+          const res = await resetBranchCategoriesToDefaults(selectedBranch.id);
+          showSuccess('Reset Complete', res.message || `Categories and SLA policies for ${selectedBranch.name} restored to system defaults.`);
+          await loadBranchCategoriesAndSla();
+        } catch (err) {
+          const msg = err.response?.data?.message || err.message || 'Failed to reset branch configuration.';
+          showError('Reset Failed', msg);
+        }
       },
       {
         confirmText: 'Reset Defaults',
@@ -3711,12 +4206,22 @@ export default function SuperAdminTicketConfig() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Workflow Status Sequence</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Define priority levels and their default deadline targets</p>
+              <p className="text-sm text-gray-500 mt-0.5">Define progression stages and prerequisite guardrails tickets move through from submission to closure.</p>
             </div>
-            <button onClick={handleAddWorkflow} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0">
-              <Plus size={18} />
-              Add Status
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleResetDefaultWorkflow}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={14} />
+                Reset to Defaults
+              </button>
+              <button onClick={handleAddWorkflow} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer">
+                <Plus size={18} />
+                Add Status
+              </button>
+            </div>
           </div>
 
           {/* Stepper / Sequence Diagram */}
@@ -3725,13 +4230,20 @@ export default function SuperAdminTicketConfig() {
               {/* Background connecting line */}
               <div className="absolute top-7 left-[calc(7%+28px)] right-[calc(7%+28px)] h-0.5 bg-gray-200" />
               <div className="relative flex justify-between">
-                {workflowStatuses.sort((a, b) => a.order - b.order).map((status, idx) => (
+                {workflowStatuses.slice().sort((a, b) => a.order - b.order).map((status, idx) => (
                   <div key={status.id} className="flex flex-col items-center" style={{ flex: '1 1 0%' }}>
                     <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full font-semibold text-lg shadow-sm"
                       style={{ backgroundColor: status.bgColor, color: status.textColor }}>
                       {idx + 1}
+                      {status.requiresPreviousFulfilled && (
+                        <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-white shadow-xs" title="Requires prerequisite completion">
+                          <Lock size={10} />
+                        </div>
+                      )}
                     </div>
-                    <span className="mt-2.5 text-sm font-semibold" style={{ color: status.textColor }}>{status.name}</span>
+                    <span className="mt-2.5 text-sm font-semibold flex items-center gap-1 text-center" style={{ color: status.textColor }}>
+                      {status.name}
+                    </span>
                     <span className="mt-1 text-[11px] text-gray-500 text-center leading-tight px-1 max-w-[130px]">{status.description}</span>
                   </div>
                 ))}
@@ -3741,7 +4253,7 @@ export default function SuperAdminTicketConfig() {
 
           {/* Status Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {workflowStatuses.sort((a, b) => a.order - b.order).map((status, idx) => (
+            {workflowStatuses.slice().sort((a, b) => a.order - b.order).map((status, idx) => (
               <div key={status.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm flex items-start gap-4 hover:shadow-md transition-all">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-semibold text-sm"
                   style={{ backgroundColor: status.bgColor, color: status.textColor }}>
@@ -3749,20 +4261,115 @@ export default function SuperAdminTicketConfig() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-gray-900">{status.name}</h4>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-semibold text-gray-900">{status.name}</h4>
+                      {status.isSystem ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-200">
+                          <ShieldCheck size={10} />
+                          System
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 border border-purple-200">
+                          Custom
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => handleEditWorkflow(status)} className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors" title="Edit">
                         <Edit3 size={14} />
                       </button>
-                      <button onClick={() => handleDeleteWorkflow(status)} className="rounded-full p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Delete">
-                        <Trash2 size={14} />
-                      </button>
+                      {status.isSystem ? (
+                        <span className="rounded-full p-1.5 text-gray-300 cursor-not-allowed" title="System statuses cannot be deleted">
+                          <Lock size={14} />
+                        </span>
+                      ) : (
+                        <button onClick={() => handleDeleteWorkflow(status)} className="rounded-full p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{status.description}</p>
+                  {status.requiresPreviousFulfilled && (
+                    <div className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 border border-amber-200/60 w-fit">
+                      <Lock size={11} className="shrink-0 text-amber-600" />
+                      <span>
+                        {status.prerequisite ? `Requires "${status.prerequisite.name}" fulfilled` : 'Requires preceding status fulfilled'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Connected Allowed Next Transitions Summary */}
+                  {(() => {
+                    const rule = transitionRules[status.name];
+                    const allowedList = rule?.allowed || [];
+                    return (
+                      <div className="mt-3 pt-3 border-t border-gray-100 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-gray-500">Allowed Transitions:</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTransitionStatus(status.name);
+                              handleSelectSubTab(TAB_TRANSITIONS);
+                            }}
+                            className="text-[#252578] font-semibold hover:underline inline-flex items-center gap-0.5 cursor-pointer text-[11px]"
+                          >
+                            <span>Matrix</span>
+                            <ArrowRight size={10} />
+                          </button>
+                        </div>
+                        {allowedList.length > 0 ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {allowedList.map((targetName) => {
+                              const targetObj = activeWorkflowStatuses.find((s) => s.name === targetName);
+                              return (
+                                <span
+                                  key={targetName}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border"
+                                  style={{
+                                    backgroundColor: targetObj?.bgColor || '#F3F4F6',
+                                    color: targetObj?.textColor || '#4B5563',
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                  }}
+                                >
+                                  {targetName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 italic">No transitions permitted</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Transition Matrix Connection Callout */}
+          <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#252578] text-white shadow-xs">
+                <Sliders size={20} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-gray-900">Synchronized with Transition Matrix</h4>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  These {activeWorkflowStatuses.length} sequence stages directly power the Transition Matrix. Configure state changes, rollback paths, and prerequisite checks between each stage.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleSelectSubTab(TAB_TRANSITIONS)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#1e1e62] transition-all shrink-0 cursor-pointer shadow-xs"
+            >
+              <span>Open Transition Matrix</span>
+              <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       ) : tab === TAB_TRANSITIONS ? (
@@ -3771,22 +4378,77 @@ export default function SuperAdminTicketConfig() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Ticket Status Transition Rules</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
-                </span>
+                <h2 className="text-xl font-bold text-gray-900">Ticket Status Transition Matrix & Lifecycle Rules</h2>
+                {hasTransitionChanges ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+                    <AlertCircle size={13} className="shrink-0" />
+                    <span>Unsaved Changes — Click "Save Changes" to apply</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 size={13} className="shrink-0" />
+                    <span>Active Rules Enforced — Saved to Central Engine</span>
+                  </span>
+                )}
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                Configure valid next-status transitions and lifecycle guardrails for tickets.
+                Configure valid next-status transitions, sequence flows, and prerequisite guardrails connected to your active workflow.
               </p>
             </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleResetTransitions}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={14} />
+                Reset to Defaults
+              </button>
+              <button
+                onClick={handleSaveTransitions}
+                disabled={savingTransitions || !hasTransitionChanges}
+                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
+                  savingTransitions || !hasTransitionChanges
+                    ? 'bg-[#252578]/60 cursor-not-allowed'
+                    : 'bg-[#252578] hover:bg-[#1e1e62]'
+                }`}
+              >
+                {savingTransitions ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Synchronized Sequence Notification Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#252578] text-white">
+                <Sliders size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+                  Dynamic Workflow Integration ({activeWorkflowStatuses.length} Stages Connected)
+                </h4>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  All statuses, sequence numbers, colors, and prerequisites below are dynamically mapped from your "Statuses & Sequence" configuration.
+                </p>
+              </div>
+            </div>
             <button
-              onClick={handleResetTransitions}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              type="button"
+              onClick={() => handleSelectSubTab(TAB_WORKFLOW)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs shrink-0"
             >
-              <RotateCcw size={14} />
-              Reset to Defaults
+              <Settings size={13} />
+              <span>Edit Status Sequence</span>
             </button>
           </div>
 
@@ -3804,80 +4466,127 @@ export default function SuperAdminTicketConfig() {
                     onChange={(e) => setSelectedTransitionStatus(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-gray-800 outline-none focus:bg-white focus:ring-2 focus:ring-[#252578] cursor-pointer appearance-none pr-10"
                   >
-                    {TS093_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
+                    {activeWorkflowStatuses.map((st, idx) => (
+                      <option key={st.id || st.name} value={st.name}>
+                        Step {st.order || idx + 1}: {st.name} {st.isSystem ? '(System)' : '(Custom)'}
                       </option>
                     ))}
                   </select>
                   <ChevronRight size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 rotate-90 pointer-events-none" />
                 </div>
                 <p className="text-xs text-gray-400">
-                  Select a status above to configure which states tickets can transition into.
+                  Select a workflow status to configure which next stages tickets can transition into.
                 </p>
               </div>
 
               {/* Right Column: Status Information Card */}
-              <div className="lg:col-span-2 rounded-xl border border-gray-100 bg-gray-50/60 p-5 flex flex-col gap-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#252578] text-white">
-                      <GitBranch size={16} />
-                    </span>
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">{selectedTransitionStatus}</h3>
-                      <span className="text-xs text-gray-500">Source status</span>
+              {(() => {
+                const currentStatusObj = activeWorkflowStatuses.find((s) => s.name === selectedTransitionStatus);
+                const currentRule = transitionRules[selectedTransitionStatus];
+                const currentOrder = Number(currentStatusObj?.order) || 1;
+
+                return (
+                  <div className="lg:col-span-2 rounded-xl border border-gray-100 bg-gray-50/60 p-5 flex flex-col gap-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="flex h-9 w-9 items-center justify-center rounded-xl font-bold text-sm shadow-2xs"
+                          style={{
+                            backgroundColor: currentStatusObj?.bgColor || '#DBEAFE',
+                            color: currentStatusObj?.textColor || '#1D4ED8',
+                          }}
+                        >
+                          {currentOrder}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold text-gray-900">{selectedTransitionStatus}</h3>
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold"
+                              style={{
+                                backgroundColor: currentStatusObj?.bgColor || '#DBEAFE',
+                                color: currentStatusObj?.textColor || '#1D4ED8',
+                              }}
+                            >
+                              Step {currentOrder} of {activeWorkflowStatuses.length}
+                            </span>
+                            {currentStatusObj?.isSystem ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-200">
+                                <ShieldCheck size={10} />
+                                System
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 border border-purple-200">
+                                Custom
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500">Source status in workflow sequence</span>
+                        </div>
+                      </div>
+
+                      {/* Status Type Badge */}
+                      {(() => {
+                        if (!currentRule) return null;
+                        if (currentRule.type === 'terminal') {
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 border border-red-200">
+                              <Lock size={12} />
+                              Terminal Status
+                            </span>
+                          );
+                        }
+                        if (currentRule.type === 'fixed') {
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+                              <Lock size={12} />
+                              Automated / Non-Editable
+                            </span>
+                          );
+                        }
+                        if (currentRule.type === 'contextual') {
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 border border-purple-200">
+                              <Lock size={12} />
+                              Contextual / Non-Editable
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 border border-green-200">
+                            <CheckCircle2 size={12} />
+                            Configurable Transitions ({(currentRule.allowed || []).length} Allowed)
+                          </span>
+                        );
+                      })()}
                     </div>
+
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      {currentStatusObj?.description || currentRule?.description || 'Active lifecycle stage.'}
+                    </p>
+
+                    {/* Prerequisite rule notification */}
+                    {currentStatusObj?.requiresPreviousFulfilled && (
+                      <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+                        <Lock size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-semibold">Prerequisite Guardrail Enforced: </span>
+                          <span>
+                            Tickets moving into "{selectedTransitionStatus}" require "{currentStatusObj.prerequisite?.name || 'the preceding stage'}" to be fulfilled first.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {currentRule?.caption && (
+                      <div className="flex items-start gap-2 rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-700">
+                        <Info size={16} className="text-[#252578] shrink-0 mt-0.5" />
+                        <span>{currentRule.caption}</span>
+                      </div>
+                    )}
                   </div>
-
-                  {/* Status Type Badge */}
-                  {(() => {
-                    const rule = transitionRules[selectedTransitionStatus];
-                    if (!rule) return null;
-                    if (rule.type === 'terminal') {
-                      return (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 border border-red-200">
-                          <Lock size={12} />
-                          Terminal Status
-                        </span>
-                      );
-                    }
-                    if (rule.type === 'fixed') {
-                      return (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
-                          <Lock size={12} />
-                          Automated / Non-Editable
-                        </span>
-                      );
-                    }
-                    if (rule.type === 'contextual') {
-                      return (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 border border-purple-200">
-                          <Lock size={12} />
-                          Contextual / Non-Editable
-                        </span>
-                      );
-                    }
-                    return (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 border border-green-200">
-                        <CheckCircle2 size={12} />
-                        Configurable Transitions ({rule.allowed.length} Allowed)
-                      </span>
-                    );
-                  })()}
-                </div>
-
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  {transitionRules[selectedTransitionStatus]?.description}
-                </p>
-
-                {transitionRules[selectedTransitionStatus]?.caption && (
-                  <div className="flex items-start gap-2 rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-700">
-                    <Info size={16} className="text-[#252578] shrink-0 mt-0.5" />
-                    <span>{transitionRules[selectedTransitionStatus]?.caption}</span>
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
 
             {/* Next Allowed Transitions Section */}
@@ -3889,16 +4598,17 @@ export default function SuperAdminTicketConfig() {
                   </h4>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {transitionRules[selectedTransitionStatus]?.type === 'editable'
-                      ? 'Check or uncheck the statuses tickets are permitted to move to next.'
-                      : 'Next transitions for this status are enforced by system rules.'}
+                      ? 'Select which statuses tickets are permitted to transition into from this source status.'
+                      : 'Next transitions for this status are governed by system lifecycle rules.'}
                   </p>
                 </div>
               </div>
 
               {/* Conditional Transition Rendering based on status type */}
               {(() => {
-                const currentRule = transitionRules[selectedTransitionStatus];
-                if (!currentRule) return null;
+                const currentRule = transitionRules[selectedTransitionStatus] || { allowed: [], type: 'editable' };
+                const currentStatusObj = activeWorkflowStatuses.find((s) => s.name === selectedTransitionStatus);
+                const currentOrder = Number(currentStatusObj?.order) || 1;
 
                 if (currentRule.type === 'terminal') {
                   return (
@@ -3908,7 +4618,7 @@ export default function SuperAdminTicketConfig() {
                       </div>
                       <h5 className="text-base font-semibold text-gray-800">Terminal Status</h5>
                       <p className="text-sm text-gray-500 max-w-md">
-                        {currentRule.caption || 'This is a terminal status. No further transitions are allowed.'}
+                        {currentRule.caption || 'This is a terminal status. No further transitions are permitted.'}
                       </p>
                       <div className="mt-2 text-xs text-gray-400">
                         (Next-status list is empty and disabled)
@@ -3929,7 +4639,7 @@ export default function SuperAdminTicketConfig() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {currentRule.allowed.map((targetStatus) => (
+                        {(currentRule.allowed || []).map((targetStatus) => (
                           <div
                             key={targetStatus}
                             className="flex items-center justify-between rounded-xl border border-blue-200 bg-white p-4 shadow-xs"
@@ -3966,49 +4676,104 @@ export default function SuperAdminTicketConfig() {
                       <p className="text-sm text-purple-800 max-w-lg leading-relaxed">
                         {currentRule.caption}
                       </p>
-                      <div className="mt-2 text-xs text-purple-600 font-semibold bg-white/80 px-3 py-1.5 rounded-lg border border-purple-200">
-                        Resumes to preceding In Progress state (CS-owned or Employee-owned) upon hold release
-                      </div>
                     </div>
                   );
                 }
 
-                // Editable statuses: Show full checkbox list of all other 9 statuses
-                const otherStatuses = TS093_STATUSES.filter((s) => s !== selectedTransitionStatus);
+                // Dynamically list all other workflow statuses sorted by sequence order
+                const otherStatuses = activeWorkflowStatuses.filter((s) => s.name !== selectedTransitionStatus);
+
+                if (otherStatuses.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-sm text-gray-500 bg-gray-50 rounded-xl border border-gray-200">
+                      No other workflow statuses available. Add more statuses in the Statuses & Sequence tab.
+                    </div>
+                  );
+                }
 
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                     {otherStatuses.map((targetStatus) => {
-                      const isChecked = currentRule.allowed.includes(targetStatus);
+                      const isChecked = (currentRule.allowed || []).includes(targetStatus.name);
+                      const targetOrder = Number(targetStatus.order) || 1;
+                      const isNextSequential = targetOrder === currentOrder + 1;
+                      const isForward = targetOrder > currentOrder;
+                      const isRollback = targetOrder < currentOrder;
+
                       return (
                         <label
-                          key={targetStatus}
-                          className={`flex items-start gap-3.5 rounded-xl border p-4 transition-all cursor-pointer select-none ${isChecked
+                          key={targetStatus.id || targetStatus.name}
+                          className={`flex items-start gap-3.5 rounded-xl border p-4 transition-all cursor-pointer select-none ${
+                            isChecked
                               ? 'border-[#252578] bg-[#252578]/5 shadow-xs'
                               : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50'
-                            }`}
+                          }`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={() => handleToggleTransition(targetStatus)}
+                            onChange={() => handleToggleTransition(targetStatus.name)}
                             className="mt-1 h-4 w-4 rounded border-gray-300 text-[#252578] focus:ring-[#252578] cursor-pointer"
                           />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className={`text-sm font-semibold ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>
-                                {targetStatus}
-                              </span>
+                            <div className="flex items-center justify-between gap-1 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
+                                  style={{
+                                    backgroundColor: targetStatus.bgColor || '#DBEAFE',
+                                    color: targetStatus.textColor || '#1D4ED8',
+                                  }}
+                                >
+                                  {targetOrder}
+                                </span>
+                                <span className={`text-sm font-semibold ${isChecked ? 'text-[#252578]' : 'text-gray-800'}`}>
+                                  {targetStatus.name}
+                                </span>
+                              </div>
                               {isChecked && (
                                 <span className="inline-block rounded-full bg-[#252578] px-2 py-0.5 text-[10px] font-semibold text-white uppercase tracking-wider shrink-0">
                                   Allowed
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-1">
-                              <span>{selectedTransitionStatus}</span>
+
+                            {/* Sequence relationship indicator */}
+                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                              {isNextSequential && (
+                                <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                                  <ArrowRight size={10} />
+                                  Next in Sequence
+                                </span>
+                              )}
+                              {isForward && !isNextSequential && (
+                                <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-200">
+                                  <ArrowRight size={10} />
+                                  Forward (+{targetOrder - currentOrder} steps)
+                                </span>
+                              )}
+                              {isRollback && (
+                                <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
+                                  <RotateCcw size={10} />
+                                  Rollback / Return
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Prerequisite note */}
+                            {targetStatus.requiresPreviousFulfilled && (
+                              <div className="mt-1.5 flex items-center gap-1 text-[11px] text-amber-700 font-medium">
+                                <Lock size={10} className="shrink-0" />
+                                <span className="truncate">
+                                  Requires "{targetStatus.prerequisite?.name || 'preceding stage'}" first
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-2">
+                              <span>Step {currentOrder}</span>
                               <ArrowRight size={11} className="text-gray-400 shrink-0" />
-                              <span className="font-medium text-gray-700 truncate">{targetStatus}</span>
+                              <span className="font-medium text-gray-700 truncate">Step {targetOrder} ({targetStatus.name})</span>
                             </div>
                           </div>
                         </label>
@@ -4019,6 +4784,154 @@ export default function SuperAdminTicketConfig() {
               })()}
             </div>
           </div>
+
+          {/* Interactive 2D Transition Matrix Grid Table */}
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm flex flex-col gap-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Table size={18} className="text-[#252578]" />
+                  <h3 className="text-base font-bold text-gray-900">Complete Transition Matrix (2D View)</h3>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Full overview of all source-to-target lifecycle paths. Click any cell to toggle whether a transition is allowed.
+                </p>
+              </div>
+
+              {/* Matrix Stats */}
+              {(() => {
+                const totalPossible = activeWorkflowStatuses.length * (activeWorkflowStatuses.length - 1);
+                let allowedCount = 0;
+                activeWorkflowStatuses.forEach((source) => {
+                  const allowed = transitionRules[source.name]?.allowed || [];
+                  allowedCount += allowed.length;
+                });
+
+                return (
+                  <div className="flex items-center gap-2 bg-gray-50 px-3.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 self-start sm:self-auto">
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                    <span>{allowedCount} of {totalPossible} Permitted Paths</span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Matrix Table */}
+            <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="p-3 font-bold text-gray-700 min-w-[170px] sticky left-0 bg-gray-50 z-10 border-r border-gray-200 shadow-2xs">
+                      From \ To Target
+                    </th>
+                    {activeWorkflowStatuses.map((colStatus, cIdx) => (
+                      <th key={colStatus.id || colStatus.name} className="p-3 text-center min-w-[120px] font-semibold text-gray-700">
+                        <div className="flex flex-col items-center gap-1">
+                          <span
+                            className="inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-bold"
+                            style={{
+                              backgroundColor: colStatus.bgColor || '#DBEAFE',
+                              color: colStatus.textColor || '#1D4ED8',
+                            }}
+                          >
+                            Step {colStatus.order || cIdx + 1}
+                          </span>
+                          <span className="text-xs font-semibold text-gray-900 truncate max-w-[110px]" title={colStatus.name}>
+                            {colStatus.name}
+                          </span>
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {activeWorkflowStatuses.map((rowStatus, rIdx) => {
+                    const rowRule = transitionRules[rowStatus.name] || { allowed: [], type: 'editable' };
+                    const isSelectedRow = rowStatus.name === selectedTransitionStatus;
+
+                    return (
+                      <tr
+                        key={rowStatus.id || rowStatus.name}
+                        className={`transition-colors ${isSelectedRow ? 'bg-indigo-50/40' : 'hover:bg-gray-50/60'}`}
+                      >
+                        {/* Source Status Row Header */}
+                        <td className="p-3 font-semibold text-gray-900 sticky left-0 bg-white z-10 border-r border-gray-200 shadow-2xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0"
+                                style={{
+                                  backgroundColor: rowStatus.bgColor || '#DBEAFE',
+                                  color: rowStatus.textColor || '#1D4ED8',
+                                }}
+                              >
+                                {rowStatus.order || rIdx + 1}
+                              </span>
+                              <span className="font-bold text-gray-900 text-xs truncate max-w-[100px]" title={rowStatus.name}>
+                                {rowStatus.name}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTransitionStatus(rowStatus.name)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                                isSelectedRow
+                                  ? 'bg-[#252578] text-white'
+                                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+                              }`}
+                              title="Focus in single status editor above"
+                            >
+                              {isSelectedRow ? 'Active' : 'Edit'}
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* Transition Cells */}
+                        {activeWorkflowStatuses.map((colStatus) => {
+                          const isSelf = rowStatus.name === colStatus.name;
+                          const isAllowed = (rowRule.allowed || []).includes(colStatus.name);
+                          const isEditable = rowRule.type === 'editable';
+
+                          if (isSelf) {
+                            return (
+                              <td key={colStatus.name} className="p-2.5 text-center bg-gray-50/40">
+                                <span className="text-gray-300 font-bold select-none">—</span>
+                              </td>
+                            );
+                          }
+
+                          return (
+                            <td key={colStatus.name} className="p-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMatrixTransition(rowStatus.name, colStatus.name)}
+                                disabled={!isEditable}
+                                className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all inline-flex items-center justify-center gap-1 cursor-pointer ${
+                                  isAllowed
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-gray-50 text-gray-400 border border-gray-200 hover:bg-gray-100 hover:text-gray-600'
+                                } ${!isEditable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={`${rowStatus.name} → ${colStatus.name}: Click to ${isAllowed ? 'disallow' : 'allow'}`}
+                              >
+                                {isAllowed ? (
+                                  <>
+                                    <Check size={12} className="text-emerald-600" />
+                                    <span>Allowed</span>
+                                  </>
+                                ) : (
+                                  <span>Blocked</span>
+                                )}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       ) : tab === TAB_FILES ? (
         <div className="flex flex-col gap-6">
@@ -4027,9 +4940,9 @@ export default function SuperAdminTicketConfig() {
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0" />
+                  <span>Active & Enforced on New Uploads</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -4039,18 +4952,29 @@ export default function SuperAdminTicketConfig() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleResetFileConfig}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                disabled={fileConfigSaving}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
               >
                 <RotateCcw size={14} />
                 Reset to Defaults
               </button>
               <button
                 onClick={handleSaveFileConfig}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+                disabled={fileConfigSaving}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer disabled:opacity-50"
               >
                 <Save size={14} />
-                Save Settings
+                {fileConfigSaving ? 'Saving...' : 'Save Settings'}
               </button>
+            </div>
+          </div>
+
+          {/* Non-Destructive Enforcement Callout */}
+          <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+            <Info size={18} className="text-[#252578] shrink-0 mt-0.5" />
+            <div className="text-xs text-gray-700 leading-relaxed">
+              <span className="font-semibold text-gray-900">Non-Destructive Enforcement: </span>
+              File upload limits and malware scanning rules strictly govern <strong>newly uploaded files</strong> on subsequent ticket interactions. Historical tickets and their existing attachments remain fully intact and unaltered.
             </div>
           </div>
 
@@ -6295,9 +7219,9 @@ export default function SuperAdminTicketConfig() {
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 border border-green-200">
+                  <CheckCircle2 size={13} className="shrink-0" />
+                  <span>Configured & active for new tickets</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -6411,20 +7335,20 @@ export default function SuperAdminTicketConfig() {
                       className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-[#252578] cursor-pointer appearance-none pr-10 shadow-2xs ${defaultsErrors.priority ? 'border-red-300 ring-1 ring-red-300' : 'border-gray-200'
                         }`}
                     >
-                      {items.priorities && items.priorities.length > 0 ? (
-                        items.priorities.map((p) => (
-                          <option key={p.id} value={p.name}>
-                            {p.name} Priority
+                      {(() => {
+                        const fallbackPriorities = ['Low', 'Medium', 'High', 'Critical'];
+                        const loadedPriorities = (items.priorities && items.priorities.length > 0)
+                          ? items.priorities.map((p) => p.name)
+                          : fallbackPriorities;
+                        const hasCurrent = loadedPriorities.some((p) => p.toLowerCase() === (defaultsConfig.priority || '').toLowerCase());
+                        const optionsToRender = hasCurrent ? loadedPriorities : [defaultsConfig.priority, ...loadedPriorities].filter(Boolean);
+
+                        return optionsToRender.map((pName) => (
+                          <option key={pName} value={pName}>
+                            {pName} Priority
                           </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="Low">Low Priority</option>
-                          <option value="Medium">Medium Priority</option>
-                          <option value="High">High Priority</option>
-                          <option value="Urgent">Urgent Priority</option>
-                        </>
-                      )}
+                        ));
+                      })()}
                     </select>
                     <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
@@ -6473,7 +7397,14 @@ export default function SuperAdminTicketConfig() {
                   <div className="relative">
                     <select
                       id="default-sla-select"
-                      value={defaultsConfig.slaPolicy}
+                      value={(() => {
+                        const policy = String(defaultsConfig.slaPolicy || 'dynamic').trim();
+                        if (!policy || policy.toLowerCase() === 'dynamic') return 'dynamic';
+                        const found = (items.slas || []).find(
+                          (s) => String(s.sla_ID) === policy || s.sla_name?.toLowerCase() === policy.toLowerCase()
+                        );
+                        return found?.sla_name || policy;
+                      })()}
                       onChange={(e) => handleSlaPolicyChange(e.target.value)}
                       className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-[#252578] cursor-pointer appearance-none pr-10 shadow-2xs"
                     >
@@ -6481,10 +7412,25 @@ export default function SuperAdminTicketConfig() {
                         Dynamic (Department & Priority Rule) [Current Behavior]
                       </option>
                       {(items.slas || []).map((sla) => (
-                        <option key={sla.sla_ID} value={String(sla.sla_ID)}>
+                        <option key={sla.sla_ID} value={sla.sla_name}>
                           {sla.sla_name} (Fixed override: {sla.response_time_minutes ? `${sla.response_time_minutes}m` : 'N/A'} resp / {sla.resolution_time_minutes ? `${Math.round(sla.resolution_time_minutes / 60)}h` : 'N/A'} res)
                         </option>
                       ))}
+                      {(() => {
+                        const policy = String(defaultsConfig.slaPolicy || 'dynamic').trim();
+                        if (!policy || policy.toLowerCase() === 'dynamic') return null;
+                        const exists = (items.slas || []).some(
+                          (s) => String(s.sla_ID) === policy || s.sla_name?.toLowerCase() === policy.toLowerCase()
+                        );
+                        if (!exists) {
+                          return (
+                            <option key={policy} value={policy}>
+                              {policy} (Active SLA Policy)
+                            </option>
+                          );
+                        }
+                        return null;
+                      })()}
                     </select>
                     <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
@@ -6525,7 +7471,7 @@ export default function SuperAdminTicketConfig() {
                   <span className="truncate">
                     {defaultsConfig.slaPolicy === 'dynamic'
                       ? 'Dynamic (Department Rule)'
-                      : (items.slas || []).find((s) => String(s.sla_ID) === String(defaultsConfig.slaPolicy))?.sla_name || defaultsConfig.slaPolicy}
+                      : (items.slas || []).find((s) => String(s.sla_ID) === String(defaultsConfig.slaPolicy) || s.sla_name?.toLowerCase() === String(defaultsConfig.slaPolicy).toLowerCase())?.sla_name || defaultsConfig.slaPolicy}
                   </span>
                 </span>
               </div>
@@ -6552,9 +7498,9 @@ export default function SuperAdminTicketConfig() {
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                  <AlertCircle size={13} className="shrink-0" />
-                  <span>Changes are not yet saved — persistence coming soon</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                  <span>Active Configuration — Persisted System-wide</span>
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -6565,7 +7511,8 @@ export default function SuperAdminTicketConfig() {
               <button
                 type="button"
                 onClick={handleResetNumberFormat}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs"
+                disabled={savingNumberFormat}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RotateCcw size={14} />
                 Reset to Defaults
@@ -6573,10 +7520,11 @@ export default function SuperAdminTicketConfig() {
               <button
                 type="button"
                 onClick={handleSaveNumberFormat}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#1a1a5e] transition-all cursor-pointer shadow-xs"
+                disabled={savingNumberFormat}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#1a1a5e] transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Save size={14} />
-                Save Format
+                {savingNumberFormat ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                {savingNumberFormat ? 'Saving…' : numberFormatDraftDirty ? 'Save Changes' : 'Save Format'}
               </button>
             </div>
           </div>
@@ -6672,7 +7620,7 @@ export default function SuperAdminTicketConfig() {
                       id="format-prefix-input"
                       type="text"
                       maxLength={10}
-                      value={numberFormatConfig.prefix}
+                      value={numberFormatConfig.prefix ?? ''}
                       onChange={(e) => handlePrefixChange(e.target.value)}
                       placeholder="TKT"
                       className={`w-full rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold uppercase text-gray-800 outline-none focus:ring-2 focus:ring-[#252578] shadow-2xs transition-all ${
@@ -7095,10 +8043,12 @@ export default function SuperAdminTicketConfig() {
                       <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                     </div>
                   </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                    <AlertCircle size={13} className="shrink-0" />
-                    <span>Changes are not yet saved — persistence coming soon</span>
-                  </span>
+                  {branchSubSection === BRANCH_SUBTAB_CATEGORIES && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Live & Synced with Branch Database</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
                   {branchSubSection === BRANCH_SUBTAB_CATEGORIES
@@ -7115,18 +8065,9 @@ export default function SuperAdminTicketConfig() {
                     className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
                   >
                     <RotateCcw size={14} />
-                    Reset to Seeded
+                    Reset to Defaults
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleResetBranchOverrides}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-                  >
-                    <RotateCcw size={14} />
-                    Reset to Seeded
-                  </button>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -7212,82 +8153,100 @@ export default function SuperAdminTicketConfig() {
             )}
 
             {/* Categories Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {currentBranchCategories.map((cat) => (
-                <div
-                  key={cat.id || cat.name}
-                  className={`rounded-xl border p-4.5 flex flex-col justify-between gap-4 transition-all hover:shadow-xs ${
-                    cat.isSystemDefault
-                      ? 'border-gray-200 bg-gray-50/50'
-                      : 'border-indigo-100 bg-white ring-1 ring-indigo-50'
-                  }`}
-                >
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-sm font-bold text-gray-900 leading-snug break-words">
-                        {cat.name}
-                      </h4>
-                      {cat.isSystemDefault ? (
-                        <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200">
-                          System Default
-                        </span>
-                      ) : (
-                        <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-200">
-                          Branch Custom
-                        </span>
+            {branchCategoryLoading ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
+                <RefreshCw size={24} className="animate-spin text-[#252578] mb-3" />
+                <p className="text-sm font-semibold text-gray-700">Loading branch categories from server...</p>
+                <p className="text-xs text-gray-400 mt-1">Fetching live category records for {selectedBranch.name}</p>
+              </div>
+            ) : currentBranchCategories.length === 0 ? (
+              <div className="p-8 text-center bg-gray-50 rounded-xl border border-gray-200">
+                <p className="text-sm text-gray-500">No categories found for {selectedBranch.name}. Click "Add Category" above to create one.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {currentBranchCategories.map((cat) => (
+                  <div
+                    key={cat.id || cat.name}
+                    className={`rounded-xl border p-4.5 flex flex-col justify-between gap-4 transition-all hover:shadow-xs ${
+                      cat.isSystemDefault
+                        ? 'border-gray-200 bg-gray-50/50'
+                        : 'border-indigo-100 bg-white ring-1 ring-indigo-50'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-gray-900 leading-snug break-words">
+                          {cat.name}
+                        </h4>
+                        {cat.isSystemDefault ? (
+                          <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200">
+                            System Default
+                          </span>
+                        ) : (
+                          <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-200">
+                            Branch Custom
+                          </span>
+                        )}
+                      </div>
+
+                      {cat.description && (
+                        <p className="text-xs text-gray-500 line-clamp-2">
+                          {cat.description}
+                        </p>
                       )}
+
+                      <div className="flex items-center gap-2">
+                        {cat.inUse ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            {cat.openTicketCount ?? cat.activeTicketCount ?? 1} Open Ticket(s) in Branch
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                            0 open tickets
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {cat.inUse ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                          {cat.activeTicketCount || 1} Open Ticket(s) in Branch
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
-                          0 open tickets
-                        </span>
-                      )}
+                    <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-gray-400">
+                        {cat.isSystemDefault ? 'Applies system-wide' : `Scoped to ${selectedBranch.name}`}
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        {cat.isSystemDefault ? (
+                          <span className="text-[11px] font-medium text-gray-400 italic">
+                            Protected default
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCategory(cat)}
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                              title="Remove category from this branch"
+                            >
+                              <Trash2 size={13} />
+                              Remove
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditCategoryModal(cat)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer shadow-xs"
+                            >
+                              <Edit3 size={13} />
+                              Edit
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-
-                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-gray-400">
-                      {cat.isSystemDefault ? 'Applies system-wide' : `Scoped to ${selectedBranch.name}`}
-                    </span>
-
-                    <div className="flex items-center gap-1.5">
-                      {cat.isSystemDefault ? (
-                        <span className="text-[11px] font-medium text-gray-400 italic">
-                          Protected default
-                        </span>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveCategory(cat)}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
-                            title="Remove category from this branch"
-                          >
-                            <Trash2 size={13} />
-                            Remove
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditCategoryModal(cat)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer shadow-xs"
-                          >
-                            <Edit3 size={13} />
-                            Edit
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Section 2: SLA Policy Management */}
@@ -7510,19 +8469,38 @@ export default function SuperAdminTicketConfig() {
                   </p>
                 </div>
 
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-600">
+                    Description <span className="text-gray-400 font-normal">(Optional)</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editingCategory.description || ''}
+                    onChange={(e) => {
+                      setEditingCategory({ ...editingCategory, description: e.target.value });
+                      setCategoryModalError('');
+                    }}
+                    placeholder="Brief description of when to select this category"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 focus:border-[#252578] focus:ring-1 focus:ring-[#252578] outline-none resize-none"
+                  />
+                </div>
+
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setEditingCategory(null)}
-                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+                    disabled={branchCategorySaving}
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleSaveCategory}
-                    className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
+                    disabled={branchCategorySaving}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
+                    {branchCategorySaving && <RefreshCw size={13} className="animate-spin" />}
                     {editingCategory.isNew ? 'Create Category' : 'Save Changes'}
                   </button>
                 </div>
@@ -7559,9 +8537,9 @@ export default function SuperAdminTicketConfig() {
                 <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-3.5 text-xs text-blue-900 flex items-start gap-2.5">
                   <Info size={16} className="shrink-0 text-blue-600 mt-0.5" />
                   <div className="leading-relaxed">
-                    <p className="font-semibold text-blue-950">Resolution Target Policy</p>
+                    <p className="font-semibold text-blue-950">Resolution Target Policy (Non-Recalculating)</p>
                     <p className="mt-0.5 text-blue-800">
-                      This affects new tickets going forward. Existing open tickets' due dates are not recalculated.
+                      {branchCatSlaPolicy.tooltip}
                     </p>
                   </div>
                 </div>
@@ -7643,15 +8621,18 @@ export default function SuperAdminTicketConfig() {
                   <button
                     type="button"
                     onClick={() => setEditingSlaPolicy(null)}
-                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+                    disabled={branchCategorySaving}
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all cursor-pointer disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleSaveSlaPolicy}
-                    className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
+                    disabled={branchCategorySaving}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
+                    {branchCategorySaving && <RefreshCw size={13} className="animate-spin" />}
                     {editingSlaPolicy.isNew ? 'Create SLA Override' : 'Save Changes'}
                   </button>
                 </div>
@@ -7686,10 +8667,20 @@ export default function SuperAdminTicketConfig() {
             </div>
           )}
 
+          {/* SLA change policy (server-provided so the text always matches real behaviour) */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 text-xs text-indigo-900 flex items-start gap-2" data-testid="branch-sla-policy-notice">
+            <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-bold">When do SLA changes take effect?</span>{' '}
+              {branchSlaPolicy.tooltip}
+              {branchPriorityLoading && <span className="ml-2 text-indigo-500">Loading…</span>}
+            </div>
+          </div>
+
           {/* Priority Level Overrides Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {currentBranchOverrides.map((override) => {
-              const sysDefault = SYSTEM_DEFAULT_PRIORITY_SLAS[override.name] || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
+              const sysDefault = override.systemDefault || { responseTimeLimit: 60, resolutionTimeLimit: 1440 };
 
               return (
                 <div
@@ -7873,7 +8864,7 @@ export default function SuperAdminTicketConfig() {
                         {formatMinutes(editingBranchOverride.responseTimeLimit) || '0 mins'}
                       </span>
                       <span className="text-gray-400 text-[11px]">
-                        System default: {formatMinutes(SYSTEM_DEFAULT_PRIORITY_SLAS[editingBranchOverride.priorityName]?.responseTimeLimit)}
+                        System default: {formatMinutes(editingBranchOverride.systemDefault?.responseTimeLimit)}
                       </span>
                     </div>
                     {branchModalErrors.responseTimeLimit && (
@@ -7912,7 +8903,7 @@ export default function SuperAdminTicketConfig() {
                         {formatMinutes(editingBranchOverride.resolutionTimeLimit) || '0 mins'}
                       </span>
                       <span className="text-gray-400 text-[11px]">
-                        System default: {formatMinutes(SYSTEM_DEFAULT_PRIORITY_SLAS[editingBranchOverride.priorityName]?.resolutionTimeLimit)}
+                        System default: {formatMinutes(editingBranchOverride.systemDefault?.resolutionTimeLimit)}
                       </span>
                     </div>
                     {branchModalErrors.resolutionTimeLimit && (
@@ -7928,7 +8919,7 @@ export default function SuperAdminTicketConfig() {
                     <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
                     <div className="leading-relaxed">
                       <span className="font-bold">Due-Date Calculation Impact:</span>{' '}
-                      This affects new tickets created in <strong>{selectedBranch.name}</strong> going forward. Existing open tickets' due dates are not recalculated.
+                      {branchSlaPolicy.tooltip} Applies to <strong>{selectedBranch.name}</strong>.
                     </div>
                   </div>
                 </div>
@@ -7947,7 +8938,7 @@ export default function SuperAdminTicketConfig() {
                     onClick={handleSaveBranchOverride}
                     className="rounded-xl bg-[#252578] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1f1f60] transition-all cursor-pointer"
                   >
-                    {editingBranchOverride.isNew ? 'Create Override' : 'Save Changes'}
+                    {branchPrioritySaving ? 'Saving…' : editingBranchOverride.isNew ? 'Create Override' : 'Save Changes'}
                   </button>
                 </div>
               </div>
@@ -8420,6 +9411,57 @@ export default function SuperAdminTicketConfig() {
                   className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
                 />
               </div>
+
+              {/* Prerequisite Progression Gate */}
+              <div className="rounded-xl border border-gray-200/80 bg-gray-50/70 p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editingWorkflow.requiresPreviousFulfilled)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      const preceding = workflowStatuses
+                        .filter((s) => s.id !== editingWorkflow.id && s.order < editingWorkflow.order)
+                        .sort((a, b) => a.order - b.order)
+                        .slice(-1)[0];
+                      setEditingWorkflow({
+                        ...editingWorkflow,
+                        requiresPreviousFulfilled: checked,
+                        prerequisiteStatusId: checked ? (editingWorkflow.prerequisiteStatusId || (preceding?.id || '')) : '',
+                      });
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-gray-900">Require preceding status to be fulfilled</span>
+                    <p className="text-xs text-gray-500 mt-0.5">Tickets cannot transition into this status unless the prerequisite status has been satisfied.</p>
+                  </div>
+                </label>
+
+                {editingWorkflow.requiresPreviousFulfilled && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <label className="mb-1.5 block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Specify Prerequisite Status
+                    </label>
+                    <select
+                      value={editingWorkflow.prerequisiteStatusId || ''}
+                      onChange={(e) => setEditingWorkflow({ ...editingWorkflow, prerequisiteStatusId: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]"
+                    >
+                      <option value="">Immediate preceding status in sequence</option>
+                      {workflowStatuses
+                        .filter((s) => s.id !== editingWorkflow.id)
+                        .sort((a, b) => a.order - b.order)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            Stage {s.order}: {s.name} {s.isSystem ? '(System)' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-3 pt-1">
                 <button onClick={() => setEditingWorkflow(null)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
                 <button onClick={handleSaveWorkflow} disabled={!editingWorkflow.name.trim()} className="rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg disabled:opacity-50">Save</button>
