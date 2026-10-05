@@ -866,6 +866,21 @@ export const resetTicketLimitConfig = async () => {
   return response.data?.value || response.data;
 };
 
+export const getTicketNumberFormatConfig = async () => {
+  const response = await ticketClient.get('/superadmin/number-format');
+  return response.data?.value || response.data;
+};
+
+export const updateTicketNumberFormatConfig = async (payload) => {
+  const response = await ticketClient.put('/superadmin/number-format', payload);
+  return response.data?.value || response.data;
+};
+
+export const resetTicketNumberFormatConfig = async () => {
+  const response = await ticketClient.post('/superadmin/number-format/reset');
+  return response.data?.value || response.data;
+};
+
 export const createSuperAdminEquipment = async (payload) => {
   const response = await ticketClient.post('/superadmin/equipment', payload);
   return response.data;
@@ -878,6 +893,21 @@ export const updateSuperAdminEquipment = async (id, payload) => {
 
 export const deleteSuperAdminEquipment = async (id) => {
   const response = await ticketClient.delete(`/superadmin/equipment/${id}`);
+  return response.data;
+};
+
+export const createSuperAdminTicketCategory = async (payload) => {
+  const response = await ticketClient.post('/superadmin/ticket-categories', payload);
+  return response.data;
+};
+
+export const updateSuperAdminTicketCategory = async (id, payload) => {
+  const response = await ticketClient.put(`/superadmin/ticket-categories/${id}`, payload);
+  return response.data;
+};
+
+export const deleteSuperAdminTicketCategory = async (id) => {
+  const response = await ticketClient.delete(`/superadmin/ticket-categories/${id}`);
   return response.data;
 };
 
@@ -952,6 +982,11 @@ export const deleteWorkflowStatus = async (id) => {
   return response.data;
 };
 
+export const resetWorkflowStatuses = async () => {
+  const response = await ticketClient.post('/superadmin/workflow-statuses/reset-defaults');
+  return response.data;
+};
+
 // Escalation Rules
 export const getEscalationRules = async () => {
   const response = await ticketClient.get('/superadmin/escalation-rules');
@@ -987,3 +1022,81 @@ export const updateWindowConfig = async (payload) => {
   const response = await ticketClient.put('/superadmin/window-config', payload);
   return response.data?.value || response.data;
 };
+
+export const getTicketDefaultsConfig = async () => {
+  const response = await ticketClient.get('/superadmin/ticket-defaults');
+  return response.data?.value || response.data;
+};
+
+export const updateTicketDefaultsConfig = async (payload) => {
+  const response = await ticketClient.put('/superadmin/ticket-defaults', payload);
+  return response.data?.value || response.data;
+};
+
+export const resetTicketDefaultsConfig = async () => {
+  const response = await ticketClient.post('/superadmin/ticket-defaults/reset');
+  return response.data?.value || response.data;
+};
+
+// Branch-specific priority levels & SLA overrides (scoped to a branch slug)
+const branchPriorityPath = (branchId) => `/superadmin/branches/${encodeURIComponent(branchId)}/priorities`;
+
+export const getBranchPriorities = async (branchId) => {
+  const response = await ticketClient.get(branchPriorityPath(branchId));
+  return response.data;
+};
+
+export const createBranchPriority = async (branchId, payload) => {
+  const response = await ticketClient.post(branchPriorityPath(branchId), payload);
+  return response.data;
+};
+
+export const updateBranchPriority = async (branchId, id, payload) => {
+  const response = await ticketClient.put(`${branchPriorityPath(branchId)}/${encodeURIComponent(id)}`, payload);
+  return response.data;
+};
+
+export const deleteBranchPriority = async (branchId, id) => {
+  const response = await ticketClient.delete(`${branchPriorityPath(branchId)}/${encodeURIComponent(id)}`);
+  return response.data;
+};
+
+// Branch-specific categories & SLA policies
+const branchCategoryPath = (branchId) => `/superadmin/branches/${encodeURIComponent(branchId)}/categories`;
+const branchSlaPolicyPath = (branchId) => `/superadmin/branches/${encodeURIComponent(branchId)}/sla-policies`;
+
+export const getBranchCategoriesAndSla = async (branchId) => {
+  const response = await ticketClient.get(branchCategoryPath(branchId));
+  return response.data;
+};
+
+export const createBranchCategory = async (branchId, payload) => {
+  const response = await ticketClient.post(branchCategoryPath(branchId), payload);
+  return response.data;
+};
+
+export const updateBranchCategory = async (branchId, id, payload) => {
+  const response = await ticketClient.put(`${branchCategoryPath(branchId)}/${encodeURIComponent(id)}`, payload);
+  return response.data;
+};
+
+export const deleteBranchCategory = async (branchId, id) => {
+  const response = await ticketClient.delete(`${branchCategoryPath(branchId)}/${encodeURIComponent(id)}`);
+  return response.data;
+};
+
+export const resetBranchCategoriesToDefaults = async (branchId) => {
+  const response = await ticketClient.post(`${branchCategoryPath(branchId)}/reset`);
+  return response.data;
+};
+
+export const saveBranchSlaPolicy = async (branchId, payload) => {
+  const response = await ticketClient.post(branchSlaPolicyPath(branchId), payload);
+  return response.data;
+};
+
+export const deleteBranchSlaPolicy = async (branchId, payload) => {
+  const response = await ticketClient.delete(branchSlaPolicyPath(branchId), { data: payload });
+  return response.data;
+};
+

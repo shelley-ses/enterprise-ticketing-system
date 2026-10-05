@@ -25,7 +25,13 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Event::listen(\App\Events\ArticlePublished::class, function (\App\Events\ArticlePublished $event) {
+            app(\App\Services\RagService::class)->refreshIndex($event->article->id);
+        });
+
+        Event::listen(\App\Events\ArticleArchived::class, function (\App\Events\ArticleArchived $event) {
+            app(\App\Services\RagService::class)->refreshIndex($event->article->id);
+        });
     }
 
     /**

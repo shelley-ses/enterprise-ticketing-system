@@ -9,6 +9,9 @@ import {
   createSuperAdminEquipment,
   updateSuperAdminEquipment,
   deleteSuperAdminEquipment,
+  createSuperAdminTicketCategory,
+  updateSuperAdminTicketCategory,
+  deleteSuperAdminTicketCategory,
   createSuperAdminPriority,
   updateSuperAdminPriority,
   deleteSuperAdminPriority,
@@ -118,6 +121,7 @@ export const GROUP_SLA_ESCALATION = 'sla-escalation';
 export const GROUP_NOTIFICATIONS = 'notifications';
 export const GROUP_SECURITY = 'security';
 
+export const TAB_TICKET_CATEGORIES = 'ticket-categories';
 export const TAB_EQUIPMENT = 'equipment';
 export const TAB_PRIORITY = 'priority';
 export const TAB_BRANCH_CONFIG = 'branch-config';
@@ -147,8 +151,9 @@ export const GROUPS_CONFIG = [
   {
     id: GROUP_CLASSIFICATION,
     label: 'Classification',
-    defaultSubTab: TAB_EQUIPMENT,
+    defaultSubTab: TAB_TICKET_CATEGORIES,
     subTabs: [
+      { id: TAB_TICKET_CATEGORIES, label: 'Ticket Categories' },
       { id: TAB_EQUIPMENT, label: 'Equipment Categories' },
       { id: TAB_PRIORITY, label: 'Priority Levels' },
       { id: TAB_BRANCH_CONFIG, label: 'Branch Configuration' },
@@ -336,12 +341,17 @@ export const DEFAULT_WORKFLOW_TRANSITION_RULES = {
     description: 'Initial ticket state upon customer or employee submission.',
   },
   'Assigned': {
-    allowed: ['In Progress', 'Pending Parts', 'Closed'],
+    allowed: ['In Progress', 'Pending Reassignment', 'Pending Parts', 'Closed'],
     type: 'editable',
     description: 'Ticket has been assigned to a technician and is awaiting action.',
   },
+  'Pending Reassignment': {
+    allowed: ['Assigned', 'In Progress'],
+    type: 'editable',
+    description: 'Awaiting CS decision on reassignment request. Returns to Assigned or In Progress if rejected/failed.',
+  },
   'In Progress': {
-    allowed: ['Pending Parts', 'Resolved', 'Assigned'],
+    allowed: ['Pending Parts', 'Pending Evaluation', 'Pending Reassignment', 'Resolved', 'Assigned'],
     type: 'editable',
     description: 'Technician is actively working to diagnose and resolve the issue.',
   },
@@ -349,6 +359,11 @@ export const DEFAULT_WORKFLOW_TRANSITION_RULES = {
     allowed: ['In Progress', 'Assigned', 'Resolved'],
     type: 'editable',
     description: 'Waiting for replacement parts, external vendor, or requester response.',
+  },
+  'Pending Evaluation': {
+    allowed: ['Resolved', 'In Progress'],
+    type: 'editable',
+    description: 'Work order or proof submitted, awaiting CS or customer evaluation.',
   },
   'Resolved': {
     allowed: ['Closed', 'In Progress'],
@@ -366,8 +381,10 @@ export const DEFAULT_WORKFLOW_TRANSITION_RULES = {
 export const TS093_STATUSES = [
   'New',
   'Assigned',
+  'Pending Reassignment',
   'In Progress',
   'Pending Parts',
+  'Pending Evaluation',
   'Resolved',
   'Closed',
 ];
@@ -542,10 +559,12 @@ const priorityList = [
 const defaultWorkflowStatuses = [
   { id: 1, name: 'New', description: 'Ticket has been submitted and is awaiting review', bgColor: '#DBEAFE', textColor: '#1D4ED8', order: 1, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
   { id: 2, name: 'Assigned', description: 'Ticket has been assigned to a technician', bgColor: '#FFEDD5', textColor: '#C2410C', order: 2, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 1 },
-  { id: 3, name: 'In Progress', description: 'Technician is actively working on the ticket', bgColor: '#FEE2E2', textColor: '#B91C1C', order: 3, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 2 },
-  { id: 4, name: 'Pending Parts', description: 'Waiting for replacement parts to arrive', bgColor: '#F3E8FF', textColor: '#7E22CE', order: 4, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
-  { id: 5, name: 'Resolved', description: 'Issue has been resolved pending confirmation', bgColor: '#DCFCE7', textColor: '#15803D', order: 5, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 3 },
-  { id: 6, name: 'Closed', description: 'Ticket has been closed and confirmed by the requester', bgColor: '#F3F4F6', textColor: '#4B5563', order: 6, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 5 },
+  { id: 3, name: 'Pending Reassignment', description: 'Technician requested ticket reassignment, awaiting review', bgColor: '#FEF9C3', textColor: '#A16207', order: 3, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
+  { id: 4, name: 'In Progress', description: 'Technician is actively working on the ticket', bgColor: '#FEE2E2', textColor: '#B91C1C', order: 4, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 2 },
+  { id: 5, name: 'Pending Parts', description: 'Waiting for replacement parts to arrive', bgColor: '#F3E8FF', textColor: '#7E22CE', order: 5, isSystem: true, requiresPreviousFulfilled: false, prerequisiteStatusId: null },
+  { id: 6, name: 'Pending Evaluation', description: 'Work completed and proof submitted, awaiting CS or customer evaluation', bgColor: '#CCFBF1', textColor: '#0F766E', order: 6, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 4 },
+  { id: 7, name: 'Resolved', description: 'Issue has been resolved pending confirmation', bgColor: '#DCFCE7', textColor: '#15803D', order: 7, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 6 },
+  { id: 8, name: 'Closed', description: 'Ticket has been closed and confirmed by the requester', bgColor: '#F3F4F6', textColor: '#4B5563', order: 8, isSystem: true, requiresPreviousFulfilled: true, prerequisiteStatusId: 7 },
 ];
 
 const defaultEscalationRules = [
@@ -677,6 +696,9 @@ export default function SuperAdminTicketConfig() {
     if (!rawSubTab) return null;
     const s = rawSubTab.toLowerCase();
     if (groupId === GROUP_CLASSIFICATION) {
+      if (s === 'ticket-categories' || s === 'ticket_categories' || s === 'ticket-category' || s === 'ticketcategories') {
+        return TAB_TICKET_CATEGORIES;
+      }
       if (s === 'branch-config' || s === 'branch-configuration' || s === 'branch' || s === 'branch_config') {
         return TAB_BRANCH_CONFIG;
       }
@@ -697,7 +719,7 @@ export default function SuperAdminTicketConfig() {
   // The URL is the sole source of truth for what is rendered. Local storage only
   // remembers each group's last valid sub-tab for the next group navigation.
   const [activeSubTabs, setActiveSubTabs] = useState(() => ({
-    [GROUP_CLASSIFICATION]: TAB_EQUIPMENT,
+    [GROUP_CLASSIFICATION]: TAB_TICKET_CATEGORIES,
     [GROUP_LIFECYCLE]: TAB_WORKFLOW,
     [GROUP_SLA_ESCALATION]: TAB_SLA,
     [GROUP_NOTIFICATIONS]: NOTIF_SUBTAB_RECIPIENTS,
@@ -762,7 +784,7 @@ export default function SuperAdminTicketConfig() {
   }, [activeGroup, currentGroup.defaultSubTab, normalizeSubTabId, navigate]);
 
   const setNotifSubtab = handleSelectSubTab;
-  const [items, setItems] = useState({ equipment: [], priorities: [], slaRules: [], departments: [], slas: [] });
+  const [items, setItems] = useState({ ticketCategories: [], equipment: [], priorities: [], slaRules: [], departments: [], slas: [] });
   const [loading, setLoading] = useState(true);
   const [savingSla, setSavingSla] = useState(false);
   const [search, setSearch] = useState('');
@@ -771,9 +793,10 @@ export default function SuperAdminTicketConfig() {
   const tabContentRef = useRef(null);
   const isInitialMount = useRef(true);
 
-  // Equipment / Priority Edit state
+  // Equipment / Priority / Ticket Categories Edit state
   const [editingItem, setEditingItem] = useState(null);
   const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
   const [editColor, setEditColor] = useState(priorityColorOptions[0].value);
 
   // SLA Selected Department for detailed rule view (null = Department List view)
@@ -1034,15 +1057,13 @@ export default function SuperAdminTicketConfig() {
   // Feedback Form Configuration state
   // feedbackQuestions is keyed by category name from the DB (dynamic, not hardcoded)
   const [feedbackQuestions, setFeedbackQuestions] = useState(TS104_DEFAULT_QUESTIONS);
-  // feedbackCategories is derived from items.equipment names UNION any categories present in the DB
-  // (ensures IT/Service/Others from the initial seed also appear even before machine categories are renamed)
+  // feedbackCategories is derived from Ticket Categories (items.ticketCategories), NOT equipment categories!
   const [knownFeedbackCategories, setKnownFeedbackCategories] = useState([]);
   const feedbackCategories = useMemo(() => {
-    const equipmentNames = (items.equipment || []).map((e) => e.name);
-    // Union: all equipment names + any DB-backed categories not yet in equipment
-    const all = Array.from(new Set([...equipmentNames, ...knownFeedbackCategories]));
+    const ticketCatNames = (items.ticketCategories || []).map((c) => c.name);
+    const all = Array.from(new Set([...ticketCatNames, ...knownFeedbackCategories, ...FEEDBACK_CATEGORIES]));
     return all.length > 0 ? all : FEEDBACK_CATEGORIES;
-  }, [items.equipment, knownFeedbackCategories]);
+  }, [items.ticketCategories, knownFeedbackCategories]);
   const [activeFeedbackCategory, setActiveFeedbackCategory] = useState(FEEDBACK_CATEGORIES[0]);
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [feedbackInlineError, setFeedbackInlineError] = useState('');
@@ -1231,6 +1252,7 @@ export default function SuperAdminTicketConfig() {
         ];
 
       setItems({
+        ticketCategories: configData.ticket_categories || [],
         equipment: configData.equipment || [],
         priorities: configData.priorities || [],
         slaRules: rules,
@@ -1511,17 +1533,22 @@ export default function SuperAdminTicketConfig() {
     }
   }, [activeGroup, currentSubTab, branchSubSection]);
 
-  const list = tab === TAB_EQUIPMENT ? items.equipment : items.priorities;
+  const list = tab === TAB_TICKET_CATEGORIES
+    ? (items.ticketCategories || [])
+    : tab === TAB_EQUIPMENT
+    ? (items.equipment || [])
+    : (items.priorities || []);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return list;
     const q = search.trim().toLowerCase();
-    return list.filter((item) => item.name && item.name.toLowerCase().includes(q));
+    return list.filter((item) => (item.name && item.name.toLowerCase().includes(q)) || (item.description && item.description.toLowerCase().includes(q)));
   }, [list, search]);
 
   const handleAdd = () => {
-    setEditingItem({ id: null, name: '' });
+    setEditingItem({ id: null, name: '', description: '' });
     setEditName('');
+    setEditDescription('');
     setEditColor(priorityColorOptions[0].value);
   };
 
@@ -1530,22 +1557,21 @@ export default function SuperAdminTicketConfig() {
     setMenuPos(null);
     setEditingItem(item);
     setEditName(item.name);
+    setEditDescription(item.description || '');
     setEditColor(item.color || priorityColorOptions[0].value);
   };
 
   const handleSaveItem = async () => {
     if (!editName.trim()) return;
     try {
-      if (tab === TAB_EQUIPMENT) {
+      if (tab === TAB_TICKET_CATEGORIES) {
         const isNew = editingItem.id === null;
         if (isNew) {
-          await createSuperAdminEquipment({ name: editName.trim() });
+          await createSuperAdminTicketCategory({ name: editName.trim(), description: editDescription?.trim() || null });
         } else {
-          await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
+          await updateSuperAdminTicketCategory(editingItem.id, { name: editName.trim(), description: editDescription?.trim() || null });
         }
-        showSuccess('Saved', 'Category has been saved.');
-        // After creating a new equipment category, automatically seed default feedback questions for it
-        // (idempotent: backend skips if questions already exist for that category)
+        showSuccess('Saved', 'Ticket category has been saved.');
         if (isNew) {
           try {
             const seedRes = await seedFeedbackCategory(editName.trim());
@@ -1556,9 +1582,17 @@ export default function SuperAdminTicketConfig() {
               }));
             }
           } catch (seedErr) {
-            console.warn('Failed to seed feedback questions for new category (non-critical):', seedErr);
+            console.warn('Failed to seed feedback questions for new ticket category:', seedErr);
           }
         }
+      } else if (tab === TAB_EQUIPMENT) {
+        const isNew = editingItem.id === null;
+        if (isNew) {
+          await createSuperAdminEquipment({ name: editName.trim() });
+        } else {
+          await updateSuperAdminEquipment(editingItem.id, { name: editName.trim() });
+        }
+        showSuccess('Saved', 'Equipment category has been saved.');
       } else {
         if (editingItem.id === null) {
           await createSuperAdminPriority({ name: editName.trim(), color: editColor });
@@ -1571,39 +1605,51 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showError('Error', 'Failed to save configuration settings.');
+      showError('Error', err?.response?.data?.message || 'Failed to save configuration settings.');
     }
   };
 
   const handleDelete = (item) => {
     setOpenMenuId(null);
     setMenuPos(null);
-    const label = tab === TAB_EQUIPMENT ? 'category' : 'priority';
-    if (tab === TAB_EQUIPMENT) {
+    if (tab === TAB_TICKET_CATEGORIES) {
+      if (item.is_system_default) {
+        showError('Action Prohibited', `"${item.name}" is a core system default ticket category and cannot be deleted.`);
+        return;
+      }
+      showConfirm(
+        `Delete Ticket Category?`,
+        `Are you sure you want to delete the "${item.name}" ticket category?\n\n⚠️ Feedback Form Impact: The feedback questions for this category will be deactivated. Existing feedback submissions will remain in analytics and history reports.`,
+        () => confirmDelete(item),
+        { confirmText: 'Delete Category', confirmClassName: 'bg-red-600 hover:bg-red-700' }
+      );
+    } else if (tab === TAB_EQUIPMENT) {
       showConfirm(
         `Delete Equipment Category?`,
-        `Are you sure you want to delete "${item.name}"?\n\n⚠️ Feedback Impact: The feedback form for the "${item.name}" category will be disabled. Existing feedback questions and historical responses for this category will not be deleted — they remain in the system for reporting. You can re-enable feedback for this category if it is recreated.`,
+        `Are you sure you want to delete "${item.name}"?`,
         () => confirmDelete(item),
         { confirmText: 'Delete Category', confirmClassName: 'bg-red-600 hover:bg-red-700' }
       );
     } else {
-      showConfirm(`Delete ${label}?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
+      showConfirm(`Delete priority?`, `Are you sure you want to delete "${item.name}"?`, () => confirmDelete(item), { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
     }
   };
 
   const confirmDelete = async (item) => {
     closeNotif();
     try {
-      if (tab === TAB_EQUIPMENT) {
-        await deleteSuperAdminEquipment(item.id);
-        // Auto-disable feedback for this category — preserves historical data
+      if (tab === TAB_TICKET_CATEGORIES) {
+        await deleteSuperAdminTicketCategory(item.id);
         try {
           await disableFeedbackCategory(item.name);
           setCategoryFeedbackToggles((prev) => ({ ...prev, [item.name]: false }));
         } catch (fbErr) {
           console.warn('Could not disable category feedback (non-critical):', fbErr);
         }
-        showSuccess('Deleted', `${item.name} has been deleted. Feedback collection for this category has been disabled.`);
+        showSuccess('Deleted', `${item.name} has been deleted.`);
+      } else if (tab === TAB_EQUIPMENT) {
+        await deleteSuperAdminEquipment(item.id);
+        showSuccess('Deleted', `${item.name} has been deleted.`);
       } else {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
@@ -1611,7 +1657,7 @@ export default function SuperAdminTicketConfig() {
       loadConfig();
     } catch (err) {
       console.error(err);
-      showError('Error', 'Failed to delete item.');
+      showError('Error', err?.response?.data?.message || 'Failed to delete item.');
     }
   };
 
@@ -9216,12 +9262,12 @@ export default function SuperAdminTicketConfig() {
       ) : (
         <>
           <div className="flex items-center justify-between gap-4">
-            {tab === TAB_EQUIPMENT && (
+            {(tab === TAB_TICKET_CATEGORIES || tab === TAB_EQUIPMENT) && (
               <div className="relative w-full max-w-none flex-1">
                 <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search categories..."
+                  placeholder={`Search ${tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : 'categories'}...`}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
@@ -9231,7 +9277,7 @@ export default function SuperAdminTicketConfig() {
             {tab === TAB_PRIORITY && <div className="flex-1" />}
             <button onClick={handleAdd} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0">
               <Plus size={18} />
-              Add {tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}
+              Add {tab === TAB_TICKET_CATEGORIES ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}
             </button>
           </div>
 
@@ -9241,27 +9287,47 @@ export default function SuperAdminTicketConfig() {
                 <tr>
                   <th className="px-5 py-4">ID</th>
                   <th className="px-5 py-4">Name</th>
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Description</th>}
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Type</th>}
                   <th className="px-5 py-4 text-center w-20"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan="3" className="px-5 py-8 text-center text-sm text-gray-500">
-                      No {tab === TAB_EQUIPMENT ? 'categories' : 'priorities'} found.
+                    <td colSpan={tab === TAB_TICKET_CATEGORIES ? 5 : 3} className="px-5 py-8 text-center text-sm text-gray-500">
+                      No {tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : tab === TAB_EQUIPMENT ? 'categories' : 'priorities'} found.
                     </td>
                   </tr>
                 )}
                 {filtered.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{item.id}</td>
-                    <td className="px-5 py-4 text-sm text-gray-800">
+                    <td className="px-5 py-4 text-sm text-gray-800 font-medium">
                       {tab === TAB_PRIORITY && item.color ? (
                         <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${item.color}`}>{item.name}</span>
                       ) : (
                         item.name
                       )}
                     </td>
+                    {tab === TAB_TICKET_CATEGORIES && (
+                      <td className="px-5 py-4 text-xs text-gray-500 max-w-xs truncate">
+                        {item.description || '—'}
+                      </td>
+                    )}
+                    {tab === TAB_TICKET_CATEGORIES && (
+                      <td className="px-5 py-4 text-xs">
+                        {item.is_system_default ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                            Core Default
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200">
+                            Custom
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => {
@@ -9290,27 +9356,34 @@ export default function SuperAdminTicketConfig() {
           const t = filtered.find((x) => x.id === openMenuId);
           return t ? (
             <div data-menu-id={t.id} style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, zIndex: 9999 }}
-              className="w-32 rounded-xl border border-gray-200 bg-white shadow-lg">
+              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg">
               <button onClick={() => { handleEdit(t); }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl">
                 Edit
               </button>
-              <button onClick={() => { handleDelete(t); }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
-                Delete
-              </button>
+              {tab === TAB_TICKET_CATEGORIES && t.is_system_default ? (
+                <button disabled title="System default categories cannot be deleted"
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-400 cursor-not-allowed rounded-b-xl opacity-60">
+                  Delete
+                </button>
+              ) : (
+                <button onClick={() => { handleDelete(t); }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-b-xl">
+                  Delete
+                </button>
+              )}
             </div>
           ) : null;
         })(),
         document.body
       )}
 
-      {/* Equipment / Priority Modal */}
+      {/* Equipment / Priority / Ticket Category Modal */}
       {editingItem !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
           <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
-              <h2 className="text-lg font-bold text-gray-900">{editingItem.id === null ? 'Add' : 'Edit'} {tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}</h2>
+              <h2 className="text-lg font-bold text-gray-900">{editingItem.id === null ? 'Add' : 'Edit'} {tab === TAB_TICKET_CATEGORIES ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}</h2>
               <button type="button" onClick={() => setEditingItem(null)} className="p-2 text-gray-400 hover:text-gray-600">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -9324,10 +9397,22 @@ export default function SuperAdminTicketConfig() {
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  placeholder={`Enter ${tab === TAB_EQUIPMENT ? 'category' : 'priority'} name`}
+                  placeholder={`Enter ${tab === TAB_TICKET_CATEGORIES ? 'ticket category (e.g. IT, Service, Network)' : tab === TAB_EQUIPMENT ? 'category' : 'priority'} name`}
                   className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
                 />
               </div>
+              {tab === TAB_TICKET_CATEGORIES && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Description (Optional)</label>
+                  <textarea
+                    rows={3}
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Brief description of issues covered by this category..."
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] resize-none"
+                  />
+                </div>
+              )}
               {tab === TAB_PRIORITY && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700">Color</label>

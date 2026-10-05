@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import EmployeeFeedbackCard from './EmployeeFeedbackCard';
 import StarRating from './StarRating';
 import ThankYouScreen from './ThankYouScreen';
-import { getEmployeeById, saveFeedback } from '@/data/mockFeedbackData';
+import { getEmployeeById, getTicketEmployees, saveFeedback } from '@/data/mockFeedbackData';
 import { getCategoryFeedbackQuestions } from '@/services/configurationService';
 
 export default function FeedbackModal({ ticket, onClose }) {
@@ -51,7 +51,7 @@ export default function FeedbackModal({ ticket, onClose }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, step]);
 
-  const employees = (ticket.assignedEmployees || []).map((id) => getEmployeeById(id)).filter(Boolean);
+  const employees = getTicketEmployees(ticket);
 
   const handleRatingChange = (employeeId, rating) => {
     setRatings((prev) => ({ ...prev, [employeeId]: rating }));

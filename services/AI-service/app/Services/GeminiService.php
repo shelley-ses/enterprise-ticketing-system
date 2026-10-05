@@ -10,23 +10,82 @@ class GeminiService
     protected string $apiKey;
     protected string $model;
     protected string $baseUrl;
+    protected RagService $ragService;
 
-    public function __construct()
+    public function __construct(?RagService $ragService = null)
     {
         $this->apiKey = config('services.gemini.api_key') ?? env('GEMINI_API_KEY', '');
         $this->model = config('services.gemini.model') ?? env('GEMINI_MODEL', 'gemini-3.5-flash-lite');
         $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
+        $this->ragService = $ragService ?? app(RagService::class);
     }
 
     /**
-     * Generate support response from Google Gemini with graceful manual fallback.
+     * Generate support response from Google Gemini with grounded RAG on published articles
+     * and automatic fallback to ticket creation when no published articles match.
      *
      * @param array $messages Array of {role: string, content: string}
      * @param string|null $conversationId
-     * @return array {content: string, escalate: bool, ticket_data: array|null}
+     * @return array {content: string, escalate: bool, ticket_data: array|null, rag_matched: bool, rag_sources: array}
      */
     public function generateResponse(array $messages, ?string $conversationId = null): array
     {
+        $requestStartTime = hrtime(true);
+
+        // 1. Extract the latest customer query
+        $lastUserQuery = '';
+        foreach (array_reverse($messages) as $m) {
+            if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
+                $lastUserQuery = trim($m['content']);
+                break;
+            }
+        }
+
+        $isGreeting = $this->isGreetingOnly($lastUserQuery);
+
+        // 2. Perform RAG retrieval strictly over Published articles
+        $ragResult = [
+            'chunks' => [],
+            'duration_ms' => 0.0,
+            'matched' => false,
+        ];
+
+        if (!empty($lastUserQuery) && !$isGreeting) {
+            $ragResult = $this->ragService->retrieve($lastUserQuery, 3, 0.40);
+
+            // =========================================================================
+            // FALLBACK PATH: No Published article matched customer query
+            // =========================================================================
+            if (!$ragResult['matched']) {
+                $title = $this->deriveTitleFromMessages($messages);
+                Log::info('RAG query yielded no published matches. Triggering ticket creation fallback path.', [
+                    'query' => $lastUserQuery,
+                    'derived_title' => $title,
+                    'rag_duration_ms' => $ragResult['duration_ms'],
+                ]);
+
+                $replyText = "I searched our approved Knowledge Base and official documentation, but could not find any published articles or procedures matching your specific issue.\n\nTo ensure you receive accurate, manufacturer-approved technical assistance, I have prepared a support ticket request so our certified technical engineering team can inspect and resolve this for you directly.";
+                return [
+                    'content' => $replyText,
+                    'reply' => $replyText,
+                    'escalate' => true,
+                    'is_fallback' => true,
+                    'fallback' => true,
+                    'ticket_data' => [
+                        'title' => $title,
+                        'description' => !empty($lastUserQuery) ? $lastUserQuery : 'Customer inquiry required technical assistance beyond published documentation.',
+                    ],
+                    'ticket_title' => $title,
+                    'ticket_description' => !empty($lastUserQuery) ? $lastUserQuery : 'Customer inquiry required technical assistance beyond published documentation.',
+                    'rag_matched' => false,
+                    'rag_sources' => [],
+                    'rag_duration_ms' => $ragResult['duration_ms'],
+                    'total_duration_ms' => round((hrtime(true) - $requestStartTime) / 1e6, 2),
+                ];
+            }
+        }
+
+        // 3. Fallback to manual if Gemini API key is missing
         if (empty($this->apiKey)) {
             Log::warning('GEMINI_API_KEY is not configured in services.gemini. Falling back to manual ticket creation.');
             return $this->fallbackToManual($messages, 'AI assistant is not configured with an API key.');
@@ -35,12 +94,14 @@ class GeminiService
         try {
             $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
 
+            // 4. Construct System Instruction with Published Article Sources Grounding
             $systemInstruction = "You are an expert enterprise technical support AI assistant for an industrial, equipment, and IT ticketing platform. " .
                 "Your objective is to guide customers through clear, step-by-step diagnostic and troubleshooting actions for their machines, hardware, or software problems.\n\n" .
                 "Key Guidelines:\n" .
                 "1. Keep troubleshooting steps concise and direct (maximum 3 to 4 short bullet points, under 150 words total). Avoid unnecessary filler text.\n" .
-                "2. If the user indicates that basic troubleshooting failed, or if the issue involves dangerous high-voltage electrical, jammed heavy machinery, broken hardware, or requires an on-site technician dispatch, you MUST recommend escalating to a support ticket.\n" .
-                "3. When escalating, append a structured JSON block at the very end of your response exactly like this:\n" .
+                "2. Base your guidance strictly on the approved published documentation provided below. Never invent, hallucinate, or reference draft or archived procedures.\n" .
+                "3. If the user indicates that basic troubleshooting failed, or if the issue involves dangerous high-voltage electrical, jammed heavy machinery, broken hardware, or requires an on-site technician dispatch, you MUST recommend escalating to a support ticket.\n" .
+                "4. When escalating, append a structured JSON block at the very end of your response exactly like this:\n" .
                 "```json\n" .
                 "{\n" .
                 '  "escalate": true,' . "\n" .
@@ -48,6 +109,17 @@ class GeminiService
                 '  "ticket_description": "Detailed summary of the problem and troubleshooting attempted"' . "\n" .
                 "}\n" .
                 "```";
+
+            if (!empty($ragResult['chunks'])) {
+                $systemInstruction .= "\n\n=== APPROVED PUBLISHED KNOWLEDGE BASE SOURCES ===\n";
+                foreach ($ragResult['chunks'] as $idx => $chunk) {
+                    $num = $idx + 1;
+                    $systemInstruction .= "Source {$num}: [{$chunk['article_title']} | {$chunk['article_category']}" . (!empty($chunk['article_machine']) ? " | {$chunk['article_machine']}" : "") . "]\n" .
+                        $chunk['content'] . "\n\n";
+                }
+                $systemInstruction .= "=== END APPROVED SOURCES ===\n";
+                $systemInstruction .= "INSTRUCTION: Directly cite or summarize the approved steps from the sources above to resolve the user's issue.";
+            }
 
             // Limit conversation window to latest 8 messages to prevent latency degradation in long chats
             $recentMessages = count($messages) > 8 ? array_slice($messages, -8) : $messages;
@@ -82,14 +154,14 @@ class GeminiService
                 ],
                 'contents' => $contents,
                 'generationConfig' => [
-                    'temperature' => 0.3,
+                    'temperature' => 0.2,
                     'maxOutputTokens' => 600,
                 ]
             ];
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
-            ])->timeout(12)->post($url, $payload);
+            ])->timeout(8)->post($url, $payload);
 
             if (!$response->successful()) {
                 Log::error('Gemini API request failed', [
@@ -106,7 +178,33 @@ class GeminiService
                 return $this->fallbackToManual($messages, 'Empty response from Gemini.');
             }
 
-            return $this->parseResponse($rawText, $messages);
+            $totalDurationMs = round((hrtime(true) - $requestStartTime) / 1e6, 2);
+
+            // Latency target audit: verify total request time is under 5 seconds (5000ms)
+            if ($totalDurationMs > 5000.0) {
+                Log::warning('Chatbot response exceeded 5-second target threshold', [
+                    'total_duration_ms' => $totalDurationMs,
+                    'rag_duration_ms' => $ragResult['duration_ms'],
+                ]);
+            } else {
+                Log::info('Chatbot response delivered within 5-second target', [
+                    'total_duration_ms' => $totalDurationMs,
+                    'rag_duration_ms' => $ragResult['duration_ms'],
+                ]);
+            }
+
+            $parsed = $this->parseResponse($rawText, $messages);
+            $parsed['rag_matched'] = $ragResult['matched'];
+            $parsed['rag_sources'] = array_map(fn ($c) => [
+                'title' => $c['article_title'],
+                'category' => $c['article_category'],
+                'machine' => $c['article_machine'],
+                'score' => $c['score'],
+            ], $ragResult['chunks']);
+            $parsed['rag_duration_ms'] = $ragResult['duration_ms'];
+            $parsed['total_duration_ms'] = $totalDurationMs;
+
+            return $parsed;
 
         } catch (\Throwable $e) {
             Log::error('GeminiService exception: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
@@ -179,16 +277,24 @@ class GeminiService
         $cleanedMsg = preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i', '', $lastUserMsg);
         $title = !empty($cleanedMsg) ? ucfirst(mb_substr(trim($cleanedMsg), 0, 60)) : 'Technical Support Request';
 
+        $replyText = "Our automated AI support assistant is temporarily unavailable. " .
+            "Please proceed to create a support ticket directly below, and our technical engineering team will review and resolve your issue shortly.";
+
         return [
-            'content' => "Our automated AI support assistant is temporarily unavailable. " .
-                "Please proceed to create a support ticket directly below, and our technical engineering team will review and resolve your issue shortly.",
+            'content' => $replyText,
+            'reply' => $replyText,
             'escalate' => true,
+            'is_fallback' => true,
             'ticket_data' => [
                 'title' => $title,
                 'description' => !empty($lastUserMsg) ? $lastUserMsg : 'Submitted via manual support ticket.',
             ],
+            'ticket_title' => $title,
+            'ticket_description' => !empty($lastUserMsg) ? $lastUserMsg : 'Submitted via manual support ticket.',
             'fallback' => true,
             'reason' => $reason,
+            'rag_matched' => false,
+            'rag_sources' => [],
         ];
     }
 
@@ -231,5 +337,15 @@ class GeminiService
             }
         }
         return 'Equipment Technical Support Request';
+    }
+
+    public function isGreetingOnly(string $text): bool
+    {
+        $greetings = [
+            'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+            'good day', 'greetings', 'help', 'test', 'support', 'hi there', 'hello there'
+        ];
+        $cleaned = trim(preg_replace('/[^\w\s]/', '', strtolower($text)));
+        return in_array($cleaned, $greetings, true);
     }
 }

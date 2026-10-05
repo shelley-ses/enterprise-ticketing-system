@@ -13,17 +13,23 @@ class TicketService
     protected TicketCacheService $cacheService;
     protected SLAService $slaService;
     protected TicketLimitService $ticketLimitService;
+    protected TicketNumberGeneratorService $numberGeneratorService;
+    protected TicketStateMachine $stateMachine;
 
     public function __construct(
         TicketNotificationService $notificationService,
         TicketCacheService $cacheService,
         SLAService $slaService,
-        TicketLimitService $ticketLimitService
+        TicketLimitService $ticketLimitService,
+        TicketNumberGeneratorService $numberGeneratorService,
+        TicketStateMachine $stateMachine
     ) {
         $this->notificationService = $notificationService;
         $this->cacheService = $cacheService;
         $this->slaService = $slaService;
         $this->ticketLimitService = $ticketLimitService;
+        $this->numberGeneratorService = $numberGeneratorService;
+        $this->stateMachine = $stateMachine;
     }
 
     /**
@@ -82,6 +88,7 @@ class TicketService
             ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
+                't.ticket_number',
                 't.title',
                 't.is_internal',
                 't.requested_by',
@@ -123,8 +130,11 @@ class TicketService
         $createdAtObj = is_string($row->created_at) ? Carbon::parse($row->created_at) : $row->created_at;
         $slaStatusEval = $this->slaService->evaluateSlaStatusForTicket($row);
 
+        $displayNumber = $row->ticket_number ?: (TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null));
+
         return [
-            'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+            'id' => $displayNumber,
+            'ticket_number' => $displayNumber,
             'ticket_ID' => (int) $row->ticket_ID,
             'customer' => $row->client_name ?: 'Unknown Customer',
             'title' => $row->title,
@@ -224,10 +234,43 @@ class TicketService
 
         $externalTypeId = DB::table('ticket_types')->where('type_name', 'External')->value('ticket_type_ID') ?? 2;
 
+        $deptCodeParam = null;
+        if ($departmentId) {
+            $deptName = DB::table('departments')->where('id', $departmentId)->value('name') ?? '';
+            if (stripos($deptName, 'IT') !== false) {
+                $deptCodeParam = 'IT';
+            } elseif (stripos($deptName, 'Service') !== false) {
+                $deptCodeParam = 'SVC';
+            } elseif (!empty($deptName)) {
+                $deptCodeParam = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $deptName), 0, 4));
+            }
+        }
+        $ticketNumber = $this->numberGeneratorService->generateNextTicketNumber($deptCodeParam);
+
+        $defaults = TicketConfigurationService::getDefaultsConfig();
+
+        // Status & Priority: apply configured defaults ONLY when no value is supplied or determined
+        $priorityId = $validated['priority_ID'] ?? null;
+        if (empty($priorityId)) {
+            $defaultPriorityName = $defaults['priority'] ?? 'Low';
+            $priorityId = DB::table('ticket_priorities')
+                ->whereRaw('LOWER(priority_name) = ?', [strtolower(trim($defaultPriorityName))])
+                ->value('priority_ID') ?: 1;
+        }
+
+        $statusId = $validated['ticket_status_ID'] ?? null;
+        if (empty($statusId)) {
+            $defaultStatusName = $defaults['status'] ?? 'Open';
+            $statusId = DB::table('ticket_statuses')
+                ->whereRaw('LOWER(status_name) = ?', [strtolower(trim($defaultStatusName))])
+                ->value('ticket_status_ID') ?: 1;
+        }
+
         $ticketId = $this->ticketLimitService->createWithinLimit(
             $clientId,
             false,
             fn () => DB::table('tickets')->insertGetId([
+                'ticket_number' => $ticketNumber,
                 'machine_ID' => $validated['machine_ID'],
                 'problem_category_ID' => $validated['problem_category_ID'],
                 'created_by' => $clientId,
@@ -235,8 +278,9 @@ class TicketService
                 'assigned_to' => null,
                 'ticket_type_ID' => $externalTypeId,
                 'is_internal' => false,
-                'priority_ID' => $validated['priority_ID'] ?? null,
-                'ticket_status_ID' => 1,
+                'priority_ID' => $priorityId,
+                'branch_id' => $validated['branch_id'] ?? null,
+                'ticket_status_ID' => $statusId,
                 'sla_ID' => null,
                 'title' => $finalTitle,
                 'description' => strip_tags($validated['description']),
@@ -248,16 +292,15 @@ class TicketService
         );
 
         try {
-            $priorityName = 'Low';
-            if (!empty($validated['priority_ID'])) {
-                $priorityName = DB::table('ticket_priorities')->where('priority_ID', $validated['priority_ID'])->value('priority_name') ?? 'Low';
-            }
+            $priorityName = DB::table('ticket_priorities')->where('priority_ID', $priorityId)->value('priority_name') ?? 'Low';
             $this->slaService->assignSlaToTicket(
                 $ticketId,
                 (int)$departmentId,
                 (int)$validated['problem_category_ID'],
                 $priorityName,
-                now()
+                now(),
+                $defaults['slaPolicy'] ?? 'dynamic',
+                $validated['branch_id'] ?? null
             );
         } catch (\Exception $e) {
             Log::warning("Failed to assign SLA in store: " . $e->getMessage());
@@ -298,7 +341,7 @@ class TicketService
 
         $customerId = $clientId;
         $clientName = DB::table('clients')->where('id', $customerId)->value('client_name') ?? 'Customer';
-        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
 
         // Send-time notification routing: dispatch new_ticket alert according to active recipient routing configuration
         $this->notificationService->dispatchAlert(
@@ -321,7 +364,7 @@ class TicketService
         $this->notificationService->sendCustomerEmail(
             $customerId,
             'Ticket Created',
-            "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . ": \"" . $validated['title'] . "\" has been created successfully.",
+            "Your ticket {$ticketNumber}: \"" . $validated['title'] . "\" has been created successfully.",
             $ticketId,
             $validated['title'],
             $categoryName,
@@ -341,8 +384,9 @@ class TicketService
             'created_at' => now(),
         ]);
 
+        $statusName = DB::table('ticket_statuses')->where('ticket_status_ID', $statusId)->value('status_name') ?? 'Open';
         $this->notificationService->broadcastTicketChange('created', $ticketId, [
-            'status' => 'Open',
+            'status' => $statusName,
             'title' => $validated['title'],
             'customer_id' => $customerId,
         ]);
@@ -351,7 +395,7 @@ class TicketService
             Http::withHeaders([
                 'X-Internal-Token' => env('INTERNAL_TOKEN'),
             ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
-                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: TKT-" . str_pad((string)$ticketId, 4, '0', STR_PAD_LEFT) . ".",
+                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: {$ticketNumber}.",
                 'sender_name' => 'Customer Support Assistant',
                 'sender_type' => 'cs',
                 'sender_id' => null,
@@ -364,7 +408,8 @@ class TicketService
             'message' => 'Ticket created successfully.',
             'ticket' => $ticket,
             'dashboard_ticket' => $dashboardTicket ? [
-                'id' => 'TKT-' . str_pad((string) $dashboardTicket->ticket_ID, 3, '0', STR_PAD_LEFT),
+                'id' => $ticketNumber,
+                'ticket_number' => $ticketNumber,
                 'title' => $dashboardTicket->title,
                 'equipment' => $dashboardTicket->machine_name . ' - ' . $dashboardTicket->serial_number,
                 'status' => $dashboardTicket->status_name,
@@ -381,10 +426,33 @@ class TicketService
         $internalTypeId = DB::table('ticket_types')->where('type_name', 'Internal')->value('ticket_type_ID');
         $empId = (int) $user->emp_id;
 
+        $deptCodeParam = !empty($user->department) ? $user->department : null;
+        $ticketNumber = $this->numberGeneratorService->generateNextTicketNumber($deptCodeParam);
+
+        $defaults = TicketConfigurationService::getDefaultsConfig();
+
+        // Status & Priority: apply configured defaults ONLY when no value is supplied or determined
+        $priorityId = $validated['priority_ID'] ?? null;
+        if (empty($priorityId)) {
+            $defaultPriorityName = $defaults['priority'] ?? 'Low';
+            $priorityId = DB::table('ticket_priorities')
+                ->whereRaw('LOWER(priority_name) = ?', [strtolower(trim($defaultPriorityName))])
+                ->value('priority_ID') ?: 1;
+        }
+
+        $statusId = $validated['ticket_status_ID'] ?? null;
+        if (empty($statusId)) {
+            $defaultStatusName = $defaults['status'] ?? 'Open';
+            $statusId = DB::table('ticket_statuses')
+                ->whereRaw('LOWER(status_name) = ?', [strtolower(trim($defaultStatusName))])
+                ->value('ticket_status_ID') ?: 1;
+        }
+
         $ticketId = $this->ticketLimitService->createWithinLimit(
             $empId,
             true,
             fn () => DB::table('tickets')->insertGetId([
+                'ticket_number' => $ticketNumber,
                 'machine_ID' => $validated['machine_ID'],
                 'problem_category_ID' => $validated['problem_category_ID'],
                 'created_by' => 1,
@@ -392,8 +460,9 @@ class TicketService
                 'assigned_to' => null,
                 'ticket_type_ID' => $internalTypeId,
                 'is_internal' => true,
-                'priority_ID' => $validated['priority_ID'] ?? null,
-                'ticket_status_ID' => 1,
+                'priority_ID' => $priorityId,
+                'branch_id' => $validated['branch_id'] ?? null,
+                'ticket_status_ID' => $statusId,
                 'sla_ID' => null,
                 'title' => strip_tags($validated['title']),
                 'description' => strip_tags($validated['description']),
@@ -412,16 +481,15 @@ class TicketService
             if (!$deptId) {
                 $deptId = 2;
             }
-            $priorityName = 'Low';
-            if (!empty($validated['priority_ID'])) {
-                $priorityName = DB::table('ticket_priorities')->where('priority_ID', $validated['priority_ID'])->value('priority_name') ?? 'Low';
-            }
+            $priorityName = DB::table('ticket_priorities')->where('priority_ID', $priorityId)->value('priority_name') ?? 'Low';
             $this->slaService->assignSlaToTicket(
                 $ticketId,
                 (int)$deptId,
                 (int)$validated['problem_category_ID'],
                 $priorityName,
-                now()
+                now(),
+                $defaults['slaPolicy'] ?? 'dynamic',
+                $validated['branch_id'] ?? null
             );
         } catch (\Exception $e) {
             Log::warning("Failed to assign SLA in storeInternalTicket: " . $e->getMessage());
@@ -463,7 +531,7 @@ class TicketService
             Log::error("Failed to fetch attachments in storeInternalTicket: " . $e->getMessage());
         }
 
-        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketRef = $ticketNumber;
         // Send-time notification routing: dispatch new_ticket alert according to active recipient routing configuration
         $this->notificationService->dispatchAlert(
             'new_ticket',
@@ -490,8 +558,9 @@ class TicketService
             ]
         );
 
+        $statusName = DB::table('ticket_statuses')->where('ticket_status_ID', $statusId)->value('status_name') ?? 'Open';
         $this->notificationService->broadcastTicketChange('created', $ticketId, [
-            'status' => 'Open',
+            'status' => $statusName,
             'title' => $validated['title'],
         ]);
 
@@ -502,7 +571,7 @@ class TicketService
             Http::withHeaders([
                 'X-Internal-Token' => env('INTERNAL_TOKEN'),
             ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
-                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: TKT-" . str_pad((string)$ticketId, 4, '0', STR_PAD_LEFT) . ".",
+                'message' => "Hi! I am the Customer Support Assistant. A representative will be with you shortly. For your reference, this chat is for your ticket: {$ticketNumber}.",
                 'sender_name' => 'Customer Support Assistant',
                 'sender_type' => 'cs',
                 'sender_id' => null,
@@ -514,7 +583,8 @@ class TicketService
         return [
             'message' => 'Internal ticket created successfully.',
             'ticket' => $ticket,
-            'id' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+            'id' => $ticketNumber,
+            'ticket_number' => $ticketNumber,
             'attachments' => $storedAttachments,
         ];
     }
@@ -556,7 +626,10 @@ class TicketService
                 't.closed_at',
                 't.is_internal',
                 't.requested_by',
-                'tt.type_name as ticket_type'
+                'tt.type_name as ticket_type',
+                't.ticket_status_ID',
+                't.in_progress_owner',
+                't.previous_in_progress_owner'
             )
             ->where('t.ticket_ID', $ticketId)
             ->first();
@@ -911,7 +984,7 @@ class TicketService
         $equipmentType = $ticket->equipment_type ?: ($ticket->category_name ? ($ticket->category_name . ' Equipment') : 'Medical Equipment');
 
         return [
-            'id' => 'TKT-' . str_pad((string) $ticket->ticket_ID, 4, '0', STR_PAD_LEFT),
+            'id' => TicketNumberGeneratorService::refFor($ticket->ticket_ID, $ticket->ticket_number ?? null),
             'ticket_ID' => $ticket->ticket_ID,
             'title' => $ticket->title,
             'description' => $ticket->description,
@@ -926,6 +999,10 @@ class TicketService
             'equipmentType' => $equipmentType,
             'equipment_category' => $equipmentType,
             'status' => $ticket->status_name,
+            'ticket_status_ID' => (int) $ticket->ticket_status_ID,
+            'in_progress_owner' => $ticket->in_progress_owner,
+            'state' => $this->stateMachine->resolveState($ticket),
+            'allowed_transitions' => $this->stateMachine->getAllowedTransitions($this->stateMachine->resolveState($ticket)),
             'priority' => $ticket->priority_name,
             'date' => $createdAtIso,
             'lastUpdate' => $updatedAtIso,
@@ -999,53 +1076,64 @@ class TicketService
             }
         }
 
-        if (array_key_exists('ticket_status_ID', $validated)) {
-            $newStatus = $validated['ticket_status_ID'];
-            
-            if ($newStatus == 3 && $ticket->is_internal) {
+        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
+            $statusToSet = (int) $validated['ticket_status_ID'];
+            $currentState = $this->stateMachine->resolveState($ticket);
+            $targetState = $this->stateMachine->resolveTargetState($statusToSet, $ticket, [
+                'user' => $user,
+                'proof_rejected' => $validated['proof_rejected'] ?? false,
+            ]);
+
+            // Reopened tickets always automatically route to In Progress (CS-owned)
+            if ($statusToSet === 8 || ($statusToSet === 2 && in_array($currentState, [TicketStateMachine::STATE_CLOSED, TicketStateMachine::STATE_RESOLVED], true))) {
+                $targetState = TicketStateMachine::STATE_IN_PROGRESS_CS;
+            }
+
+            try {
+                $this->stateMachine->validateTransition($ticket, $currentState, $targetState, [
+                    'user' => $user,
+                    'proof_rejected' => $validated['proof_rejected'] ?? false,
+                ]);
+            } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+                return [
+                    'status' => 422,
+                    'data' => [
+                        'message' => $e->getMessage(),
+                        'code' => 'INVALID_TICKET_TRANSITION',
+                        'from_status' => $e->fromStatus,
+                        'to_status' => $e->toStatus,
+                        'allowed_statuses' => $e->allowedStatuses,
+                    ]
+                ];
+            }
+
+            if ($statusToSet === 3 && $ticket->is_internal) {
                 $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
                 if (!$isCS) {
                     return ['status' => 403, 'data' => ['message' => 'Only the assigned employee or customer service can resolve an internal ticket.']];
                 }
             }
-            
-            if ($newStatus == 4 && $ticket->is_internal) {
+
+            if ($statusToSet === 4 && $ticket->is_internal) {
                 $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
                 $isRequestor = ($user && !($user instanceof \App\Models\Client) && $user->emp_id == $ticket->requested_by);
                 if (!$isCS && !$isRequestor) {
                     return ['status' => 403, 'data' => ['message' => 'Only the requestor or a customer service agent can close an internal ticket.']];
                 }
             }
-        }
 
-        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] == 3) {
-            $department = DB::table('employees')
-                ->where('emp_id', $ticket->assigned_to)
-                ->value('department');
-            if (empty($department)) {
-                return ['status' => 422, 'data' => ['message' => 'Cannot resolve ticket: Department is not set.']];
-            }
-            $hasAssignment = DB::table('ticket_assignments')
-                ->where('ticket_ID', $ticketId)
-                ->exists();
-            if (!$hasAssignment) {
-                return ['status' => 422, 'data' => ['message' => 'Cannot resolve ticket: No employees are assigned.']];
-            }
-        }
-
-        if (array_key_exists('ticket_status_ID', $validated) && ($validated['ticket_status_ID'] == 2 || $validated['ticket_status_ID'] == 8)) {
-            if ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4) {
-                $windowConfig = \App\Services\TicketConfigurationService::getWindowConfig();
-                if (!($windowConfig['reopenEnabled'] ?? true)) {
-                    return ['status' => 422, 'data' => ['message' => 'Cannot reopen ticket: Reopening tickets is disabled by administrative operational policy.']];
+            if ($statusToSet === 3) {
+                $department = DB::table('employees')
+                    ->where('emp_id', $ticket->assigned_to)
+                    ->value('department');
+                if (empty($department)) {
+                    return ['status' => 422, 'data' => ['message' => 'Cannot resolve ticket: Department is not set.']];
                 }
-
-                $reopenDays = (int) ($windowConfig['reopenWindowDays'] ?? 2);
-                $allowedHours = $reopenDays * 24;
-                $resolvedAt = $ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : ($ticket->closed_at ? Carbon::parse($ticket->closed_at) : null);
-                if ($resolvedAt && $resolvedAt->diffInHours(now()) > $allowedHours) {
-                    $dayLabel = $reopenDays === 1 ? '1 day' : "{$reopenDays} days";
-                    return ['status' => 422, 'data' => ['message' => "Cannot reopen ticket: More than {$dayLabel} ({$allowedHours} hours) have passed since resolution."]];
+                $hasAssignment = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->exists();
+                if (!$hasAssignment) {
+                    return ['status' => 422, 'data' => ['message' => 'Cannot resolve ticket: No employees are assigned.']];
                 }
             }
         }
@@ -1125,8 +1213,31 @@ class TicketService
         DB::transaction(function () use ($ticketId, $validated, $assignedBy, $changes, $ticket, $actorType) {
             $update = ['updated_at' => now()];
             if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
-                $statusToSet = $validated['ticket_status_ID'];
-                $update['ticket_status_ID'] = $statusToSet;
+                $statusToSet = (int) $validated['ticket_status_ID'];
+
+                // Reopen rule: Reopened tickets automatically transition to In Progress (CS-owned)
+                $isReopen = ($statusToSet === 8 || $statusToSet === 2) && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4);
+                if ($isReopen || $statusToSet === 8) {
+                    $statusToSet = 2; // In Progress
+                    $update['ticket_status_ID'] = 2;
+                    $update['in_progress_owner'] = TicketStateMachine::OWNER_CS;
+                    $update['resolved_at'] = null;
+                    $update['closed_at'] = null;
+                    $update['proof_rejected'] = false;
+                    $update['rejection_reason'] = null;
+                    $update['assigned_to'] = null;
+                    DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
+                } else {
+                    $update['ticket_status_ID'] = $statusToSet;
+                    if ($statusToSet === 2) {
+                        $update['in_progress_owner'] = !empty($ticket->assigned_to) ? TicketStateMachine::OWNER_EMPLOYEE : TicketStateMachine::OWNER_CS;
+                    } elseif ($statusToSet === 11) {
+                        $update['previous_in_progress_owner'] = $ticket->in_progress_owner ?? TicketStateMachine::OWNER_EMPLOYEE;
+                        $update['in_progress_owner'] = null;
+                    } elseif (in_array($statusToSet, [3, 4, 9, 10], true)) {
+                        $update['in_progress_owner'] = null;
+                    }
+                }
                 
                 if ($statusToSet == 3 || $statusToSet == 4) {
                     if (!$ticket->resolved_at) {
@@ -1148,7 +1259,7 @@ class TicketService
                     } catch (\Exception $e) {}
                 }
                 
-                if (($statusToSet == 2 || $statusToSet == 8) && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4 || $ticket->ticket_status_ID == 6)) {
+                if (($statusToSet == 2 || $statusToSet == 8) && ($ticket->ticket_status_ID == 6)) {
                     $isProofRejection = ($statusToSet == 2 && $ticket->ticket_status_ID == 6 && (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']));
 
                     if (!$isProofRejection) {
@@ -1208,7 +1319,7 @@ class TicketService
         if (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']) {
             $assignedEmployeeId = $ticket->assigned_to;
             if ($assignedEmployeeId) {
-                $ticketRefForProof = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+                $ticketRefForProof = TicketNumberGeneratorService::refFor($ticketId);
                 $proofRejectData = [
                     'ticket_id' => $ticketId,
                     'ticket_ref' => $ticketRefForProof,
@@ -1227,13 +1338,13 @@ class TicketService
             
             $proofRejectCustData = [
                 'ticket_id' => $ticketId,
-                'ticket_ref' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+                'ticket_ref' => TicketNumberGeneratorService::refFor($ticketId),
                 'type' => 'proof_rejected',
             ];
             $this->notificationService->notifyCustomer(
                 $ticket->created_by,
                 'Proof of Completion Rejected',
-                "The proof of completion for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been rejected by customer service.",
+                "The proof of completion for ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been rejected by customer service.",
                 $ticketId,
                 $proofRejectCustData
             );
@@ -1243,7 +1354,7 @@ class TicketService
             $this->notificationService->sendCustomerEmail(
                 $ticket->created_by,
                 'Proof of Completion Rejected',
-                "The proof of completion for your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been rejected.",
+                "The proof of completion for your ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been rejected.",
                 $ticketId,
                 $ticket->title,
                 $catNameRej,
@@ -1256,7 +1367,7 @@ class TicketService
                     $assignedEmployeeId,
                     'employee',
                     'Proof of Completion Approved',
-                    "Your proof of completion for ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been approved.",
+                    "Your proof of completion for ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been approved.",
                     $ticketId
                 );
             }
@@ -1267,13 +1378,13 @@ class TicketService
 
             $closedData = [
                 'ticket_id' => $ticketId,
-                'ticket_ref' => 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT),
+                'ticket_ref' => TicketNumberGeneratorService::refFor($ticketId),
                 'type' => 'ticket_closed',
             ];
             $this->notificationService->notifyCustomer(
                 $ticket->created_by,
                 $notificationTitle,
-                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " {$statusText}.",
+                "Your ticket " . TicketNumberGeneratorService::refFor($ticketId) . " {$statusText}.",
                 $ticketId,
                 $closedData
             );
@@ -1283,7 +1394,7 @@ class TicketService
             $this->notificationService->sendCustomerEmail(
                 $ticket->created_by,
                 $notificationTitle,
-                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " {$statusText}.",
+                "Your ticket " . TicketNumberGeneratorService::refFor($ticketId) . " {$statusText}.",
                 $ticketId,
                 $ticket->title,
                 $catNameClose,
@@ -1308,7 +1419,7 @@ class TicketService
             }
             
             if ($detailText) {
-                $ticketRefFields = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+                $ticketRefFields = TicketNumberGeneratorService::refFor($ticketId);
                 $customerTitle = 'Ticket Updated';
                 $customerData = null;
 
@@ -1371,14 +1482,14 @@ class TicketService
                     $assignedEmployeeId,
                     'employee',
                     'Ticket Reopened by Customer',
-                    "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened by the customer and is back in progress.",
+                    "Ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been reopened by the customer and is back in progress.",
                     $ticketId
                 );
             }
             $this->notificationService->notifyCustomer(
                 $ticket->created_by,
                 'Ticket Reopened',
-                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened.",
+                "Your ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been reopened.",
                 $ticketId
             );
             $catNameR = DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '';
@@ -1386,7 +1497,7 @@ class TicketService
             $this->notificationService->sendCustomerEmail(
                 $ticket->created_by,
                 'Ticket Reopened',
-                "Your ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened.",
+                "Your ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been reopened.",
                 $ticketId,
                 $ticket->title,
                 $catNameR,
@@ -1394,7 +1505,7 @@ class TicketService
             );
             $this->notificationService->notifyCS(
                 'Ticket Reopened by Customer',
-                "Ticket TKT-" . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT) . " has been reopened by the customer.",
+                "Ticket " . TicketNumberGeneratorService::refFor($ticketId) . " has been reopened by the customer.",
                 $ticketId
             );
         }
@@ -1418,36 +1529,74 @@ class TicketService
             return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
         }
 
-        $statusName = DB::table('ticket_statuses')->where('ticket_status_ID', $ticket->ticket_status_ID)->value('status_name');
-        if (strtolower($statusName) !== 'open' || !empty($ticket->assigned_to)) {
-            return ['status' => 403, 'data' => ['message' => 'Only unassigned open tickets can be discarded.']];
+        $currentState = $this->stateMachine->resolveState($ticket);
+        try {
+            $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_CANCELLED);
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'INVALID_TICKET_TRANSITION',
+                    'from_status' => $e->fromStatus,
+                    'to_status' => $e->toStatus,
+                    'allowed_statuses' => $e->allowedStatuses,
+                ]
+            ];
         }
 
         if ($user instanceof \App\Models\Client && (int)$ticket->created_by !== (int)$user->id) {
             return ['status' => 403, 'data' => ['message' => 'You do not have permission to discard this ticket.']];
         }
 
-        $discardedStatusId = DB::table('ticket_statuses')
-            ->whereRaw('LOWER(status_name) = ?', ['discarded'])
-            ->value('ticket_status_ID');
+        return $this->stateMachine->applyTransition($ticket, TicketStateMachine::STATE_CANCELLED, [], $user);
+    }
 
-        if (!$discardedStatusId) {
-            $discardedStatusId = DB::table('ticket_statuses')->insertGetId([
-                'status_name' => 'Discarded',
-                'color_code' => '#ef4444',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
+    /**
+     * Put an in-progress ticket on hold.
+     */
+    public function holdTicket(int $ticketId, $user, ?string $reason = null): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $reason], $user);
+    }
 
-        DB::table('tickets')->where('ticket_ID', $ticketId)->update([
-            'ticket_status_ID' => $discardedStatusId,
-            'updated_at' => now(),
-        ]);
+    /**
+     * Resume a ticket from on-hold back to in-progress.
+     */
+    public function resumeTicket(int $ticketId, $user): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
+    }
 
-        $this->notificationService->broadcastTicketChange('updated', $ticketId);
-        $this->cacheService->clearTicketCaches();
+    /**
+     * Resolve a ticket.
+     */
+    public function resolveTicket(int $ticketId, $user): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'resolve', [], $user);
+    }
 
-        return ['status' => 200, 'data' => ['message' => 'Ticket discarded successfully.']];
+    /**
+     * Close a resolved ticket.
+     */
+    public function closeTicket(int $ticketId, $user): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'close', [], $user);
+    }
+
+    /**
+     * Reopen a closed or resolved ticket (routes automatically to In Progress CS-owned).
+     */
+    public function reopenTicket(int $ticketId, $user): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'reopen', [], $user);
+    }
+
+    /**
+     * Cancel / Discard a ticket.
+     */
+    public function cancelTicket(int $ticketId, $user): array
+    {
+        return $this->stateMachine->applyTransition($ticketId, 'cancel', [], $user);
     }
 }

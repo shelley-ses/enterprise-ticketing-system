@@ -4,7 +4,7 @@ import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride } from '@/services/ticketService';
 import ProofCompletionModal from './ProofCompletionModal';
 import ReassignmentDisapprovalBanner from './ReassignmentDisapprovalBanner';
-import { isReassignmentDenied } from '@/utils/reassignmentUtils';
+import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import InternalNotesSection from '@/components/InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
@@ -281,12 +281,15 @@ export default function TicketDetailModal({
                     This ticket is currently awaiting evaluation. No action is required at this time.
                   </p>
                 </div>
-              ) : ticket.reassignmentRequested && !isReassignmentDenied(ticket) ? (
+              ) : hasPendingReassignment(ticket) ? (
                 <div className="border border-amber-100 rounded-2xl p-6 bg-amber-50/30 text-center space-y-3">
-                  <h4 className="text-sm font-bold text-amber-900">Reassignment Request Pending</h4>
+                  <h4 className="text-sm font-bold text-amber-900 flex items-center justify-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    Reassignment Request Pending
+                  </h4>
                   <p className="text-xs text-amber-800 leading-relaxed max-w-md mx-auto">
                     You have requested reassignment for this ticket with the reason:<br/>
-                    <strong className="italic">&quot;{ticket.reassignmentReason || ticket.reassignment_reason}&quot;</strong><br/>
+                    <strong className="italic">&quot;{ticket.reassignmentReason || ticket.reassignment_reason || 'Awaiting review'}&quot;</strong><br/>
                     Awaiting CS coordinator review and action.
                   </p>
                 </div>
@@ -335,11 +338,11 @@ export default function TicketDetailModal({
                 <ReassignmentDisapprovalBanner ticket={ticket} />
 
                 {/* 1. Reassignment request pending banner (if reassignment requested post-accept) */}
-                {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
+                {hasPendingReassignment(ticket) && (
                   <div className="flex items-center gap-3 bg-amber-50/70 border border-amber-100 rounded-xl p-3.5 text-xs text-amber-800">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                     <div>
-                      <span className="font-bold">Reassignment Request Pending:</span> &quot;{ticket.reassignmentReason}&quot;
+                      <span className="font-bold">Reassignment Request Pending:</span> &quot;{ticket.reassignmentReason || ticket.reassignment_reason || 'Awaiting review'}&quot;
                     </div>
                   </div>
                 )}

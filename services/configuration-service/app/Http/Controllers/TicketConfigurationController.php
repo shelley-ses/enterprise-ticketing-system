@@ -40,7 +40,7 @@ class TicketConfigurationController extends Controller
         ],
         'transitions' => [
             'Open' => [
-                'allowed' => ['In Progress (CS-owned)', 'Cancelled'],
+                'allowed' => ['In Progress (CS-owned)', 'Assigned', 'Cancelled'],
                 'type' => 'editable',
                 'description' => 'Initial ticket state upon customer or internal creation.',
             ],
@@ -50,7 +50,7 @@ class TicketConfigurationController extends Controller
                 'description' => 'Ticket being triaged or actively handled directly by Customer Service.',
             ],
             'Assigned' => [
-                'allowed' => ['Reassigned', 'In Progress (Employee-owned)'],
+                'allowed' => ['Reassigned', 'Pending Reassignment', 'In Progress (Employee-owned)'],
                 'type' => 'editable',
                 'description' => 'Ticket dispatched to an engineer/technician and awaiting their acceptance.',
             ],
@@ -59,10 +59,20 @@ class TicketConfigurationController extends Controller
                 'type' => 'editable',
                 'description' => 'Ticket reassignment requested or approved for re-dispatch.',
             ],
+            'Pending Reassignment' => [
+                'allowed' => ['Assigned', 'In Progress (Employee-owned)'],
+                'type' => 'editable',
+                'description' => 'Ticket reassignment requested awaiting CS review. Returns to Assigned or In Progress if rejected/failed.',
+            ],
             'In Progress (Employee-owned)' => [
-                'allowed' => ['On Hold/Pending', 'Reassigned', 'Resolved'],
+                'allowed' => ['On Hold/Pending', 'Reassigned', 'Pending Reassignment', 'Pending Evaluation', 'Resolved'],
                 'type' => 'editable',
                 'description' => 'Service engineer has accepted the assignment and is actively working on the machine.',
+            ],
+            'Pending Evaluation' => [
+                'allowed' => ['Resolved', 'In Progress (Employee-owned)'],
+                'type' => 'editable',
+                'description' => 'Work completed and proof submitted, awaiting CS or customer evaluation.',
             ],
             'Resolved' => [
                 'allowed' => ['Closed', 'In Progress (Employee-owned)'],

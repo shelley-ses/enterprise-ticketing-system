@@ -41,6 +41,9 @@ class TicketCacheService
                         }
                         if (!empty($keys)) {
                             foreach ($keys as $key) {
+                                try {
+                                    $client->del($key);
+                                } catch (\Throwable $e) {}
                                 $this->forgetCleanKey($key, $prefix);
                             }
                         }
@@ -55,6 +58,9 @@ class TicketCacheService
                         $keys = $response[1];
                         if (!empty($keys)) {
                             foreach ($keys as $key) {
+                                try {
+                                    $redis->del($key);
+                                } catch (\Throwable $e) {}
                                 $this->forgetCleanKey($key, $prefix);
                             }
                         }

@@ -6,7 +6,7 @@ import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
-import { isReassignmentDenied } from '@/utils/reassignmentUtils';
+import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -598,7 +598,7 @@ export default function EmployeeTicketUpdate() {
             )}
 
             {/* Request Reassignment — hidden when reassignment is already pending */}
-            {!ticket.reassignmentRequested && (
+            {!hasPendingReassignment(ticket) ? (
               <div className="bg-white rounded-xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4">
                 <div>
                   <h3 className="text-sm font-bold text-gray-800">Request Reassignment</h3>
@@ -614,6 +614,13 @@ export default function EmployeeTicketUpdate() {
                 >
                   Request Reassignment
                 </button>
+              </div>
+            ) : (
+              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 flex items-center gap-3 text-xs text-amber-800 shadow-xs">
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                <div>
+                  <span className="font-bold">Reassignment Request Pending:</span> &quot;{ticket.reassignmentReason || ticket.reassignment_reason || 'Awaiting CS coordinator review'}&quot;
+                </div>
               </div>
             )}
 

@@ -33,6 +33,7 @@ export default function CustomerTicketDetailModal({
   isHistoryView = false,
   onAssign,
   onViewTicket,
+  onFeedbackSubmitted,
 }) {
   const navigate = useNavigate();
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
@@ -142,14 +143,17 @@ export default function CustomerTicketDetailModal({
     );
   }, [ticket, hasAssignedEmployee]);
 
-  const isExternalClosed = ticket?.status === 'Closed' && !ticket?.is_internal && ticket?.ticket_type !== 'Internal';
-  const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id);
+  const isExternalClosed = (ticket?.status === 'Closed' || ticket?.status === 'Resolved') &&
+    !ticket?.is_internal &&
+    ticket?.ticket_type !== 'Internal' &&
+    ticket?.type !== 'Internal';
+  const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(ticket?.id) || hasFeedbackBeenSubmitted(ticket?.ticket_ID);
 
   useEffect(() => {
     if (feedbackEnabled && isExternalClosed && !feedbackAlreadySubmitted && !feedbackSubmitted) {
       setShowFeedbackModal(true);
     }
-  }, [feedbackEnabled, isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id]);
+  }, [feedbackEnabled, isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, ticket?.id, ticket?.ticket_ID]);
 
   const remarksList = useMemo(() => {
     if (!ticket) return [];
@@ -582,10 +586,21 @@ export default function CustomerTicketDetailModal({
                   Re-open Ticket
                 </button>
               )}
-              {!isCS && !allowReopen && ticket.status === 'Closed' && (
-                <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
-                  Pending Evaluation
-                </span>
+              {isExternalClosed && !isEmployee && (
+                <button
+                  type="button"
+                  onClick={() => setShowFeedbackModal(true)}
+                  className={`rounded-xl px-4 py-2 text-button text-white transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    feedbackAlreadySubmitted || feedbackSubmitted
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-[#252578] hover:bg-[#1f1f66]'
+                  }`}
+                >
+                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                  {feedbackAlreadySubmitted || feedbackSubmitted ? 'View Feedback' : 'Give Feedback'}
+                </button>
               )}
               {ticket.can_discard && ticket.status === 'Open' && (
                 <button
@@ -606,6 +621,7 @@ export default function CustomerTicketDetailModal({
           onClose={() => {
             setShowFeedbackModal(false);
             setFeedbackSubmitted(true);
+            onFeedbackSubmitted?.(ticket);
           }}
         />
       )}

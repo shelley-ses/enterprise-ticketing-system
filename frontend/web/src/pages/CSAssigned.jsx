@@ -16,7 +16,6 @@ import {
   updateTicket,
   respondReassignment,
 } from '@/services/ticketService';
-import { seedDemoPendingEvaluationTicket, getPendingEvaluationTicketsFromStorage } from '@/data/mockFeedbackData';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
@@ -38,6 +37,7 @@ export default function CSAssigned() {
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [notificationBanner, setNotificationBanner] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
   const [assignedTab, setAssignedTab] = useState('all'); // 'all' | 'in_progress' | 'pending_evaluation' | 'reassigned' | 'resolved_closed'
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
@@ -74,12 +74,7 @@ export default function CSAssigned() {
         (t.assigned && t.assigned.length > 0)
       );
       
-      const pendingMocks = getPendingEvaluationTicketsFromStorage();
-      const merged = [
-        ...pendingMocks.filter((m) => !assignedTickets.some((t) => t.id === m.id || t.ticket_ID === m.ticket_ID)),
-        ...assignedTickets,
-      ];
-      setTickets(merged);
+      setTickets(assignedTickets);
       
       setEmployees(
         assignees.map((row) => ({
@@ -100,7 +95,11 @@ export default function CSAssigned() {
   }, []);
 
   useEffect(() => {
-    seedDemoPendingEvaluationTicket();
+    try {
+      localStorage.removeItem('demo_pending_evaluation_tickets');
+    } catch {
+      // ignore
+    }
     loadStaticData();
     loadLiveData({ forceRefresh: true });
   }, [loadStaticData, loadLiveData]);
@@ -601,7 +600,7 @@ export default function CSAssigned() {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
             
             try {
-              const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
+              const numericId = modal.ticket.ticket_ID || Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
               
               if (updatedFields.reassignmentStatus) {
                 await respondReassignment({
@@ -643,11 +642,9 @@ export default function CSAssigned() {
             try {
               const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
               const assignedTickets = incoming.filter(t =>
-                (t.status === 'Pending Assignment' || t.status === 'In Progress' ||
-                 t.status === 'Pending Evaluation' || t.status === 'Resolved' ||
-                 t.status === 'Pending' || t.status === 'Closed') &&
-                !t.reassignmentRequested &&
-                t.accepted
+                t.reassignmentRequested === true ||
+                ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+                (t.assigned && t.assigned.length > 0)
               );
               setTickets(assignedTickets);
             } catch (e) {

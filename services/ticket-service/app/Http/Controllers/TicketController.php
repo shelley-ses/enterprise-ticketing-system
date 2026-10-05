@@ -55,6 +55,7 @@ class TicketController extends Controller
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
+            'branch_id' => ['nullable', 'string', 'max:64', 'exists:branches,slug'],
             'title' => ['required', 'string', 'max:255', $this->ticketService->validateProperCasing()],
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
@@ -96,6 +97,7 @@ class TicketController extends Controller
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
+            'branch_id' => ['nullable', 'string', 'max:64', 'exists:branches,slug'],
             'title' => ['required', 'string', 'max:255', $this->ticketService->validateProperCasing()],
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
@@ -177,6 +179,85 @@ class TicketController extends Controller
         }
 
         $result = $this->ticketService->destroyTicket($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Put ticket on hold.
+     */
+    public function holdTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $reason = $request->input('reason');
+        $result = $this->ticketService->holdTicket($ticketId, $user, $reason);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Resume ticket from on hold.
+     */
+    public function resumeTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $result = $this->ticketService->resumeTicket($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Resolve ticket.
+     */
+    public function resolveTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $result = $this->ticketService->resolveTicket($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Close ticket.
+     */
+    public function closeTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $result = $this->ticketService->closeTicket($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Reopen ticket (routes automatically to In Progress CS-owned).
+     */
+    public function reopenTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $result = $this->ticketService->reopenTicket($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Cancel / Discard ticket.
+     */
+    public function cancelTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $result = $this->ticketService->cancelTicket($ticketId, $user);
         return response()->json($result['data'], $result['status']);
     }
 

@@ -15,15 +15,18 @@ class EmployeeAssignmentService
     protected TicketNotificationService $notificationService;
     protected TicketCacheService $cacheService;
     protected SLAService $slaService;
+    protected TicketStateMachine $stateMachine;
 
     public function __construct(
         TicketNotificationService $notificationService,
         TicketCacheService $cacheService,
-        SLAService $slaService
+        SLAService $slaService,
+        TicketStateMachine $stateMachine
     ) {
         $this->notificationService = $notificationService;
         $this->cacheService = $cacheService;
         $this->slaService = $slaService;
+        $this->stateMachine = $stateMachine;
     }
 
     public function slaLabel($createdAt): string
@@ -53,14 +56,17 @@ class EmployeeAssignmentService
             return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
         }
 
-        if ($ticket->ticket_status_ID == 3) {
-            return ['status' => 422, 'data' => ['message' => 'Resolved tickets cannot be reassigned.']];
+        $currentState = $this->stateMachine->resolveState($ticket);
+        try {
+            $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_ASSIGNED);
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return ['status' => 422, 'data' => ['message' => $e->getMessage(), 'code' => 'INVALID_TICKET_TRANSITION']];
         }
 
         DB::transaction(function () use ($ticketId, $validated, $assignedBy) {
             $pendingAssignmentId = DB::table('ticket_statuses')
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
-                ->value('ticket_status_ID') ?? 7;
+                ->value('ticket_status_ID') ?? 10;
 
             $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
             $changes = [];
@@ -77,6 +83,7 @@ class EmployeeAssignmentService
                 ->update([
                     'assigned_to' => $validated['employee_ids'][0],
                     'ticket_status_ID' => $pendingAssignmentId,
+                    'in_progress_owner' => null,
                     'priority_ID' => $validated['priority_ID'] ?? DB::raw('priority_ID'),
                     'updated_at' => now(),
                 ]);
@@ -266,11 +273,28 @@ class EmployeeAssignmentService
             return ['status' => 422, 'data' => ['message' => 'Resolved tickets cannot be reassigned.']];
         }
 
-        $role = strtolower(trim((string) ($user->role ?? '')));
+        $currentState = $this->stateMachine->resolveState($ticket);
+
+        $role = strtolower(trim((string) (is_object($user) ? ($user->role ?? '') : ($user['role'] ?? ''))));
         $isCS = in_array($role, ['customer service', 'customer support', 'cs', 'admin', 'superadmin', 'super admin']);
 
         // Branch 1: Employee accept logic (when engineer self-accepts)
         if (!$isCS || !$validated) {
+            try {
+                $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_IN_PROGRESS_EMPLOYEE);
+            } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+                return [
+                    'status' => 422,
+                    'data' => [
+                        'message' => $e->getMessage(),
+                        'code' => 'INVALID_TICKET_TRANSITION',
+                        'from_status' => $e->fromStatus,
+                        'to_status' => $e->toStatus,
+                        'allowed_statuses' => $e->allowedStatuses,
+                    ]
+                ];
+            }
+
             $empId = $user->emp_id;
 
             $assignment = DB::table('ticket_assignments')
@@ -318,6 +342,7 @@ class EmployeeAssignmentService
                     ->where('ticket_ID', $ticketId)
                     ->update([
                         'ticket_status_ID' => $inProgressId,
+                        'in_progress_owner' => 'employee',
                         'updated_at' => now(),
                     ]);
 
@@ -400,6 +425,21 @@ class EmployeeAssignmentService
             return ['status' => 401, 'data' => ['message' => 'Unauthorized. Please log in.']];
         }
 
+        try {
+            $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_ASSIGNED);
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'INVALID_TICKET_TRANSITION',
+                    'from_status' => $e->fromStatus,
+                    'to_status' => $e->toStatus,
+                    'allowed_statuses' => $e->allowedStatuses,
+                ]
+            ];
+        }
+
         $assignedBy = DB::table('employees')
             ->where('email', $validated['assigned_by_email'] ?? '')
             ->value('emp_id') ?? ($user ? $user->emp_id : 2);
@@ -425,7 +465,11 @@ class EmployeeAssignmentService
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
                 ->value('ticket_status_ID') ?? 7;
 
-            $update = ['updated_at' => now(), 'ticket_status_ID' => $pendingAssignmentId];
+            $update = [
+                'updated_at' => now(),
+                'ticket_status_ID' => $pendingAssignmentId,
+                'in_progress_owner' => null,
+            ];
             if ($employees->count() > 0) {
                 $update['assigned_to'] = $employees->first();
             }
@@ -640,6 +684,32 @@ class EmployeeAssignmentService
                     ->value('ticket_status_ID');
 
                 if ($statusId && $statusId != $ticket->ticket_status_ID) {
+                    $targetState = match(strtolower(trim($newStatusName))) {
+                        'resolved' => TicketStateMachine::STATE_RESOLVED,
+                        'closed' => TicketStateMachine::STATE_CLOSED,
+                        'on hold', 'hold', 'pending' => TicketStateMachine::STATE_ON_HOLD,
+                        'in progress', 'pending evaluation' => TicketStateMachine::STATE_IN_PROGRESS_EMPLOYEE,
+                        default => null
+                    };
+
+                    $currentState = $this->stateMachine->resolveState($ticket);
+                    if ($targetState && $currentState !== $targetState) {
+                        try {
+                            $this->stateMachine->validateTransition($ticket, $currentState, $targetState);
+                        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+                            return [
+                                'status' => 422,
+                                'data' => [
+                                    'message' => $e->getMessage(),
+                                    'code' => 'INVALID_TICKET_TRANSITION',
+                                    'from_status' => $e->fromStatus,
+                                    'to_status' => $e->toStatus,
+                                    'allowed_statuses' => $e->allowedStatuses,
+                                ]
+                            ];
+                        }
+                    }
+
                     $statusChanged = true;
                     $updateFields = [
                         'updated_at' => now(),
@@ -647,12 +717,18 @@ class EmployeeAssignmentService
 
                     if ($newStatusName === 'Resolved' || $statusId == 3) {
                         $updateFields['resolved_at'] = now();
-                    }
-                    if ($newStatusName === 'Closed' || $statusId == 4) {
+                        $updateFields['in_progress_owner'] = null;
+                    } elseif ($newStatusName === 'Closed' || $statusId == 4) {
                         if (!$ticket->resolved_at) {
                             $updateFields['resolved_at'] = now();
                         }
                         $updateFields['closed_at'] = now();
+                        $updateFields['in_progress_owner'] = null;
+                    } elseif (in_array(strtolower($newStatusName), ['on hold', 'hold', 'pending'])) {
+                        $updateFields['previous_in_progress_owner'] = $ticket->in_progress_owner ?? 'employee';
+                        $updateFields['in_progress_owner'] = null;
+                    } elseif (in_array(strtolower($newStatusName), ['in progress', 'pending evaluation'])) {
+                        $updateFields['in_progress_owner'] = 'employee';
                     }
                     $updateFields['ticket_status_ID'] = $statusId;
 
@@ -805,6 +881,7 @@ class EmployeeAssignmentService
                         ->where('ticket_ID', $ticketId)
                         ->update([
                             'ticket_status_ID' => $pendingEvaluationId,
+                            'in_progress_owner' => 'employee',
                             'proof_rejected' => false,
                             'rejection_reason' => null,
                             'updated_at' => now(),

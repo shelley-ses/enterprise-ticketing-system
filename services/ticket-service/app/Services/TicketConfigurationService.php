@@ -32,6 +32,81 @@ class TicketConfigurationService
         'limit' => 5,
     ];
 
+    public const DEFAULT_NUMBER_FORMAT = [
+        'prefix' => 'TKT',
+        'includeDeptCode' => false,
+        'deptCode' => '',
+        'dateSegment' => 'none',
+        'digitLength' => 4,
+    ];
+
+    public const DEFAULT_DEFAULTS = [
+        'status' => 'Open',
+        'priority' => 'Low',
+        'slaPolicy' => 'dynamic',
+    ];
+
+    public const DEFAULT_TRANSITIONS = [
+        'Open' => [
+            'allowed' => ['In Progress (CS-owned)', 'Assigned', 'Cancelled'],
+            'type' => 'editable',
+            'description' => 'Initial ticket state upon customer or internal creation.',
+        ],
+        'In Progress (CS-owned)' => [
+            'allowed' => ['On Hold/Pending', 'Assigned', 'Resolved'],
+            'type' => 'editable',
+            'description' => 'Ticket being triaged or actively handled directly by Customer Service.',
+        ],
+        'Assigned' => [
+            'allowed' => ['Reassigned', 'In Progress (Employee-owned)'],
+            'type' => 'editable',
+            'description' => 'Ticket dispatched to an engineer/technician and awaiting their acceptance.',
+        ],
+        'Reassigned' => [
+            'allowed' => ['In Progress (Employee-owned)', 'Assigned'],
+            'type' => 'editable',
+            'description' => 'Ticket reassignment requested or approved for re-dispatch.',
+        ],
+        'In Progress (Employee-owned)' => [
+            'allowed' => ['On Hold/Pending', 'Reassigned', 'Resolved'],
+            'type' => 'editable',
+            'description' => 'Service engineer has accepted the assignment and is actively working on the machine.',
+        ],
+        'Resolved' => [
+            'allowed' => ['Closed', 'In Progress (Employee-owned)'],
+            'type' => 'editable',
+            'description' => 'Work is marked complete with proof of completion pending evaluation.',
+        ],
+        'Closed' => [
+            'allowed' => ['Reopened'],
+            'type' => 'editable',
+            'caption' => 'Reopening is permitted only within the configured reopen window (e.g. 48h after resolution).',
+            'description' => 'Final confirmed state. Can transition to Reopened within the allowed reopen window.',
+        ],
+        'Reopened' => [
+            'allowed' => ['In Progress (CS-owned)'],
+            'type' => 'fixed',
+            'caption' => 'Automatic transition: Reopened tickets immediately route to Customer Service (CS-owned). This transition is system-automated and non-editable.',
+            'description' => 'Ticket reopened by customer within window; routes automatically to CS.',
+        ],
+        'On Hold/Pending' => [
+            'allowed' => [],
+            'type' => 'contextual',
+            'caption' => 'Contextual transition: Resumes back to whichever In Progress state it came from (CS-owned or Employee-owned). This is contextual rather than a fixed pair, so it is non-editable.',
+            'description' => 'Ticket paused awaiting parts, customer feedback, or external dependency.',
+        ],
+        'Cancelled' => [
+            'allowed' => [],
+            'type' => 'terminal',
+            'caption' => 'Terminal status: No further transitions permitted from Cancelled.',
+            'description' => 'Ticket discarded or cancelled before assignment.',
+        ],
+    ];
+
+    private const TRANSITIONS_CACHE_KEY = 'ticket:config:transitions';
+
+    private const DEFAULTS_CACHE_KEY = 'ticket:config:defaults';
+
     private const LIMIT_CACHE_KEY = 'ticket:config:limits';
 
     private const LIMIT_LAST_KNOWN_GOOD_KEY = 'ticket:config:limits:last-known-good';
@@ -45,7 +120,7 @@ class TicketConfigurationService
         try {
             return Cache::remember('ticket:config:windows', 300, function () {
                 $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
-                $response = Http::timeout(3)->get("{$configUrl}/api/ticket-configurations/windows");
+                $response = Http::timeout(15)->get("{$configUrl}/api/ticket-configurations/windows");
 
                 if ($response->successful()) {
                     $json = $response->json();
@@ -79,6 +154,11 @@ class TicketConfigurationService
         }
     }
 
+    public static function clearWindowsCache(): void
+    {
+        self::clearCache();
+    }
+
     private static function getInternalHeaders($user = null): array
     {
         $headers = [
@@ -101,7 +181,7 @@ class TicketConfigurationService
         $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
         $headers = self::getInternalHeaders($user);
 
-        $response = Http::timeout(5)
+        $response = Http::timeout(15)
             ->withHeaders($headers)
             ->put("{$configUrl}/api/ticket-configurations/windows", $payload);
 
@@ -112,7 +192,15 @@ class TicketConfigurationService
 
         self::clearCache();
 
-        $updated = self::getWindowConfig();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $updated = [
+            'reopenEnabled' => (bool) ($val['reopenEnabled'] ?? true),
+            'reopenWindowDays' => (int) ($val['reopenWindowDays'] ?? 2),
+            'autoCloseEnabled' => (bool) ($val['autoCloseEnabled'] ?? true),
+            'autoCloseWindowDays' => (int) ($val['autoCloseWindowDays'] ?? 2),
+        ];
+        Cache::put('ticket:config:windows', $updated, 300);
 
         // Dispatch Reverb event for real-time subscribers
         try {
@@ -494,5 +582,339 @@ class TicketConfigurationService
 
         Cache::forget('ticket:config:log_level');
         return $response->json('level') ?? $level;
+    }
+
+    /**
+     * Retrieve the active ticket number format configuration.
+     * Cached in Redis for 300 seconds with graceful fallback to defaults.
+     */
+    public static function getNumberFormatConfig(): array
+    {
+        try {
+            return Cache::remember('ticket:config:number_format', 300, function () {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $response = Http::timeout(15)->get("{$configUrl}/api/ticket-configurations/number_format");
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $val = $json['value'] ?? $json;
+
+                    return [
+                        'prefix' => strtoupper(trim($val['prefix'] ?? 'TKT')),
+                        'includeDeptCode' => (bool) ($val['includeDeptCode'] ?? false),
+                        'deptCode' => strtoupper(trim($val['deptCode'] ?? '')),
+                        'dateSegment' => in_array($val['dateSegment'] ?? '', ['none', 'YYYY', 'YYYYMM', 'YYYYMMDD'], true)
+                            ? $val['dateSegment']
+                            : 'none',
+                        'digitLength' => max(3, min(8, (int) ($val['digitLength'] ?? 4))),
+                    ];
+                }
+
+                return self::DEFAULT_NUMBER_FORMAT;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Failed to fetch number format configuration from configuration-service: ' . $e->getMessage());
+            return self::DEFAULT_NUMBER_FORMAT;
+        }
+    }
+
+    /**
+     * Update the ticket number format configuration in configuration-service.
+     */
+    public static function updateNumberFormatConfig(array $payload, $user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->put("{$configUrl}/api/ticket-configurations/number_format", $payload);
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to update ticket number format in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearNumberFormatCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $clean = [
+            'prefix' => strtoupper(trim($val['prefix'] ?? $payload['prefix'] ?? 'TKT')),
+            'includeDeptCode' => (bool) ($val['includeDeptCode'] ?? $payload['includeDeptCode'] ?? false),
+            'deptCode' => strtoupper(trim($val['deptCode'] ?? $payload['deptCode'] ?? '')),
+            'dateSegment' => in_array($val['dateSegment'] ?? $payload['dateSegment'] ?? '', ['none', 'YYYY', 'YYYYMM', 'YYYYMMDD'], true)
+                ? ($val['dateSegment'] ?? $payload['dateSegment'])
+                : 'none',
+            'digitLength' => max(3, min(8, (int) ($val['digitLength'] ?? $payload['digitLength'] ?? 4))),
+        ];
+        Cache::put('ticket:config:number_format', $clean, 300);
+        return $clean;
+    }
+
+    /**
+     * Reset the ticket number format configuration to defaults.
+     */
+    public static function resetNumberFormatConfig($user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->post("{$configUrl}/api/ticket-configurations/number_format/reset");
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to reset ticket number format in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearNumberFormatCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $clean = [
+            'prefix' => strtoupper(trim($val['prefix'] ?? 'TKT')),
+            'includeDeptCode' => (bool) ($val['includeDeptCode'] ?? false),
+            'deptCode' => strtoupper(trim($val['deptCode'] ?? '')),
+            'dateSegment' => (string) ($val['dateSegment'] ?? 'none'),
+            'digitLength' => (int) ($val['digitLength'] ?? 4),
+        ];
+        Cache::put('ticket:config:number_format', $clean, 300);
+        return $clean;
+    }
+
+    /**
+     * Clear the Redis cached ticket number format configuration.
+     */
+    public static function clearNumberFormatCache(): void
+    {
+        try {
+            Cache::forget('ticket:config:number_format');
+        } catch (\Throwable $e) {
+            Log::warning('Failed to clear ticket number format cache: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Retrieve the active ticket default values configuration (status, priority, SLA policy).
+     * Cached in Redis for 300 seconds with graceful fallback to system defaults.
+     */
+    public static function getDefaultsConfig(): array
+    {
+        try {
+            return Cache::remember(self::DEFAULTS_CACHE_KEY, 300, function () {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $response = Http::timeout(15)->get("{$configUrl}/api/ticket-configurations/defaults");
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $val = $json['value'] ?? $json;
+
+                    return [
+                        'status' => (string) ($val['status'] ?? 'Open'),
+                        'priority' => (string) ($val['priority'] ?? 'Low'),
+                        'slaPolicy' => (string) ($val['slaPolicy'] ?? 'dynamic'),
+                    ];
+                }
+
+                return self::DEFAULT_DEFAULTS;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Failed to fetch defaults configuration from configuration-service: ' . $e->getMessage());
+            return self::DEFAULT_DEFAULTS;
+        }
+    }
+
+    /**
+     * Update the ticket defaults configuration in configuration-service.
+     */
+    public static function updateDefaultsConfig(array $payload, $user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->put("{$configUrl}/api/ticket-configurations/defaults", $payload);
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to update ticket defaults in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearDefaultsCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $clean = [
+            'status' => (string) ($val['status'] ?? $payload['status'] ?? 'Open'),
+            'priority' => (string) ($val['priority'] ?? $payload['priority'] ?? 'Low'),
+            'slaPolicy' => (string) ($val['slaPolicy'] ?? $payload['slaPolicy'] ?? 'dynamic'),
+        ];
+        Cache::put(self::DEFAULTS_CACHE_KEY, $clean, 300);
+        return $clean;
+    }
+
+    /**
+     * Reset the ticket defaults configuration to system defaults.
+     */
+    public static function resetDefaultsConfig($user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->post("{$configUrl}/api/ticket-configurations/defaults/reset");
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to reset ticket defaults in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearDefaultsCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $clean = [
+            'status' => (string) ($val['status'] ?? 'Open'),
+            'priority' => (string) ($val['priority'] ?? 'Low'),
+            'slaPolicy' => (string) ($val['slaPolicy'] ?? 'dynamic'),
+        ];
+        Cache::put(self::DEFAULTS_CACHE_KEY, $clean, 300);
+        return $clean;
+    }
+
+    /**
+     * Clear the Redis cached ticket defaults configuration using non-blocking SCAN.
+     */
+    public static function clearDefaultsCache(): void
+    {
+        try {
+            Cache::forget(self::DEFAULTS_CACHE_KEY);
+            $cursor = 0;
+            do {
+                [$cursor, $keys] = \Illuminate\Support\Facades\Redis::scan($cursor, ['match' => '*ticket*defaults*', 'count' => 100]);
+                if (!empty($keys)) {
+                    \Illuminate\Support\Facades\Redis::del($keys);
+                }
+            } while ($cursor != 0);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to clear ticket defaults cache: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Retrieve the ticket state transition rules configuration.
+     */
+    public static function getTransitionsConfig(): array
+    {
+        try {
+            return Cache::remember(self::TRANSITIONS_CACHE_KEY, 300, function () {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $response = Http::timeout(15)->get("{$configUrl}/api/ticket-configurations/transitions");
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $val = $json['value'] ?? $json;
+                    if (is_array($val) && !empty($val)) {
+                        return $val;
+                    }
+                }
+
+                return self::DEFAULT_TRANSITIONS;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Failed to fetch transitions configuration from configuration-service: ' . $e->getMessage());
+            return self::DEFAULT_TRANSITIONS;
+        }
+    }
+
+    /**
+     * Forward transitions configuration updates to configuration-service.
+     */
+    public static function updateTransitionsConfig(array $payload, $user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->put("{$configUrl}/api/ticket-configurations/transitions", ['transitions' => $payload]);
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to update transitions configuration in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearTransitionsCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $rules = is_array($val) && !empty($val) ? $val : $payload;
+        Cache::put(self::TRANSITIONS_CACHE_KEY, $rules, 300);
+
+        try {
+            event(new TicketChanged([
+                'type' => 'config',
+                'section' => 'transitions',
+                'data' => $rules,
+            ]));
+        } catch (\Throwable $e) {
+            Log::warning('Broadcasting TicketChanged failed: ' . $e->getMessage());
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Reset transitions configuration to system defaults.
+     */
+    public static function resetTransitionsConfig($user = null): array
+    {
+        $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+        $headers = self::getInternalHeaders($user);
+
+        $response = Http::timeout(15)
+            ->withHeaders($headers)
+            ->post("{$configUrl}/api/ticket-configurations/transitions/reset");
+
+        if (!$response->successful()) {
+            $msg = $response->json('message') ?? 'Failed to reset transitions configuration in configuration-service.';
+            throw new \InvalidArgumentException($msg);
+        }
+
+        self::clearTransitionsCache();
+        $json = $response->json();
+        $val = $json['value'] ?? $json;
+        $rules = is_array($val) && !empty($val) ? $val : self::DEFAULT_TRANSITIONS;
+        Cache::put(self::TRANSITIONS_CACHE_KEY, $rules, 300);
+
+        try {
+            event(new TicketChanged([
+                'type' => 'config',
+                'section' => 'transitions',
+                'data' => $rules,
+            ]));
+        } catch (\Throwable $e) {
+            Log::warning('Broadcasting TicketChanged failed: ' . $e->getMessage());
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Clear the Redis cached transitions configuration.
+     */
+    public static function clearTransitionsCache(): void
+    {
+        try {
+            Cache::forget(self::TRANSITIONS_CACHE_KEY);
+            $cursor = 0;
+            do {
+                [$cursor, $keys] = \Illuminate\Support\Facades\Redis::scan($cursor, ['match' => '*ticket*transition*', 'count' => 100]);
+                if (!empty($keys)) {
+                    \Illuminate\Support\Facades\Redis::del($keys);
+                }
+            } while ($cursor != 0);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to clear ticket transitions cache: ' . $e->getMessage());
+        }
     }
 }

@@ -1,9 +1,9 @@
 import React from 'react';
 import EmployeeFeedbackCard from './EmployeeFeedbackCard';
-import { getTicketFeedback, getEmployeeById } from '@/data/mockFeedbackData';
+import { getTicketFeedback, getEmployeeById, getTicketEmployees } from '@/data/mockFeedbackData';
 
 export default function TicketFeedbackSection({ ticket, onLeaveFeedback }) {
-  const feedback = getTicketFeedback(ticket.id);
+  const feedback = getTicketFeedback(ticket.id) || getTicketFeedback(ticket.ticket_ID);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
@@ -30,7 +30,7 @@ export default function TicketFeedbackSection({ ticket, onLeaveFeedback }) {
         <button
           type="button"
           onClick={onLeaveFeedback}
-          className="mt-4 rounded-xl bg-[#252578] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66]"
+          className="mt-4 rounded-xl bg-[#252578] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
         >
           Leave Feedback
         </button>
@@ -38,7 +38,7 @@ export default function TicketFeedbackSection({ ticket, onLeaveFeedback }) {
     );
   }
 
-  const employees = (ticket.assignedEmployees || []).map((id) => getEmployeeById(id)).filter(Boolean);
+  const employees = getTicketEmployees(ticket);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">

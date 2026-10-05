@@ -200,6 +200,7 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [isTitleManuallyEdited, setIsTitleManuallyEdited] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   useEffect(() => {
     if (data) {
@@ -208,6 +209,7 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
       setTitleCasingData(null);
       setShowTitleCasingModal(false);
       setIsTitleManuallyEdited(false);
+      setSubmitError(null);
     }
   }, [data, isOpen]);
 
@@ -229,8 +231,12 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
     }
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       await onSubmit(form);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to submit ticket.';
+      setSubmitError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -244,8 +250,12 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
     setShowTitleCasingModal(false);
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       await onSubmit(updatedForm);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to submit ticket.';
+      setSubmitError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -260,6 +270,18 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
             <X size={20} />
           </button>
         </div>
+        {submitError && (
+          <div className="mx-6 mt-4 p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 flex-shrink-0">
+            <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-xs text-red-700 font-medium leading-relaxed">
+              <strong className="block text-red-800 font-bold mb-0.5">Ticket Submission Error</strong>
+              {submitError}
+            </div>
+            <button onClick={() => setSubmitError(null)} className="text-red-400 hover:text-red-600 cursor-pointer">
+              <X size={16} />
+            </button>
+          </div>
+        )}
         <div className="overflow-y-auto px-6 py-4 space-y-4 flex-1">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -447,6 +469,47 @@ function SuccessDialog({ isOpen, ticketNumber, onViewTicket, onClose }) {
   );
 }
 
+function SubmissionErrorDialog({ isOpen, title, message, onViewTickets, onClose }) {
+  if (!isOpen) return null;
+  const isLimitError = typeof message === 'string' && message.toLowerCase().includes('limit');
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
+          <AlertTriangle size={28} />
+        </div>
+        <h2 className="mt-4 text-lg font-bold text-gray-900">{title || 'Ticket Submission Error'}</h2>
+        
+        <div className="mt-3 p-3.5 bg-red-50 border border-red-200/80 rounded-xl text-left">
+          <p className="text-xs font-bold text-red-800 uppercase tracking-wider mb-1">
+            {isLimitError ? 'Maximum Ticket Limit Reached' : 'Submission Details'}
+          </p>
+          <p className="text-sm text-red-700 leading-relaxed font-medium">
+            {message}
+          </p>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100 cursor-pointer"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={onViewTickets}
+            className="rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66] cursor-pointer shadow-sm"
+          >
+            View My Tickets
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const getStoredUser = () => {
   try {
     const raw = localStorage.getItem('user');
@@ -477,6 +540,7 @@ function AISupportPage() {
   const [reviewData, setReviewData] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [ticketNumber, setTicketNumber] = useState('');
+  const [submissionError, setSubmissionError] = useState({ isOpen: false, title: '', message: '' });
   const [conversationPhase, setConversationPhase] = useState(0);
   const [escalationTicketData, setEscalationTicketData] = useState(null);
   const [ticketOptions, setTicketOptions] = useState(null);
@@ -889,41 +953,71 @@ function AISupportPage() {
   }, [handleSend]);
 
   const handleDeleteConversation = useCallback((e, convId) => {
-    e.stopPropagation();
+    if (e && e.stopPropagation) e.stopPropagation();
     delete conversationStateRef.current[convId];
 
-    if (String(convId).startsWith('conv-')) {
-      setConversations(prev => {
-        const nextList = prev.filter(c => c.id !== convId);
-        if (activeConversationId === convId) {
-          if (nextList.length > 0 && nextList[0].id) {
-            loadConversation(nextList[0].id);
-          } else {
-            handleNewChat();
-          }
+    setConversations(prev => {
+      const nextList = prev.filter(c => c.id !== convId);
+      if (activeConversationId === convId) {
+        if (nextList.length > 0 && nextList[0].id) {
+          loadConversation(nextList[0].id);
+        } else {
+          handleNewChat();
         }
-        return nextList;
-      });
-      return;
-    }
+      }
+      return nextList;
+    });
 
-    axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
+    axiosInstance.delete(`${AI_API_URL}/conversations/${convId}`, {
+      baseURL: '',
+      params: { user_id: currentUserId }
+    })
       .then(() => {
         fetchConversationsListOnly();
-        if (activeConversationId === convId) {
-          const list = conversationsRef.current || [];
-          const remaining = list.filter(c => c.id !== convId);
-          if (remaining.length > 0 && remaining[0].id) {
-            loadConversation(remaining[0].id);
-          } else {
-            handleNewChat();
-          }
-        }
       })
       .catch(err => {
-        console.error("Failed to delete conversation from backend:", err);
+        console.warn("Conversation delete completed with notice:", err);
       });
-  }, [activeConversationId, loadConversation, handleNewChat, fetchConversationsListOnly]);
+  }, [activeConversationId, loadConversation, handleNewChat, fetchConversationsListOnly, currentUserId]);
+
+  const handleDeleteMessage = useCallback((msgId) => {
+    if (!msgId || msgId === 'welcome' || msgId === 'gather') return;
+
+    setMessages(prev => {
+      const updated = prev.filter(m => m.id !== msgId);
+      saveConversationState(activeConversationId, updated, conversationPhase, showSuggestionChips, showTicketCard, escalationTicketData);
+      return updated;
+    });
+
+    if (activeConversationId) {
+      axiosInstance.delete(`${AI_API_URL}/conversations/${activeConversationId}/messages/${msgId}`, {
+        baseURL: '',
+        params: { user_id: currentUserId }
+      }).catch(err => {
+        console.warn("Message delete sync:", err);
+      });
+    }
+  }, [activeConversationId, conversationPhase, showSuggestionChips, showTicketCard, escalationTicketData, saveConversationState, currentUserId]);
+
+  const handleClearChat = useCallback(() => {
+    if (window.confirm("Are you sure you want to clear this conversation's messages?")) {
+      setMessages([welcomeMessage, gatherDetailsMessage]);
+      setShowSuggestionChips(true);
+      setShowTicketCard(false);
+      setConversationPhase(0);
+      setEscalationTicketData(null);
+
+      if (activeConversationId) {
+        delete conversationStateRef.current[activeConversationId];
+        axiosInstance.delete(`${AI_API_URL}/conversations/${activeConversationId}`, {
+          baseURL: '',
+          params: { user_id: currentUserId }
+        }).then(() => {
+          fetchConversationsListOnly();
+        }).catch(() => null);
+      }
+    }
+  }, [activeConversationId, currentUserId, fetchConversationsListOnly]);
 
   const [duplicateModal, setDuplicateModal] = useState({
     isOpen: false,
@@ -1235,7 +1329,9 @@ function AISupportPage() {
       }
 
       const rawTicketId = response?.ticket?.ticket_ID || response?.ticket_ID || response?.dashboard_ticket?.ticket_ID || response?.id;
-      const formattedNo = rawTicketId ? (String(rawTicketId).startsWith('TKT-') ? String(rawTicketId) : `TKT-${String(rawTicketId).padStart(4, '0')}`) : 'TKT-0001';
+      const serverTicketNumber = response?.ticket?.ticket_number || response?.dashboard_ticket?.ticket_number || response?.ticket_number;
+      const formattedNo = serverTicketNumber
+        || (rawTicketId ? (String(rawTicketId).startsWith('TKT-') ? String(rawTicketId) : `TKT-${String(rawTicketId).padStart(4, '0')}`) : 'TKT-0001');
 
       setShowReviewModal(false);
       setTicketNumber(formattedNo);
@@ -1257,13 +1353,26 @@ function AISupportPage() {
       });
     } catch (err) {
       console.error('Failed to submit support ticket to enterprise ticketing system:', err);
-      const errorMsg = err?.response?.data?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.';
+      const errorMsg = err?.response?.data?.message || err?.message || 'Failed to submit ticket. Please check enterprise ticketing service connection.';
+      
+      setShowReviewModal(false);
+      setSubmissionError({
+        isOpen: true,
+        title: 'Ticket Submission Error',
+        message: errorMsg,
+      });
+
       addMessage({
-        id: `ai-${Date.now()}`,
+        id: `err-${Date.now()}`,
         role: 'ai',
-        content: `Ticket Submission Error: ${errorMsg}`,
+        isError: true,
+        errorTitle: 'Ticket Submission Error',
+        content: errorMsg,
+        savedForm: formData,
         timestamp: new Date().toISOString(),
       });
+
+      throw err;
     }
   }, [addMessage, conversations, activeConversationId, currentUserId]);
 
@@ -1389,44 +1498,112 @@ function AISupportPage() {
                 <p className="text-[11px] text-gray-500">Powered by AI Knowledge Base</p>
               </div>
             </div>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              Online
-            </span>
+            <div className="flex items-center gap-2">
+              {messages.length > 2 && (
+                <button
+                  onClick={handleClearChat}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all border border-gray-200 hover:border-red-200 cursor-pointer"
+                  title="Clear all messages in this conversation"
+                >
+                  <Trash2 size={13} />
+                  <span>Clear Chat</span>
+                </button>
+              )}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Online
+              </span>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className="max-w-[75%] flex flex-col">
-                  <div className="flex items-start gap-3">
-                    {(msg.role === 'ai' || msg.role === 'assistant') && (
-                      <div className="w-8 h-8 rounded-full bg-[#252578] flex items-center justify-center flex-shrink-0 mt-1">
-                        <Bot size={16} className="text-white" />
-                      </div>
-                    )}
-                    <div>
-                      <div className={msg.role === 'user'
-                        ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md'
-                        : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm px-4 py-3'
-                      }>
-                        {typeof msg.content === 'string' ? (
-                          <FormattedText text={msg.content} />
-                        ) : (
-                          msg.content
-                        )}
-                      </div>
-                      {msg.role === 'ai' && msg.sources && msg.sources.length > 0 && (
-                        <AISourceList sources={msg.sources} />
+            {messages.map((msg) => {
+              const isDeletable = msg.id !== 'welcome' && msg.id !== 'gather';
+              const isErrorMessage = msg.isError || (typeof msg.content === 'string' && msg.content.startsWith('Ticket Submission Error:'));
+              const displayErrorText = msg.isError
+                ? (typeof msg.content === 'string' ? msg.content : msg.errorMessage)
+                : (typeof msg.content === 'string' && msg.content.startsWith('Ticket Submission Error:')
+                    ? msg.content.replace(/^Ticket Submission Error:\s*/, '')
+                    : msg.content);
+
+              return (
+                <div key={msg.id} className={`group/msg flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className="max-w-[75%] flex flex-col">
+                    <div className="flex items-start gap-3">
+                      {(msg.role === 'ai' || msg.role === 'assistant') && (
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${isErrorMessage ? 'bg-red-600' : 'bg-[#252578]'}`}>
+                          {isErrorMessage ? <AlertTriangle size={16} className="text-white" /> : <Bot size={16} className="text-white" />}
+                        </div>
                       )}
-                      <p className={`text-[10px] text-gray-400 mt-1 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                        {formatTime(msg.timestamp)}
-                      </p>
+                      <div>
+                        {isErrorMessage ? (
+                          <div className="bg-red-50 border border-red-200 rounded-2xl rounded-bl-md shadow-sm p-4 text-left">
+                            <div className="flex items-start gap-3">
+                              <AlertTriangle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <p className="text-sm font-bold text-red-800">
+                                  {msg.errorTitle || 'Ticket Submission Error'}
+                                </p>
+                                <p className="text-xs text-red-700 mt-1.5 leading-relaxed font-medium">
+                                  {displayErrorText}
+                                </p>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  <button
+                                    onClick={() => navigate('/my-tickets')}
+                                    className="px-3.5 py-1.5 bg-[#252578] hover:bg-[#1f1f66] text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-sm"
+                                  >
+                                    View My Tickets
+                                  </button>
+                                  {(msg.savedForm || reviewData) && (
+                                    <button
+                                      onClick={() => {
+                                        if (msg.savedForm) setReviewData(msg.savedForm);
+                                        setShowReviewModal(true);
+                                      }}
+                                      className="px-3.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                                    >
+                                      Edit & Retry
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={msg.role === 'user'
+                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md'
+                            : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm px-4 py-3'
+                          }>
+                            {typeof msg.content === 'string' ? (
+                              <FormattedText text={msg.content} />
+                            ) : (
+                              msg.content
+                            )}
+                          </div>
+                        )}
+                        {msg.role === 'ai' && !isErrorMessage && msg.sources && msg.sources.length > 0 && (
+                          <AISourceList sources={msg.sources} />
+                        )}
+                        <div className={`flex items-center gap-2 mt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <p className="text-[10px] text-gray-400">
+                            {formatTime(msg.timestamp)}
+                          </p>
+                          {isDeletable && (
+                            <button
+                              onClick={() => handleDeleteMessage(msg.id)}
+                              className="opacity-0 group-hover/msg:opacity-100 p-0.5 rounded text-gray-400 hover:text-red-500 hover:bg-gray-100 transition-all cursor-pointer"
+                              title="Delete this message"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {showSuggestionChips && messages.length === 1 && (
               <div className="flex justify-start pl-11">
@@ -1499,6 +1676,17 @@ function AISupportPage() {
         ticketNumber={ticketNumber}
         onViewTicket={handleViewTicket}
         onClose={handleCloseSuccess}
+      />
+
+      <SubmissionErrorDialog
+        isOpen={submissionError.isOpen}
+        title={submissionError.title}
+        message={submissionError.message}
+        onViewTickets={() => {
+          setSubmissionError(prev => ({ ...prev, isOpen: false }));
+          navigate('/my-tickets');
+        }}
+        onClose={() => setSubmissionError(prev => ({ ...prev, isOpen: false }))}
       />
 
       <DuplicateTicketModal
