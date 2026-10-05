@@ -237,7 +237,7 @@ export default function EmployeeMyTickets({ roleContext }) {
       const now = new Date().toISOString();
       const createdAt = createdTicket.created_at || now;
       const updatedAt = createdTicket.updated_at || createdAt;
-      const ticketRef = response.id || `TKT-${String(numericTicketId).padStart(4, '0')}`;
+      const ticketRef = createdTicket.ticket_number || response.ticket_number || response.dashboard_ticket?.ticket_number || response.id || `TKT-${String(numericTicketId).padStart(4, '0')}`;
 
       const newTicket = {
         id: ticketRef,

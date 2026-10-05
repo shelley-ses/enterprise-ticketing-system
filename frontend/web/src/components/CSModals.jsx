@@ -747,12 +747,12 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         const timestamp = new Date().toISOString();
                         await onStatusUpdate({
                           id: ticket.id,
-                          status: 'Resolved',
+                          status: 'Closed',
                           timeline: [
                             {
-                              id: `status-resolved-${Date.now()}`,
+                              id: `status-closed-${Date.now()}`,
                               type: 'status',
-                              text: 'Ticket resolved by CS Representative.',
+                              text: 'Ticket resolved and closed by CS Representative.',
                               timestamp,
                             }
                           ]

@@ -47,10 +47,178 @@ class SuperAdminConfigController extends Controller
             ->orderBy('priority_ID')
             ->get();
 
+        $ticketCategories = DB::table('problem_categories')
+            ->select('problem_category_ID as id', 'category_name as name', 'description', 'is_active', 'is_system_default')
+            ->orderBy('problem_category_ID')
+            ->get();
+
         return response()->json([
             'equipment' => $equipment,
             'priorities' => $priorities,
+            'ticket_categories' => $ticketCategories,
         ]);
+    }
+
+    public function createSuperAdminTicketCategory(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $name = trim($validated['name']);
+        $exists = DB::table('problem_categories')->where('category_name', $name)->exists();
+        if ($exists) {
+            return response()->json(['message' => "Ticket category '{$name}' already exists."], 422);
+        }
+
+        $id = DB::table('problem_categories')->insertGetId([
+            'category_name' => $name,
+            'description' => $validated['description'] ?? null,
+            'is_active' => true,
+            'is_system_default' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_create',
+            'action_by_ID' => $user->emp_id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Categories',
+                'target' => $name,
+                'text' => "Created ticket category '{$name}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Ticket category created successfully.',
+            'category' => [
+                'id' => $id,
+                'name' => $name,
+                'description' => $validated['description'] ?? null,
+                'is_active' => true,
+                'is_system_default' => false,
+            ],
+        ], 201);
+    }
+
+    public function updateSuperAdminTicketCategory(Request $request, int $id)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+            'is_active' => 'nullable|boolean',
+        ]);
+
+        $category = DB::table('problem_categories')->where('problem_category_ID', $id)->first();
+        if (!$category) {
+            return response()->json(['message' => 'Ticket category not found.'], 404);
+        }
+
+        $name = trim($validated['name']);
+        $dup = DB::table('problem_categories')
+            ->where('category_name', $name)
+            ->where('problem_category_ID', '!=', $id)
+            ->exists();
+        if ($dup) {
+            return response()->json(['message' => "Another ticket category named '{$name}' already exists."], 422);
+        }
+
+        $updateData = [
+            'category_name' => $name,
+            'updated_at' => now(),
+        ];
+        if (array_key_exists('description', $validated)) {
+            $updateData['description'] = $validated['description'];
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $updateData['is_active'] = $validated['is_active'];
+        }
+
+        DB::table('problem_categories')
+            ->where('problem_category_ID', $id)
+            ->update($updateData);
+
+        if ($category->category_name !== $name) {
+            DB::table('feedback_questions')
+                ->where('category', $category->category_name)
+                ->update(['category' => $name, 'updated_at' => now()]);
+        }
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Categories',
+                'target' => $name,
+                'text' => "Updated ticket category from '{$category->category_name}' to '{$name}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(['message' => 'Ticket category updated successfully.']);
+    }
+
+    public function deleteSuperAdminTicketCategory(Request $request, int $id)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $category = DB::table('problem_categories')->where('problem_category_ID', $id)->first();
+        if (!$category) {
+            return response()->json(['message' => 'Ticket category not found.'], 404);
+        }
+
+        if ($category->is_system_default) {
+            return response()->json(['message' => 'System default ticket categories cannot be deleted.'], 422);
+        }
+
+        $inUse = DB::table('tickets')->where('problem_category_ID', $id)->exists();
+        if ($inUse) {
+            DB::table('problem_categories')->where('problem_category_ID', $id)->update(['is_active' => false, 'updated_at' => now()]);
+            return response()->json(['message' => "Category is referenced by existing tickets. It has been deactivated instead of deleted."]);
+        }
+
+        DB::table('problem_categories')->where('problem_category_ID', $id)->delete();
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_delete',
+            'action_by_ID' => $user->emp_id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Categories',
+                'target' => $category->category_name,
+                'text' => "Deleted ticket category '{$category->category_name}'",
+            ]),
+            'created_at' => now(),
+        ]);
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(['message' => 'Ticket category deleted successfully.']);
     }
 
     public function createSuperAdminEquipment(Request $request)
@@ -939,6 +1107,615 @@ class SuperAdminConfigController extends Controller
             'key' => 'log_level',
             'level' => $updated,
             'value' => ['level' => $updated],
+        ]);
+    }
+
+    /**
+     * Retrieve the ticket number format configuration.
+     */
+    public function getNumberFormatConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $config = \App\Services\TicketConfigurationService::getNumberFormatConfig();
+
+        return response()->json(array_merge([
+            'key' => 'number_format',
+            'value' => $config,
+        ], $config));
+    }
+
+    /**
+     * Update the ticket number format configuration with strict validation.
+     * Rejects configurations missing a sequential component or with invalid structures.
+     */
+    public function updateNumberFormatConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $payload = $request->input('value', $request->all());
+
+        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+            'prefix' => [
+                'required',
+                'string',
+                'max:16',
+                'regex:/^[A-Za-z0-9_-]{1,16}$/',
+            ],
+            'includeDeptCode' => 'sometimes|boolean',
+            'deptCode' => [
+                'nullable',
+                'required_if:includeDeptCode,true,1',
+                function ($attribute, $value, $fail) use ($payload) {
+                    $includeDept = filter_var($payload['includeDeptCode'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                    if ($includeDept) {
+                        $trimmed = trim((string)$value);
+                        if (empty($trimmed)) {
+                            $fail('A branch or department code is required when the department code segment is enabled.');
+                            return;
+                        }
+                        if (!preg_match('/^[A-Za-z0-9_-]{1,16}$/', $trimmed)) {
+                            $fail('Department code can only contain alphanumeric characters, hyphens, and underscores.');
+                        }
+                    }
+                },
+            ],
+            'dateSegment' => 'required|string|in:none,YYYY,YYYYMM,YYYYMMDD',
+            'digitLength' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    if ($value === null || $value === '' || !is_numeric($value)) {
+                        $fail('A sequential component is strictly required to guarantee unique ticket numbers.');
+                        return;
+                    }
+                    $intVal = (int) $value;
+                    if ((string) $intVal !== (string) (int)$value || (float)$value != $intVal) {
+                        $fail('Sequential digit length must be a whole integer number.');
+                        return;
+                    }
+                    if ($intVal < 3 || $intVal > 8) {
+                        $fail('Sequential digit length must be between 3 and 8 digits.');
+                    }
+                },
+            ],
+        ], [
+            'prefix.required' => 'A ticket prefix is required.',
+            'prefix.regex' => 'Prefix can only contain alphanumeric characters, hyphens, and underscores.',
+            'dateSegment.required' => 'A valid date segment option must be selected.',
+            'dateSegment.in' => 'Date segment must be one of: none, YYYY, YYYYMM, YYYYMMDD.',
+            'digitLength.required' => 'A sequential component is strictly required to guarantee unique ticket numbers.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid ticket number format configuration.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+        $sanitized = [
+            'prefix' => strtoupper(trim($validated['prefix'])),
+            'includeDeptCode' => (bool) ($validated['includeDeptCode'] ?? false),
+            'deptCode' => strtoupper(trim($validated['deptCode'] ?? '')),
+            'dateSegment' => $validated['dateSegment'],
+            'digitLength' => (int) $validated['digitLength'],
+        ];
+
+        $previousFormat = \App\Services\TicketConfigurationService::getNumberFormatConfig();
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateNumberFormatConfig($sanitized, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'Super Admin';
+        if (empty($adminName)) {
+            $adminName = (string) ($user->emp_id ?? $user->id ?? 'Super Admin');
+        }
+
+        $auditText = sprintf(
+            "Updated ticket number format: prefix '%s', digits %d, date segment '%s'%s. Applies only to newly created tickets.",
+            $updated['prefix'],
+            $updated['digitLength'],
+            $updated['dateSegment'],
+            $updated['includeDeptCode'] ? ", dept code '{$updated['deptCode']}'" : ''
+        );
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Number Format',
+                'target' => 'Format Definition',
+                'text' => $auditText,
+                'super_admin' => $adminName,
+                'previous_format' => $previousFormat,
+                'new_format' => $updated,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        // Broadcast events
+        event(new \App\Events\TicketNumberFormatUpdated(
+            $previousFormat,
+            $updated,
+            now()->toIso8601String()
+        ));
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'number_format',
+            'data' => $updated,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(array_merge([
+            'message' => 'Ticket number format configuration updated successfully.',
+            'key' => 'number_format',
+            'value' => $updated,
+        ], $updated));
+    }
+
+    /**
+     * Reset the ticket number format configuration to system defaults.
+     */
+    public function resetNumberFormatConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $previousFormat = \App\Services\TicketConfigurationService::getNumberFormatConfig();
+
+        try {
+            $reset = \App\Services\TicketConfigurationService::resetNumberFormatConfig($user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'Super Admin';
+        if (empty($adminName)) {
+            $adminName = (string) ($user->emp_id ?? $user->id ?? 'Super Admin');
+        }
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_reset',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Number Format',
+                'target' => 'Format Definition',
+                'text' => 'Reset ticket number format to default (TKT-0001). Applies only to newly created tickets.',
+                'super_admin' => $adminName,
+                'previous_format' => $previousFormat,
+                'new_format' => $reset,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new \App\Events\TicketNumberFormatUpdated(
+            $previousFormat,
+            $reset,
+            now()->toIso8601String()
+        ));
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'number_format',
+            'data' => $reset,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json(array_merge([
+            'message' => 'Ticket number format configuration reset to default successfully.',
+            'key' => 'number_format',
+            'value' => $reset,
+        ], $reset));
+    }
+
+    /**
+     * Retrieve the ticket default values configuration (default status, priority, SLA policy).
+     */
+    public function getTicketDefaultsConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $config = \App\Services\TicketConfigurationService::getDefaultsConfig();
+
+        $priorities = DB::table('ticket_priorities')
+            ->select('priority_ID as id', 'priority_name as name', 'color_code as color')
+            ->orderBy('priority_ID')
+            ->get();
+
+        $slas = DB::table('slas')
+            ->where('is_active', true)
+            ->select('sla_ID as id', 'sla_name as name', 'response_time_minutes', 'resolution_time_minutes')
+            ->orderBy('sla_ID')
+            ->get();
+
+        return response()->json([
+            'key' => 'defaults',
+            'value' => $config,
+            'status' => $config['status'],
+            'priority' => $config['priority'],
+            'slaPolicy' => $config['slaPolicy'],
+            'available_starting_statuses' => ['Open'],
+            'available_priorities' => $priorities,
+            'available_slas' => $slas,
+        ]);
+    }
+
+    /**
+     * Update the default ticket values with strict validation:
+     * - Default status must be a valid starting status per the ticket state machine.
+     * - Default priority must be an existing, currently configured priority level.
+     * - Role-based access control enforces super admin only.
+     * - Dispatches broadcast event and writes audit log.
+     * - Changes apply only to new tickets and do not alter existing tickets.
+     */
+    public function updateTicketDefaultsConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $payload = $request->input('value', $request->all());
+
+        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+            'status' => [
+                'required',
+                'string',
+                'max:64',
+                function ($attribute, $value, $fail) {
+                    $trimmed = trim((string) $value);
+                    $validStartingStatuses = ['Open'];
+                    $isValidStarting = false;
+                    foreach ($validStartingStatuses as $startStatus) {
+                        if (strcasecmp($trimmed, $startStatus) === 0) {
+                            $isValidStarting = true;
+                            break;
+                        }
+                    }
+                    if (!$isValidStarting) {
+                        $fail("The default status must be a valid starting status per the ticket state machine (e.g., 'Open'). Status '{$value}' is not a valid initial state.");
+                        return;
+                    }
+                    $exists = DB::table('ticket_statuses')
+                        ->whereRaw('LOWER(status_name) = ?', [strtolower($trimmed)])
+                        ->exists();
+                    if (!$exists) {
+                        $fail("The default status '{$value}' does not exist in the configured ticket statuses.");
+                    }
+                },
+            ],
+            'priority' => [
+                'required',
+                'string',
+                'max:64',
+                function ($attribute, $value, $fail) {
+                    $trimmed = trim((string) $value);
+                    $exists = DB::table('ticket_priorities')
+                        ->whereRaw('LOWER(priority_name) = ?', [strtolower($trimmed)])
+                        ->exists();
+                    if (!$exists) {
+                        $fail("The default priority must be an existing, currently configured priority level. Priority '{$value}' is not recognized.");
+                    }
+                },
+            ],
+            'slaPolicy' => [
+                'required',
+                'string',
+                'max:64',
+                function ($attribute, $value, $fail) {
+                    $trimmed = trim((string) $value);
+                    if (strtolower($trimmed) === 'dynamic') {
+                        return;
+                    }
+                    $exists = DB::table('slas')
+                        ->where('is_active', true)
+                        ->where(function ($q) use ($trimmed) {
+                            $q->where('sla_ID', $trimmed)
+                              ->orWhereRaw('LOWER(sla_name) = ?', [strtolower($trimmed)]);
+                        })
+                        ->exists();
+                    if (!$exists) {
+                        $fail("The default SLA policy must be either 'dynamic' or an active configured SLA policy.");
+                    }
+                },
+            ],
+        ], [
+            'status.required' => 'The default status is required.',
+            'priority.required' => 'The default priority is required.',
+            'slaPolicy.required' => 'The default SLA policy is required.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation Error: Invalid ticket defaults configuration.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        // Canonical names from DB
+        $canonicalStatus = DB::table('ticket_statuses')
+            ->whereRaw('LOWER(status_name) = ?', [strtolower(trim($validated['status']))])
+            ->value('status_name') ?? trim($validated['status']);
+
+        $canonicalPriority = DB::table('ticket_priorities')
+            ->whereRaw('LOWER(priority_name) = ?', [strtolower(trim($validated['priority']))])
+            ->value('priority_name') ?? trim($validated['priority']);
+
+        $sanitizedSla = trim($validated['slaPolicy']);
+        if (strtolower($sanitizedSla) === 'dynamic') {
+            $sanitizedSla = 'dynamic';
+        }
+
+        $sanitized = [
+            'status' => $canonicalStatus,
+            'priority' => $canonicalPriority,
+            'slaPolicy' => $sanitizedSla,
+        ];
+
+        $previousDefaults = \App\Services\TicketConfigurationService::getDefaultsConfig();
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateDefaultsConfig($sanitized, $user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'Super Admin';
+        if (empty($adminName)) {
+            $adminName = (string) ($user->emp_id ?? $user->id ?? 'Super Admin');
+        }
+
+        $auditText = sprintf(
+            "Updated ticket defaults: status '%s', priority '%s', SLA policy '%s'. Applies only to newly created tickets.",
+            $updated['status'],
+            $updated['priority'],
+            $updated['slaPolicy']
+        );
+
+        // Audit Log entry in ticket-service
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Defaults Configuration',
+                'target' => 'Default Starting Values',
+                'text' => $auditText,
+                'super_admin' => $adminName,
+                'previous_defaults' => $previousDefaults,
+                'new_defaults' => $updated,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        // Broadcast events
+        event(new \App\Events\TicketDefaultsUpdated(
+            $previousDefaults,
+            $updated,
+            (int) ($user->emp_id ?? $user->id ?? 1),
+            now()->toIso8601String()
+        ));
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'defaults',
+            'data' => $updated,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Ticket defaults configuration updated successfully.',
+            'key' => 'defaults',
+            'value' => $updated,
+            'status' => $updated['status'],
+            'priority' => $updated['priority'],
+            'slaPolicy' => $updated['slaPolicy'],
+        ]);
+    }
+
+    /**
+     * Reset the ticket defaults configuration to system baseline.
+     */
+    public function resetTicketDefaultsConfig(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $previousDefaults = \App\Services\TicketConfigurationService::getDefaultsConfig();
+
+        try {
+            $reset = \App\Services\TicketConfigurationService::resetDefaultsConfig($user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'Super Admin';
+        if (empty($adminName)) {
+            $adminName = (string) ($user->emp_id ?? $user->id ?? 'Super Admin');
+        }
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_reset',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Defaults Configuration',
+                'target' => 'Default Starting Values',
+                'text' => 'Reset ticket defaults to system baseline (Open status, Low priority, dynamic SLA policy). Applies only to newly created tickets.',
+                'super_admin' => $adminName,
+                'previous_defaults' => $previousDefaults,
+                'new_defaults' => $reset,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        event(new \App\Events\TicketDefaultsUpdated(
+            $previousDefaults,
+            $reset,
+            (int) ($user->emp_id ?? $user->id ?? 1),
+            now()->toIso8601String()
+        ));
+
+        event(new TicketChanged([
+            'type' => 'config',
+            'section' => 'defaults',
+            'data' => $reset,
+        ]));
+
+        $this->cacheService->clearTicketCaches();
+
+        return response()->json([
+            'message' => 'Ticket defaults configuration reset to system baseline successfully.',
+            'key' => 'defaults',
+            'value' => $reset,
+            'status' => $reset['status'],
+            'priority' => $reset['priority'],
+            'slaPolicy' => $reset['slaPolicy'],
+        ]);
+    }
+
+    /**
+     * Retrieve the ticket state transition rules configuration.
+     */
+    public function getTransitionRules(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $rules = \App\Services\TicketConfigurationService::getTransitionsConfig();
+
+        return response()->json([
+            'key' => 'transitions',
+            'value' => $rules,
+            'transitions' => $rules,
+        ]);
+    }
+
+    /**
+     * Update the ticket state transition rules configuration.
+     */
+    public function updateTransitionRules(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        $payload = $request->input('transitions', $request->input('value', $request->all()));
+        if (!is_array($payload) || empty($payload)) {
+            return response()->json(['message' => 'The transitions payload must be a non-empty array.'], 422);
+        }
+
+        try {
+            $updated = \App\Services\TicketConfigurationService::updateTransitionsConfig($payload, $user);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to persist transition rules to configuration service.'], 500);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'SuperAdmin';
+        if (empty($adminName) && $user) {
+            $adminName = $user->email ?? 'SuperAdmin';
+        }
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_update',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Lifecycle State Machine',
+                'target' => 'Transition Rules',
+                'text' => 'Updated permitted status transitions and state machine guardrails.',
+                'super_admin' => $adminName,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Transition rules updated successfully.',
+            'key' => 'transitions',
+            'value' => $updated,
+            'transitions' => $updated,
+        ]);
+    }
+
+    /**
+     * Reset ticket state transition rules configuration to system defaults.
+     */
+    public function resetTransitionRules(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+        $user = $request->user();
+
+        try {
+            $reset = \App\Services\TicketConfigurationService::resetTransitionsConfig($user);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to reset transition rules.'], 500);
+        }
+
+        $adminName = $user ? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) : 'SuperAdmin';
+        if (empty($adminName) && $user) {
+            $adminName = $user->email ?? 'SuperAdmin';
+        }
+
+        DB::table('ticket_audit_logs')->insert([
+            'ticket_ID' => null,
+            'action_type' => 'config_reset',
+            'action_by_ID' => $user->emp_id ?? $user->id ?? 1,
+            'actor_type' => 'superadmin',
+            'details' => json_encode([
+                'module' => 'Ticket Lifecycle State Machine',
+                'target' => 'Transition Rules',
+                'text' => 'Reset transition rules to system defaults.',
+                'super_admin' => $adminName,
+                'timestamp' => now()->toIso8601String(),
+            ]),
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Transition rules reset to defaults successfully.',
+            'key' => 'transitions',
+            'value' => $reset,
+            'transitions' => $reset,
         ]);
     }
 }

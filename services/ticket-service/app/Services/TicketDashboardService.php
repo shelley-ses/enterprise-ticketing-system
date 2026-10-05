@@ -66,6 +66,7 @@ class TicketDashboardService
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->select(
                     't.ticket_ID',
+                    't.ticket_number',
                     't.machine_ID',
                     't.title',
                     't.description',
@@ -85,7 +86,7 @@ class TicketDashboardService
                 ->limit($limit)
                 ->get()
                 ->map(fn ($row) => [
-                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
+                    'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'ticket_ID' => $row->ticket_ID,
                     'machine_ID' => $row->machine_ID,
                     'machine_name' => $row->machine_name,
@@ -151,6 +152,7 @@ class TicketDashboardService
                 ->where('ts.status_name', '!=', 'Discarded')
                 ->select(
                     't.ticket_ID',
+                    't.ticket_number',
                     't.title',
                     'm.machine_name',
                     'm.serial_number',
@@ -165,7 +167,7 @@ class TicketDashboardService
                 ->limit($limit)
                 ->get()
                 ->map(fn ($row) => [
-                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 3, '0', STR_PAD_LEFT),
+                    'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'title' => $row->title,
                     'customer' => $row->client_name ?: 'Unknown Customer',
                     'equipment' => $row->machine_name . ' - ' . $row->serial_number,
@@ -205,6 +207,7 @@ class TicketDashboardService
                 ->where('ts.status_name', '!=', 'Discarded')
                 ->select(
                     't.ticket_ID',
+                    't.ticket_number',
                     't.title',
                     't.description',
                     't.is_internal',
@@ -283,7 +286,7 @@ class TicketDashboardService
                 $equipment = $row->machine_name ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : ($row->serial_number ?: 'Not specified');
 
                 return [
-                    'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
+                    'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'ticket_ID' => (int) $row->ticket_ID,
                     'customer' => $row->client_name ?: 'Unknown Customer',
                     'title' => $row->title,

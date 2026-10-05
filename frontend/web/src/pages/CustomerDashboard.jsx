@@ -18,7 +18,6 @@ import {
 import { statusColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { useAuth } from '@/context/AuthContext';
-import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 import { parseUTCDate } from '@/utils/dateUtils';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
@@ -115,27 +114,13 @@ export default function CustomerDashboard() {
         ...t,
         statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
       }));
-      const externalTickets = getExternalTicketsFromStorage().map(t => ({
-        ...t,
-        statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
-      }));
-      const combined = [...externalTickets, ...apiTickets].filter(
+      const combined = apiTickets.filter(
         t => t.status !== 'Discarded' && t.status !== 'Discarded by Customer'
       );
       setRecentTickets(combined);
 
     } catch (error) {
-      const external = getExternalTicketsFromStorage();
-      if (external.length > 0) {
-        setRecentTickets(external.filter(
-          t => t.status !== 'Discarded' && t.status !== 'Discarded by Customer'
-        ).map(t => ({
-          ...t,
-          statusColor: statusColors[t.status] || 'bg-gray-100 text-gray-700'
-        })));
-      } else {
-        setDashboardError('Failed to load dashboard data.');
-      }
+      setDashboardError('Failed to load dashboard data.');
     } finally {
       setDashboardLoading(false);
     }
@@ -144,7 +129,11 @@ export default function CustomerDashboard() {
 
 
   useEffect(() => {
-    seedDemoExternalTicket();
+    try {
+      localStorage.removeItem('demo_external_tickets');
+    } catch {
+      // ignore
+    }
 
     prefetchTicketFormOptions().catch(() => {
       // Modal handles display error if options cannot be fetched.
@@ -523,6 +512,9 @@ export default function CustomerDashboard() {
           onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)}
           onResolve={(ticketId) => handleResolveTicket(ticketId)}
           customerName={customerName}
+          onFeedbackSubmitted={() => {
+            loadDashboardData({ forceRefresh: true });
+          }}
         />
       )}
 

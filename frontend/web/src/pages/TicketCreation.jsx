@@ -6,7 +6,6 @@ import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/servic
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
-import { getExternalTicketsFromStorage } from '@/data/mockFeedbackData';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 export default function TicketCreation() {
@@ -43,10 +42,9 @@ export default function TicketCreation() {
   const fetchCustomerOpenCount = useCallback(async () => {
     try {
       const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh: true }).catch(() => []);
-      const externalTickets = getExternalTicketsFromStorage() || [];
       const seenIds = new Set();
       const all = [];
-      for (const t of [...externalTickets, ...(ticketsList || [])]) {
+      for (const t of (ticketsList || [])) {
         const id = t.ticket_id || t.ticket_ID || t.id;
         if (id && seenIds.has(id)) continue;
         if (id) seenIds.add(id);

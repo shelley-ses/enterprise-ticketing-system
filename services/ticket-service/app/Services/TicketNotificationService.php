@@ -462,7 +462,8 @@ class TicketNotificationService
             return;
         }
 
-        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $savedNumber = DB::table('tickets')->where('ticket_ID', $ticketId)->value('ticket_number');
+        $ticketRef = $savedNumber ?: ('TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT));
         $ticketLink = url("/tickets/{$ticketId}");
 
         $inferredKey = $eventKey ?? $this->inferEventKey($subject);
@@ -525,7 +526,8 @@ class TicketNotificationService
             return;
         }
 
-        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $savedNumber = DB::table('tickets')->where('ticket_ID', $ticketId)->value('ticket_number');
+        $ticketRef = $savedNumber ?: ('TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT));
         $ticketLink = url("/tickets/{$ticketId}");
 
         $inferredKey = $eventKey ?? $this->inferEventKey($subject);

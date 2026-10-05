@@ -316,6 +316,7 @@ services:
     build:
       context: ./services/configuration-service
     container_name: configuration-service
+    restart: always
     volumes:
       - ./services/configuration-service:/var/www
       - configuration-service-vendor:/var/www/vendor

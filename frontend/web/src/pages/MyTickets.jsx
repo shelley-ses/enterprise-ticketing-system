@@ -21,14 +21,14 @@ import {
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
-import { getExternalTicketsFromStorage, seedDemoExternalTicket } from '@/data/mockFeedbackData';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 
 import { parseUTCDate } from '@/utils/dateUtils';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 
-const ACTIVE_STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'On Hold'];
+const ACTIVE_STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'On Hold', 'Closed'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
 
 const getStoredUser = () => {
@@ -84,23 +84,20 @@ export default function MyTickets({ mode = 'all' }) {
 
     try {
       const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh });
-      const externalTickets = getExternalTicketsFromStorage();
-      const merged = [...externalTickets, ...ticketsList];
-      setTickets(merged);
+      setTickets(ticketsList || []);
     } catch (err) {
-      const externalTickets = getExternalTicketsFromStorage();
-      if (externalTickets.length > 0) {
-        setTickets(externalTickets);
-      } else {
-        setError(err?.response?.data?.message || 'Failed to load tickets.');
-      }
+      setError(err?.response?.data?.message || 'Failed to load tickets.');
     } finally {
       setLoading(false);
     }
   }, [customerId]);
 
   useEffect(() => {
-    seedDemoExternalTicket();
+    try {
+      localStorage.removeItem('demo_external_tickets');
+    } catch {
+      // ignore
+    }
     loadTickets({ forceRefresh: false });
   }, [loadTickets]);
 
@@ -142,11 +139,36 @@ export default function MyTickets({ mode = 'all' }) {
     return Array.from(unique).sort();
   }, [tickets]);
 
+  const [feedbackVersion, setFeedbackVersion] = useState(0);
+
+  useEffect(() => {
+    const handleFeedbackSubmitted = () => {
+      setFeedbackVersion((v) => v + 1);
+    };
+    window.addEventListener('customer_feedback_submitted', handleFeedbackSubmitted);
+    return () => window.removeEventListener('customer_feedback_submitted', handleFeedbackSubmitted);
+  }, []);
+
   const visibleTickets = useMemo(() => {
     return tickets.filter((ticket) => {
       const normalizedStatus = ticket.status === 'Discarded by Customer' ? 'Discarded' : ticket.status;
-      if (isHistory && !HISTORY_STATUSES.includes(ticket.status)) return false;
-      if (!isHistory && (HISTORY_STATUSES.includes(ticket.status) || ['Closed', 'Resolved', 'Discarded', 'Discarded by Customer'].includes(ticket.status))) return false;
+      const isInternal = ticket.is_internal || ticket.ticket_type === 'Internal';
+      const hasFeedback = hasFeedbackBeenSubmitted(ticket.id) || hasFeedbackBeenSubmitted(ticket.ticket_ID);
+      const isClosedPendingFeedback = ticket.status === 'Closed' && !isInternal && !hasFeedback;
+
+      if (isHistory) {
+        if (!HISTORY_STATUSES.includes(ticket.status)) return false;
+        // Closed tickets pending feedback stay in My Tickets until feedback is submitted
+        if (isClosedPendingFeedback) return false;
+      } else {
+        // Active "My Tickets"
+        if (ticket.status === 'Closed') {
+          if (!isClosedPendingFeedback) return false;
+        } else if (HISTORY_STATUSES.includes(ticket.status) || ['Resolved', 'Discarded', 'Discarded by Customer'].includes(ticket.status)) {
+          return false;
+        }
+      }
+
       if (filters.status && normalizedStatus !== filters.status) return false;
       if (filters.category && (ticket.category || '').trim() !== filters.category.trim()) return false;
       const ticketDate = ticket.date_created ? new Date(String(ticket.date_created).replace(' ', 'T')) : null;
@@ -164,7 +186,7 @@ export default function MyTickets({ mode = 'all' }) {
       if (!search) return true;
       return ticket.id.toLowerCase().includes(search) || ticket.title.toLowerCase().includes(search);
     });
-  }, [filters, isHistory, tickets]);
+  }, [filters, isHistory, tickets, feedbackVersion]);
 
   const closeNotif = () => setNotification(null);
   const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
@@ -193,9 +215,12 @@ export default function MyTickets({ mode = 'all' }) {
         created_by: customerId,
       });
       
-      const createdId = response.ticket 
-        ? 'TKT-' + String(response.ticket.ticket_ID).padStart(3, '0')
-        : 'TKT-' + String(response.ticket_ID || 'new').padStart(3, '0');
+      const createdId = response.ticket?.ticket_number
+        || response.dashboard_ticket?.ticket_number
+        || response.ticket_number
+        || (response.ticket
+          ? 'TKT-' + String(response.ticket.ticket_ID).padStart(4, '0')
+          : 'TKT-' + String(response.ticket_ID || 'new').padStart(4, '0'));
         
       const newTicketId = response.ticket?.ticket_ID || response.ticket_ID;
         
@@ -833,7 +858,20 @@ export default function MyTickets({ mode = 'all' }) {
         onSubmit={handleCreateTicket}
         openTicketsCount={customerOpenCount}
       />
-      <CustomerTicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })} onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)} onResolve={(ticketId) => handleCloseTicket(ticketId)} customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'} allowReopen={true} isHistoryView={isHistory} />
+      <CustomerTicketDetailModal
+        ticket={selectedTicket}
+        onClose={() => setSelectedTicket(null)}
+        onDiscard={(ticket) => showConfirm('Discard this ticket?', `This will mark ${ticket.id} as Discarded.`, () => handleConfirmDiscard(ticket), { confirmText: 'Discard', confirmClassName: 'bg-red-600 hover:bg-red-700' })}
+        onReopen={(ticketId, reason) => handleReopenTicket(ticketId, reason)}
+        onResolve={(ticketId) => handleCloseTicket(ticketId)}
+        customerName={effectiveUser?.name || effectiveUser?.first_name ? `${effectiveUser.first_name}${effectiveUser.last_name ? ' ' + effectiveUser.last_name : ''}` : 'Customer'}
+        allowReopen={true}
+        isHistoryView={isHistory}
+        onFeedbackSubmitted={() => {
+          setFeedbackVersion((v) => v + 1);
+          loadTickets({ forceRefresh: true });
+        }}
+      />
 
       {editingTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">

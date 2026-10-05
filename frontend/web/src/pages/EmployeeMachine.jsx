@@ -15,8 +15,19 @@ import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
+
+const isPendingEvaluationTicket = (ticket) => {
+  if (!ticket) return false;
+  return (
+    ticket.status === 'Pending Evaluation' ||
+    Number(ticket.ticket_status_ID) === 6 ||
+    ticket.proofStatus === 'pending' ||
+    (Boolean(ticket.proofSubmitted) && ticket.status !== 'Resolved' && ticket.status !== 'Closed')
+  );
+};
 
 const getDisplayStatus = (ticket) => (
   ticket.proofRejected
@@ -50,6 +61,20 @@ export default function EmployeeMachine() {
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
 
   const [typeFilter, setTypeFilter] = useState('all');
+  const [assignedTab, setAssignedTab] = useState('in_progress'); // 'in_progress' | 'pending_evaluation' | 'all'
+
+  // Compute tab counts
+  const inProgressCount = useMemo(() => {
+    return tickets.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status) && !isPendingEvaluationTicket(t)).length;
+  }, [tickets]);
+
+  const pendingEvaluationCount = useMemo(() => {
+    return tickets.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status) && isPendingEvaluationTicket(t)).length;
+  }, [tickets]);
+
+  const totalAssignedCount = useMemo(() => {
+    return tickets.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
+  }, [tickets]);
 
   // Modal states
   const [infoTicket, setInfoTicket] = useState(null);
@@ -109,9 +134,18 @@ export default function EmployeeMachine() {
       if (!t.accepted) return false;
       if (CLOSED_STATUSES.includes(t.status)) return false;
 
+      // Tab filtering
+      if (assignedTab === 'in_progress') {
+        if (isPendingEvaluationTicket(t)) return false;
+      } else if (assignedTab === 'pending_evaluation') {
+        if (!isPendingEvaluationTicket(t)) return false;
+      }
+
       if (statusFilter !== 'All Status') {
         if (statusFilter === 'Pending Reassignment' || statusFilter === 'Pending Reassign') {
-          if (!t.reassignmentRequested) return false;
+          if (!hasPendingReassignment(t)) return false;
+        } else if (statusFilter === 'Pending Evaluation') {
+          if (!isPendingEvaluationTicket(t)) return false;
         } else if (t.status !== statusFilter) {
           return false;
         }
@@ -136,7 +170,7 @@ export default function EmployeeMachine() {
 
     list = sortTicketsByPriority(list, 'desc');
     return list;
-  }, [tickets, search, statusFilter, categoryFilter, priorityFilter, typeFilter]);
+  }, [tickets, search, assignedTab, statusFilter, categoryFilter, priorityFilter, typeFilter]);
 
   const openTicketFlow = (t) => {
     setInfoTicket(t);
@@ -220,6 +254,58 @@ export default function EmployeeMachine() {
         </div>
       ) : (
         <>
+          {/* Assigned Tabs */}
+          <div className="flex border-b border-gray-200 gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setAssignedTab('in_progress')}
+              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                assignedTab === 'in_progress'
+                  ? 'border-[#252578] text-[#252578]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span>In Progress</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                assignedTab === 'in_progress' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {inProgressCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssignedTab('pending_evaluation')}
+              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                assignedTab === 'pending_evaluation'
+                  ? 'border-purple-600 text-purple-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span>Pending Evaluation</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                assignedTab === 'pending_evaluation' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {pendingEvaluationCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssignedTab('all')}
+              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                assignedTab === 'all'
+                  ? 'border-[#252578] text-[#252578]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span>All Assigned</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                assignedTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {totalAssignedCount}
+              </span>
+            </button>
+          </div>
+
           <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
               <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
               <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
@@ -293,15 +379,19 @@ export default function EmployeeMachine() {
                           <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${
                             getDisplayStatus(t) === 'Proof Rejected'
                               ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : t.reassignmentRequested
+                              : hasPendingReassignment(t)
                                 ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : t.status === 'Pending'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                  : t.status === 'Pending Evaluation'
-                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                : isPendingEvaluationTicket(t)
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                  : t.status === 'Pending'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
                                     : 'bg-blue-50 text-blue-700 border-blue-100'
                           }`}>
-                            {t.reassignmentRequested ? 'Pending Reassignment' : getDisplayStatus(t)}
+                            {hasPendingReassignment(t)
+                              ? 'Pending Reassignment'
+                              : isPendingEvaluationTicket(t)
+                              ? 'Pending Evaluation'
+                              : getDisplayStatus(t)}
                           </span>
                         </td>
                         <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(t.lastUpdate)}</td>
@@ -313,7 +403,7 @@ export default function EmployeeMachine() {
               </div>
               <div className="px-4 py-3 border-t border-gray-100">
                 <p className="text-sm text-gray-500">
-                  Showing {filtered.length} of {tickets.length} accepted tickets in progress
+                  Showing {filtered.length} of {totalAssignedCount} assigned tickets
                 </p>
               </div>
             </div>

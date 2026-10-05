@@ -6,7 +6,9 @@ import {
   Info, History, Globe,
 } from 'lucide-react';
 import axios from 'axios';
-import { KB_API_URL } from '@/config/api.config';
+import axiosInstance from '@/api/axiosInstance';
+import { AI_API_URL, KB_API_URL } from '@/config/api.config';
+import echo from '@/services/echo';
 
 function formatTimestamp(ts) {
   if (!ts) return '—';
@@ -316,7 +318,7 @@ function ArchiveConfirmModal({ isOpen, onClose, onConfirm, doc }) {
   );
 }
 
-function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title }) {
+function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title, isDeleting = false, errorMessage = '' }) {
   const [confirmText, setConfirmText] = useState('');
   const targetTitle = doc?.title || title || '';
 
@@ -336,14 +338,14 @@ function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title }) {
   );
 
   const handleClose = () => {
+    if (isDeleting) return;
     setConfirmText('');
     onClose();
   };
 
   const handleConfirm = () => {
-    if (!isMatch) return;
+    if (!isMatch || isDeleting) return;
     onConfirm();
-    setConfirmText('');
   };
 
   return (
@@ -361,11 +363,20 @@ function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title }) {
           </div>
           <button
             onClick={handleClose}
-            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 cursor-pointer"
+            disabled={isDeleting}
+            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 cursor-pointer disabled:opacity-40"
           >
             <X size={18} />
           </button>
         </div>
+
+        {/* Server Error Alert if blocked */}
+        {errorMessage && (
+          <div className="rounded-xl bg-red-50 border border-red-300 p-3 text-xs text-red-900 flex items-start gap-2">
+            <AlertTriangle size={15} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <span className="font-semibold">{errorMessage}</span>
+          </div>
+        )}
 
         {/* Permanent Warning */}
         <div className="rounded-xl bg-red-50 border border-red-200 p-3.5 text-xs text-red-800 space-y-1">
@@ -422,13 +433,14 @@ function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title }) {
             type="text"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
+            disabled={isDeleting}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && isMatch) {
+              if (e.key === 'Enter' && isMatch && !isDeleting) {
                 handleConfirm();
               }
             }}
             placeholder={`Type "${targetTitle}" or "DELETE"`}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 font-mono transition-all"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 font-mono transition-all disabled:bg-gray-100"
             autoFocus
           />
         </div>
@@ -438,21 +450,22 @@ function DeleteConfirmModal({ isOpen, onClose, onConfirm, doc, title }) {
           <button
             type="button"
             onClick={handleClose}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer"
+            disabled={isDeleting}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!isMatch}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all ${
-              isMatch
+            disabled={!isMatch || isDeleting}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${isMatch && !isDeleting
                 ? 'bg-red-600 hover:bg-red-700 cursor-pointer shadow-sm'
                 : 'bg-red-300 cursor-not-allowed opacity-60'
-            }`}
+              }`}
           >
-            Delete Article
+            {isDeleting && <Loader size={14} className="animate-spin" />}
+            {isDeleting ? 'Deleting...' : 'Delete Article'}
           </button>
         </div>
       </div>
@@ -532,15 +545,14 @@ function PipelineProgressView({
           return (
             <div
               key={i}
-              className={`flex items-center gap-2.5 text-sm ${
-                isFailedStep
+              className={`flex items-center gap-2.5 text-sm ${isFailedStep
                   ? 'text-red-600 font-semibold'
                   : isPast
-                  ? 'text-green-600'
-                  : isCurrent
-                  ? 'text-[#252578] font-semibold'
-                  : 'text-gray-300'
-              }`}
+                    ? 'text-green-600'
+                    : isCurrent
+                      ? 'text-[#252578] font-semibold'
+                      : 'text-gray-300'
+                }`}
             >
               {isFailedStep ? (
                 <AlertTriangle size={16} className="text-red-600 shrink-0" />
@@ -816,15 +828,14 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={handleFileDrop}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${
-                      dragOver
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${dragOver
                         ? 'border-[#252578] bg-[#252578]/5'
                         : errors.file
-                        ? 'border-red-400 bg-red-50/30'
-                        : selectedFile
-                        ? 'border-green-400 bg-green-50/20'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                          ? 'border-red-400 bg-red-50/30'
+                          : selectedFile
+                            ? 'border-green-400 bg-green-50/20'
+                            : 'border-gray-200 hover:border-gray-300'
+                      }`}
                   >
                     {selectedFile ? (
                       <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-green-200 shadow-xs">
@@ -1348,11 +1359,10 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                       if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
                     }}
                     placeholder="e.g. Printer Configuration Guide"
-                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${
-                      errors.title
+                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${errors.title
                         ? 'border-red-500 focus:ring-2 focus:ring-red-200'
                         : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
-                    }`}
+                      }`}
                   />
                   {errors.title && (
                     <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
@@ -1381,11 +1391,10 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                       setForm({ ...form, category: e.target.value });
                       if (errors.category) setErrors((prev) => ({ ...prev, category: '' }));
                     }}
-                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all bg-white ${
-                      errors.category
+                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all bg-white ${errors.category
                         ? 'border-red-500 focus:ring-2 focus:ring-red-200'
                         : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
-                    }`}
+                      }`}
                   >
                     <option value="">Select category</option>
                     {MOCK_CATEGORIES.map((c) => (
@@ -1453,13 +1462,12 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={handleFileDrop}
-                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                    errors.file
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${errors.file
                       ? 'border-red-400 bg-red-50/20'
                       : dragOver
-                      ? 'border-[#252578] bg-[#252578]/5'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                        ? 'border-[#252578] bg-[#252578]/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
                 >
                   {selectedFile ? (
                     <div className="space-y-2">
@@ -1629,11 +1637,10 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
                 type="button"
                 onClick={() => onPublish && onPublish(doc)}
                 disabled={!canPublish}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  canPublish
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${canPublish
                     ? 'text-white bg-green-600 hover:bg-green-700 cursor-pointer shadow-xs'
                     : 'text-gray-400 bg-gray-100 border border-gray-200 cursor-not-allowed opacity-60'
-                }`}
+                  }`}
                 title={
                   canPublish
                     ? "Publish to AI Chatbot"
@@ -1725,32 +1732,32 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
                   const Icon = isReplacement
                     ? RefreshCw
                     : isMetadata
-                    ? Edit3
-                    : isPublishedEntry
-                    ? Globe
-                    : isArchivedEntry
-                    ? Archive
-                    : Plus;
+                      ? Edit3
+                      : isPublishedEntry
+                        ? Globe
+                        : isArchivedEntry
+                          ? Archive
+                          : Plus;
 
                   const badgeClass = isReplacement
                     ? 'bg-amber-50 text-amber-700 border-amber-200'
                     : isMetadata
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                    : isPublishedEntry
-                    ? 'bg-green-50 text-green-700 border-green-200'
-                    : isArchivedEntry
-                    ? 'bg-gray-100 text-gray-700 border-gray-200'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : isPublishedEntry
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : isArchivedEntry
+                          ? 'bg-gray-100 text-gray-700 border-gray-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200';
 
                   const typeLabel = isReplacement
                     ? 'File Replaced'
                     : isMetadata
-                    ? 'Metadata Updated'
-                    : isPublishedEntry
-                    ? 'Article Published'
-                    : isArchivedEntry
-                    ? 'Article Archived'
-                    : 'Article Created';
+                      ? 'Metadata Updated'
+                      : isPublishedEntry
+                        ? 'Article Published'
+                        : isArchivedEntry
+                          ? 'Article Archived'
+                          : 'Article Created';
 
                   return (
                     <div key={entry.id || idx} className="flex items-start gap-3 p-2.5 rounded-lg bg-gray-50 border border-gray-100 text-xs">
@@ -1871,11 +1878,10 @@ function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
                   setForm({ ...form, title: e.target.value });
                   if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
                 }}
-                className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${
-                  errors.title
+                className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${errors.title
                     ? 'border-red-500 focus:ring-2 focus:ring-red-200'
                     : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
-                }`}
+                  }`}
               />
               {errors.title && (
                 <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
@@ -1980,8 +1986,8 @@ function AIKnowledgeBase() {
         doc.status === 'Ready'
           ? (doc.id === 1 || doc.id === 2 ? 'Published' : 'Draft')
           : doc.status === 'Archived'
-          ? 'Archived'
-          : 'Draft'
+            ? 'Archived'
+            : 'Draft'
       );
 
       return {
@@ -2005,7 +2011,7 @@ function AIKnowledgeBase() {
     try {
       const stored = localStorage.getItem('ai_kb_documents');
       if (stored) return normalizeDocs(JSON.parse(stored));
-    } catch {}
+    } catch { }
     return MOCK_DOCUMENTS;
   });
   const [loading, setLoading] = useState(true);
@@ -2026,15 +2032,53 @@ function AIKnowledgeBase() {
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [deleteBlockedMsg, setDeleteBlockedMsg] = useState('');
   const [publishBlockedMsg, setPublishBlockedMsg] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteModalError, setDeleteModalError] = useState('');
 
-  const fetchDocuments = useCallback(() => {
+  const fetchDocuments = useCallback(async () => {
     setLoading(true);
-    // SIMULATED: no real KB backend exists (port 8009 serves a different service, configuration-service). Replace with a real upload/processing endpoint once available.
+    try {
+      const res = await axiosInstance.get(`${AI_API_URL}/articles`);
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const mapped = res.data.data.map((item) => {
+          const publishState = item.status;
+          return {
+            id: item.id,
+            title: item.title,
+            category: item.category,
+            machine: item.machine || 'No Machine',
+            version: item.version || '1.0',
+            fileType: item.file_type || 'PDF',
+            size: item.size || item.file_size || '1.0 MB',
+            uploadedBy: item.uploaded_by || 'Super Admin',
+            uploadDate: item.created_at ? item.created_at.split('T')[0] : '2026-06-15',
+            status: publishState === 'Published' ? 'Ready' : publishState,
+            publishState,
+            processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
+            tags: Array.isArray(item.tags) ? item.tags : [],
+            description: item.description || '',
+            history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
+              {
+                id: item.id * 100 + 1,
+                type: 'created',
+                timestamp: item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '2026-06-15 09:00',
+                actor: item.uploaded_by || 'Super Admin',
+              },
+            ],
+          };
+        });
+        setDocuments(mapped);
+        try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
+        return;
+      }
+    } catch (err) {
+      console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
+    }
+
     try {
       const stored = localStorage.getItem('ai_kb_documents');
       if (stored) {
-        const normalized = normalizeDocs(JSON.parse(stored));
-        setDocuments(normalized);
+        setDocuments(normalizeDocs(JSON.parse(stored)));
       } else {
         setDocuments(MOCK_DOCUMENTS);
         localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
@@ -2048,6 +2092,34 @@ function AIKnowledgeBase() {
 
   useEffect(() => {
     fetchDocuments();
+  }, [fetchDocuments]);
+
+  // Real-time event bus listener for knowledge-base broadcast events
+  useEffect(() => {
+    try {
+      const channel = echo.channel('knowledge-base');
+      const handleArticleDeleted = (payload) => {
+        if (payload?.article_id) {
+          setDocuments((prev) => {
+            const next = prev.filter(d => d.id !== payload.article_id);
+            try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
+      };
+
+      channel.listen('.article.deleted', handleArticleDeleted);
+      channel.listen('.article.published', () => fetchDocuments());
+      channel.listen('.article.archived', () => fetchDocuments());
+
+      return () => {
+        channel.stopListening('.article.deleted');
+        channel.stopListening('.article.published');
+        channel.stopListening('.article.archived');
+      };
+    } catch (e) {
+      console.warn('Echo knowledge-base subscription notice:', e);
+    }
   }, [fetchDocuments]);
 
   const filteredDocs = useMemo(() => {
@@ -2088,6 +2160,27 @@ function AIKnowledgeBase() {
       }
       return next;
     });
+
+    // Synchronize document creation and RAG indexing with AI-service backend
+    axiosInstance.post(`${AI_API_URL}/articles`, {
+      title: newDoc.title,
+      category: newDoc.category,
+      machine: newDoc.machine,
+      version: newDoc.version,
+      file_type: newDoc.fileType,
+      file_size: newDoc.size,
+      status: newDoc.publishState || (newDoc.status === 'Ready' ? 'Published' : newDoc.status) || 'Draft',
+      tags: newDoc.tags,
+      description: newDoc.description,
+      content: newDoc.description || newDoc.title,
+    }).then((res) => {
+      if (res.data?.data?.id) {
+        const backendDoc = res.data.data;
+        setDocuments((prev) => prev.map((d) => d.id === newDoc.id ? { ...d, id: backendDoc.id } : d));
+      }
+    }).catch((err) => {
+      console.warn('Failed to sync created document with AI service:', err);
+    });
   };
 
   const handleView = (doc) => { setSelectedDoc(doc); setShowDetailModal(true); };
@@ -2098,6 +2191,7 @@ function AIKnowledgeBase() {
       return;
     }
     setDeleteBlockedMsg('');
+    setDeleteModalError('');
     setSelectedDoc(doc);
     setShowDeleteModal(true);
   };
@@ -2106,7 +2200,7 @@ function AIKnowledgeBase() {
   // TS080: Publish action (Draft/Archived -> Published)
   // Direct state update (no confirmation modal needed per spec).
   // Blocked if content was not successfully processed (processingStatus !== 'Ready for AI Search').
-  const handlePublish = (doc) => {
+  const handlePublish = async (doc) => {
     if (!doc) return;
     const isReady = (doc.processingStatus === 'Ready for AI Search' || doc.processingStatus === 'Ready') && doc.status !== 'Processing';
     if (!isReady) {
@@ -2123,6 +2217,9 @@ function AIKnowledgeBase() {
       actor: 'Super Admin',
     };
 
+    const previousDocs = documents;
+
+    // Immediate optimistic update
     setDocuments((prev) => {
       const next = prev.map(d => d.id === doc.id ? {
         ...d,
@@ -2130,7 +2227,7 @@ function AIKnowledgeBase() {
         status: 'Ready',
         history: [historyEntry, ...(d.history || [])],
       } : d);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
@@ -2140,6 +2237,37 @@ function AIKnowledgeBase() {
       status: 'Ready',
       history: [historyEntry, ...(prev.history || [])],
     } : prev);
+
+    // Synchronize publish state immediately to AI-service backend
+    try {
+      const res = await axiosInstance.post(`${AI_API_URL}/articles/${doc.id}/publish`, {
+        actor: 'Super Admin',
+      });
+      if (res.data?.success && res.data?.data) {
+        const backendDoc = res.data.data;
+        const normalized = {
+          ...doc,
+          ...backendDoc,
+          status: backendDoc.publishState === 'Published' || backendDoc.status === 'Published' ? 'Ready' : backendDoc.status,
+          publishState: backendDoc.publishState || 'Published',
+          history: Array.isArray(backendDoc.history) && backendDoc.history.length > 0 ? backendDoc.history : [historyEntry, ...(doc.history || [])],
+        };
+        setDocuments((prev) => {
+          const next = prev.map(d => d.id === doc.id ? normalized : d);
+          try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
+          return next;
+        });
+        setSelectedDoc((prev) => (prev && prev.id === doc.id) ? normalized : prev);
+      }
+    } catch (err) {
+      console.warn('Failed to publish article on AI service:', err);
+      const errMsg = err.response?.data?.message || "Failed to publish article. Please ensure document content is processed.";
+      setPublishBlockedMsg(errMsg);
+      // Revert optimistic update
+      setDocuments(previousDocs);
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(previousDocs)); } catch { }
+      setSelectedDoc(doc);
+    }
   };
 
   // TS080: Archive action (Published -> Archived)
@@ -2149,9 +2277,11 @@ function AIKnowledgeBase() {
     setShowArchiveModal(true);
   };
 
-  const handleConfirmArchive = () => {
+  const handleConfirmArchive = async () => {
     if (!selectedDoc) return;
     const docToArchive = selectedDoc;
+    setShowArchiveModal(false);
+
     const now = new Date().toISOString();
     const historyEntry = {
       id: Date.now(),
@@ -2160,6 +2290,9 @@ function AIKnowledgeBase() {
       actor: 'Super Admin',
     };
 
+    const previousDocs = documents;
+
+    // Immediate optimistic update
     setDocuments((prev) => {
       const next = prev.map(d => d.id === docToArchive.id ? {
         ...d,
@@ -2167,7 +2300,7 @@ function AIKnowledgeBase() {
         status: 'Archived',
         history: [historyEntry, ...(d.history || [])],
       } : d);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
@@ -2178,7 +2311,34 @@ function AIKnowledgeBase() {
       history: [historyEntry, ...(prev.history || [])],
     } : prev);
 
-    setShowArchiveModal(false);
+    // Synchronize archive state immediately to AI-service backend
+    try {
+      const res = await axiosInstance.post(`${AI_API_URL}/articles/${docToArchive.id}/archive`, {
+        actor: 'Super Admin',
+      });
+      if (res.data?.success && res.data?.data) {
+        const backendDoc = res.data.data;
+        const normalized = {
+          ...docToArchive,
+          ...backendDoc,
+          status: 'Archived',
+          publishState: 'Archived',
+          history: Array.isArray(backendDoc.history) && backendDoc.history.length > 0 ? backendDoc.history : [historyEntry, ...(docToArchive.history || [])],
+        };
+        setDocuments((prev) => {
+          const next = prev.map(d => d.id === docToArchive.id ? normalized : d);
+          try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
+          return next;
+        });
+        setSelectedDoc((prev) => (prev && prev.id === docToArchive.id) ? normalized : prev);
+      }
+    } catch (err) {
+      console.warn('Failed to archive article on AI service:', err);
+      // Revert optimistic update
+      setDocuments(previousDocs);
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(previousDocs)); } catch { }
+      setSelectedDoc(docToArchive);
+    }
   };
 
   // Metadata-only edit handler:
@@ -2205,7 +2365,7 @@ function AIKnowledgeBase() {
         description: form.description.trim(),
         history: [historyEntry, ...(d.history || [])],
       } : d);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
@@ -2221,6 +2381,18 @@ function AIKnowledgeBase() {
     } : null);
 
     setShowEditModal(false);
+
+    // Sync metadata updates to AI-service backend
+    axiosInstance.put(`${AI_API_URL}/articles/${selectedDoc.id}`, {
+      title: form.title.trim(),
+      category: form.category,
+      machine: form.machine,
+      version: form.version.trim(),
+      tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      description: form.description.trim(),
+    }).catch((err) => {
+      console.warn('Failed to update article on AI service:', err);
+    });
   };
 
   // File replacement completion handler:
@@ -2245,7 +2417,7 @@ function AIKnowledgeBase() {
         processingStatus: 'Ready for AI Search',
         history: [historyEntry, ...(d.history || [])],
       } : d);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
@@ -2269,7 +2441,7 @@ function AIKnowledgeBase() {
         ...d,
         processingStatus: newProcessingStatus,
       } : d);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
@@ -2279,40 +2451,62 @@ function AIKnowledgeBase() {
     } : prev);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedDoc) return;
     const docToDelete = selectedDoc;
 
-    setDocuments((prev) => {
-      const next = prev.filter(d => d.id !== docToDelete.id);
-      try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch {}
-      return next;
-    });
-
-    // SIMULATED: Append audit log entry to localStorage key 'superadmin_simulated_audit_logs'
-    // matching the exact shape already used by ticket_audit_logs and SuperAdminAuditLogs.jsx
-    try {
-      const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
-      const simulatedLogEntry = {
-        id: `kb-del-${Date.now()}`,
-        timestamp: now,
-        user: 'Super Admin',
-        role: 'Super Admin',
-        action: 'Deleted',
-        module: 'Knowledge Base',
-        target: docToDelete.title,
-        details: `Deleted knowledge article "${docToDelete.title}"`,
-      };
-
-      const existingLogs = JSON.parse(localStorage.getItem('superadmin_simulated_audit_logs') || '[]');
-      const updatedLogs = [simulatedLogEntry, ...existingLogs];
-      localStorage.setItem('superadmin_simulated_audit_logs', JSON.stringify(updatedLogs));
-    } catch (err) {
-      console.error('Failed to append to simulated audit logs:', err);
+    if (docToDelete.processingStatus === 'Processing' || docToDelete.status === 'Processing') {
+      setDeleteModalError('Cannot delete article while an extraction or indexing process is currently in progress. Please wait for the process to complete or cancel it.');
+      setDeleteBlockedMsg('Cannot delete article while an extraction or indexing process is currently in progress.');
+      return;
     }
 
-    setShowDeleteModal(false);
-    setSelectedDoc(null);
+    setIsDeleting(true);
+    setDeleteModalError('');
+
+    try {
+      await axiosInstance.delete(`${AI_API_URL}/articles/${docToDelete.id}`, {
+        data: { actor: 'Super Admin' },
+      });
+
+      // Synchronize state immediately
+      setDocuments((prev) => {
+        const next = prev.filter(d => d.id !== docToDelete.id);
+        try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
+        return next;
+      });
+
+      setShowDeleteModal(false);
+      setSelectedDoc(null);
+      setIsDeleting(false);
+
+      // Append audit log entry matching ticket_audit_logs shape
+      try {
+        const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        const simulatedLogEntry = {
+          id: `kb-del-${Date.now()}`,
+          timestamp: now,
+          user: 'Super Admin',
+          role: 'Super Admin',
+          action: 'Deleted',
+          module: 'Knowledge Base',
+          target: docToDelete.title,
+          details: `Permanently deleted knowledge article "${docToDelete.title}" and purged active RAG index.`,
+        };
+
+        const existingLogs = JSON.parse(localStorage.getItem('superadmin_simulated_audit_logs') || '[]');
+        const updatedLogs = [simulatedLogEntry, ...existingLogs];
+        localStorage.setItem('superadmin_simulated_audit_logs', JSON.stringify(updatedLogs));
+      } catch (err) {
+        console.error('Failed to append to audit logs:', err);
+      }
+    } catch (err) {
+      console.warn('Failed to delete article on AI service:', err);
+      const errMsg = err.response?.data?.message || 'Failed to delete article. Please try again.';
+      setDeleteModalError(errMsg);
+      setDeleteBlockedMsg(errMsg);
+      setIsDeleting(false);
+    }
   };
 
   const toggleSelectDoc = (id) => {
@@ -2471,13 +2665,12 @@ function AIKnowledgeBase() {
                               </span>
 
                               {/* Processing Status Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                isMidProcess
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isMidProcess
                                   ? 'bg-blue-50 text-blue-700 border-blue-200'
                                   : doc.processingStatus === 'Failed'
-                                  ? 'bg-red-50 text-red-700 border-red-200'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              }`}>
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                }`}>
                                 {isMidProcess ? (
                                   <Loader size={10} className="animate-spin" />
                                 ) : doc.processingStatus === 'Failed' ? (
@@ -2504,11 +2697,10 @@ function AIKnowledgeBase() {
                                 <button
                                   onClick={() => handlePublish(doc)}
                                   disabled={!canPublish}
-                                  className={`p-1.5 rounded-lg transition-all ${
-                                    canPublish
+                                  className={`p-1.5 rounded-lg transition-all ${canPublish
                                       ? 'hover:bg-gray-100 text-gray-400 hover:text-green-600 cursor-pointer'
                                       : 'text-gray-300 cursor-not-allowed opacity-40'
-                                  }`}
+                                    }`}
                                   title={
                                     canPublish
                                       ? "Publish Article (make active for chatbot)"
@@ -2525,11 +2717,10 @@ function AIKnowledgeBase() {
                               <button
                                 onClick={() => handleDelete(doc)}
                                 disabled={isMidProcess}
-                                className={`p-1.5 rounded-lg transition-all ${
-                                  isMidProcess
+                                className={`p-1.5 rounded-lg transition-all ${isMidProcess
                                     ? 'text-gray-300 cursor-not-allowed opacity-40'
                                     : 'hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer'
-                                }`}
+                                  }`}
                                 title={isMidProcess ? "Cannot delete while this document is processing." : "Delete"}
                               >
                                 <Trash2 size={15} />
@@ -2567,7 +2758,14 @@ function AIKnowledgeBase() {
         isOpen={showDeleteModal}
         doc={selectedDoc}
         title={selectedDoc?.title}
-        onClose={() => setShowDeleteModal(false)}
+        isDeleting={isDeleting}
+        errorMessage={deleteModalError}
+        onClose={() => {
+          if (!isDeleting) {
+            setShowDeleteModal(false);
+            setDeleteModalError('');
+          }
+        }}
         onConfirm={handleConfirmDelete}
       />
       <ArchiveConfirmModal

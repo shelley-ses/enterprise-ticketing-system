@@ -34,6 +34,12 @@ class AiChatController extends Controller
             return (object) ['is_internal' => true];
         }
 
+        // 3. Fallback: check query parameter or body user_id for customer requests
+        $requestedUserId = $request->input('user_id') ?? $request->query('user_id');
+        if (!empty($requestedUserId)) {
+            return (object) ['id' => $requestedUserId, 'is_fallback' => true];
+        }
+
         return null;
     }
 
@@ -224,15 +230,15 @@ class AiChatController extends Controller
 
         if (!$conversation) {
             return response()->json([
-                'success' => false,
-                'message' => 'Conversation not found',
-            ], 404);
+                'success' => true,
+                'message' => 'Conversation already deleted or not found',
+            ]);
         }
 
         $isInternal = isset($auth->is_internal) && $auth->is_internal;
         if (!$isInternal) {
-            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
-            if (!empty($conversation->user_id) && (string) $conversation->user_id !== (string) $userId) {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier() ?? $request->input('user_id') ?? $request->query('user_id');
+            if (!empty($conversation->user_id) && $userId && (string) $conversation->user_id !== (string) $userId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Forbidden: You do not have permission to delete this conversation',
@@ -245,6 +251,52 @@ class AiChatController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Conversation deleted successfully',
+        ]);
+    }
+
+    /**
+     * DELETE /api/conversations/{id}/messages/{messageId}
+     * Removes a specific message from a conversation's history.
+     */
+    public function deleteMessage(Request $request, string $id, string $messageId)
+    {
+        $auth = $this->getAuthenticatedUser($request);
+        if (!$auth) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $conversation = AiConversation::find($id);
+        if (!$conversation) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Conversation not found',
+            ]);
+        }
+
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
+        if (!$isInternal) {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier() ?? $request->input('user_id') ?? $request->query('user_id');
+            if (!empty($conversation->user_id) && $userId && (string) $conversation->user_id !== (string) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: You do not have permission to modify this conversation',
+                ], 403);
+            }
+        }
+
+        $messages = is_array($conversation->messages) ? $conversation->messages : [];
+        $updated = array_values(array_filter($messages, function ($m) use ($messageId) {
+            $mId = $m['id'] ?? null;
+            return (string) $mId !== (string) $messageId;
+        }));
+
+        $conversation->messages = $updated;
+        $conversation->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message deleted successfully',
+            'messages' => $updated,
         ]);
     }
 

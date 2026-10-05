@@ -6,6 +6,8 @@ use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TicketDashboardController;
 use App\Http\Controllers\TicketNotificationController;
 use App\Http\Controllers\SuperAdminConfigController;
+use App\Http\Controllers\BranchPriorityController;
+use App\Http\Controllers\BranchCategoryController;
 use App\Http\Controllers\SLARuleController;
 use App\Http\Controllers\WorkflowEscalationController;
 
@@ -173,12 +175,18 @@ Route::middleware('auth.subsystem')->group(function () {
         return response()->json(['message' => 'Export not available'], 400);
     });
 
-    // ─── Core Ticket Lifecycle ────────────────────────────────────────────────
+    // ─── Core Ticket Lifecycle & Status Transitions ───────────────────────────
     Route::post('/tickets', [TicketController::class, 'store']);
     Route::post('/tickets/internal', [TicketController::class, 'storeInternalTicket']);
     Route::get('/tickets/{ticketId}', [TicketController::class, 'show']);
-    Route::patch('/tickets/{ticketId}', [TicketController::class, 'updateTicket']);
+    Route::match(['put', 'patch'], '/tickets/{ticketId}', [TicketController::class, 'updateTicket']);
     Route::delete('/tickets/{ticketId}', [TicketController::class, 'destroy']);
+    Route::post('/tickets/{ticketId}/hold', [TicketController::class, 'holdTicket']);
+    Route::post('/tickets/{ticketId}/resume', [TicketController::class, 'resumeTicket']);
+    Route::post('/tickets/{ticketId}/resolve', [TicketController::class, 'resolveTicket']);
+    Route::post('/tickets/{ticketId}/close', [TicketController::class, 'closeTicket']);
+    Route::post('/tickets/{ticketId}/reopen', [TicketController::class, 'reopenTicket']);
+    Route::post('/tickets/{ticketId}/cancel', [TicketController::class, 'cancelTicket']);
 
     // ─── Notifications ────────────────────────────────────────────────────────
     Route::get('/notifications', [TicketNotificationController::class, 'getNotifications']);
@@ -194,14 +202,57 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/superadmin/equipment', [SuperAdminConfigController::class, 'createSuperAdminEquipment']);
     Route::put('/superadmin/equipment/{id}', [SuperAdminConfigController::class, 'updateSuperAdminEquipment']);
     Route::delete('/superadmin/equipment/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminEquipment']);
+    Route::post('/superadmin/ticket-categories', [SuperAdminConfigController::class, 'createSuperAdminTicketCategory']);
+    Route::put('/superadmin/ticket-categories/{id}', [SuperAdminConfigController::class, 'updateSuperAdminTicketCategory']);
+    Route::delete('/superadmin/ticket-categories/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminTicketCategory']);
     Route::post('/superadmin/priority', [SuperAdminConfigController::class, 'createSuperAdminPriority']);
     Route::put('/superadmin/priority/{id}', [SuperAdminConfigController::class, 'updateSuperAdminPriority']);
     Route::delete('/superadmin/priority/{id}', [SuperAdminConfigController::class, 'deleteSuperAdminPriority']);
+
+    // ─── Branch-specific priority levels & SLA overrides ──────────────────────
+    Route::get('/superadmin/branches', [BranchPriorityController::class, 'branches']);
+    Route::prefix('/superadmin/branches/{branchId}/priorities')
+        ->where(['branchId' => '[a-z0-9\-]{1,64}', 'id' => '[0-9]+'])
+        ->group(function () {
+            Route::get('/', [BranchPriorityController::class, 'index']);
+            Route::post('/', [BranchPriorityController::class, 'store']);
+            Route::put('/{id}', [BranchPriorityController::class, 'update']);
+            Route::patch('/{id}', [BranchPriorityController::class, 'update']);
+            Route::delete('/{id}', [BranchPriorityController::class, 'destroy']);
+        });
+
+    // ─── Branch-specific Categories & SLA Policies ───────────────────────────
+    Route::prefix('/superadmin/branches/{branchId}/categories')
+        ->where(['branchId' => '[a-z0-9\-]{1,64}', 'id' => '[0-9]+'])
+        ->group(function () {
+            Route::get('/', [BranchCategoryController::class, 'index']);
+            Route::post('/', [BranchCategoryController::class, 'storeCategory']);
+            Route::put('/{id}', [BranchCategoryController::class, 'updateCategory']);
+            Route::patch('/{id}', [BranchCategoryController::class, 'updateCategory']);
+            Route::delete('/{id}', [BranchCategoryController::class, 'destroyCategory']);
+            Route::post('/reset', [BranchCategoryController::class, 'resetBranch']);
+        });
+
+    Route::prefix('/superadmin/branches/{branchId}/sla-policies')
+        ->where(['branchId' => '[a-z0-9\-]{1,64}'])
+        ->group(function () {
+            Route::post('/', [BranchCategoryController::class, 'storeSlaPolicy']);
+            Route::delete('/', [BranchCategoryController::class, 'destroySlaPolicy']);
+        });
+    Route::post('/superadmin/branches/{branchId}/reset', [BranchCategoryController::class, 'resetBranch']);
     Route::get('/superadmin/audit-logs', [SuperAdminConfigController::class, 'getSuperAdminAuditLogs']);
     Route::get('/superadmin/history', [SuperAdminConfigController::class, 'getSuperAdminHistory']);
     Route::get('/superadmin/window-config', [SuperAdminConfigController::class, 'getWindowConfig']);
     Route::put('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
     Route::patch('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);
+    Route::get('/superadmin/number-format', [SuperAdminConfigController::class, 'getNumberFormatConfig']);
+    Route::put('/superadmin/number-format', [SuperAdminConfigController::class, 'updateNumberFormatConfig']);
+    Route::patch('/superadmin/number-format', [SuperAdminConfigController::class, 'updateNumberFormatConfig']);
+    Route::post('/superadmin/number-format/reset', [SuperAdminConfigController::class, 'resetNumberFormatConfig']);
+    Route::get('/superadmin/ticket-number-format', [SuperAdminConfigController::class, 'getNumberFormatConfig']);
+    Route::put('/superadmin/ticket-number-format', [SuperAdminConfigController::class, 'updateNumberFormatConfig']);
+    Route::patch('/superadmin/ticket-number-format', [SuperAdminConfigController::class, 'updateNumberFormatConfig']);
+    Route::post('/superadmin/ticket-number-format/reset', [SuperAdminConfigController::class, 'resetNumberFormatConfig']);
     Route::get('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'getNotificationRouting']);
     Route::put('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'updateNotificationRouting']);
     Route::patch('/superadmin/recipient-routing', [SuperAdminConfigController::class, 'updateNotificationRouting']);
@@ -219,6 +270,16 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::put('/superadmin/log-level', [SuperAdminConfigController::class, 'updateLogLevel']);
     Route::patch('/superadmin/log-level', [SuperAdminConfigController::class, 'updateLogLevel']);
 
+    Route::get('/superadmin/ticket-defaults', [SuperAdminConfigController::class, 'getTicketDefaultsConfig']);
+    Route::put('/superadmin/ticket-defaults', [SuperAdminConfigController::class, 'updateTicketDefaultsConfig']);
+    Route::patch('/superadmin/ticket-defaults', [SuperAdminConfigController::class, 'updateTicketDefaultsConfig']);
+    Route::post('/superadmin/ticket-defaults/reset', [SuperAdminConfigController::class, 'resetTicketDefaultsConfig']);
+
+    Route::get('/superadmin/defaults', [SuperAdminConfigController::class, 'getTicketDefaultsConfig']);
+    Route::put('/superadmin/defaults', [SuperAdminConfigController::class, 'updateTicketDefaultsConfig']);
+    Route::patch('/superadmin/defaults', [SuperAdminConfigController::class, 'updateTicketDefaultsConfig']);
+    Route::post('/superadmin/defaults/reset', [SuperAdminConfigController::class, 'resetTicketDefaultsConfig']);
+
     // ─── SuperAdmin SLA Rules ─────────────────────────────────────────────────
     Route::get('/superadmin/sla-rules', [SLARuleController::class, 'index']);
     Route::post('/superadmin/sla-rules', [SLARuleController::class, 'store']);
@@ -230,6 +291,7 @@ Route::middleware('auth.subsystem')->group(function () {
     // ─── SuperAdmin Workflow Statuses ─────────────────────────────────────────
     Route::get('/superadmin/workflow-statuses', [WorkflowEscalationController::class, 'getWorkflowStatuses']);
     Route::post('/superadmin/workflow-statuses', [WorkflowEscalationController::class, 'storeWorkflowStatus']);
+    Route::post('/superadmin/workflow-statuses/reset-defaults', [WorkflowEscalationController::class, 'resetDefaultWorkflowStatuses']);
     Route::put('/superadmin/workflow-statuses/{id}', [WorkflowEscalationController::class, 'updateWorkflowStatus']);
     Route::delete('/superadmin/workflow-statuses/{id}', [WorkflowEscalationController::class, 'destroyWorkflowStatus']);
 
@@ -239,4 +301,14 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::put('/superadmin/escalation-rules/{id}', [WorkflowEscalationController::class, 'updateEscalationRule']);
     Route::delete('/superadmin/escalation-rules/{id}', [WorkflowEscalationController::class, 'destroyEscalationRule']);
     Route::patch('/superadmin/escalation-rules/{id}/toggle', [WorkflowEscalationController::class, 'toggleEscalationRule']);
+
+    // ─── SuperAdmin Transition Rules ──────────────────────────────────────────
+    Route::get('/superadmin/transition-rules', [SuperAdminConfigController::class, 'getTransitionRules']);
+    Route::put('/superadmin/transition-rules', [SuperAdminConfigController::class, 'updateTransitionRules']);
+    Route::patch('/superadmin/transition-rules', [SuperAdminConfigController::class, 'updateTransitionRules']);
+    Route::post('/superadmin/transition-rules/reset', [SuperAdminConfigController::class, 'resetTransitionRules']);
+    Route::get('/superadmin/transitions', [SuperAdminConfigController::class, 'getTransitionRules']);
+    Route::put('/superadmin/transitions', [SuperAdminConfigController::class, 'updateTransitionRules']);
+    Route::patch('/superadmin/transitions', [SuperAdminConfigController::class, 'updateTransitionRules']);
+    Route::post('/superadmin/transitions/reset', [SuperAdminConfigController::class, 'resetTransitionRules']);
 });

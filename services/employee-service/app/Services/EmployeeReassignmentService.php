@@ -169,8 +169,14 @@ class EmployeeReassignmentService
                         ->value('ticket_status_ID') ?? 2;
                     $updateData['assigned_to'] = $newEmpId;
                     $updateData['ticket_status_ID'] = $inProgressId;
+                    $updateData['in_progress_owner'] = 'employee';
                 } else {
+                    $inProgressId = DB::table('ticket_statuses')
+                        ->whereRaw('LOWER(status_name) = ?', ['in progress'])
+                        ->value('ticket_status_ID') ?? 2;
                     $updateData['assigned_to'] = null;
+                    $updateData['ticket_status_ID'] = $inProgressId;
+                    $updateData['in_progress_owner'] = 'cs';
                 }
 
                 DB::table('tickets')
@@ -227,6 +233,7 @@ class EmployeeReassignmentService
                     ->update([
                         'assigned_to' => $targetEmpId,
                         'ticket_status_ID' => $inProgressId,
+                        'in_progress_owner' => 'employee',
                         'updated_at' => now(),
                     ]);
 

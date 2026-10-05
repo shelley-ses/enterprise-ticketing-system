@@ -20,6 +20,7 @@ import {
   respondReassignment,
   getTicketDetails,
   updateTicket,
+  CS_TICKET_REFRESH_EVENT,
 } from '@/services/ticketService';
 
 const normalizeDepartmentName = (value = '') => value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -204,6 +205,16 @@ export default function CSIncoming() {
     }
   }, [location.state, tickets]);
 
+  useEffect(() => {
+    const handleRefreshEvent = () => {
+      loadLiveData({ forceRefresh: true, source: 'poll' });
+    };
+    window.addEventListener(CS_TICKET_REFRESH_EVENT, handleRefreshEvent);
+    return () => {
+      window.removeEventListener(CS_TICKET_REFRESH_EVENT, handleRefreshEvent);
+    };
+  }, [loadLiveData]);
+
   useRealtimeRefresh({
     refresh: handleRealtimeUpdate,
     channels: [
@@ -271,13 +282,23 @@ export default function CSIncoming() {
       const isPendingValidation = t.status === 'Pending Evaluation';
       const isReopened = t.status === 'Reopened' || t.status === 'Reopen';
       const isPendingReassign = t.reassignmentRequested === true;
+      const isPendingAssignment = t.status === 'Pending Assignment' || (t.assigned && t.assigned.length > 0 && !t.accepted);
 
-      // Filter by assignment / reassignment / validation status
-      if (assignmentFilter === 'All') {
+      // Filter by Incoming Tab (Open vs Pending Assignment vs All)
+      if (incomingTab === 'open') {
+        if (isPendingAssignment) return false;
         if (isAssigned && !isPendingReassign && !isReopened) return false;
         if (isPendingValidation && !isPendingReassign && !isReopened) return false;
-      } else if (assignmentFilter === 'Pending Assignment') {
-        if (t.status !== 'Pending Assignment') return false;
+      } else if (incomingTab === 'pending_assignment') {
+        if (!isPendingAssignment) return false;
+      } else if (incomingTab === 'all') {
+        if (isAssigned && !isPendingReassign && !isReopened) return false;
+        if (isPendingValidation && !isPendingReassign && !isReopened) return false;
+      }
+
+      // Filter by assignment / reassignment / validation status dropdown
+      if (assignmentFilter === 'Pending Assignment') {
+        if (!isPendingAssignment) return false;
       } else if (assignmentFilter === 'Pending Reassign') {
         if (!isPendingReassign) return false;
       } else if (assignmentFilter === 'Pending Evaluation') {
@@ -357,6 +378,7 @@ export default function CSIncoming() {
       return true;
     }
 
+    setError(null);
     try {
       const targetTicketId = updated.ticket_ID || Number(String(updated.id || '').replace(/\D/g, ''));
       await acceptTicket({
@@ -366,35 +388,38 @@ export default function CSIncoming() {
         priorityId: priorityMap[updated.priority] ?? 1,
       });
 
-      window.dispatchEvent(new Event('notifications:updated'));
+      // Optimistically update tickets immediately so the UI reflects Pending Assignment with zero delay
+      const refreshedTicket = {
+        ...updated,
+        ticket_ID: targetTicketId,
+        status: 'Pending Assignment',
+        assigned: updated.assigned,
+        accepted: false,
+      };
 
-      // Soft data refetch
-      try {
-        const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
-        setTickets(incoming);
-        
-        // Find the newly updated ticket
-        const refreshedTicket = incoming.find(t => t.ticket_ID === updated.ticket_ID) || {
-          ...updated,
-          status: 'Pending Assignment',
-        };
-        
-        // Broadcast the assignment to all listening pages
-        ticketBroadcast.emit('assigned', refreshedTicket);
-      } catch (e) {
-        // Fallback to local state if refetch fails
-        const refreshed = {
-          ...updated,
-          status: 'Pending Assignment',
-        };
-        ticketBroadcast.emit('assigned', refreshed);
-        setTickets((prev) => prev.map((t) => (t.ticket_ID === updated.ticket_ID ? refreshed : t)));
-      }
+      setTickets((prev) =>
+        prev.map((t) => (t.ticket_ID === targetTicketId || t.id === updated.id ? { ...t, ...refreshedTicket } : t))
+      );
+      ticketBroadcast.emit('assigned', refreshedTicket);
       setModal(null);
       setIncomingTab('pending_assignment');
+      setPage(1);
+
+      window.dispatchEvent(new Event('notifications:updated'));
+
+      // Soft background data refetch to reconcile with backend
+      try {
+        const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+        if (Array.isArray(incoming) && incoming.length > 0) {
+          setTickets(incoming);
+        }
+      } catch (e) {
+        // Optimistic state is already cleanly set
+      }
       return true;
     } catch (err) {
-      setError('Failed to assign ticket. Please try again.');
+      const errMsg = err?.response?.data?.message || 'Failed to assign ticket. Please try again.';
+      setError(errMsg);
       console.error(err);
       return false;
     }
@@ -693,7 +718,7 @@ export default function CSIncoming() {
             )));
 
             try {
-              const numericId = Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
+              const numericId = modal.ticket.ticket_ID || Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
               
               if (updatedFields.reassignmentStatus) {
                 await respondReassignment({
