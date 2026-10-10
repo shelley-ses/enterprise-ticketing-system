@@ -89,7 +89,7 @@ class EmployeeAssignmentController extends Controller
         }
 
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:In Progress,Pending,Resolved,Pending Assignment,On Hold,Pending Evaluation,Closed,Open'],
+            'status' => ['nullable', 'string', 'in:In Progress,Pending,Resolved,Pending Assignment,Pending Evaluation,Closed,Open'],
             'remarks' => ['nullable', 'string', 'max:250'],
             'internal_note' => ['nullable', 'string'],
             'attachments' => ['nullable', 'array'],

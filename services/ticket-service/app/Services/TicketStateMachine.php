@@ -540,7 +540,8 @@ class TicketStateMachine
             $actorType,
             $auditDetails,
             $resolvedTargetState,
-            $currentState
+            $currentState,
+            $context
         ) {
             DB::table('tickets')->where('ticket_ID', $ticketId)->update($updateFields);
 
@@ -549,9 +550,21 @@ class TicketStateMachine
                 $this->slaService->resumeClock($ticketId);
             }
 
-            // 2. Entering On Hold -> pause SLA clock
+            // 2. Entering On Hold -> pause SLA clock and write internal note
             if ($resolvedTargetState === self::STATE_ON_HOLD) {
                 $this->slaService->pauseClock($ticketId);
+
+                $reason = $context['reason'] ?? null;
+                if ($reason) {
+                    $noteEmpId = $actorType === 'employee' ? $actorId : 1;
+                    DB::table('internal_notes')->insert([
+                        'ticket_id' => $ticketId,
+                        'employee_id' => $noteEmpId,
+                        'note' => 'Hold reason: ' . $reason,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
             }
 
             // 3. Reopening -> soft-end existing ticket_assignments (do NOT delete) and recalculate SLA

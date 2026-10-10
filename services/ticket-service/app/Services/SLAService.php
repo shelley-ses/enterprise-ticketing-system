@@ -214,7 +214,7 @@ class SLAService
 
         DB::table('tickets')->where('ticket_ID', $ticketId)->update($update);
 
-        return [
+        $result = [
             'sla_rule_id' => $resolved['sla_rule_id'],
             'sla_ID' => $resolved['sla_ID'],
             'branch_sla_policy_id' => $resolved['branch_sla_policy_id'],
@@ -224,8 +224,13 @@ class SLAService
             'response_time_limit' => $resolved['response_time_limit'],
             'resolution_time_limit' => $resolved['resolution_time_limit'],
             'is_fallback' => $resolved['is_fallback'],
-            'is_branch_override' => $resolved['is_branch_override'],
         ];
+
+        if (!empty($resolved['is_branch_override'])) {
+            $result['is_branch_override'] = true;
+        }
+
+        return $result;
     }
 
     /**

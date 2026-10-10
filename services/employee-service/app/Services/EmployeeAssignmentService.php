@@ -614,6 +614,16 @@ class EmployeeAssignmentService
             return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
         }
 
+        if ((int) $ticket->ticket_status_ID === 11) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Ticket is currently on hold. Customer Service must resume it before work or updates can be logged.',
+                    'code' => 'TICKET_ON_HOLD',
+                ],
+            ];
+        }
+
         $assignment = DB::table('ticket_assignments')
             ->where('ticket_ID', $ticketId)
             ->where('employee_ID', $empId)

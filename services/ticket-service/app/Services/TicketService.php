@@ -1918,6 +1918,56 @@ class TicketService
             $transitionResult['data']['previous_assigned_to'] = $previousAssignedTo;
         }
 
+        // TODO: TS005 - Notification dispatch for ticket reopen
+        try {
+            $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+            $reopenNotificationData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'reason' => $trimmedReason,
+                'type' => 'ticket_reopened',
+            ];
+
+            // Notify CS
+            $this->notificationService->notifyCS(
+                'Ticket Reopened',
+                "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                $ticketId,
+                $reopenNotificationData
+            );
+
+            // Notify previously assigned employee if one existed
+            if ($previousAssignedTo) {
+                $this->notificationService->notifyRecipient(
+                    (int) $previousAssignedTo,
+                    'employee',
+                    'Assigned Ticket Reopened',
+                    "Ticket {$ticketRef} previously assigned to you has been reopened. Reason: \"{$trimmedReason}\".",
+                    $ticketId,
+                    $reopenNotificationData
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Failed to dispatch reopen notifications for ticket {$ticketId}: " . $e->getMessage());
+        }
+
+        // Post reopen message to messaging-service only when actor is a customer
+        if ($user instanceof \App\Models\Client) {
+            try {
+                $clientName = $user->client_name ?? 'Customer';
+                Http::withHeaders([
+                    'X-Internal-Token' => env('INTERNAL_TOKEN'),
+                ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                    'message' => "Ticket reopened. Reason: {$trimmedReason}",
+                    'sender_name' => $clientName,
+                    'sender_type' => 'customer',
+                    'sender_id' => (int) $user->id,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning("Failed to post reopen message to messaging-service for ticket {$ticketId}: " . $e->getMessage());
+            }
+        }
+
         return $transitionResult;
     }
 

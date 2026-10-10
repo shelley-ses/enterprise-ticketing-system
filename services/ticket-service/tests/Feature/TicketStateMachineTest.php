@@ -295,7 +295,7 @@ class TicketStateMachineTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJson([
-            'code' => 'INVALID_TICKET_TRANSITION',
+            'code' => 'WINDOW_EXPIRED',
         ]);
         $this->assertStringContainsString('48 hours', $response->json('message'));
     }
@@ -401,5 +401,70 @@ class TicketStateMachineTest extends TestCase
             ->count();
 
         $this->assertEquals(2, $count);
+    }
+
+    /**
+     * Test 10: Hold writes internal note and reopen does not. Customer reopen posts to messaging.
+     */
+    public function test_hold_writes_internal_note_and_reopen_does_not()
+    {
+        TicketConfigurationService::clearWindowsCache();
+
+        Http::fake([
+            'http://messaging-service:8000/*' => Http::response([], 200),
+            '*/api/ticket-configurations/windows' => Http::response([
+                'reopenEnabled' => true,
+                'reopenWindowDays' => 2,
+            ], 200),
+            'http://configuration-service:8000/*' => Http::response([], 200),
+        ]);
+
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+            'assigned_to' => $this->employee->emp_id,
+        ]);
+
+        // 1. Hold writes an internal_notes row
+        $notesBefore = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+
+        $holdResponse = $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", [
+                'reason' => 'Waiting on customer parts approval',
+            ]);
+        $holdResponse->assertStatus(200);
+
+        $notesAfter = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+        $this->assertEquals($notesBefore + 1, $notesAfter);
+
+        $latestNote = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->latest('id')->first();
+        $this->assertStringContainsString('Waiting on customer parts approval', $latestNote->note);
+
+        // Resume ticket then resolve it
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+            ->assertStatus(200);
+
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resolve")
+            ->assertStatus(200);
+
+        // 2. Reopen does NOT write internal_notes, and posts reopen message to messaging-service when customer
+        $notesBeforeReopen = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+
+        $reopenResponse = $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", [
+                'reason' => 'Issue recurred after testing',
+            ]);
+        $reopenResponse->assertStatus(200);
+
+        $notesAfterReopen = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+        $this->assertEquals($notesBeforeReopen, $notesAfterReopen);
+
+        // Verify messaging-service was called for customer reopen
+        Http::assertSent(function ($request) use ($ticket) {
+            return str_contains($request->url(), "/api/internal/tickets/{$ticket->ticket_ID}/messages")
+                && str_contains($request['message'], 'Issue recurred after testing');
+        });
     }
 }
