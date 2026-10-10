@@ -111,6 +111,15 @@ class TicketStateMachineTest extends TestCase
                 'password_hash' => 'secret',
             ]
         );
+
+        \Illuminate\Support\Facades\Event::fake([
+            \App\Events\TicketChanged::class,
+        ]);
+
+        Http::fake([
+            '*/api/internal/tickets/*/messages' => Http::response([], 200),
+            '*/api/email/dispatch-event' => Http::response(['status' => 'success'], 200),
+        ]);
     }
 
     protected function createTestTicket(array $overrides = []): object

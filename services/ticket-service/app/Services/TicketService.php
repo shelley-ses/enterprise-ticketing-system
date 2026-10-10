@@ -1676,7 +1676,41 @@ class TicketService
         }
 
         try {
-            return $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $trimmedReason], $user);
+            $result = $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $trimmedReason], $user);
+
+            // TODO: TS005 per-user notification preferences
+            try {
+                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                $holdData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'reason' => $trimmedReason,
+                    'type' => 'ticket_on_hold',
+                ];
+
+                $this->notificationService->notifyCustomer(
+                    (int) $ticket->created_by,
+                    'Ticket Placed On Hold',
+                    "Ticket {$ticketRef} has been placed on hold. Reason: \"{$trimmedReason}\".",
+                    $ticketId,
+                    $holdData
+                );
+
+                if (!empty($ticket->assigned_to)) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $ticket->assigned_to,
+                        'employee',
+                        'Assigned Ticket Placed On Hold',
+                        "Ticket {$ticketRef} assigned to you has been placed on hold. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $holdData
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Failed to dispatch hold notifications for ticket {$ticketId}: " . $e->getMessage());
+            }
+
+            return $result;
         } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
             return [
                 'status' => 422,
@@ -1712,7 +1746,40 @@ class TicketService
         }
 
         try {
-            return $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
+            $result = $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
+
+            // TODO: TS005 per-user notification preferences
+            try {
+                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                $resumeData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'type' => 'ticket_resumed',
+                ];
+
+                $this->notificationService->notifyCustomer(
+                    (int) $ticket->created_by,
+                    'Ticket Resumed',
+                    "Ticket {$ticketRef} has been resumed and is back in progress.",
+                    $ticketId,
+                    $resumeData
+                );
+
+                if (!empty($ticket->assigned_to)) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $ticket->assigned_to,
+                        'employee',
+                        'Assigned Ticket Resumed',
+                        "Ticket {$ticketRef} assigned to you has been resumed.",
+                        $ticketId,
+                        $resumeData
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Failed to dispatch resume notifications for ticket {$ticketId}: " . $e->getMessage());
+            }
+
+            return $result;
         } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
             return [
                 'status' => 422,
@@ -1918,7 +1985,7 @@ class TicketService
             $transitionResult['data']['previous_assigned_to'] = $previousAssignedTo;
         }
 
-        // TODO: TS005 - Notification dispatch for ticket reopen
+        // TODO: TS005 per-user notification preferences
         try {
             $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
             $reopenNotificationData = [
@@ -2079,6 +2146,43 @@ class TicketService
             'problem_category_ID' => $newCategory,
             'priority_ID' => $newPriority,
         ]);
+
+        // TODO: TS005 per-user notification preferences
+        try {
+            $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+            $reclassifyData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'old_category_id' => $oldCategory,
+                'new_category_id' => $newCategory,
+                'old_priority_id' => $oldPriority,
+                'new_priority_id' => $newPriority,
+                'type' => 'ticket_reclassified',
+            ];
+
+            // Notify customer
+            $this->notificationService->notifyCustomer(
+                (int) $ticket->created_by,
+                'Ticket Classification Updated',
+                "Your ticket {$ticketRef} classification has been updated.",
+                $ticketId,
+                $reclassifyData
+            );
+
+            // Notify assigned employee if assigned
+            if (!empty($ticket->assigned_to)) {
+                $this->notificationService->notifyRecipient(
+                    (int) $ticket->assigned_to,
+                    'employee',
+                    'Assigned Ticket Classification Updated',
+                    "Ticket {$ticketRef} assigned to you has been reclassified.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Failed to dispatch reclassification notifications for ticket {$ticketId}: " . $e->getMessage());
+        }
 
         return [
             'status' => 200,
