@@ -156,7 +156,7 @@ class TicketController extends Controller
             'assigned_by_email' => ['nullable', 'email'],
             'proof_rejected' => ['nullable', 'boolean'],
             'rejection_reason' => ['nullable', 'string'],
-            'reason' => ['nullable', 'string'],
+            'reason' => ['nullable', 'string', 'max:1000'],
             'title' => ['nullable', 'string', 'max:255', $this->ticketService->validateProperCasing()],
             'description' => ['nullable', 'string'],
             'problem_category_ID' => ['nullable', 'integer', 'exists:problem_categories,problem_category_ID'],

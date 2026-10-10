@@ -20,6 +20,44 @@ abstract class TestCase extends BaseTestCase
         }
 
         $this->assertSame('log', config('broadcasting.default'), "Expected broadcast driver 'log', got " . config('broadcasting.default'));
+        $this->assertSame('array', config('cache.default'), "Expected cache driver 'array', got " . config('cache.default'));
+
+        $mockClient = new class {
+            public function scan(&$iterator, $pattern = null, $count = 100) {
+                return false;
+            }
+            public function del($key) {
+                return 1;
+            }
+        };
+
+        $mockRedisConn = new class($mockClient) {
+            private $client;
+            public function __construct($client) {
+                $this->client = $client;
+            }
+            public function client() {
+                return $this->client;
+            }
+            public function scan($iterator = 0, $options = []) {
+                return [0, []];
+            }
+            public function del($key) {
+                return 1;
+            }
+        };
+
+        \Illuminate\Support\Facades\Redis::shouldReceive('connection')
+            ->byDefault()
+            ->andReturn($mockRedisConn);
+
+        \Illuminate\Support\Facades\Redis::shouldReceive('scan')
+            ->byDefault()
+            ->andReturn([0, []]);
+
+        \Illuminate\Support\Facades\Redis::shouldReceive('del')
+            ->byDefault()
+            ->andReturn(0);
 
         Event::fake([TicketChanged::class]);
 

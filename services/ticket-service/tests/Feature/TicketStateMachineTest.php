@@ -967,5 +967,54 @@ class TicketStateMachineTest extends TestCase
         $response->assertStatus(422);
         $this->assertEquals('REASON_TOO_LONG', $response->json('code'));
     }
+
+    /**
+     * Test 22: PATCH /tickets/{id} with statusId 8 requires reason (rejects without reason with REASON_REQUIRED)
+     * and succeeds with valid reason.
+     */
+    public function test_patch_ticket_reopen_status_requires_reason_and_succeeds_with_reason()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 4, // Closed
+            'created_by' => $this->customer->id,
+            'resolved_at' => now()->subHours(2),
+            'closed_at' => now()->subHours(1),
+        ]);
+
+        // 1. Without reason: returns 422 REASON_REQUIRED
+        $failResponse = $this->actingAs($this->customer, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}", [
+                'ticket_status_ID' => 8,
+            ]);
+
+        $failResponse->assertStatus(422);
+        $this->assertEquals('REASON_REQUIRED', $failResponse->json('code'));
+
+        // 2. With reason: succeeds and transitions ticket
+        $successResponse = $this->actingAs($this->customer, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}", [
+                'ticket_status_ID' => 8,
+                'reason' => 'Issue recurring after patch update.',
+            ]);
+
+        $successResponse->assertOk();
+
+        $freshTicket = \Illuminate\Support\Facades\DB::table('tickets')->where('ticket_ID', $ticket->ticket_ID)->first();
+        $this->assertEquals(2, $freshTicket->ticket_status_ID);
+        $this->assertEquals('cs', $freshTicket->in_progress_owner);
+    }
+
+    /**
+     * Test 23: TicketCacheService clears caches using fake Redis without touching real Redis.
+     */
+    public function test_ticket_cache_service_uses_redis_fake()
+    {
+        $cacheService = app(\App\Services\TicketCacheService::class);
+        $cacheService->clearTicketCaches();
+
+        \Illuminate\Support\Facades\Redis::shouldHaveReceived('connection')->with('cache');
+        $this->assertTrue(true);
+    }
 }
+
 
