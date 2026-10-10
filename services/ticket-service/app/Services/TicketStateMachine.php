@@ -408,10 +408,14 @@ class TicketStateMachine
         } elseif ($actor instanceof \App\Models\Client || ($actor->role ?? '') === 'customer') {
             $actorType = 'customer';
             $actorId = (int) ($actor->id ?? $actor->client_id ?? 0);
-        } elseif ($actor && isset($actor->emp_id)) {
-            $actorId = (int) $actor->emp_id;
-        } elseif ($actor && isset($actor->id)) {
-            $actorId = (int) $actor->id;
+        } elseif ($actor && (isset($actor->emp_id) || isset($actor->id))) {
+            $actorId = (int) ($actor->emp_id ?? $actor->id);
+            $roleClean = strtolower(str_replace([' ', '_', '-'], '', (string) ($actor->role ?? '')));
+            if (in_array($roleClean, ['superadmin', 'admin', 'cs', 'customerservice'], true)) {
+                $actorType = $roleClean;
+            } else {
+                $actorType = 'employee';
+            }
         } else {
             $actorType = 'system';
             $actorId = 0;
@@ -556,14 +560,18 @@ class TicketStateMachine
 
                 $reason = $context['reason'] ?? null;
                 if ($reason) {
-                    $noteEmpId = $actorType === 'employee' ? $actorId : 1;
-                    DB::table('internal_notes')->insert([
-                        'ticket_id' => $ticketId,
-                        'employee_id' => $noteEmpId,
-                        'note' => 'Hold reason: ' . $reason,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                    $isStaff = in_array(strtolower($actorType), ['employee', 'admin', 'superadmin', 'cs', 'customerservice'], true);
+                    if ($isStaff && $actorId > 0) {
+                        DB::table('internal_notes')->insert([
+                            'ticket_id' => $ticketId,
+                            'employee_id' => $actorId,
+                            'note' => 'Hold reason: ' . $reason,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    } else {
+                        Log::warning("Skipped internal_notes insert for ticket {$ticketId} on hold: non-staff or invalid actor (actor_type: {$actorType}, actorId: {$actorId})");
+                    }
                 }
             }
 
