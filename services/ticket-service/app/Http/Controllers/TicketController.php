@@ -192,10 +192,8 @@ class TicketController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
-        $validated = $request->validate([
-            'reason' => ['required', 'string', 'min:3', 'max:1000'],
-        ]);
-        $result = $this->ticketService->holdTicket($ticketId, $user, $validated['reason']);
+        $reason = $request->input('reason');
+        $result = $this->ticketService->holdTicket($ticketId, $user, $reason);
         return response()->json($result['data'], $result['status']);
     }
 

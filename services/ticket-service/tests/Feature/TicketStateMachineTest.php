@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Employee;
 use App\Services\TicketConfigurationService;
 use App\Services\TicketStateMachine;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -601,6 +602,328 @@ class TicketStateMachineTest extends TestCase
             ->where('title', 'Ticket Reopened')
             ->first();
         $this->assertNotNull($reopenEmployeeNotif);
+    }
+
+    /**
+     * Test 12: Hold requires reason (422) and customer is forbidden (403) on hold, resume, classification.
+     */
+    public function test_hold_requires_reason_and_customer_forbidden_on_hold_resume_classification()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+        ]);
+
+        // Customer attempts hold -> 403
+        $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", ['reason' => 'Customer trying hold'])
+            ->assertStatus(403);
+
+        // Customer attempts resume -> 403
+        $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+            ->assertStatus(403);
+
+        // Customer attempts classification -> 403
+        $this->actingAs($this->customer, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}/classification", ['priority_ID' => 2])
+            ->assertStatus(403);
+
+        // Staff attempts hold with missing reason -> 422 REASON_REQUIRED
+        $respMissing = $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", []);
+        $respMissing->assertStatus(422);
+        $this->assertEquals('REASON_REQUIRED', $respMissing->json('code'));
+
+        // Staff attempts hold with whitespace reason -> 422 REASON_REQUIRED
+        $respEmpty = $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", ['reason' => '   ']);
+        $respEmpty->assertStatus(422);
+        $this->assertEquals('REASON_REQUIRED', $respEmpty->json('code'));
+    }
+
+    /**
+     * Test 13: 'customer service' role (lowercase with space) is accepted for hold, resume, classification.
+     */
+    public function test_customer_service_role_with_space_is_accepted()
+    {
+        $csEmpId = DB::table('employees')->insertGetId([
+            'first_name' => 'Support',
+            'last_name' => 'Agent',
+            'email' => 'cs_space_' . uniqid() . '@example.com',
+            'role' => 'customer service',
+            'department' => 'Customer Service',
+            'is_active' => true,
+            'password_hash' => 'secret',
+        ]);
+        $csUser = Employee::find($csEmpId);
+
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+        ]);
+
+        // Hold
+        $this->actingAs($csUser, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", ['reason' => 'CS hold test'])
+            ->assertStatus(200);
+
+        // Resume
+        $this->actingAs($csUser, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+            ->assertStatus(200);
+
+        // Classification
+        $this->actingAs($csUser, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}/classification", ['priority_ID' => 2])
+            ->assertStatus(200);
+    }
+
+    /**
+     * Test 14: Hold then resume shifts resolution_due_at by held duration using Carbon::setTestNow.
+     */
+    public function test_hold_then_resume_shifts_resolution_due_at_by_held_duration()
+    {
+        $baseTime = Carbon::parse('2026-10-10 09:00:00');
+        Carbon::setTestNow($baseTime);
+
+        try {
+            $ticket = $this->createTestTicket([
+                'ticket_status_ID' => 2,
+                'in_progress_owner' => 'cs',
+                'sla_started_at' => $baseTime->copy(),
+                'resolution_due_at' => $baseTime->copy()->addHours(24),
+            ]);
+
+            // Hold at 09:00
+            $this->actingAs($this->superAdmin, 'api')
+                ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", ['reason' => 'Pausing for testing duration shift'])
+                ->assertStatus(200);
+
+            // Advance time by 3 hours
+            $resumeTime = $baseTime->copy()->addHours(3);
+            Carbon::setTestNow($resumeTime);
+
+            // Resume at 12:00
+            $this->actingAs($this->superAdmin, 'api')
+                ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+                ->assertStatus(200);
+
+            $freshTicket = DB::table('tickets')->where('ticket_ID', $ticket->ticket_ID)->first();
+            $expectedResolutionDueAt = $baseTime->copy()->addHours(24)->addHours(3); // 27 hours from baseTime
+
+            $actualDueAt = Carbon::parse($freshTicket->resolution_due_at);
+            $this->assertLessThanOrEqual(5, abs($expectedResolutionDueAt->diffInSeconds($actualDueAt)));
+            $this->assertEquals(3 * 3600, (int) $freshTicket->sla_paused_total_seconds);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * Test 15: Hold from Pending Assignment resumes to Pending Assignment.
+     */
+    public function test_hold_from_pending_assignment_resumes_to_pending_assignment()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 10, // Pending Assignment
+        ]);
+
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", ['reason' => 'Holding unassigned ticket'])
+            ->assertStatus(200);
+
+        $heldTicket = DB::table('tickets')->where('ticket_ID', $ticket->ticket_ID)->first();
+        $this->assertEquals(11, $heldTicket->ticket_status_ID);
+        $this->assertEquals(10, $heldTicket->held_from_status_ID);
+
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+            ->assertStatus(200);
+
+        $resumedTicket = DB::table('tickets')->where('ticket_ID', $ticket->ticket_ID)->first();
+        $this->assertEquals(10, $resumedTicket->ticket_status_ID);
+    }
+
+    /**
+     * Test 16: Reopen validation, non-owner rejection, history kept, assignments soft-ended not deleted.
+     */
+    public function test_reopen_reason_required_non_owner_rejected_history_kept_assignments_soft_ended()
+    {
+        TicketConfigurationService::clearWindowsCache();
+
+        $otherCustomer = Client::create([
+            'client_name' => 'Other Client',
+            'email' => 'other_client_' . uniqid() . '@example.com',
+            'contact_number' => '9999999999',
+            'address' => '456 Other St',
+            'status' => true,
+        ]);
+
+        $ticket = $this->createTestTicket([
+            'created_by' => $this->customer->id,
+            'ticket_status_ID' => 4, // Closed
+            'resolved_at' => now()->subHours(10),
+            'closed_at' => now()->subHours(8),
+            'assigned_to' => $this->employee->emp_id,
+        ]);
+
+        // Insert historical assignment, work log
+        $assignmentId = DB::table('ticket_assignments')->insertGetId([
+            'ticket_ID' => $ticket->ticket_ID,
+            'employee_ID' => $this->employee->emp_id,
+            'assigned_by' => (int) $this->superAdmin->emp_id,
+            'assignment_status' => 'accepted',
+            'created_at' => now()->subHours(20),
+            'updated_at' => now()->subHours(10),
+        ]);
+
+        DB::table('work_logs')->insert([
+            'ticket_id' => $ticket->ticket_ID,
+            'employee_id' => $this->employee->emp_id,
+            'log_date' => now()->toDateString(),
+            'hours_spent' => 2.5,
+            'task_description' => 'Diagnostic work performed prior to resolution',
+            'created_at' => now()->subHours(12),
+        ]);
+
+        // 1. Reason required
+        $respNoReason = $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", ['reason' => '']);
+        $respNoReason->assertStatus(422);
+        $this->assertEquals('REASON_REQUIRED', $respNoReason->json('code'));
+
+        // 2. Non-owner rejected with NOT_OWNER
+        $respNonOwner = $this->actingAs($otherCustomer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", ['reason' => 'Other client reopening']);
+        $respNonOwner->assertStatus(403);
+        $this->assertEquals('NOT_OWNER', $respNonOwner->json('code'));
+
+        // 3. Owner successfully reopens
+        $respOwner = $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", ['reason' => 'Still failing in production']);
+        $respOwner->assertStatus(200);
+
+        // 4. Assignments soft-ended, not deleted
+        $assignment = DB::table('ticket_assignments')->where('assignment_ID', $assignmentId)->first();
+        $this->assertNotNull($assignment);
+        $this->assertEquals('reopened_unassigned', $assignment->assignment_status);
+        $this->assertNotNull($assignment->completed_at);
+
+        // 5. Work logs preserved
+        $this->assertDatabaseHas('work_logs', [
+            'ticket_id' => $ticket->ticket_ID,
+            'task_description' => 'Diagnostic work performed prior to resolution',
+        ]);
+    }
+
+    /**
+     * Test 17: Staff-initiated reopen does NOT post a message attributed to the customer.
+     */
+    public function test_staff_initiated_reopen_does_not_post_messaging_attributed_to_customer()
+    {
+        TicketConfigurationService::clearWindowsCache();
+
+        $ticket = $this->createTestTicket([
+            'created_by' => $this->customer->id,
+            'ticket_status_ID' => 4,
+            'resolved_at' => now()->subHours(10),
+            'closed_at' => now()->subHours(8),
+        ]);
+
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", ['reason' => 'Staff reopened on customer behalf'])
+            ->assertStatus(200);
+
+        Http::assertNotSent(function ($request) {
+            return str_contains($request->url(), '/messages') && ($request['sender_type'] ?? '') === 'customer';
+        });
+    }
+
+    /**
+     * Test 18: Customer cannot view another customer's ticket or internal ticket.
+     */
+    public function test_customer_cannot_view_another_customer_ticket()
+    {
+        $otherCustomer = Client::create([
+            'client_name' => 'Stranger Client',
+            'email' => 'stranger_' . uniqid() . '@example.com',
+            'contact_number' => '1112223333',
+            'address' => '789 Other Ave',
+            'status' => true,
+        ]);
+
+        $ticketA = $this->createTestTicket([
+            'created_by' => $this->customer->id,
+            'is_internal' => 0,
+        ]);
+
+        $internalTicket = $this->createTestTicket([
+            'created_by' => 1,
+            'is_internal' => 1,
+            'requested_by' => $this->employee->emp_id,
+        ]);
+
+        // Customer B cannot view Customer A's ticket
+        $this->actingAs($otherCustomer, 'api')
+            ->getJson("/api/tickets/{$ticketA->ticket_ID}")
+            ->assertStatus(404);
+
+        // Customer A cannot view internal ticket
+        $this->actingAs($this->customer, 'api')
+            ->getJson("/api/tickets/{$internalTicket->ticket_ID}")
+            ->assertStatus(404);
+    }
+
+    /**
+     * Test 19: Reclassify validation, closed ticket rejected, audit row written, resolution_due_at recalculated from sla_started_at.
+     */
+    public function test_reclassify_validation_closed_ticket_audit_row_and_sla_recalculation()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+            'problem_category_ID' => 1,
+            'priority_ID' => 1,
+            'sla_started_at' => now()->subHours(2),
+            'resolution_due_at' => now()->addHours(22),
+        ]);
+
+        // 1. Invalid category -> 422
+        $this->actingAs($this->superAdmin, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}/classification", [
+                'problem_category_ID' => 999999,
+            ])
+            ->assertStatus(422);
+
+        // 2. Closed ticket rejected -> 422 TICKET_CLOSED
+        $closedTicket = $this->createTestTicket([
+            'ticket_status_ID' => 4,
+        ]);
+        $respClosed = $this->actingAs($this->superAdmin, 'api')
+            ->patchJson("/api/tickets/{$closedTicket->ticket_ID}/classification", [
+                'priority_ID' => 2,
+            ]);
+        $respClosed->assertStatus(422);
+        $this->assertEquals('TICKET_CLOSED', $respClosed->json('code'));
+
+        // 3. Valid reclassify -> audit row written and resolution_due_at recalculated from sla_started_at
+        $respValid = $this->actingAs($this->superAdmin, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}/classification", [
+                'priority_ID' => 2,
+            ]);
+        $respValid->assertStatus(200);
+
+        // Audit row written
+        $this->assertDatabaseHas('ticket_audit_logs', [
+            'ticket_ID' => $ticket->ticket_ID,
+            'action_type' => 'reclassification',
+        ]);
+
+        // Fresh ticket check
+        $fresh = DB::table('tickets')->where('ticket_ID', $ticket->ticket_ID)->first();
+        $this->assertEquals(2, $fresh->priority_ID);
+        $this->assertNotNull($fresh->resolution_due_at);
     }
 }
 

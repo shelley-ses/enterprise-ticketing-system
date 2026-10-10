@@ -262,6 +262,11 @@ class TicketStateMachine
             return true;
         }
 
+        // Allow holding an assigned ticket (Pending Assignment to On Hold)
+        if ($fromState === self::STATE_ASSIGNED && $toState === self::STATE_ON_HOLD) {
+            return true;
+        }
+
         // Customer Service may resolve-and-close an in-progress ticket (incl. Pending Evaluation) in one step
         if ($toState === self::STATE_CLOSED && in_array($fromState, [
             self::STATE_IN_PROGRESS_CS,
