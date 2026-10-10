@@ -187,6 +187,7 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/tickets/{ticketId}/close', [TicketController::class, 'closeTicket']);
     Route::post('/tickets/{ticketId}/reopen', [TicketController::class, 'reopenTicket']);
     Route::post('/tickets/{ticketId}/cancel', [TicketController::class, 'cancelTicket']);
+    Route::patch('/tickets/{ticketId}/classification', [TicketController::class, 'reclassifyTicket']);
 
     // ─── Notifications ────────────────────────────────────────────────────────
     Route::get('/notifications', [TicketNotificationController::class, 'getNotifications']);

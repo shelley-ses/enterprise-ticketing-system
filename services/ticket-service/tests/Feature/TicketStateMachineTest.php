@@ -368,7 +368,9 @@ class TicketStateMachineTest extends TestCase
         ]);
 
         $this->actingAs($this->superAdmin, 'api')
-            ->postJson("/api/tickets/{$ticketCS->ticket_ID}/hold");
+            ->postJson("/api/tickets/{$ticketCS->ticket_ID}/hold", [
+                'reason' => 'CS review hold',
+            ]);
         $ticketCS = DB::table('tickets')->where('ticket_ID', $ticketCS->ticket_ID)->first();
         $this->assertEquals(11, $ticketCS->ticket_status_ID);
         $this->assertEquals('cs', $ticketCS->previous_in_progress_owner);
