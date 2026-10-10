@@ -149,11 +149,13 @@ class TicketDashboardService
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+                ->leftJoin('employees as req', 'req.emp_id', '=', 't.requested_by')
                 ->where('ts.status_name', '!=', 'Discarded')
                 ->select(
                     't.ticket_ID',
                     't.ticket_number',
                     't.title',
+                    't.is_internal',
                     'm.machine_name',
                     'm.serial_number',
                     'ts.status_name',
@@ -161,7 +163,8 @@ class TicketDashboardService
                     't.created_at',
                     't.updated_at',
                     't.requested_by',
-                    'c.client_name'
+                    'c.client_name',
+                    DB::raw("TRIM(CONCAT(COALESCE(req.first_name, ''), ' ', COALESCE(req.last_name, ''))) as requester_employee_name")
                 )
                 ->orderByDesc('t.created_at')
                 ->limit($limit)
@@ -169,7 +172,9 @@ class TicketDashboardService
                 ->map(fn ($row) => [
                     'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'title' => $row->title,
-                    'customer' => $row->client_name ?: 'Unknown Customer',
+                    'customer' => (bool) $row->is_internal
+                        ? (($row->requester_employee_name !== '' && $row->requester_employee_name !== null) ? $row->requester_employee_name : ($row->requested_by ? 'Employee #' . $row->requested_by : 'Internal Requester'))
+                        : ($row->client_name ?: 'Unknown Customer'),
                     'equipment' => $row->machine_name . ' - ' . $row->serial_number,
                     'status' => $row->status_name,
                     'priority' => $row->priority_name,
@@ -199,6 +204,7 @@ class TicketDashboardService
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+                ->leftJoin('employees as req', 'req.emp_id', '=', 't.requested_by')
                 ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
                 ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
@@ -219,6 +225,7 @@ class TicketDashboardService
                     't.created_at',
                     't.updated_at',
                     'c.client_name',
+                    DB::raw("TRIM(CONCAT(COALESCE(req.first_name, ''), ' ', COALESCE(req.last_name, ''))) as requester_employee_name"),
                     'm.machine_name',
                     'm.serial_number',
                     'mc.category_name as equipment_type',
@@ -288,7 +295,9 @@ class TicketDashboardService
                 return [
                     'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'ticket_ID' => (int) $row->ticket_ID,
-                    'customer' => $row->client_name ?: 'Unknown Customer',
+                    'customer' => (bool) $row->is_internal
+                        ? (($row->requester_employee_name !== '' && $row->requester_employee_name !== null) ? $row->requester_employee_name : ($row->requested_by ? 'Employee #' . $row->requested_by : 'Internal Requester'))
+                        : ($row->client_name ?: 'Unknown Customer'),
                     'title' => $row->title,
                     'description' => $row->description ?? '',
                     'category' => $row->category_name,
