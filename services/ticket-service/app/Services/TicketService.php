@@ -1675,6 +1675,16 @@ class TicketService
             ];
         }
 
+        if (mb_strlen($trimmedReason) > 1000) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'The reason cannot exceed 1000 characters.',
+                    'code' => 'REASON_TOO_LONG',
+                ],
+            ];
+        }
+
         try {
             $result = $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $trimmedReason], $user);
 
@@ -1902,6 +1912,16 @@ class TicketService
                 'data' => [
                     'message' => 'A reason is required to reopen this ticket (minimum 3 characters).',
                     'code' => 'REASON_REQUIRED',
+                ],
+            ];
+        }
+
+        if (mb_strlen($trimmedReason) > 1000) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'The reason cannot exceed 1000 characters.',
+                    'code' => 'REASON_TOO_LONG',
                 ],
             ];
         }

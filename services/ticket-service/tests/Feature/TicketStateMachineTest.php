@@ -925,5 +925,47 @@ class TicketStateMachineTest extends TestCase
         $this->assertEquals(2, $fresh->priority_ID);
         $this->assertNotNull($fresh->resolution_due_at);
     }
+
+    /**
+     * Test 20: Hold reason exceeding 1000 characters is rejected with 422 and REASON_TOO_LONG.
+     */
+    public function test_hold_reason_too_long_is_rejected()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+        ]);
+
+        $longReason = str_repeat('A', 1001);
+        $response = $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", [
+                'reason' => $longReason,
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertEquals('REASON_TOO_LONG', $response->json('code'));
+    }
+
+    /**
+     * Test 21: Reopen reason exceeding 1000 characters is rejected with 422 and REASON_TOO_LONG.
+     */
+    public function test_reopen_reason_too_long_is_rejected()
+    {
+        $ticket = $this->createTestTicket([
+            'ticket_status_ID' => 4, // Closed
+            'created_by' => $this->customer->id,
+            'resolved_at' => now()->subHours(2),
+            'closed_at' => now()->subHours(1),
+        ]);
+
+        $longReason = str_repeat('B', 1001);
+        $response = $this->actingAs($this->customer, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", [
+                'reason' => $longReason,
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertEquals('REASON_TOO_LONG', $response->json('code'));
+    }
 }
 
