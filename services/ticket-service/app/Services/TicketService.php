@@ -1682,20 +1682,36 @@ class TicketService
                 // TODO: TS005 per-user notification preferences
                 try {
                     $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
-                    $holdData = [
+                    $customerHoldData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'type' => 'ticket_on_hold',
+                    ];
+                    $employeeHoldData = [
                         'ticket_id' => $ticketId,
                         'ticket_ref' => $ticketRef,
                         'reason' => $trimmedReason,
                         'type' => 'ticket_on_hold',
                     ];
 
-                    $this->notificationService->notifyCustomer(
-                        (int) $ticket->created_by,
-                        'Ticket Placed On Hold',
-                        "Ticket {$ticketRef} has been placed on hold. Reason: \"{$trimmedReason}\".",
-                        $ticketId,
-                        $holdData
-                    );
+                    if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->requested_by,
+                            'employee',
+                            'Ticket Placed On Hold',
+                            "Ticket {$ticketRef} has been placed on hold.",
+                            $ticketId,
+                            $customerHoldData
+                        );
+                    } else {
+                        $this->notificationService->notifyCustomer(
+                            (int) $ticket->created_by,
+                            'Ticket Placed On Hold',
+                            "Ticket {$ticketRef} has been placed on hold.",
+                            $ticketId,
+                            $customerHoldData
+                        );
+                    }
 
                     if (!empty($ticket->assigned_to)) {
                         $this->notificationService->notifyRecipient(
@@ -1704,7 +1720,7 @@ class TicketService
                             'Assigned Ticket Placed On Hold',
                             "Ticket {$ticketRef} assigned to you has been placed on hold. Reason: \"{$trimmedReason}\".",
                             $ticketId,
-                            $holdData
+                            $employeeHoldData
                         );
                     }
                 } catch (\Throwable $e) {
@@ -1760,13 +1776,24 @@ class TicketService
                         'type' => 'ticket_resumed',
                     ];
 
-                    $this->notificationService->notifyCustomer(
-                        (int) $ticket->created_by,
-                        'Ticket Resumed',
-                        "Ticket {$ticketRef} has been resumed and is back in progress.",
-                        $ticketId,
-                        $resumeData
-                    );
+                    if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->requested_by,
+                            'employee',
+                            'Ticket Resumed',
+                            "Ticket {$ticketRef} has been resumed and is back in progress.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    } else {
+                        $this->notificationService->notifyCustomer(
+                            (int) $ticket->created_by,
+                            'Ticket Resumed',
+                            "Ticket {$ticketRef} has been resumed and is back in progress.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    }
 
                     if (!empty($ticket->assigned_to)) {
                         $this->notificationService->notifyRecipient(
@@ -2019,6 +2046,26 @@ class TicketService
                         $reopenNotificationData
                     );
                 }
+
+                // Notify customer or internal requester
+                if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $ticket->requested_by,
+                        'employee',
+                        'Ticket Reopened',
+                        "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                } else {
+                    $this->notificationService->notifyCustomer(
+                        (int) $ticket->created_by,
+                        'Ticket Reopened',
+                        "Your ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                }
             } catch (\Throwable $e) {
                 Log::warning("Failed to dispatch reopen notifications for ticket {$ticketId}: " . $e->getMessage());
             }
@@ -2166,14 +2213,25 @@ class TicketService
                 'type' => 'ticket_reclassified',
             ];
 
-            // Notify customer
-            $this->notificationService->notifyCustomer(
-                (int) $ticket->created_by,
-                'Ticket Classification Updated',
-                "Your ticket {$ticketRef} classification has been updated.",
-                $ticketId,
-                $reclassifyData
-            );
+            // Notify customer or internal requester
+            if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                $this->notificationService->notifyRecipient(
+                    (int) $ticket->requested_by,
+                    'employee',
+                    'Ticket Classification Updated',
+                    "Ticket {$ticketRef} classification has been updated.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            } else {
+                $this->notificationService->notifyCustomer(
+                    (int) $ticket->created_by,
+                    'Ticket Classification Updated',
+                    "Your ticket {$ticketRef} classification has been updated.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            }
 
             // Notify assigned employee if assigned
             if (!empty($ticket->assigned_to)) {

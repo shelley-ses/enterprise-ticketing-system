@@ -450,6 +450,28 @@ class TicketStateMachineTest extends TestCase
         $this->assertStringContainsString('Waiting on customer parts approval', $latestNote->note);
         $this->assertEquals((int) $this->superAdmin->emp_id, (int) $latestNote->employee_id);
 
+        // Verify hold notification payloads: customer payload does NOT have reason; employee payload DOES have reason
+        $custNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'client')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($custNotif);
+        $this->assertStringNotContainsString('Waiting on customer parts approval', $custNotif->message);
+        $custData = json_decode($custNotif->data, true);
+        $this->assertArrayNotHasKey('reason', $custData);
+
+        $empNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'employee')
+            ->where('recipient_id', $this->employee->emp_id)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($empNotif);
+        $this->assertStringContainsString('Waiting on customer parts approval', $empNotif->message);
+        $empData = json_decode($empNotif->data, true);
+        $this->assertEquals('Waiting on customer parts approval', $empData['reason'] ?? null);
+
         // Confirm holding an already-held ticket writes no second note and sends no second notification
         $notesBeforeDuplicateHold = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
         $notificationsBeforeDuplicateHold = DB::table('notifications')->where('ticket_id', $ticket->ticket_ID)->count();
@@ -490,4 +512,101 @@ class TicketStateMachineTest extends TestCase
                 && str_contains($request['message'], 'Issue recurred after testing');
         });
     }
+
+    /**
+     * Test 11: Internal tickets notify requested_by employee instead of dummy client created_by.
+     */
+    public function test_internal_ticket_notifications_notify_requested_by_employee()
+    {
+        TicketConfigurationService::clearWindowsCache();
+
+        Http::fake([
+            'http://messaging-service:8000/*' => Http::response([], 200),
+            '*/api/ticket-configurations/windows' => Http::response([
+                'reopenEnabled' => true,
+                'reopenWindowDays' => 2,
+            ], 200),
+            'http://configuration-service:8000/*' => Http::response([], 200),
+        ]);
+
+        $ticket = $this->createTestTicket([
+            'is_internal' => 1,
+            'created_by' => 1,
+            'requested_by' => $this->employee->emp_id,
+            'ticket_status_ID' => 2,
+            'in_progress_owner' => 'cs',
+            'assigned_to' => null,
+        ]);
+
+        // 1. Hold on internal ticket
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", [
+                'reason' => 'Holding internal ticket',
+            ])
+            ->assertStatus(200);
+
+        // Assert notification sent to requested_by employee, not client 1
+        $holdEmployeeNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'employee')
+            ->where('recipient_id', $this->employee->emp_id)
+            ->where('title', 'Ticket Placed On Hold')
+            ->first();
+        $this->assertNotNull($holdEmployeeNotif);
+
+        $holdClientNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'client')
+            ->where('title', 'Ticket Placed On Hold')
+            ->first();
+        $this->assertNull($holdClientNotif);
+
+        // 2. Resume on internal ticket
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resume")
+            ->assertStatus(200);
+
+        $resumeEmployeeNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'employee')
+            ->where('recipient_id', $this->employee->emp_id)
+            ->where('title', 'Ticket Resumed')
+            ->first();
+        $this->assertNotNull($resumeEmployeeNotif);
+
+        // 3. Reclassify on internal ticket
+        $this->actingAs($this->superAdmin, 'api')
+            ->patchJson("/api/tickets/{$ticket->ticket_ID}/classification", [
+                'priority_ID' => 3,
+            ])
+            ->assertStatus(200);
+
+        $reclassEmployeeNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'employee')
+            ->where('recipient_id', $this->employee->emp_id)
+            ->where('title', 'Ticket Classification Updated')
+            ->first();
+        $this->assertNotNull($reclassEmployeeNotif);
+
+        // 4. Resolve then Reopen on internal ticket
+        $this->actingAs($this->superAdmin, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/resolve")
+            ->assertStatus(200);
+
+        $this->actingAs($this->employee, 'api')
+            ->postJson("/api/tickets/{$ticket->ticket_ID}/reopen", [
+                'reason' => 'Internal requester reopened this',
+            ])
+            ->assertStatus(200);
+
+        $reopenEmployeeNotif = DB::table('notifications')
+            ->where('ticket_id', $ticket->ticket_ID)
+            ->where('recipient_type', 'employee')
+            ->where('recipient_id', $this->employee->emp_id)
+            ->where('title', 'Ticket Reopened')
+            ->first();
+        $this->assertNotNull($reopenEmployeeNotif);
+    }
 }
+
