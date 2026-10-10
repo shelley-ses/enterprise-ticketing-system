@@ -1678,36 +1678,38 @@ class TicketService
         try {
             $result = $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $trimmedReason], $user);
 
-            // TODO: TS005 per-user notification preferences
-            try {
-                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
-                $holdData = [
-                    'ticket_id' => $ticketId,
-                    'ticket_ref' => $ticketRef,
-                    'reason' => $trimmedReason,
-                    'type' => 'ticket_on_hold',
-                ];
+            if (($result['status'] ?? 0) === 200 && !empty($result['data']['transitioned'])) {
+                // TODO: TS005 per-user notification preferences
+                try {
+                    $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                    $holdData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'reason' => $trimmedReason,
+                        'type' => 'ticket_on_hold',
+                    ];
 
-                $this->notificationService->notifyCustomer(
-                    (int) $ticket->created_by,
-                    'Ticket Placed On Hold',
-                    "Ticket {$ticketRef} has been placed on hold. Reason: \"{$trimmedReason}\".",
-                    $ticketId,
-                    $holdData
-                );
-
-                if (!empty($ticket->assigned_to)) {
-                    $this->notificationService->notifyRecipient(
-                        (int) $ticket->assigned_to,
-                        'employee',
-                        'Assigned Ticket Placed On Hold',
-                        "Ticket {$ticketRef} assigned to you has been placed on hold. Reason: \"{$trimmedReason}\".",
+                    $this->notificationService->notifyCustomer(
+                        (int) $ticket->created_by,
+                        'Ticket Placed On Hold',
+                        "Ticket {$ticketRef} has been placed on hold. Reason: \"{$trimmedReason}\".",
                         $ticketId,
                         $holdData
                     );
+
+                    if (!empty($ticket->assigned_to)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->assigned_to,
+                            'employee',
+                            'Assigned Ticket Placed On Hold',
+                            "Ticket {$ticketRef} assigned to you has been placed on hold. Reason: \"{$trimmedReason}\".",
+                            $ticketId,
+                            $holdData
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch hold notifications for ticket {$ticketId}: " . $e->getMessage());
                 }
-            } catch (\Throwable $e) {
-                Log::warning("Failed to dispatch hold notifications for ticket {$ticketId}: " . $e->getMessage());
             }
 
             return $result;
@@ -1748,35 +1750,37 @@ class TicketService
         try {
             $result = $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
 
-            // TODO: TS005 per-user notification preferences
-            try {
-                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
-                $resumeData = [
-                    'ticket_id' => $ticketId,
-                    'ticket_ref' => $ticketRef,
-                    'type' => 'ticket_resumed',
-                ];
+            if (($result['status'] ?? 0) === 200 && !empty($result['data']['transitioned'])) {
+                // TODO: TS005 per-user notification preferences
+                try {
+                    $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                    $resumeData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'type' => 'ticket_resumed',
+                    ];
 
-                $this->notificationService->notifyCustomer(
-                    (int) $ticket->created_by,
-                    'Ticket Resumed',
-                    "Ticket {$ticketRef} has been resumed and is back in progress.",
-                    $ticketId,
-                    $resumeData
-                );
-
-                if (!empty($ticket->assigned_to)) {
-                    $this->notificationService->notifyRecipient(
-                        (int) $ticket->assigned_to,
-                        'employee',
-                        'Assigned Ticket Resumed',
-                        "Ticket {$ticketRef} assigned to you has been resumed.",
+                    $this->notificationService->notifyCustomer(
+                        (int) $ticket->created_by,
+                        'Ticket Resumed',
+                        "Ticket {$ticketRef} has been resumed and is back in progress.",
                         $ticketId,
                         $resumeData
                     );
+
+                    if (!empty($ticket->assigned_to)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->assigned_to,
+                            'employee',
+                            'Assigned Ticket Resumed',
+                            "Ticket {$ticketRef} assigned to you has been resumed.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch resume notifications for ticket {$ticketId}: " . $e->getMessage());
                 }
-            } catch (\Throwable $e) {
-                Log::warning("Failed to dispatch resume notifications for ticket {$ticketId}: " . $e->getMessage());
             }
 
             return $result;
@@ -1985,53 +1989,55 @@ class TicketService
             $transitionResult['data']['previous_assigned_to'] = $previousAssignedTo;
         }
 
-        // TODO: TS005 per-user notification preferences
-        try {
-            $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
-            $reopenNotificationData = [
-                'ticket_id' => $ticketId,
-                'ticket_ref' => $ticketRef,
-                'reason' => $trimmedReason,
-                'type' => 'ticket_reopened',
-            ];
+        if (($transitionResult['status'] ?? 0) === 200 && !empty($transitionResult['data']['transitioned'])) {
+            // TODO: TS005 per-user notification preferences
+            try {
+                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                $reopenNotificationData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'reason' => $trimmedReason,
+                    'type' => 'ticket_reopened',
+                ];
 
-            // Notify CS
-            $this->notificationService->notifyCS(
-                'Ticket Reopened',
-                "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
-                $ticketId,
-                $reopenNotificationData
-            );
-
-            // Notify previously assigned employee if one existed
-            if ($previousAssignedTo) {
-                $this->notificationService->notifyRecipient(
-                    (int) $previousAssignedTo,
-                    'employee',
-                    'Assigned Ticket Reopened',
-                    "Ticket {$ticketRef} previously assigned to you has been reopened. Reason: \"{$trimmedReason}\".",
+                // Notify CS
+                $this->notificationService->notifyCS(
+                    'Ticket Reopened',
+                    "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
                     $ticketId,
                     $reopenNotificationData
                 );
-            }
-        } catch (\Throwable $e) {
-            Log::warning("Failed to dispatch reopen notifications for ticket {$ticketId}: " . $e->getMessage());
-        }
 
-        // Post reopen message to messaging-service only when actor is a customer
-        if ($user instanceof \App\Models\Client) {
-            try {
-                $clientName = $user->client_name ?? 'Customer';
-                Http::withHeaders([
-                    'X-Internal-Token' => env('INTERNAL_TOKEN'),
-                ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
-                    'message' => "Ticket reopened. Reason: {$trimmedReason}",
-                    'sender_name' => $clientName,
-                    'sender_type' => 'customer',
-                    'sender_id' => (int) $user->id,
-                ]);
+                // Notify previously assigned employee if one existed
+                if ($previousAssignedTo) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $previousAssignedTo,
+                        'employee',
+                        'Assigned Ticket Reopened',
+                        "Ticket {$ticketRef} previously assigned to you has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                }
             } catch (\Throwable $e) {
-                Log::warning("Failed to post reopen message to messaging-service for ticket {$ticketId}: " . $e->getMessage());
+                Log::warning("Failed to dispatch reopen notifications for ticket {$ticketId}: " . $e->getMessage());
+            }
+
+            // Post reopen message to messaging-service only when actor is a customer
+            if ($user instanceof \App\Models\Client) {
+                try {
+                    $clientName = $user->client_name ?? 'Customer';
+                    Http::withHeaders([
+                        'X-Internal-Token' => env('INTERNAL_TOKEN'),
+                    ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                        'message' => "Ticket reopened. Reason: {$trimmedReason}",
+                        'sender_name' => $clientName,
+                        'sender_type' => 'customer',
+                        'sender_id' => (int) $user->id,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to post reopen message to messaging-service for ticket {$ticketId}: " . $e->getMessage());
+                }
             }
         }
 

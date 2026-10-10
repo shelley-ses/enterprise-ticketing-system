@@ -450,15 +450,18 @@ class TicketStateMachineTest extends TestCase
         $this->assertStringContainsString('Waiting on customer parts approval', $latestNote->note);
         $this->assertEquals((int) $this->superAdmin->emp_id, (int) $latestNote->employee_id);
 
-        // Confirm holding an already-held ticket writes no second note
+        // Confirm holding an already-held ticket writes no second note and sends no second notification
         $notesBeforeDuplicateHold = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+        $notificationsBeforeDuplicateHold = DB::table('notifications')->where('ticket_id', $ticket->ticket_ID)->count();
         $duplicateHoldResponse = $this->actingAs($this->superAdmin, 'api')
             ->postJson("/api/tickets/{$ticket->ticket_ID}/hold", [
                 'reason' => 'Duplicate hold attempt',
             ]);
         $duplicateHoldResponse->assertStatus(200);
         $notesAfterDuplicateHold = DB::table('internal_notes')->where('ticket_id', $ticket->ticket_ID)->count();
+        $notificationsAfterDuplicateHold = DB::table('notifications')->where('ticket_id', $ticket->ticket_ID)->count();
         $this->assertEquals($notesBeforeDuplicateHold, $notesAfterDuplicateHold);
+        $this->assertEquals($notificationsBeforeDuplicateHold, $notificationsAfterDuplicateHold);
 
         // Resume ticket then resolve it
         $this->actingAs($this->superAdmin, 'api')

@@ -392,6 +392,7 @@ class TicketStateMachine
                     'message' => "Ticket is already in state '{$currentState}'.",
                     'ticket' => $ticketRecord,
                     'state' => $currentState,
+                    'transitioned' => false,
                 ],
             ];
         }
@@ -642,6 +643,7 @@ class TicketStateMachine
                 'ticket' => $freshTicket,
                 'state' => $resolvedTargetState,
                 'in_progress_owner' => $freshTicket->in_progress_owner,
+                'transitioned' => true,
             ],
         ];
     }
