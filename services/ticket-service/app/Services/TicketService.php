@@ -602,6 +602,7 @@ class TicketService
             ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('employees as req', 'req.emp_id', '=', 't.requested_by')
             ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
@@ -620,6 +621,7 @@ class TicketService
                 'm.brand as machine_brand',
                 'mc.category_name as equipment_type',
                 'c.client_name',
+                DB::raw("TRIM(CONCAT(COALESCE(req.first_name, ''), ' ', COALESCE(req.last_name, ''))) as requester_employee_name"),
                 't.created_by',
                 't.assigned_to',
                 't.proof_rejected',
@@ -1038,7 +1040,11 @@ class TicketService
             'last_updated' => $updatedAtIso,
             'slaStatus' => $this->slaLabel($ticket->created_at),
             'equipment' => $ticket->machine_name ? ($ticket->machine_name . ($ticket->serial_number ? ' - ' . $ticket->serial_number : '')) : ($ticket->serial_number ?: 'Not specified'),
-            'customer' => $ticket->client_name,
+            'customer' => (bool) $ticket->is_internal
+                ? (($ticket->requester_employee_name !== '' && $ticket->requester_employee_name !== null)
+                    ? $ticket->requester_employee_name
+                    : ($ticket->requested_by ? 'Employee #' . $ticket->requested_by : 'Internal Requester'))
+                : ($ticket->client_name ?: 'Unknown Customer'),
             'accepted' => $accepted,
             'assigned_employee' => $primaryAssignedName,
             'assigned_employee_name' => $primaryAssignedName,

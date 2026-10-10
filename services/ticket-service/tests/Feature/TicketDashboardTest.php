@@ -97,5 +97,19 @@ class TicketDashboardTest extends TestCase
         $externalIncomingRow = $incomingTickets->firstWhere('ticket_ID', $externalTicketId);
         $this->assertNotNull($externalIncomingRow, 'External ticket must be present in CS incoming list');
         $this->assertSame($client1Name, $externalIncomingRow['customer'], 'External ticket customer name in incoming list must be client name');
+
+        // Test Ticket Detail View (showTicket)
+        $empUser = Employee::where('emp_id', $empId)->first();
+        $internalShowResponse = $this->actingAs($empUser, 'api')
+            ->getJson("/api/tickets/{$internalTicketId}")
+            ->assertOk();
+        $this->assertSame('Arthur Dent', $internalShowResponse->json('customer'), 'Internal ticket detail view must display requester employee name as customer');
+        $this->assertNotSame($client1Name, $internalShowResponse->json('customer'), 'Internal ticket detail view must NOT show client 1 name as customer');
+
+        $externalShowResponse = $this->actingAs($empUser, 'api')
+            ->getJson("/api/tickets/{$externalTicketId}")
+            ->assertOk();
+        $this->assertSame($client1Name, $externalShowResponse->json('customer'), 'External ticket detail view must display client name as customer');
     }
 }
+
