@@ -112,14 +112,6 @@ class TicketStateMachineTest extends TestCase
             ]
         );
 
-        \Illuminate\Support\Facades\Event::fake([
-            \App\Events\TicketChanged::class,
-        ]);
-
-        Http::fake([
-            '*/api/internal/tickets/*/messages' => Http::response([], 200),
-            '*/api/email/dispatch-event' => Http::response(['status' => 'success'], 200),
-        ]);
     }
 
     protected function createTestTicket(array $overrides = []): object
@@ -147,6 +139,8 @@ class TicketStateMachineTest extends TestCase
      */
     public function test_canonical_state_derivation()
     {
+        $this->assertEquals('log', config('broadcasting.default'));
+
         $ticketOpen = $this->createTestTicket(['ticket_status_ID' => 1]);
         $this->assertEquals(TicketStateMachine::STATE_OPEN, $this->stateMachine->resolveState($ticketOpen));
 
