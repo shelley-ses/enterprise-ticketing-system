@@ -29,6 +29,25 @@ class EmployeeDirectoryController extends Controller
                 ->value('name') ?? '';
         }
 
+        // Pull category-track rules from Configuration Service if available (TS110)
+        try {
+            $configuredTrack = \Illuminate\Support\Facades\Cache::remember('config:track:' . ($ticket->problem_category_ID ?? 0), 60, function () use ($categoryName) {
+                $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                $res = \Illuminate\Support\Facades\Http::timeout(2)->get("{$configUrl}/api/ticket-configurations/category_track_rules");
+                if ($res->successful()) {
+                    $rules = $res->json('value') ?? $res->json();
+                    if (is_array($rules)) {
+                        $key = strtolower(trim($categoryName));
+                        return $rules[$key] ?? null;
+                    }
+                }
+                return null;
+            });
+            if ($configuredTrack && in_array(strtolower($configuredTrack), ['service', 'it', 'others'], true)) {
+                return strtolower($configuredTrack);
+            }
+        } catch (\Throwable $e) {}
+
         $combined = strtolower($categoryName . ' ' . $deptName . ' ' . ($ticket->title ?? '') . ' ' . ($ticket->description ?? ''));
 
         if (preg_match('/\b(it|information technology|software|network|system|server|database|computer|login|password|wifi|bug|api)\b/i', $combined)) {
