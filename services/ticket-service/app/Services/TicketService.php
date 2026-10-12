@@ -2296,4 +2296,168 @@ class TicketService
     {
         return $this->stateMachine->applyTransition($ticketId, 'cancel', [], $user);
     }
+
+    /**
+     * View customer and machine context for assigned employee, CS, or Admin (TS029).
+     * Server-side access control guarantees this context is only returned to the
+     * assigned employee or privileged support roles, with sensitive customer billing
+     * data strictly excluded.
+     */
+    public function getCustomerContext(int $ticketId, $user): array
+    {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return [
+                'status' => 404,
+                'data' => ['message' => 'Ticket not found.', 'code' => 'TICKET_NOT_FOUND'],
+            ];
+        }
+
+        // 1. Server-side access control
+        if ($user instanceof \App\Models\Client) {
+            if ((int) $ticket->is_internal !== 0 || (int) $ticket->created_by !== (int) $user->id) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'Access denied. You do not have permission to view context for this ticket.',
+                        'code' => 'UNAUTHORIZED_CONTEXT_ACCESS',
+                    ],
+                ];
+            }
+        } else {
+            $role = strtolower(trim((string) ($user->role ?? '')));
+            $isCSOrAdmin = in_array($role, ['customer service', 'customer support', 'cs', 'admin', 'superadmin', 'super admin'], true);
+
+            $empId = $user->emp_id ?? $user->id ?? null;
+            $isAssigned = ((int) $ticket->assigned_to === (int) $empId);
+            if (!$isAssigned && $empId) {
+                $isAssigned = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->where('employee_ID', $empId)
+                    ->whereIn('assignment_status', ['assigned', 'accepted'])
+                    ->exists();
+            }
+
+            if (!$isAssigned && !$isCSOrAdmin) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'Access denied. Only the currently assigned employee or support administrators can view customer and machine context for this ticket.',
+                        'code' => 'UNAUTHORIZED_CONTEXT_ACCESS',
+                    ],
+                ];
+            }
+        }
+
+        // 2. Customer Contact Details (Sanitized, excluding billing/financial info)
+        $customerContext = [];
+        if ($ticket->is_internal) {
+            $reqId = $ticket->requested_by ?? $ticket->created_by;
+            $emp = DB::table('employees')->where('emp_id', $reqId)->first();
+            $missingFields = [];
+            if (empty($emp?->email)) $missingFields[] = 'email';
+            if (empty($emp?->department)) $missingFields[] = 'department';
+
+            $customerContext = [
+                'type' => 'internal_employee',
+                'id' => $emp ? (int) $emp->emp_id : null,
+                'name' => $emp ? trim("{$emp->first_name} {$emp->last_name}") : 'Internal Staff',
+                'first_name' => $emp->first_name ?? null,
+                'last_name' => $emp->last_name ?? null,
+                'email' => $emp->email ?? null,
+                'department' => $emp->department ?? null,
+                'role' => $emp->role ?? null,
+                'phone' => null,
+                'address' => null,
+                'preferred_contact_method' => 'Email',
+                'missing_fields' => $missingFields,
+            ];
+        } else {
+            $client = DB::table('clients')->where('id', $ticket->created_by)->first();
+            $missingFields = [];
+            if (empty($client?->contact_number)) $missingFields[] = 'phone';
+            if (empty($client?->email)) $missingFields[] = 'email';
+            if (empty($client?->address)) $missingFields[] = 'address';
+
+            $customerContext = [
+                'type' => 'customer',
+                'id' => $client ? (int) $client->id : null,
+                'name' => $client->client_name ?? 'Unknown Customer',
+                'email' => $client->email ?? null,
+                'phone' => $client->contact_number ?? null,
+                'address' => $client->address ?? null,
+                'preferred_contact_method' => !empty($client?->contact_number) ? 'Phone' : 'Email',
+                'status' => $client ? (bool) $client->status : false,
+                'missing_fields' => $missingFields,
+            ];
+        }
+
+        // 3. Machine Details & History Summary
+        $machineContext = null;
+        if (!empty($ticket->machine_ID)) {
+            $machine = DB::table('machines as m')
+                ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
+                ->where('m.machine_ID', $ticket->machine_ID)
+                ->select(
+                    'm.machine_ID',
+                    'm.machine_name',
+                    'm.brand',
+                    'm.model',
+                    'm.serial_number',
+                    'm.status',
+                    'm.purchase_date',
+                    'm.last_maintenance_date',
+                    'mc.category_name as category_name'
+                )
+                ->first();
+
+            if ($machine) {
+                $pastTicketCount = DB::table('tickets')
+                    ->where('machine_ID', $ticket->machine_ID)
+                    ->where('ticket_ID', '!=', $ticketId)
+                    ->count();
+
+                $lastResolved = DB::table('tickets')
+                    ->where('machine_ID', $ticket->machine_ID)
+                    ->where('ticket_ID', '!=', $ticketId)
+                    ->whereNotNull('resolved_at')
+                    ->orderByDesc('resolved_at')
+                    ->value('resolved_at');
+
+                $lastServiceDate = $lastResolved ?? $machine->last_maintenance_date ?? null;
+
+                $machineContext = [
+                    'linked' => true,
+                    'machine_id' => (int) $machine->machine_ID,
+                    'machine_name' => $machine->machine_name,
+                    'make' => $machine->brand ?? 'Unknown',
+                    'brand' => $machine->brand ?? 'Unknown',
+                    'model' => $machine->model ?? 'Unknown',
+                    'serial_number' => $machine->serial_number ?? 'N/A',
+                    'status' => $machine->status ?? 'active',
+                    'category' => $machine->category_name ?? 'General',
+                    'location' => $customerContext['address'] ?? 'Customer Site',
+                    'installation_date' => $machine->purchase_date ?? null,
+                    'purchase_date' => $machine->purchase_date ?? null,
+                    'last_maintenance_date' => $machine->last_maintenance_date ?? null,
+                    'history_summary' => [
+                        'past_ticket_count' => (int) $pastTicketCount,
+                        'last_service_date' => $lastServiceDate ? \Carbon\Carbon::parse($lastServiceDate)->toIso8601String() : null,
+                    ],
+                ];
+            }
+        }
+
+        return [
+            'status' => 200,
+            'data' => [
+                'success' => true,
+                'ticket_id' => (int) $ticketId,
+                'ticket_number' => $ticket->ticket_number ?? null,
+                'customer' => $customerContext,
+                'machine' => $machineContext,
+                'machine_message' => $machineContext ? null : 'No machine details linked',
+            ],
+        ];
+    }
 }

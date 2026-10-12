@@ -90,6 +90,24 @@ Route::middleware('auth.subsystem')->group(function () {
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
     });
 
+    Route::get('/tickets/{ticketId}/eligible-employees', function (Request $request, $ticketId) {
+        $token = $request->bearerToken();
+        try {
+            $client = Illuminate\Support\Facades\Http::timeout(5);
+            if ($token) {
+                $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+            }
+            $resp = $client->get("http://employee-service:8000/api/tickets/{$ticketId}/eligible-employees", $request->all());
+            return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Employee service unavailable. Please try again later.',
+                'eligible_employees' => [],
+                'ineligible_employees' => [],
+            ], 503);
+        }
+    });
+
     Route::post('/tickets/{ticketId}/employee-update', function (Request $request, $ticketId) {
         $token = $request->bearerToken();
         $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
@@ -225,6 +243,7 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/tickets/{ticketId}/reopen', [TicketController::class, 'reopenTicket']);
     Route::post('/tickets/{ticketId}/cancel', [TicketController::class, 'cancelTicket']);
     Route::patch('/tickets/{ticketId}/classification', [TicketController::class, 'reclassifyTicket']);
+    Route::get('/tickets/{ticketId}/customer-context', [TicketController::class, 'customerContext']);
 
     // ─── Notifications ────────────────────────────────────────────────────────
     Route::get('/notifications', [TicketNotificationController::class, 'getNotifications']);

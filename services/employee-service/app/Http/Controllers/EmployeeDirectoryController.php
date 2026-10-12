@@ -7,12 +7,121 @@ use Illuminate\Support\Facades\DB;
 class EmployeeDirectoryController extends Controller
 {
     /**
-     * Get list of assignable employees filtered by department and exclude requested_by.
+     * Resolve category track (Service, IT, Others) for a ticket (TS110).
+     */
+    public static function resolveCategoryTrack($ticket): string
+    {
+        if (!$ticket) {
+            return 'service';
+        }
+
+        $categoryName = '';
+        if (!empty($ticket->problem_category_ID)) {
+            $categoryName = DB::table('problem_categories')
+                ->where('problem_category_ID', $ticket->problem_category_ID)
+                ->value('category_name') ?? '';
+        }
+
+        $deptName = '';
+        if (!empty($ticket->department_id)) {
+            $deptName = DB::table('departments')
+                ->where('id', $ticket->department_id)
+                ->value('name') ?? '';
+        }
+
+        $combined = strtolower($categoryName . ' ' . $deptName . ' ' . ($ticket->title ?? '') . ' ' . ($ticket->description ?? ''));
+
+        if (preg_match('/\b(it|information technology|software|network|system|server|database|computer|login|password|wifi|bug|api)\b/i', $combined)) {
+            return 'it';
+        }
+
+        if (preg_match('/\b(service|biomedical|machine|hardware|device|calibration|repair|equipment|imaging|clinical|maintenance|failure)\b/i', $combined)) {
+            return 'service';
+        }
+
+        return 'others';
+    }
+
+    /**
+     * Check if an employee qualifies for a category track and branch (TS110).
+     */
+    public static function checkEligibility($emp, $ticket = null, string $track = 'service'): array
+    {
+        $dept = strtolower(trim((string) ($emp->department ?? '')));
+        $role = strtolower(trim((string) ($emp->role ?? '')));
+
+        // Customer service or customer or superadmin cannot be regular assignees
+        if (in_array($role, ['customer service', 'customer support', 'cs', 'customer'], true)) {
+            return [
+                'eligible' => false,
+                'reason' => 'Customer service and customer users cannot be assigned to tickets.',
+            ];
+        }
+
+        // Check track qualification
+        $trackEligible = false;
+        if ($track === 'service') {
+            $trackEligible = in_array($dept, ['service', 'biomedical', 'clinical engineering', 'maintenance', 'operations'], true)
+                || str_contains($role, 'service')
+                || str_contains($role, 'biomedical')
+                || str_contains($role, 'technician')
+                || (str_contains($role, 'engineer') && !str_contains($role, 'software') && !str_contains($role, 'systems'));
+        } elseif ($track === 'it') {
+            $trackEligible = in_array($dept, ['it', 'information technology', 'systems', 'network', 'technical support', 'engineering'], true)
+                || str_contains($role, 'it')
+                || str_contains($role, 'system')
+                || str_contains($role, 'network')
+                || str_contains($role, 'software')
+                || str_contains($role, 'support');
+        } else { // 'others'
+            $trackEligible = true;
+        }
+
+        if (!$trackEligible) {
+            $trackLabel = strtoupper($track);
+            return [
+                'eligible' => false,
+                'reason' => "Employee role ({$emp->role}) or department ({$emp->department}) does not qualify for {$trackLabel} category track.",
+            ];
+        }
+
+        // Branch check if branch is specified on both ticket and employee
+        if ($ticket) {
+            $hasBranchCol = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch');
+            $hasBranchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id');
+            $empBranch = null;
+            if ($hasBranchCol && isset($emp->branch)) {
+                $empBranch = $emp->branch;
+            } elseif ($hasBranchIdCol && isset($emp->branch_id)) {
+                $empBranch = $emp->branch_id;
+            }
+
+            $ticketBranch = $ticket->branch_id ?? $ticket->branch ?? null;
+
+            if ($ticketBranch && $empBranch && strtolower($ticketBranch) !== 'all' && strtolower($empBranch) !== 'all') {
+                if (strtolower($ticketBranch) !== strtolower($empBranch) && strtolower($empBranch) !== 'main') {
+                    return [
+                        'eligible' => false,
+                        'reason' => "Branch mismatch: employee belongs to {$empBranch}, but ticket is designated for {$ticketBranch}.",
+                    ];
+                }
+            }
+        }
+
+        return [
+            'eligible' => true,
+            'reason' => null,
+        ];
+    }
+
+    /**
+     * Get list of assignable employees filtered by department, track, and exclude requested_by (TS110).
      */
     public function assignableEmployees(Request $request)
     {
         $department = $request->query('department');
         $ticketId = $request->query('ticket_id');
+        $track = $request->query('track');
 
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
@@ -21,24 +130,109 @@ class EmployeeDirectoryController extends Controller
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
 
+        if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
+            $query->addSelect('branch');
+        } elseif (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id')) {
+            $query->addSelect('branch_id as branch');
+        }
+
         if ($department) {
             $query->where('department', $department);
         }
 
+        $ticket = null;
         if ($ticketId) {
-            $requestedBy = DB::table('tickets')->where('ticket_ID', $ticketId)->value('requested_by');
-            if ($requestedBy) {
-                $query->where('emp_id', '!=', $requestedBy);
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+            if ($ticket && !empty($ticket->requested_by)) {
+                $query->where('emp_id', '!=', $ticket->requested_by);
             }
         }
+
+        $resolvedTrack = $track ? strtolower($track) : ($ticket ? self::resolveCategoryTrack($ticket) : null);
 
         $employees = $query
             ->orderByDesc('is_active')
             ->orderBy(DB::raw("CONCAT(first_name, ' ', last_name)"))
             ->get();
 
+        if ($resolvedTrack) {
+            $employees = $employees->filter(function ($emp) use ($ticket, $resolvedTrack) {
+                $res = self::checkEligibility($emp, $ticket, $resolvedTrack);
+                return $res['eligible'];
+            })->values();
+        }
+
         return response()->json([
             'employees' => $employees,
+            'track' => $resolvedTrack,
+        ]);
+    }
+
+    /**
+     * Filter employee eligibility based on ticket category tracks (TS110).
+     * Returns categorized lists of eligible vs ineligible employees with detailed reasons.
+     */
+    public function eligibleEmployees(Request $request, int $ticketId)
+    {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $trackOverride = $request->query('track');
+        $track = $trackOverride ? strtolower(trim($trackOverride)) : self::resolveCategoryTrack($ticket);
+
+        $query = DB::table('employees')
+            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
+            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
+            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer']);
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
+            $query->addSelect('branch');
+        } elseif (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id')) {
+            $query->addSelect('branch_id as branch');
+        }
+
+        $requestedBy = $ticket->requested_by ?? null;
+        if ($requestedBy) {
+            $query->where('emp_id', '!=', $requestedBy);
+        }
+
+        $employees = $query->orderByDesc('is_active')->orderBy('first_name')->get();
+
+        $eligible = [];
+        $ineligible = [];
+
+        foreach ($employees as $emp) {
+            $eligibility = self::checkEligibility($emp, $ticket, $track);
+            $item = [
+                'id' => (int) $emp->id,
+                'name' => $emp->name,
+                'email' => $emp->email,
+                'role' => $emp->role,
+                'department' => $emp->department,
+                'branch' => $emp->branch ?? 'Main',
+                'is_active' => (bool) $emp->is_active,
+                'eligible' => $eligibility['eligible'],
+                'ineligibility_reason' => $eligibility['reason'],
+            ];
+
+            if ($eligibility['eligible']) {
+                $eligible[] = $item;
+            } else {
+                $ineligible[] = $item;
+            }
+        }
+
+        return response()->json([
+            'ticket_id' => (int) $ticketId,
+            'ticket_number' => $ticket->ticket_number ?? null,
+            'track' => $track,
+            'branch' => $ticket->branch_id ?? $ticket->branch ?? 'Main',
+            'eligible_count' => count($eligible),
+            'ineligible_count' => count($ineligible),
+            'eligible_employees' => $eligible,
+            'ineligible_employees' => $ineligible,
         ]);
     }
 

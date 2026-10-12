@@ -365,4 +365,18 @@ class TicketController extends Controller
     {
         return app(SuperAdminConfigController::class)->getSuperAdminHistory($request);
     }
+
+    /**
+     * View relevant customer and machine resolution context (TS029).
+     */
+    public function customerContext(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $result = $this->ticketService->getCustomerContext($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
+    }
 }
