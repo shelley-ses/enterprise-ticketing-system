@@ -183,13 +183,27 @@
             $employee->failed_login_count = 0;
             $employee->locked_until = null;
             $employee->last_login_at = Carbon::now();
-            $employee->last_seen_at = Carbon::now();
-            $employee->is_active = $employee->role !== 'customer service';
-            $employee->save();
+            // TS106: Automatically set availability status to Active upon login (non-blocking best-effort)
+            try {
+                $employee->is_active = true;
+                $employee->save();
+                Log::info("Employee status automatically set to Active upon login (TS106)", [
+                    'emp_id' => $employee->emp_id,
+                    'email' => $employee->email,
+                    'role' => $employee->role,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error("Failed to set employee active status on login (best-effort): " . $e->getMessage(), [
+                    'emp_id' => $employee->emp_id,
+                ]);
+            }
 
-            // OTP on first login is disabled — users go straight to the change-password screen.
-
-            $this->syncEmployeePresence($employee);
+            // Non-blocking presence sync & real-time status event broadcast
+            try {
+                $this->syncEmployeePresence($employee);
+            } catch (\Throwable $e) {
+                Log::warning("Failed to sync employee presence on login: " . $e->getMessage());
+            }
 
             $accessToken = $employee->createToken('employee')->accessToken;
             $rawRefresh = Str::random(80);
@@ -288,20 +302,20 @@
 
         private function syncEmployeePresence(Employee $employee): void
         {
-            if ($employee->role === 'customer service') {
-                return;
+            try {
+                Cache::store('redis')->put(
+                    $this->employeePresenceKey($employee->emp_id),
+                    [
+                        'is_active' => true,
+                        'last_seen_at' => Carbon::now()->toISOString(),
+                    ],
+                    now()->addDay()
+                );
+
+                EmployeeStatusChanged::dispatch($employee->refresh());
+            } catch (\Throwable $e) {
+                Log::warning("Failed to sync employee presence to Redis: " . $e->getMessage());
             }
-
-            Cache::store('redis')->put(
-                $this->employeePresenceKey($employee->emp_id),
-                [
-                    'is_active' => true,
-                    'last_seen_at' => Carbon::now()->toISOString(),
-                ],
-                60
-            );
-
-            EmployeeStatusChanged::dispatch($employee->refresh());
         }
 
         private function employeePresenceKey(int $employeeId): string

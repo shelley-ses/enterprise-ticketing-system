@@ -19,6 +19,8 @@ Route::get('/health', function () {
 // Employee Directory & Options
 Route::get('/departments', [EmployeeDirectoryController::class, 'getDepartments']);
 Route::get('/assignable-employees', [EmployeeDirectoryController::class, 'assignableEmployees']);
+Route::get('/employees/search', [EmployeeDirectoryController::class, 'searchEmployees']);
+Route::get('/employees/filter-options', [EmployeeDirectoryController::class, 'filterOptions']);
 
 // Authenticated Routes
 Route::middleware(['auth.subsystem'])->group(function () {

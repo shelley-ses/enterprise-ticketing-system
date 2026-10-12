@@ -37,6 +37,43 @@ Route::get('/departments', function () {
     }
 });
 
+Route::get('/employees/search', function (Request $request) {
+    $token = $request->bearerToken();
+    try {
+        $client = Illuminate\Support\Facades\Http::timeout(5);
+        if ($token) {
+            $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+        }
+        $resp = $client->get('http://employee-service:8000/api/employees/search', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'data' => [],
+            'total' => 0,
+            'message' => 'Employee service unavailable. Please try again later.'
+        ], 503);
+    }
+});
+
+Route::get('/employees/filter-options', function (Request $request) {
+    $token = $request->bearerToken();
+    try {
+        $client = Illuminate\Support\Facades\Http::timeout(5);
+        if ($token) {
+            $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+        }
+        $resp = $client->get('http://employee-service:8000/api/employees/filter-options', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    } catch (\Exception $e) {
+        return response()->json([
+            'departments' => [],
+            'roles' => [],
+            'branches' => []
+        ], 503);
+    }
+});
+
 Route::middleware('auth.subsystem')->group(function () {
     // ─── Employee Assignment Forwarding ────────────────────────────────────────
     Route::match(['post', 'patch'], '/tickets/{ticketId}/accept', function (Request $request, $ticketId) {
