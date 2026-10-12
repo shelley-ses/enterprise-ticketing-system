@@ -26,10 +26,13 @@ class TicketDashboardService
     }
 
     /**
-     * Get summary metrics and recent tickets for the customer dashboard.
+     * Get summary metrics and recent tickets for the customer dashboard with optional combinable filters (TS021).
      */
-    public function getCustomerDashboard(int $createdBy, int $limit): array
+    public function getCustomerDashboard(int $createdBy, int $limit, array $filters = []): array
     {
+        $hasFilters = !empty(array_filter($filters, fn($v) => $v !== null && $v !== ''));
+        $filterKey = $hasFilters ? md5(json_encode($filters)) : 'none';
+
         $summary = Cache::remember("customer_dashboard_counts_{$createdBy}", 60, function () use ($createdBy) {
             $statusCounts = DB::table('tickets as t')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
@@ -57,8 +60,8 @@ class TicketDashboardService
             return $sum;
         });
 
-        $recentTickets = Cache::remember("customer_dashboard_recent_{$createdBy}_{$limit}", 60, function () use ($createdBy, $limit) {
-            return DB::table('tickets as t')
+        $fetchQuery = function () use ($createdBy, $limit, $filters) {
+            $query = DB::table('tickets as t')
                 ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
                 ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
@@ -81,8 +84,53 @@ class TicketDashboardService
                     'tp.priority_name'
                 )
                 ->where('t.created_by', $createdBy)
-                ->where('t.is_internal', false)
-                ->orderByDesc('t.created_at')
+                ->where('t.is_internal', false);
+
+            // TS021: Combinable AND filters
+            if (!empty($filters['search'])) {
+                $term = '%' . trim($filters['search']) . '%';
+                $query->where(function ($q) use ($term) {
+                    $q->where('t.ticket_number', 'LIKE', $term)
+                      ->orWhere('t.ticket_ID', 'LIKE', $term)
+                      ->orWhere('t.title', 'LIKE', $term)
+                      ->orWhere('t.description', 'LIKE', $term)
+                      ->orWhere('m.machine_name', 'LIKE', $term)
+                      ->orWhere('m.serial_number', 'LIKE', $term);
+                });
+            }
+
+            if (!empty($filters['status'])) {
+                $statusVal = trim($filters['status']);
+                $query->where(function ($q) use ($statusVal) {
+                    $q->where('ts.status_name', $statusVal)
+                      ->orWhere('t.ticket_status_ID', $statusVal);
+                });
+            }
+
+            if (!empty($filters['category_id'])) {
+                $query->where('t.problem_category_ID', (int) $filters['category_id']);
+            } elseif (!empty($filters['category'])) {
+                $catVal = trim($filters['category']);
+                $query->where('pc.category_name', $catVal);
+            }
+
+            if (!empty($filters['machine_id'])) {
+                $query->where('t.machine_ID', (int) $filters['machine_id']);
+            }
+
+            if (!empty($filters['priority_id'])) {
+                $query->where('t.priority_ID', (int) $filters['priority_id']);
+            }
+
+            if (!empty($filters['date_from'])) {
+                $query->where('t.created_at', '>=', Carbon::parse($filters['date_from'])->startOfDay());
+            }
+
+            if (!empty($filters['date_to'])) {
+                $query->where('t.created_at', '<=', Carbon::parse($filters['date_to'])->endOfDay());
+            }
+
+            return $query->orderByDesc('t.created_at')
                 ->limit($limit)
                 ->get()
                 ->map(fn ($row) => [
@@ -106,11 +154,57 @@ class TicketDashboardService
                 ])
                 ->values()
                 ->toArray();
-        });
+        };
+
+        $recentTickets = $hasFilters
+            ? $fetchQuery()
+            : Cache::remember("customer_dashboard_recent_{$createdBy}_{$limit}", 60, $fetchQuery);
 
         return [
             'summary' => $summary,
             'recent_tickets' => $recentTickets,
+        ];
+    }
+
+    /**
+     * Get dynamic filter options for customer tickets (TS021).
+     */
+    public function getCustomerFilterOptions(int $createdBy): array
+    {
+        $machines = DB::table('tickets as t')
+            ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->where('t.created_by', $createdBy)
+            ->where('t.is_internal', false)
+            ->select('m.machine_ID', 'm.machine_name', 'm.serial_number')
+            ->distinct()
+            ->get()
+            ->map(fn($m) => [
+                'machine_ID' => $m->machine_ID,
+                'label' => "{$m->machine_name} - {$m->serial_number}",
+            ]);
+
+        $categories = DB::table('tickets as t')
+            ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
+            ->where('t.created_by', $createdBy)
+            ->where('t.is_internal', false)
+            ->select('pc.problem_category_ID', 'pc.category_name')
+            ->distinct()
+            ->get();
+
+        $statuses = DB::table('ticket_statuses')
+            ->where('status_name', '!=', 'Discarded')
+            ->select('ticket_status_ID', 'status_name')
+            ->get();
+
+        $priorities = DB::table('ticket_priorities')
+            ->select('priority_ID', 'priority_name')
+            ->get();
+
+        return [
+            'machines' => $machines,
+            'categories' => $categories,
+            'statuses' => $statuses,
+            'priorities' => $priorities,
         ];
     }
 
@@ -193,13 +287,15 @@ class TicketDashboardService
     }
 
     /**
-     * Get paginated incoming tickets list for CS with filtering.
+     * Get paginated incoming tickets list for CS with filtering (TS023).
      */
-    public function getCsIncoming(int $perPage, string $typeFilter, int $page): array
+    public function getCsIncoming(int $perPage, string $typeFilter, int $page, array $filters = []): array
     {
-        $cacheKey = "cs_incoming_tickets_{$perPage}_{$typeFilter}_{$page}";
+        $hasFilters = !empty(array_filter($filters, fn($v) => $v !== null && $v !== ''));
+        $filterKey = $hasFilters ? md5(json_encode($filters)) : 'none';
+        $cacheKey = "cs_incoming_tickets_{$perPage}_{$typeFilter}_{$page}_{$filterKey}";
 
-        return Cache::remember($cacheKey, 60, function () use ($perPage, $typeFilter) {
+        $fetchQuery = function () use ($perPage, $typeFilter, $page, $filters) {
             $query = DB::table('tickets as t')
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
@@ -240,8 +336,50 @@ class TicketDashboardService
                 $query->where('t.is_internal', false);
             }
 
+            // TS023: Search and combinable filters
+            if (!empty($filters['search'])) {
+                $term = '%' . trim($filters['search']) . '%';
+                $query->where(function ($q) use ($term) {
+                    $q->where('t.ticket_number', 'LIKE', $term)
+                      ->orWhere('t.ticket_ID', 'LIKE', $term)
+                      ->orWhere('t.title', 'LIKE', $term)
+                      ->orWhere('t.description', 'LIKE', $term)
+                      ->orWhere('c.client_name', 'LIKE', $term)
+                      ->orWhere('m.machine_name', 'LIKE', $term)
+                      ->orWhere('m.serial_number', 'LIKE', $term);
+                });
+            }
+
+            if (!empty($filters['status'])) {
+                $stVal = trim($filters['status']);
+                $query->where(function ($q) use ($stVal) {
+                    $q->where('ts.status_name', $stVal)
+                      ->orWhere('t.ticket_status_ID', $stVal);
+                });
+            }
+
+            if (!empty($filters['department'])) {
+                $query->where('e.department', trim($filters['department']));
+            }
+
+            if (!empty($filters['customer_id'])) {
+                $query->where('t.created_by', (int) $filters['customer_id']);
+            } elseif (!empty($filters['customer'])) {
+                $query->where('c.client_name', 'LIKE', '%' . trim($filters['customer']) . '%');
+            }
+
+            if (!empty($filters['machine_id'])) {
+                $query->where('t.machine_ID', (int) $filters['machine_id']);
+            } elseif (!empty($filters['machine'])) {
+                $query->where(function ($q) use ($filters) {
+                    $mVal = '%' . trim($filters['machine']) . '%';
+                    $q->where('m.machine_name', 'LIKE', $mVal)
+                      ->orWhere('m.serial_number', 'LIKE', $mVal);
+                });
+            }
+
             $paginated = $query->orderByDesc('t.created_at')
-                ->paginate($perPage);
+                ->paginate($perPage, ['*'], 'page', $page);
 
             $rows = collect($paginated->items());
             $ticketIds = $rows->pluck('ticket_ID')->toArray();
@@ -341,6 +479,41 @@ class TicketDashboardService
                     'last_page' => $paginated->lastPage(),
                 ]
             ];
-        });
+        };
+
+        return $hasFilters
+            ? $fetchQuery()
+            : Cache::remember($cacheKey, 60, $fetchQuery);
+    }
+
+    /**
+     * Get dynamic filter options for CS queue (TS023).
+     */
+    public function getCsFilterOptions(): array
+    {
+        $departments = DB::table('departments')
+            ->where('is_active', true)
+            ->select('id', 'name')
+            ->get();
+
+        $statuses = DB::table('ticket_statuses')
+            ->where('status_name', '!=', 'Discarded')
+            ->select('ticket_status_ID', 'status_name')
+            ->get();
+
+        $machines = DB::table('machines')
+            ->select('machine_ID', 'machine_name', 'serial_number')
+            ->limit(100)
+            ->get()
+            ->map(fn($m) => [
+                'machine_ID' => $m->machine_ID,
+                'label' => "{$m->machine_name} - {$m->serial_number}",
+            ]);
+
+        return [
+            'departments' => $departments,
+            'statuses' => $statuses,
+            'machines' => $machines,
+        ];
     }
 }

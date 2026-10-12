@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import NotificationModal from '@/components/NotificationModal';
 import TitleCasingModal from '@/components/TitleCasingModal';
-import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
+import {
+  getTicketFormOptions,
+  createTicket,
+  getCustomerTickets,
+  saveTicketDraft,
+  getTicketDraft,
+} from '@/services/ticketService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
@@ -10,9 +16,15 @@ import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfi
 
 export default function TicketCreation() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const effectiveUser = user || JSON.parse(localStorage.getItem('user') || 'null');
   const customerId = effectiveUser?.id || 1;
+
+  const [draftId, setDraftId] = useState(location.state?.draftId || null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('');
+  const [existingDraftAttachments, setExistingDraftAttachments] = useState([]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -92,6 +104,65 @@ export default function TicketCreation() {
     };
     loadOptions();
   }, []);
+
+  // Load existing draft if opened from "My Drafts"
+  useEffect(() => {
+    const draftIdFromNav = location.state?.draftId;
+    if (draftIdFromNav) {
+      getTicketDraft(draftIdFromNav)
+        .then((draft) => {
+          if (draft) {
+            setDraftId(draft.id);
+            setFormData((prev) => ({
+              ...prev,
+              title: draft.raw_title ?? (draft.title === 'Untitled draft' ? '' : draft.title),
+              machine_ID: draft.machine_ID || '',
+              problem_category_ID: draft.problem_category_ID || '',
+              description: draft.description || '',
+              priority_ID: draft.priority_ID || prev.priority_ID || 1,
+            }));
+            if (Array.isArray(draft.attachments) && draft.attachments.length > 0) {
+              setExistingDraftAttachments(draft.attachments);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not load draft:', err);
+        });
+    }
+  }, [location.state?.draftId]);
+
+  const handleSaveDraft = async () => {
+    if (savingDraft || submitting) return;
+    setError('');
+    setDraftMessage('');
+    setSavingDraft(true);
+
+    try {
+      const payload = {
+        id: draftId || undefined,
+        title: formData.title,
+        machine_ID: formData.machine_ID,
+        problem_category_ID: formData.problem_category_ID,
+        description: formData.description,
+        priority_ID: formData.priority_ID,
+        attachments: [...existingDraftAttachments, ...files],
+      };
+
+      const res = await saveTicketDraft(payload);
+      const savedId = res.draft?.id || res.id;
+      if (savedId) {
+        setDraftId(savedId);
+      }
+      setDraftMessage('Draft saved successfully. You can return and complete it anytime from My Drafts.');
+      setTimeout(() => setDraftMessage(''), 5000);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to save draft.';
+      setError(msg);
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -226,6 +297,9 @@ export default function TicketCreation() {
       payload.append('problem_category_ID', formData.problem_category_ID);
       payload.append('description', normalizedDesc);
       payload.append('priority_ID', formData.priority_ID);
+      if (draftId) {
+        payload.append('draft_id', draftId);
+      }
       if (files && files.length > 0) {
         files.forEach((f) => {
           payload.append('attachments[]', f);
@@ -286,6 +360,15 @@ export default function TicketCreation() {
         <h1 className="text-3xl font-bold text-[#252578]">Create New Ticket</h1>
         <p className="text-gray-500 mt-2">Submit a new support request for your equipment.</p>
       </div>
+
+      {draftMessage && (
+        <div className="mb-6 rounded-xl p-4 text-sm font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs flex items-center gap-3">
+          <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <div>{draftMessage}</div>
+        </div>
+      )}
 
       {error && (
         <div className={`mb-6 rounded-xl p-4 text-sm font-medium border flex items-start gap-3 transition-all ${
@@ -432,12 +515,26 @@ export default function TicketCreation() {
             {fileError && <p className="text-sm text-red-500 mt-2">{fileError}</p>}
           </div>
 
-          <div className="flex justify-end gap-4 mt-4 border-t border-gray-100 pt-6">
-            <button type="button" onClick={() => navigate(-1)} className="px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
+          <div className="flex flex-wrap justify-end gap-3 mt-4 border-t border-gray-100 pt-6">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={loadingOptions || savingDraft || submitting}
+              className="px-6 py-3 border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {savingDraft ? 'Saving Draft...' : 'Save as Draft'}
+            </button>
             <button 
               type="submit" 
-              disabled={loadingOptions || submitting}
-              className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loadingOptions || submitting || savingDraft}
+              className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {submitting ? 'Submitting...' : 'Submit Ticket'}
             </button>

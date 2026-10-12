@@ -10,6 +10,7 @@ use App\Http\Controllers\BranchPriorityController;
 use App\Http\Controllers\BranchCategoryController;
 use App\Http\Controllers\SLARuleController;
 use App\Http\Controllers\WorkflowEscalationController;
+use App\Http\Controllers\TicketDraftController;
 
 /*
 |--------------------------------------------------------------------------
@@ -23,6 +24,12 @@ Route::middleware('auth.subsystem')->get('/user', function (Request $request) {
 
 // ─── Core Ticket Public / Common Endpoints ────────────────────────────────────
 Route::get('/ticket-form-options', [TicketController::class, 'formOptions']);
+Route::get('/customer/filter-options', [TicketDashboardController::class, 'customerFilterOptions']);
+Route::get('/cs/filter-options', [TicketDashboardController::class, 'csFilterOptions']);
+Route::post('/tickets/draft', [TicketDraftController::class, 'saveDraft']);
+Route::get('/tickets/drafts', [TicketDraftController::class, 'listDrafts']);
+Route::get('/tickets/drafts/{id}', [TicketDraftController::class, 'getDraft']);
+Route::delete('/tickets/drafts/{id}', [TicketDraftController::class, 'deleteDraft']);
 
 // ─── Dashboards & Feed Endpoints ─────────────────────────────────────────────
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);

@@ -80,6 +80,14 @@ class TicketController extends Controller
             ], 503);
         }
 
+        if ($request->filled('draft_id')) {
+            try {
+                app(\App\Services\TicketDraftService::class)->deleteDraft((int) $user->id, (int) $request->input('draft_id'));
+            } catch (\Throwable $e) {
+                // Non-blocking draft cleanup
+            }
+        }
+
         return response()->json($result, 201);
     }
 

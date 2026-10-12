@@ -102,7 +102,15 @@
             $credential->last_login_at = Carbon::now();
             $credential->save();
 
-            // OTP on first login is disabled — users go straight to the change-password screen.
+            // TS009: When first login, send OTP to customer's email
+            if ($isFirstLogin) {
+                try {
+                    $this->sendFirstLoginOtp($client->email, $client->client_name);
+                    Log::info('AuthService.login:first_login_otp_dispatched', ['email' => $client->email]);
+                } catch (\Throwable $e) {
+                    Log::warning('AuthService.login:first_login_otp_failed: ' . $e->getMessage());
+                }
+            }
 
             Log::info('AuthService.login:after_credential_save', ['duration_ms' => (microtime(true)-$start)*1000]);
 
@@ -428,7 +436,7 @@
             ];
         }
 
-        private function sendFirstLoginOtp($email, $name)
+        public function sendFirstLoginOtp($email, $name)
         {
             $otp = (string) random_int(100000, 999999);
             $expiresAt = Carbon::now()->addMinutes(self::PASSWORD_RESET_OTP_MINUTES);
@@ -489,7 +497,13 @@
                 ? $user->password_change_at === null
                 : optional($user->credential)->password_change_at === null;
 
-            // OTP verification on first-login password change is disabled.
+            // TS009: Verify OTP on first login if code is provided
+            if ($isFirstLogin && !empty($otp)) {
+                $verifyResult = $this->verifyPasswordResetOtp($user->email, $otp);
+                if (!$verifyResult['success']) {
+                    return $verifyResult;
+                }
+            }
 
             $currentPasswordHash = $user instanceof Employee
                 ? $user->password_hash
@@ -502,6 +516,7 @@
                 ];
             }
 
+            // TS009: Reject reuse of default credential
             if (Hash::check($newPassword, $currentPasswordHash)) {
                 return [
                     'success' => false,
@@ -524,8 +539,12 @@
                     $user->credential->save();
                 }
 
-                // OTP cleanup skipped (OTP flow is disabled).
+                if ($isFirstLogin) {
+                    PasswordResetOtp::where('email', $user->email)->update(['used_at' => Carbon::now()]);
+                }
             });
+
+            Log::info("Password successfully changed for user {$user->email}" . ($isFirstLogin ? ' (first login completed)' : ''));
 
             return [
                 'success' => true,
