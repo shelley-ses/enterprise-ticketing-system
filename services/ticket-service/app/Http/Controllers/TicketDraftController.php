@@ -17,8 +17,8 @@ class TicketDraftController extends Controller
     protected function resolveClientId(Request $request): ?int
     {
         $user = $request->user();
-        if ($user && isset($user->id)) {
-            return (int) $user->id;
+        if ($user) {
+            return (int) ($user->id ?? $user->client_id ?? $user->emp_id);
         }
 
         if ($request->filled('client_id')) {
@@ -29,14 +29,14 @@ class TicketDraftController extends Controller
             return (int) $request->input('created_by');
         }
 
-        return 1;
+        return null;
     }
 
     public function saveDraft(Request $request)
     {
         $clientId = $this->resolveClientId($request);
         if (!$clientId) {
-            return response()->json(['message' => 'Unauthorized client.'], 401);
+            return response()->json(['message' => 'Unauthorized client. Valid credentials required.'], 401);
         }
 
         $draftId = $request->input('draft_id') ? (int) $request->input('draft_id') : null;

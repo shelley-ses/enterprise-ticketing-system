@@ -1171,6 +1171,10 @@ function AISupportPage() {
   }, [conversations, activeConversationId, messages, user, ticketOptions]);
 
   const handleCreateTicket = useCallback(async () => {
+    if (activeConversationId) {
+      navigate('/create-ticket', { state: { conversationId: activeConversationId } });
+      return;
+    }
     const review = generateRealReviewData(escalationTicketData);
     let targetMachineId = review.machine_ID || null;
     const targetModel = (review.machineModel || '').trim().toLowerCase();

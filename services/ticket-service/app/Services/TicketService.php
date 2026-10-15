@@ -267,29 +267,35 @@ class TicketService
                 ->value('ticket_status_ID') ?: 1;
         }
 
+        $ticketData = [
+            'ticket_number' => $ticketNumber,
+            'machine_ID' => $validated['machine_ID'],
+            'problem_category_ID' => $validated['problem_category_ID'],
+            'created_by' => $clientId,
+            'requested_by' => null,
+            'assigned_to' => null,
+            'ticket_type_ID' => $externalTypeId,
+            'is_internal' => false,
+            'priority_ID' => $priorityId,
+            'branch_id' => $validated['branch_id'] ?? null,
+            'ticket_status_ID' => $statusId,
+            'sla_ID' => null,
+            'title' => $finalTitle,
+            'description' => strip_tags($validated['description']),
+            'resolved_at' => null,
+            'closed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('tickets', 'origin')) {
+            $ticketData['origin'] = $validated['origin'] ?? 'manual';
+        }
+
         $ticketId = $this->ticketLimitService->createWithinLimit(
             $clientId,
             false,
-            fn () => DB::table('tickets')->insertGetId([
-                'ticket_number' => $ticketNumber,
-                'machine_ID' => $validated['machine_ID'],
-                'problem_category_ID' => $validated['problem_category_ID'],
-                'created_by' => $clientId,
-                'requested_by' => null,
-                'assigned_to' => null,
-                'ticket_type_ID' => $externalTypeId,
-                'is_internal' => false,
-                'priority_ID' => $priorityId,
-                'branch_id' => $validated['branch_id'] ?? null,
-                'ticket_status_ID' => $statusId,
-                'sla_ID' => null,
-                'title' => $finalTitle,
-                'description' => strip_tags($validated['description']),
-                'resolved_at' => null,
-                'closed_at' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ])
+            fn () => DB::table('tickets')->insertGetId($ticketData)
         );
 
         try {

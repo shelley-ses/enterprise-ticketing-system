@@ -1175,3 +1175,58 @@ export const deleteBranchSlaPolicy = async (branchId, payload) => {
   return response.data;
 };
 
+// Ticket Drafts (TS020)
+export const getTicketDrafts = async () => {
+  const response = await ticketClient.get('/tickets/drafts');
+  return response.data?.drafts ?? response.data ?? [];
+};
+
+export const getTicketDraft = async (id) => {
+  const response = await ticketClient.get(`/tickets/drafts/${id}`);
+  return response.data?.draft ?? response.data;
+};
+
+export const saveTicketDraft = async (payload) => {
+  const response = await ticketClient.post('/tickets/drafts', payload);
+  return response.data;
+};
+
+export const deleteTicketDraft = async (id) => {
+  const response = await ticketClient.delete(`/tickets/drafts/${id}`);
+  return response.data;
+};
+
+// Escalation Handoff (TS027)
+export const getEscalateHandoff = async (conversationId) => {
+  const response = await ticketClient.get(`/tickets/escalate-handoff/${conversationId}`);
+  return response.data;
+};
+
+// Internal Notes (TS028)
+export const getInternalNotes = async (ticketId) => {
+  const response = await ticketClient.get(`/tickets/${ticketId}/internal-notes`);
+  return response.data?.notes ?? response.data?.data ?? [];
+};
+
+export const addInternalNote = async (ticketId, note) => {
+  const response = await ticketClient.post(`/tickets/${ticketId}/internal-notes`, { note });
+  return response.data;
+};
+
+// Employee Profile Update (TS105)
+export const updateEmployeeProfile = async (payload) => {
+  const response = await ticketClient.put('/employee/profile', payload);
+  return response.data;
+};
+
+// Employee Directory & Search (TS107)
+export const searchEmployees = async (params = {}) => {
+  const response = await ticketClient.get('/employees/search', { params });
+  return response.data;
+};
+
+export const getEmployeeFilterOptions = async () => {
+  const response = await ticketClient.get('/employees/filter-options');
+  return response.data;
+};
+

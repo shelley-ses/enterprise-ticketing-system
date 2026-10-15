@@ -51,6 +51,36 @@ class TicketController extends Controller
             return response()->json(['message' => 'Only authenticated customers can create external tickets.'], 403);
         }
 
+        $draftId = $request->input('draft_id');
+        $draftAttachments = [];
+        if ($draftId) {
+            try {
+                $draft = app(\App\Services\TicketDraftService::class)->getDraft((int) $user->id, (int) $draftId);
+                if ($draft && !empty($draft['attachments'])) {
+                    foreach ($draft['attachments'] as $att) {
+                        if (is_numeric($att)) {
+                            $draftAttachments[] = (int) $att;
+                        } elseif (is_array($att)) {
+                            if (isset($att['id'])) {
+                                $draftAttachments[] = (int) $att['id'];
+                            } elseif (isset($att['attachment_id'])) {
+                                $draftAttachments[] = (int) $att['attachment_id'];
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Non-blocking draft inspection
+            }
+        }
+
+        if (!empty($draftAttachments)) {
+            $existingAtts = $request->input('attachments', []);
+            if (!is_array($existingAtts)) $existingAtts = [];
+            $mergedAtts = array_values(array_unique(array_merge($existingAtts, $draftAttachments)));
+            $request->merge(['attachments' => $mergedAtts]);
+        }
+
         $validated = $request->validate([
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
@@ -60,6 +90,8 @@ class TicketController extends Controller
             'description' => ['required', 'string'],
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['integer'],
+            'origin' => ['nullable', 'string', 'max:50'],
+            'conversation_id' => ['nullable', 'string', 'max:64'],
         ]);
 
         $deptId = (int) $request->input('department_id', 2);
@@ -80,11 +112,23 @@ class TicketController extends Controller
             ], 503);
         }
 
-        if ($request->filled('draft_id')) {
+        // TS020: Draft is only removed once final submission succeeds
+        if ($draftId) {
             try {
-                app(\App\Services\TicketDraftService::class)->deleteDraft((int) $user->id, (int) $request->input('draft_id'));
+                app(\App\Services\TicketDraftService::class)->deleteDraft((int) $user->id, (int) $draftId);
             } catch (\Throwable $e) {
                 // Non-blocking draft cleanup
+            }
+        }
+
+        // TS027: Link ticket to chatbot conversation if originating from AI escalation
+        if (!empty($validated['conversation_id'])) {
+            try {
+                \Illuminate\Support\Facades\Http::timeout(3)->post('http://AI-service:8000/api/tickets', [
+                    'conversation_id' => $validated['conversation_id'],
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Could not link conversation {$validated['conversation_id']} to ticket: " . $e->getMessage());
             }
         }
 
@@ -386,5 +430,288 @@ class TicketController extends Controller
 
         $result = $this->ticketService->getCustomerContext($ticketId, $user);
         return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Get AI Chatbot escalation handoff pre-fill data (TS027).
+     * Validates machine against customer CMS records and category. Falls back gracefully on failure.
+     */
+    public function escalateHandoff(Request $request, string $conversationId)
+    {
+        $user = $request->user();
+        $clientId = $user ? ($user->id ?? $user->client_id ?? 1) : 1;
+
+        $fallbackData = [
+            'success' => true,
+            'fallback' => true,
+            'notice' => "We couldn't carry over your chat details — please fill in your ticket.",
+            'data' => [
+                'title' => '',
+                'description' => '',
+                'machine_ID' => null,
+                'problem_category_ID' => null,
+                'origin' => 'ai_chatbot',
+                'conversation_id' => $conversationId,
+            ],
+        ];
+
+        try {
+            $token = $request->bearerToken();
+            $client = \Illuminate\Support\Facades\Http::timeout(4);
+            if ($token) {
+                $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+            }
+            $aiBaseUrl = rtrim(config('services.ai.url', env('AI_SERVICE_URL', 'http://ai-service:8000')), '/');
+            $res = $client->get("{$aiBaseUrl}/api/conversations/{$conversationId}/escalate-handoff");
+
+            if (!$res->successful()) {
+                return response()->json($fallbackData);
+            }
+
+            $handoff = $res->json('data') ?? [];
+            if (empty($handoff)) {
+                return response()->json($fallbackData);
+            }
+
+            $title = $handoff['title'] ?? '';
+            $description = $handoff['description'] ?? '';
+
+            // 1. Validate Category
+            $categoryId = null;
+            if (!empty($handoff['category'])) {
+                $rawCat = strtolower(trim((string) $handoff['category']));
+                $catQuery = \Illuminate\Support\Facades\DB::table('problem_categories')
+                    ->whereRaw('LOWER(category_name) = ?', [$rawCat]);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('problem_categories', 'is_active')) {
+                    $catQuery->where('is_active', true);
+                }
+                $categoryId = $catQuery->value('problem_category_ID');
+            }
+
+            // 2. Validate Machine is CMS-verified and tied to this customer account
+            $machineId = null;
+            if (!empty($handoff['machine'])) {
+                $rawMach = strtolower(trim((string) $handoff['machine']));
+                $matchedMachine = \Illuminate\Support\Facades\DB::table('machines')
+                    ->where('client_ID', $clientId)
+                    ->where(function ($q) use ($rawMach) {
+                        if (is_numeric($rawMach)) {
+                            $q->where('machine_ID', (int) $rawMach);
+                        }
+                        $q->orWhereRaw('LOWER(machine_name) = ?', [$rawMach])
+                          ->orWhereRaw('LOWER(serial_number) = ?', [$rawMach])
+                          ->orWhereRaw('LOWER(machine_name) LIKE ?', ["%{$rawMach}%"]);
+                    })
+                    ->first();
+
+                if ($matchedMachine) {
+                    $machineId = (int) $matchedMachine->machine_ID;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'fallback' => false,
+                'data' => [
+                    'title' => $title,
+                    'description' => $description,
+                    'machine_ID' => $machineId,
+                    'problem_category_ID' => $categoryId,
+                    'origin' => 'ai_chatbot',
+                    'conversation_id' => $conversationId,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Escalate handoff error for conversation {$conversationId}: " . $e->getMessage());
+            return response()->json($fallbackData);
+        }
+    }
+
+    /**
+     * Get internal notes for a ticket (TS028).
+     * Scoped strictly to authorized staff (Assigned Employee, CS, Admin, Super Admin).
+     * Never visible to customers.
+     */
+    public function getInternalNotes(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        // Strict customer exclusion invariant
+        if ($user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Access denied: Customers cannot view internal notes under any circumstance.'], 403);
+        }
+
+        $empId = (int) ($user->emp_id ?? $user->id);
+        $isCsOrAdmin = \App\Helpers\RoleHelper::isCsOrAdmin($user);
+
+        $ticket = \Illuminate\Support\Facades\DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        if (!$isCsOrAdmin) {
+            $assignedTo = (int) ($ticket->assigned_to ?? 0);
+            $isAssigned = ($assignedTo === $empId) ||
+                \Illuminate\Support\Facades\DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->where('employee_ID', $empId)
+                    ->exists();
+
+            if (!$isAssigned) {
+                return response()->json(['message' => 'Access denied: You are not assigned to this ticket.'], 403);
+            }
+        }
+
+        $isSqlite = \Illuminate\Support\Facades\DB::getDriverName() === 'sqlite';
+        $fullNameRaw = $isSqlite ? "(e.first_name || ' ' || e.last_name) as author_name" : "CONCAT(e.first_name, ' ', e.last_name) as author_name";
+
+        $notes = \Illuminate\Support\Facades\DB::table('internal_notes as in')
+            ->leftJoin('employees as e', 'e.emp_id', '=', 'in.employee_id')
+            ->where('in.ticket_id', $ticketId)
+            ->select(
+                'in.id',
+                'in.ticket_id',
+                'in.employee_id',
+                'in.note',
+                'in.created_at',
+                'in.updated_at',
+                \Illuminate\Support\Facades\DB::raw($fullNameRaw),
+                'e.role as author_role'
+            )
+            ->orderBy('in.created_at', 'asc')
+            ->get()
+            ->map(fn ($row) => [
+                'id' => (int) $row->id,
+                'note_id' => (int) $row->id,
+                'ticket_id' => (int) $row->ticket_id,
+                'text' => $row->note,
+                'note' => $row->note,
+                'author' => !empty(trim((string) $row->author_name)) ? trim($row->author_name) : 'Staff Member',
+                'author_name' => !empty(trim((string) $row->author_name)) ? trim($row->author_name) : 'Staff Member',
+                'author_role' => $row->author_role ?: 'Employee',
+                'created_at' => $row->created_at ? \Carbon\Carbon::parse($row->created_at)->toIso8601String() : null,
+                'updated_at' => $row->updated_at ? \Carbon\Carbon::parse($row->updated_at)->toIso8601String() : null,
+                'timestamp' => $row->created_at ? \Carbon\Carbon::parse($row->created_at)->toIso8601String() : null,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'ticket_id' => $ticketId,
+            'notes' => $notes,
+            'total' => count($notes),
+        ]);
+    }
+
+    /**
+     * Add an internal note to a ticket (TS028).
+     * Scoped to authorized staff (Assigned Employee, CS, Admin, Super Admin).
+     * Enforces required non-empty note and audit log.
+     */
+    public function addInternalNote(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        // Strict customer exclusion invariant
+        if ($user instanceof \App\Models\Client) {
+            return response()->json(['message' => 'Access denied: Customers cannot add internal notes.'], 403);
+        }
+
+        $empId = (int) ($user->emp_id ?? $user->id);
+        $isCsOrAdmin = \App\Helpers\RoleHelper::isCsOrAdmin($user);
+
+        $ticket = \Illuminate\Support\Facades\DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        if (!$isCsOrAdmin) {
+            $assignedTo = (int) ($ticket->assigned_to ?? 0);
+            $isAssigned = ($assignedTo === $empId) ||
+                \Illuminate\Support\Facades\DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->where('employee_ID', $empId)
+                    ->exists();
+
+            if (!$isAssigned) {
+                return response()->json(['message' => 'Access denied: You are not assigned to this ticket.'], 403);
+            }
+        }
+
+        $noteText = trim((string) ($request->input('note') ?? $request->input('internal_note') ?? $request->input('text') ?? ''));
+        if (empty($noteText)) {
+            return response()->json([
+                'message' => 'The note field is required and cannot be empty.',
+                'errors' => ['note' => ['The note field is required.']]
+            ], 422);
+        }
+
+        // Ensure internal_notes table exists
+        if (!\Illuminate\Support\Facades\Schema::hasTable('internal_notes')) {
+            \Illuminate\Support\Facades\Schema::create('internal_notes', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('ticket_id');
+                $table->unsignedBigInteger('employee_id');
+                $table->text('note');
+                $table->timestamps();
+            });
+        }
+
+        $noteId = \Illuminate\Support\Facades\DB::table('internal_notes')->insertGetId([
+            'ticket_id' => $ticketId,
+            'employee_id' => $empId,
+            'note' => $noteText,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $authorName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+        if (empty($authorName)) {
+            $authorName = $user->name ?? 'Staff Member';
+        }
+        $authorRole = $user->role ?? 'Employee';
+
+        // Record independent audit log
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('ticket_audit_logs')) {
+                \Illuminate\Support\Facades\DB::table('ticket_audit_logs')->insert([
+                    'ticket_ID' => $ticketId,
+                    'action_type' => 'internal_note_added',
+                    'action_by_ID' => $empId,
+                    'actor_type' => strtolower($authorRole),
+                    'details' => json_encode([
+                        'note_id' => $noteId,
+                        'text' => $noteText,
+                        'author' => $authorName,
+                        'role' => $authorRole,
+                    ]),
+                    'created_at' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to record internal note audit log: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Internal note added successfully.',
+            'note' => [
+                'id' => (int) $noteId,
+                'note_id' => (int) $noteId,
+                'ticket_id' => $ticketId,
+                'text' => $noteText,
+                'note' => $noteText,
+                'author' => $authorName,
+                'author_role' => $authorRole,
+                'created_at' => now()->toIso8601String(),
+                'updated_at' => now()->toIso8601String(),
+                'timestamp' => now()->toIso8601String(),
+            ],
+        ], 201);
     }
 }

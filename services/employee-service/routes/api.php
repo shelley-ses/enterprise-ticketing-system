@@ -27,6 +27,7 @@ Route::get('/tickets/{ticketId}/eligible-employees', [EmployeeDirectoryControlle
 Route::middleware(['auth.subsystem'])->group(function () {
     // Employee Profile & Workbenches
     Route::get('/employee/profile', [EmployeeDirectoryController::class, 'employeeProfile']);
+    Route::match(['put', 'patch'], '/employee/profile', [EmployeeDirectoryController::class, 'updateProfile']);
     Route::get('/employee-tickets', [EmployeeAssignmentController::class, 'employeeTickets']);
     Route::get('/employee/tickets/internal', [EmployeeAssignmentController::class, 'internalTickets']);
 

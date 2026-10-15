@@ -27,10 +27,20 @@ class EventServiceProvider extends ServiceProvider
     {
         Event::listen(\App\Events\ArticlePublished::class, function (\App\Events\ArticlePublished $event) {
             app(\App\Services\RagService::class)->refreshIndex($event->article->id);
+            \App\Jobs\IndexKbArticleJob::dispatch($event->article->id, 'publish', $event->actor);
         });
 
         Event::listen(\App\Events\ArticleArchived::class, function (\App\Events\ArticleArchived $event) {
             app(\App\Services\RagService::class)->refreshIndex($event->article->id);
+            \App\Jobs\IndexKbArticleJob::dispatch($event->article->id, 'archive', $event->actor);
+        });
+
+        Event::listen(\App\Events\ArticleUpdated::class, function (\App\Events\ArticleUpdated $event) {
+            \App\Jobs\IndexKbArticleJob::dispatch($event->article->id, 'update', $event->actor);
+        });
+
+        Event::listen(\App\Events\ArticleDeleted::class, function (\App\Events\ArticleDeleted $event) {
+            \App\Jobs\IndexKbArticleJob::dispatch($event->articleId, 'delete', $event->actor);
         });
     }
 

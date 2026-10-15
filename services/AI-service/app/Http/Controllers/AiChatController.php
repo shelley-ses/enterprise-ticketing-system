@@ -384,6 +384,97 @@ class AiChatController extends Controller
     }
 
     /**
+     * GET /api/conversations/{id}/escalate-handoff
+     * Returns structured handoff data for ticket creation pre-fill (TS027 & TS050).
+     */
+    public function escalateHandoff(Request $request, string $id)
+    {
+        $conversation = AiConversation::find($id);
+        if (!$conversation) {
+            return response()->json([
+                'success' => true,
+                'fallback' => true,
+                'notice' => "We couldn't carry over your chat details — please fill in your ticket.",
+                'data' => [
+                    'title' => '',
+                    'description' => '',
+                    'category' => null,
+                    'machine' => null,
+                    'origin' => 'ai_chatbot',
+                    'conversation_id' => $id,
+                ],
+            ]);
+        }
+
+        $auth = $this->getAuthenticatedUser($request);
+        $isInternal = isset($auth->is_internal) && $auth->is_internal;
+        if (!$isInternal && $auth) {
+            $userId = $auth->id ?? $auth->emp_id ?? $auth->getAuthIdentifier();
+            if (!empty($conversation->user_id) && $userId && (string) $conversation->user_id !== (string) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Forbidden: You do not have permission to access this conversation handoff',
+                ], 403);
+            }
+        }
+
+        $escalationData = $conversation->escalation_data ?? [];
+        $title = $escalationData['title'] ?? $conversation->title ?? 'Technical Support Request';
+
+        // Generate clean human-readable summary instead of raw transcript dump
+        $summary = '';
+        if (!empty($escalationData['description']) && $escalationData['description'] !== 'Submitted via AI Support Assistant.') {
+            $summary = $escalationData['description'];
+        } else {
+            $userIssues = [];
+            $messages = is_array($conversation->messages) ? $conversation->messages : [];
+            foreach ($messages as $m) {
+                if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
+                    $c = trim($m['content']);
+                    if (!$this->isGreetingOnly($c)) {
+                        $userIssues[] = $c;
+                    }
+                }
+            }
+            if (!empty($userIssues)) {
+                $summary = "Customer reported issue: " . implode(" | ", array_slice($userIssues, 0, 3));
+            } else {
+                $summary = "Issue escalated from AI Support Assistant for technician review.";
+            }
+        }
+
+        // Confidence threshold check (0.70)
+        $CONFIDENCE_THRESHOLD = 0.70;
+
+        $category = null;
+        $catConf = (float) ($escalationData['category_confidence'] ?? 0.0);
+        if (!empty($escalationData['category']) && $catConf >= $CONFIDENCE_THRESHOLD) {
+            $category = $escalationData['category'];
+        }
+
+        $machine = null;
+        $machConf = (float) ($escalationData['machine_confidence'] ?? 0.0);
+        if (!empty($escalationData['machine']) && $machConf >= $CONFIDENCE_THRESHOLD) {
+            $machine = $escalationData['machine'];
+        }
+
+        return response()->json([
+            'success' => true,
+            'fallback' => false,
+            'data' => [
+                'title' => $title,
+                'description' => $summary,
+                'category' => $category,
+                'category_confidence' => $catConf,
+                'machine' => $machine,
+                'machine_confidence' => $machConf,
+                'origin' => 'ai_chatbot',
+                'conversation_id' => $conversation->id,
+            ],
+        ]);
+    }
+
+    /**
      * Check if a given title consists purely of greetings.
      */
     protected function isGreetingOnly(string $title): bool
