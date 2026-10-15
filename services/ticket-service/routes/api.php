@@ -136,6 +136,29 @@ Route::middleware('auth.subsystem')->group(function () {
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
     });
 
+    Route::match(['put', 'patch'], '/employee/profile', function (Request $request) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->send($request->method(), 'http://employee-service:8000/api/employee/profile', [
+                'json' => $request->all(),
+            ]);
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::get('/employees/search', function (Request $request) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->get('http://employee-service:8000/api/employees/search', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::get('/employees/filter-options', function (Request $request) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->get('http://employee-service:8000/api/employees/filter-options', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
     Route::get('/employee/tickets/internal', function (Request $request) {
         $token = $request->bearerToken();
         try {
@@ -252,6 +275,19 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::patch('/tickets/{ticketId}/classification', [TicketController::class, 'reclassifyTicket']);
     Route::get('/tickets/{ticketId}/customer-context', [TicketController::class, 'customerContext']);
     Route::get('/tickets/{ticketId}/customer-info', [TicketController::class, 'customerContext']);
+    Route::get('/tickets/escalate-handoff/{conversationId}', [TicketController::class, 'escalateHandoff']);
+
+    // ─── Staff-Only Internal Notes (TS028) ────────────────────────────────────
+    Route::get('/tickets/{ticketId}/internal-notes', [TicketController::class, 'getInternalNotes']);
+    Route::post('/tickets/{ticketId}/internal-notes', [TicketController::class, 'addInternalNote']);
+    Route::get('/tickets/{ticketId}/notes', [TicketController::class, 'getInternalNotes']);
+    Route::post('/tickets/{ticketId}/notes', [TicketController::class, 'addInternalNote']);
+    Route::delete('/tickets/{ticketId}/internal-notes/{noteId}', function () {
+        return response()->json(['message' => 'Internal notes cannot be deleted to preserve collaboration history integrity.'], 405);
+    });
+    Route::delete('/tickets/{ticketId}/notes/{noteId}', function () {
+        return response()->json(['message' => 'Internal notes cannot be deleted to preserve collaboration history integrity.'], 405);
+    });
 
     // ─── Security Incident Audit Details (TS085) ─────────────────────────────
     Route::get('/security-incidents/{id}', function (Request $request, $id) {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
-import { updateEmployeeTicketOverride } from '@/services/ticketService';
+import { updateEmployeeTicketOverride, getInternalNotes, addInternalNote } from '@/services/ticketService';
 import ProofCompletionModal from './ProofCompletionModal';
 import ReassignmentDisapprovalBanner from './ReassignmentDisapprovalBanner';
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
@@ -31,6 +31,8 @@ export default function TicketDetailModal({
 
   // Sub-modal state for Proof of Completion (Modal 2)
   const [showProofModal, setShowProofModal] = useState(false);
+  const [internalNotesList, setInternalNotesList] = useState(ticket?.internalNotes || []);
+  const [isAddingNote, setIsAddingNote] = useState(false);
 
   useEffect(() => {
     setStatusDraft(ticket?.status ?? '');
@@ -41,6 +43,20 @@ export default function TicketDetailModal({
     setShowStatusConfirm(false);
     setShowProofModal(false);
     setTimelineSortOrder('asc');
+    setInternalNotesList(ticket?.internalNotes || []);
+
+    const ticketId = ticket?.id || ticket?.ticket_ID;
+    if (ticketId) {
+      getInternalNotes(ticketId)
+        .then((notes) => {
+          if (Array.isArray(notes)) {
+            setInternalNotesList(notes);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not load internal notes:', err);
+        });
+    }
   }, [ticket]);
 
   useLockBodyScroll(!!ticket);
@@ -162,44 +178,33 @@ export default function TicketDetailModal({
     setShowStatusConfirm(false);
   };
 
-  // Add Staff-Only Internal Note
-  const handleAddInternalNote = (noteText) => {
+  // Add Staff-Only Internal Note (TS028)
+  const handleAddInternalNote = async (noteText) => {
     const trimmed = (noteText || '').trim();
     if (!trimmed) return;
 
-    const timestamp = new Date().toISOString();
-    const update = {
-      internalNotes: [
-        {
-          id: `note-${Date.now()}`,
-          text: trimmed,
-          author: 'Staff Member',
-          timestamp,
-        }
-      ],
-      timeline: [
-        {
-          id: `note-timeline-${Date.now()}`,
-          type: 'internal_note',
-          text: `Added staff internal note: "${trimmed}"`,
-          timestamp,
-        }
-      ]
-    };
-
-    updateEmployeeTicketOverride(ticket.id, update);
-    
-    // Optimistic local state update
-    if (!ticket.internalNotes) ticket.internalNotes = [];
-    ticket.internalNotes.push({
-      id: `note-${Date.now()}`,
-      text: trimmed,
-      author: 'Staff Member',
-      timestamp,
-    });
-
-    setSuccessMessage('Internal note added successfully!');
+    setIsAddingNote(true);
     setErrorMessage('');
+    setSuccessMessage('');
+
+    const ticketId = ticket?.id || ticket?.ticket_ID;
+    try {
+      const res = await addInternalNote(ticketId, trimmed);
+      const newNote = res?.note || {
+        id: `note-${Date.now()}`,
+        text: trimmed,
+        author: 'Staff Member',
+        timestamp: new Date().toISOString(),
+      };
+      setInternalNotesList((prev) => [...prev, newNote]);
+      setSuccessMessage('Internal note added successfully!');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Failed to submit internal note. Please try again.';
+      setErrorMessage(msg);
+      throw err;
+    } finally {
+      setIsAddingNote(false);
+    }
   };
 
   return (
@@ -504,8 +509,9 @@ export default function TicketDetailModal({
 
                 {/* 4. Staff-Only Internal Notes */}
                 <InternalNotesSection
-                  notes={ticket.internalNotes}
+                  notes={internalNotesList}
                   onAddNote={handleAddInternalNote}
+                  isAdding={isAddingNote}
                 />
 
                 {/* 5. Chronological History Timeline */}
