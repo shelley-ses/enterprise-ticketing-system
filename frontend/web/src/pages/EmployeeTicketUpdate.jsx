@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
@@ -471,6 +472,24 @@ export default function EmployeeTicketUpdate() {
                       {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                         const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
                         const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                        const isQuarantined = Boolean(
+                          typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                        );
+
+                        if (isQuarantined) {
+                          return (
+                            <div
+                              key={file.id || file.proof_ID || idx}
+                              className="flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200 w-fit cursor-not-allowed"
+                              title="Proof file quarantined: Threat detected by antivirus scan"
+                            >
+                              <ShieldAlert className="w-4 h-4 shrink-0 text-red-500" />
+                              <span className="line-through">{fName}</span>
+                              <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                            </div>
+                          );
+                        }
+
                         return (
                           <a
                             key={file.id || file.proof_ID || idx}
@@ -667,6 +686,24 @@ export default function EmployeeTicketUpdate() {
                   {ticket.attachments.map((file, idx) => {
                     const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Attachment-${idx + 1}`);
                     const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                    const isQuarantined = Boolean(
+                      typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                    );
+
+                    if (isQuarantined) {
+                      return (
+                        <div
+                          key={file.id || file.attachment_id || idx}
+                          className="flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 cursor-not-allowed"
+                          title="Attachment quarantined: Threat detected by antivirus scan"
+                        >
+                          <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                          <span className="line-through">{fName}</span>
+                          <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <a
                         key={file.id || file.attachment_id || idx}

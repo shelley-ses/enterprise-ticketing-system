@@ -8,11 +8,21 @@ import {
   getCustomerTickets,
   saveTicketDraft,
   getTicketDraft,
+  uploadAttachments,
 } from '@/services/ticketService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
+import {
+  ShieldAlert,
+  ShieldCheck,
+  RefreshCw,
+  CheckCircle2,
+  Trash2,
+  AlertTriangle,
+  AlertCircle,
+} from 'lucide-react';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
@@ -149,9 +159,23 @@ export default function TicketCreation() {
     if (savingDraft || submitting) return;
     setError('');
     setDraftMessage('');
+
+    // Guard against saving draft while attachments are actively scanning or quarantined
+    const hasScanning = files.some((f) => f.status === 'scanning');
+    if (hasScanning) {
+      setError('Please wait for attachment security scanning to complete before saving draft.');
+      return;
+    }
+    const hasQuarantined = files.some((f) => f.status === 'quarantined');
+    if (hasQuarantined) {
+      setError('Your attachments contain a quarantined file. Please remove the quarantined file before saving.');
+      return;
+    }
+
     setSavingDraft(true);
 
     try {
+      const cleanRawFiles = files.filter((f) => f.status === 'clean').map((f) => f.file || f);
       const payload = {
         id: draftId || undefined,
         title: formData.title,
@@ -159,7 +183,7 @@ export default function TicketCreation() {
         problem_category_ID: formData.problem_category_ID,
         description: formData.description,
         priority_ID: formData.priority_ID,
-        attachments: [...existingDraftAttachments, ...files],
+        attachments: [...existingDraftAttachments, ...cleanRawFiles],
       };
 
       const res = await saveTicketDraft(payload);
@@ -195,6 +219,46 @@ export default function TicketCreation() {
     }
   };
 
+  const scanUploadedFile = async (item) => {
+    try {
+      const uploaded = await uploadAttachments([item.file]);
+      const record = uploaded?.[0];
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === item.id
+            ? {
+                ...f,
+                status: 'clean',
+                attachmentId: record?.id || record?.attachment_id,
+                attachmentUrl: record?.url,
+              }
+            : f
+        )
+      );
+    } catch (err) {
+      const isThreat = Boolean(
+        err?.response?.data?.virus_detected ||
+        err?.response?.data?.has_threats ||
+        err?.response?.status === 422
+      );
+      const threatName = err?.response?.data?.quarantined?.[0]?.threat_name || 'Malware.Detected';
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === item.id
+            ? {
+                ...f,
+                status: isThreat ? 'quarantined' : 'clean',
+                threatName: isThreat ? threatName : null,
+                errorMessage: isThreat
+                  ? 'This file was flagged by security scanning and quarantined for your protection. Please remove it and select a clean file.'
+                  : null,
+              }
+            : f
+        )
+      );
+    }
+  };
+
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files || []);
     setFileError('');
@@ -209,7 +273,7 @@ export default function TicketCreation() {
       const allowedExts = ['pdf', 'png', 'docx', 'doc', 'jpg', 'jpeg'];
 
       let currentTotal = files.reduce((acc, f) => acc + (f.size || 0), 0);
-      const validFiles = [];
+      const newItems = [];
 
       for (const file of selected) {
         const ext = file.name.split('.').pop().toLowerCase();
@@ -223,7 +287,13 @@ export default function TicketCreation() {
           return;
         }
         currentTotal += file.size || 0;
-        validFiles.push(file);
+        newItems.push({
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          status: 'scanning', // Immediate scanning state
+        });
       }
 
       if (currentTotal > 45 * 1024 * 1024) {
@@ -231,8 +301,13 @@ export default function TicketCreation() {
         return;
       }
 
-      setFiles((prev) => [...prev, ...validFiles]);
+      setFiles((prev) => [...prev, ...newItems]);
       e.target.value = '';
+
+      // Trigger automatic ClamAV malware scanning
+      for (const item of newItems) {
+        scanUploadedFile(item);
+      }
     }
   };
 
@@ -303,6 +378,21 @@ export default function TicketCreation() {
 
   const submitTicketWithTitle = async (finalTitle) => {
     setError('');
+
+    // Pre-submission guard: Ensure all attachments have completed security scanning
+    const hasScanning = files.some((f) => f.status === 'scanning');
+    if (hasScanning) {
+      setError('Security scan in progress. Please wait for attachment verification to complete before submitting.');
+      return;
+    }
+
+    // Pre-submission guard: Block quarantined malicious files
+    const hasQuarantined = files.some((f) => f.status === 'quarantined');
+    if (hasQuarantined) {
+      setError('One or more attachments were blocked and quarantined by the security scanner. Please remove quarantined files to proceed.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -326,8 +416,13 @@ export default function TicketCreation() {
         });
       }
       if (files && files.length > 0) {
-        files.forEach((f) => {
-          payload.append('attachments[]', f);
+        const cleanFiles = files.filter((f) => f.status === 'clean');
+        cleanFiles.forEach((f) => {
+          if (f.attachmentId) {
+            payload.append('attachments[]', f.attachmentId);
+          } else if (f.file) {
+            payload.append('attachments[]', f.file);
+          }
         });
       }
       
@@ -584,30 +679,103 @@ export default function TicketCreation() {
             )}
 
             {files.length > 0 && (
-              <div className="mt-3 space-y-2">
-                {files.map((f, idx) => (
-                  <div key={idx} className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-green-600">
-                      <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                      <span className="font-medium truncate max-w-xs">{f.name}</span>
-                      <span className="text-xs text-gray-400">({(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors cursor-pointer"
+              <div className="mt-3 space-y-2.5">
+                {files.map((item, idx) => {
+                  const isScanning = item.status === 'scanning';
+                  const isQuarantined = item.status === 'quarantined';
+                  const isClean = item.status === 'clean';
+
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className={`rounded-2xl border p-3.5 transition-all ${
+                        isQuarantined
+                          ? 'border-rose-300 bg-rose-50/70 shadow-xs'
+                          : isScanning
+                            ? 'border-amber-200 bg-amber-50/40 shadow-xs'
+                            : 'border-emerald-200 bg-emerald-50/30'
+                      }`}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {isScanning ? (
+                            <RefreshCw size={18} className="animate-spin text-amber-600 shrink-0" />
+                          ) : isQuarantined ? (
+                            <ShieldAlert size={18} className="text-rose-600 shrink-0" />
+                          ) : (
+                            <ShieldCheck size={18} className="text-emerald-600 shrink-0" />
+                          )}
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={`text-sm font-semibold truncate max-w-xs ${
+                                  isQuarantined ? 'text-rose-950 line-through' : 'text-gray-800'
+                                }`}
+                              >
+                                {item.name}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                ({(item.size / (1024 * 1024)).toFixed(2)} MB)
+                              </span>
+
+                              {/* State Badges */}
+                              {isScanning && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                  Scanning…
+                                </span>
+                              )}
+                              {isClean && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  Clean &amp; Verified
+                                </span>
+                              )}
+                              {isQuarantined && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 border border-rose-300">
+                                  Blocked
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Remove Action */}
+                        <button
+                          type="button"
+                          onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className={`p-1.5 rounded-xl transition-colors cursor-pointer shrink-0 ${
+                            isQuarantined
+                              ? 'text-rose-700 hover:text-white hover:bg-rose-600 bg-rose-100'
+                              : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                          }`}
+                          title="Remove attachment"
+                          aria-label="Remove attachment"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+
+                      {/* Non-technical block message for Quarantined Files */}
+                      {isQuarantined && (
+                        <div className="mt-2.5 pt-2 border-t border-rose-200/80 text-xs text-rose-800 flex items-start justify-between gap-3">
+                          <p className="leading-relaxed">
+                            <strong>Security Alert:</strong> This file was flagged by security scanning and quarantined for your protection. Please remove it and select a clean file.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className="shrink-0 text-xs font-bold text-rose-700 hover:text-rose-900 underline"
+                          >
+                            Remove file
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {fileError && <p className="text-sm text-red-500 mt-2">{fileError}</p>}
+            {fileError && <p className="text-sm text-red-500 mt-2 font-medium">{fileError}</p>}
           </div>
 
           <div className="flex flex-wrap justify-end gap-3 mt-4 border-t border-gray-100 pt-6">

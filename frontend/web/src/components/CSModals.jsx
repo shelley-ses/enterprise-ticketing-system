@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import FilePreviewModal from './FilePreviewModal';
@@ -15,6 +16,11 @@ import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 /* Helper functions for robust file attachment handling */
+const isQuarantinedFile = (file) => {
+  if (!file || typeof file !== 'object') return false;
+  return Boolean(file.is_quarantined || file.quarantined || file.status === 'quarantined' || file.virus_detected);
+};
+
 const getFileUrl = (file) => {
   if (!file) return '';
   if (typeof file === 'string') return file;
@@ -809,6 +815,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         {ticket.attachments.map((file, idx) => {
                           const fileName = getFileName(file);
                           const fileUrl = getFileUrl(file);
+                          const isQuarantined = isQuarantinedFile(file);
+
+                          if (isQuarantined) {
+                            return (
+                              <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                                  <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Malware threat detected">
+                                    {fileName}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                                  Blocked
+                                </span>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -838,6 +862,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                           const fileName = getFileName(file);
                           const fileUrl = getFileUrl(file);
+                          const isQuarantined = isQuarantinedFile(file);
+
+                          if (isQuarantined) {
+                            return (
+                              <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                                  <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Malware threat detected">
+                                    {fileName}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                                  Blocked
+                                </span>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1180,6 +1222,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   {ticket.attachments.map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1225,6 +1288,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1850,6 +1934,27 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   {ticket.attachments.map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1895,6 +2000,27 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">

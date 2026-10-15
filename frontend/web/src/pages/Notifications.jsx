@@ -14,7 +14,8 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
 import { respondReassignment } from '@/services/ticketService';
-import { Clock } from 'lucide-react';
+import { Clock, ShieldAlert } from 'lucide-react';
+import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export default function Notifications() {
   const [activeNotificationId, setActiveNotificationId] = useState(null);
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [activeTicketLoading, setActiveTicketLoading] = useState(false);
+  const [activeSecurityIncident, setActiveSecurityIncident] = useState(null);
 
 
 
@@ -141,6 +143,25 @@ export default function Notifications() {
   }, [activeNotificationId, loadData]);
 
   const handleNotificationClick = async (n) => {
+    const parsedData = (() => {
+      try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; }
+    })();
+
+    const isSecurityAlert = Boolean(
+      parsedData.alert_type === 'security_alert' ||
+      parsedData.event === 'malware_detected' ||
+      /security alert|malware/i.test(n.title || '') ||
+      /malware|quarantine/i.test(n.message || '')
+    );
+
+    if (isSecurityAlert) {
+      if (!n.is_read) {
+        handleMarkOneRead(n.id);
+      }
+      setActiveSecurityIncident({ ...n, data: parsedData });
+      return;
+    }
+
     const ticketId = n.ticket_id;
     if (!ticketId) {
       const path = getNotificationPath(n);
@@ -150,7 +171,7 @@ export default function Notifications() {
     setActiveTicketLoading(true);
     setActiveNotificationId(n.id);
     try {
-      const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
+      const parsed = parsedData;
       const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
       const full = await getTicketDetails(ticketNum).catch(() => null);
       const base = full || { id: `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: ticketId, title: n.title, description: n.message, status: 'Open', priority: 'Medium', customer: '—', timeline: [{ id: 'creation', type: 'system', text: n.message, timestamp: n.created_at }] };
@@ -278,23 +299,39 @@ export default function Notifications() {
             ) : (
               <div className="space-y-3">
                 {notifications.map((n) => {
-                  const isAutoClose = /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+                  const parsedData = (() => {
+                    try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; }
+                  })();
+                  const isSecurityAlert = Boolean(
+                    parsedData.alert_type === 'security_alert' ||
+                    parsedData.event === 'malware_detected' ||
+                    /security alert|malware/i.test(n.title || '') ||
+                    /malware|quarantine/i.test(n.message || '')
+                  );
+                  const isAutoClose = !isSecurityAlert && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+
                   return (
                     <div
                       key={n.id}
                       onClick={() => handleNotificationClick(n)}
-                      className={`bg-white rounded-3xl border p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-gray-200 transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${
-                        isAutoClose
-                          ? 'border-amber-200 bg-amber-50/15'
-                          : 'border-gray-100'
-                      } ${!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : ''}`}
+                      className={`bg-white rounded-3xl border p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${
+                        isSecurityAlert
+                          ? 'border-rose-200 bg-rose-50/20 hover:border-rose-300 hover:bg-rose-50/30 ' + (!n.is_read ? 'border-l-4 border-l-rose-600 pl-4' : 'border-l-4 border-l-rose-300 pl-4')
+                          : isAutoClose
+                            ? 'border-amber-200 bg-amber-50/15 ' + (!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : '')
+                            : 'border-gray-100 hover:border-gray-200 ' + (!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : '')
+                      }`}
                     >
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                        isAutoClose
-                          ? 'bg-amber-100 text-amber-700'
-                          : !n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'
+                        isSecurityAlert
+                          ? 'bg-rose-100 text-rose-700'
+                          : isAutoClose
+                            ? 'bg-amber-100 text-amber-700'
+                            : !n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'
                       }`}>
-                        {isAutoClose ? (
+                        {isSecurityAlert ? (
+                          <ShieldAlert size={20} className="text-rose-600" />
+                        ) : isAutoClose ? (
                           <Clock size={18} />
                         ) : (
                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -305,8 +342,14 @@ export default function Notifications() {
 
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1 gap-4">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-bold text-gray-900 leading-snug">{n.title}</h3>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert ? 'text-rose-950 font-black' : 'text-gray-900'}`}>{n.title}</h3>
+                            {isSecurityAlert && (
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-ping inline-block" />
+                                Security Alert
+                              </span>
+                            )}
                             {isAutoClose && (
                               <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                                 Auto-Close Notice
@@ -315,10 +358,15 @@ export default function Notifications() {
                           </div>
                           <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed font-medium">{n.message}</p>
+                        <p className={`text-xs leading-relaxed font-medium ${isSecurityAlert ? 'text-rose-900 font-semibold' : 'text-gray-600'}`}>{n.message}</p>
                         {n.ticket_id && (
                           <span className="inline-block text-[9px] font-extrabold text-[#252578] bg-blue-50 px-2 py-0.5 rounded-md mt-2">
                             TKT-{String(n.ticket_id).padStart(4, '0')}
+                          </span>
+                        )}
+                        {isSecurityAlert && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 hover:text-rose-900 mt-2 hover:underline">
+                            Inspect Incident Details →
                           </span>
                         )}
                       </div>
@@ -336,6 +384,17 @@ export default function Notifications() {
       ) : (
         <CustomerTicketDetailModal ticket={activeTicket} onClose={handleCloseActiveTicket} onDiscard={null} onReopen={null} onResolve={null} allowReopen={false} customerName={activeTicket.customer} />
       );})()}
+
+      {activeSecurityIncident && (
+        <SecurityIncidentModal
+          incident={activeSecurityIncident}
+          onClose={() => setActiveSecurityIncident(null)}
+          onNavigateAuditLogs={() => {
+            setActiveSecurityIncident(null);
+            navigate('/superadmin/audit-logs');
+          }}
+        />
+      )}
 
       {activeTicketLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]">

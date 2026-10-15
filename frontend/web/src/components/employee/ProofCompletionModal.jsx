@@ -152,8 +152,14 @@ export default function ProofCompletionModal({
         navigate('/employee/machine');
       }, 1500);
     } catch (err) {
-      const msg = err?.response?.data?.message;
-      setErrorMessage(msg || 'Failed to submit proof. Please try again.');
+      if (err?.response?.data?.virus_detected || err?.response?.data?.has_threats) {
+        setErrorMessage(
+          'One or more uploaded proof files failed security scanning and were quarantined. Please remove or replace the flagged file with a clean document.'
+        );
+      } else {
+        const msg = err?.response?.data?.message;
+        setErrorMessage(msg || 'Failed to submit proof. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }

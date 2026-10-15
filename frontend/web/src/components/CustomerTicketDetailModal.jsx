@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RotateCcw, AlertCircle, CheckCircle, X, Clock } from 'lucide-react';
+import { RotateCcw, AlertCircle, CheckCircle, X, Clock, ShieldAlert } from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
@@ -580,6 +580,27 @@ export default function CustomerTicketDetailModal({
                   {effectiveTicket.attachments.map((file, idx) => {
                     const fName = getFileName(file);
                     const fUrl = getFileUrl(file);
+                    const isQuarantined = Boolean(
+                      file.is_quarantined ||
+                      file.quarantined ||
+                      file.status === 'quarantined' ||
+                      file.virus_detected
+                    );
+
+                    if (isQuarantined) {
+                      return (
+                        <div
+                          key={file.id || file.attachment_id || idx}
+                          className="flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 select-none cursor-not-allowed"
+                          title="This file was flagged by security scanning and quarantined. Binary download is blocked."
+                        >
+                          <ShieldAlert className="h-4 w-4 shrink-0 text-rose-600" />
+                          <span className="truncate max-w-[200px] line-through text-gray-500">{fName}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">Blocked</span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <a
                         key={file.id || file.attachment_id || idx}

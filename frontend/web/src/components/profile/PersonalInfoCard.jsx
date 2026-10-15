@@ -1,5 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { User, AlertCircle, CheckCircle, Lock, Shield, Mail, Phone, MapPin, X, AlertTriangle, Edit3, Check } from 'lucide-react';
+import {
+  User,
+  AlertCircle,
+  CheckCircle,
+  Lock,
+  Shield,
+  ShieldCheck,
+  Mail,
+  Phone,
+  MapPin,
+  X,
+  AlertTriangle,
+  Edit3,
+  Check,
+  HelpCircle,
+  Briefcase,
+  Building,
+  BadgeCheck,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export default function PersonalInfoCard({ profile, onProfileUpdated }) {
@@ -196,6 +214,150 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
       setSaving(false);
     }
   };
+
+  if (isEmployeeRole) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all">
+        {/* Card Header */}
+        <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+              <User size={16} className="text-[#252578]" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-800">Corporate Identity Information</h3>
+              <p className="text-xs text-gray-500">
+                Core profile fields provisioned and synced from enterprise authentication.
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            <ShieldCheck size={13} className="text-emerald-600" />
+            Auth-Synced (Read-Only)
+          </span>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Field 1: Full Name */}
+            <div className="space-y-1.5 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <User size={12} className="text-gray-400" /> Full Name
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> Central SSO
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-semibold select-all">
+                {profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || '—'}
+              </div>
+            </div>
+
+            {/* Field 2: Employee ID */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <BadgeCheck size={12} className="text-gray-400" /> Employee ID
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> Core Identity
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-mono font-semibold">
+                {profile.emp_id || profile.id || 'EMP-001'}
+              </div>
+            </div>
+
+            {/* Field 3: Corporate Email */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <Mail size={12} className="text-gray-400" /> Corporate Email
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> SSO Primary
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-medium truncate select-all">
+                {profile.email || '—'}
+              </div>
+            </div>
+
+            {/* Field 4: Role */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <Briefcase size={12} className="text-gray-400" /> System Role
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> RBAC
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-semibold">
+                <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-800 text-xs font-bold">
+                  {profile.role}
+                </span>
+              </div>
+            </div>
+
+            {/* Field 5: Department */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <Building size={12} className="text-gray-400" /> Department
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> Org Unit
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-medium">
+                {profile.department || 'Engineering'}
+              </div>
+            </div>
+
+            {/* Field 6: Facility / Location */}
+            <div className="space-y-1.5 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <MapPin size={12} className="text-gray-400" /> Assigned Facility / Office
+                </label>
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-400">
+                  <Lock size={10} /> Facility Ops
+                </span>
+              </div>
+              <div className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50/80 px-3 flex items-center text-sm text-slate-800 font-medium">
+                {profile.facility || profile.address || 'Enterprise Headquarters'}
+              </div>
+            </div>
+          </div>
+
+          {/* Guidance & Contact Card for Correcting Inaccurate Data */}
+          <div className="mt-5 p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-700 space-y-2.5">
+            <div className="flex items-center gap-2 font-bold text-slate-900">
+              <HelpCircle size={16} className="text-[#252578]" />
+              Need to update your Auth-sourced details?
+            </div>
+            <p className="leading-relaxed text-slate-600">
+              Your core identity, email address, role, and department are provisioned directly by central enterprise authentication. To request changes or correct inaccurate information, please contact the IT Administration Service Desk or submit an internal support request.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <a
+                href="mailto:it-support@example.com?subject=Employee%20Profile%20Update%20Request"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#252578] bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition cursor-pointer shadow-xs"
+              >
+                <Mail size={13} />
+                Contact IT Support
+              </a>
+              <span className="text-gray-400 text-[11px]">
+                Support Hours: Mon–Fri, 8AM–6PM
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all">

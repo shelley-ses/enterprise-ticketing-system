@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Mail, Briefcase } from 'lucide-react';
+import { CalendarDays, Mail, Briefcase, RefreshCw } from 'lucide-react';
 
 export default function ProfileHero({ profile }) {
   const initials = ((profile.firstName?.[0] || '') + (profile.lastName?.[0] || '')).toUpperCase() || 'U';
@@ -33,6 +33,12 @@ export default function ProfileHero({ profile }) {
             <CalendarDays size={14} className="text-gray-400" />
             Member since {profile.dateJoined}
           </span>
+          {profile.lastSynced && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-50 text-[#252578] border border-blue-100">
+              <RefreshCw size={11} className="text-blue-600" />
+              Auth Synced: {profile.lastSynced}
+            </span>
+          )}
         </div>
       </div>
     </div>

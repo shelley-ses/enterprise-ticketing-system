@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
-import { Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Clock, AlertCircle, CheckCircle2, ShieldAlert } from 'lucide-react';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
 import { getTicketDetails } from '@/services/ticketService';
@@ -558,6 +558,29 @@ export default function EmployeeHistoryDetail() {
               const fileName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `File-${idx + 1}`);
               const fileUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
               const absUrl = getAbsoluteUrl(fileUrl);
+              const isQuarantined = Boolean(
+                typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+              );
+
+              if (isQuarantined) {
+                return (
+                  <div
+                    key={idx}
+                    className="border border-red-200 rounded-xl overflow-hidden shadow-xs bg-red-50/50 p-4 cursor-not-allowed"
+                    title="Attachment quarantined: Threat detected by antivirus scan"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                        <ShieldAlert className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-red-700 truncate line-through">{fileName}</p>
+                        <p className="text-[10px] text-red-500 font-bold uppercase mt-0.5">Quarantined / Blocked</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -621,6 +644,30 @@ export default function EmployeeHistoryDetail() {
               const fileName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
               const fileUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
               const absUrl = getAbsoluteUrl(fileUrl);
+              const isQuarantined = Boolean(
+                typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+              );
+
+              if (isQuarantined) {
+                return (
+                  <div
+                    key={idx}
+                    className="border border-red-200 rounded-xl overflow-hidden shadow-xs bg-red-50/50 p-4 cursor-not-allowed"
+                    title="Proof file quarantined: Threat detected by antivirus scan"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                        <ShieldAlert className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-red-700 truncate line-through">{fileName}</p>
+                        <p className="text-[10px] text-red-500 font-bold uppercase mt-0.5">Quarantined / Blocked</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={idx}

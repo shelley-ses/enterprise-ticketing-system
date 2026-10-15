@@ -1,14 +1,29 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Search, Filter } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Search, Filter, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { getSuperAdminAuditLogs } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
 
 export default function SuperAdminAuditLogs() {
+  const location = useLocation();
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterModule, setFilterModule] = useState('');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedIncident, setSelectedIncident] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const incidentId = params.get('incidentId');
+    const query = params.get('q');
+    if (incidentId) {
+      setSearch(incidentId);
+    } else if (query) {
+      setSearch(query);
+    }
+  }, [location.search]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -117,22 +132,93 @@ export default function SuperAdminAuditLogs() {
                 <td colSpan="7" className="px-5 py-8 text-center text-sm text-gray-500">No logs found.</td>
               </tr>
             )}
-            {filtered.map((log) => (
-              <tr key={log.id} className="hover:bg-gray-50">
-                <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap">{log.timestamp}</td>
-                <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap">{log.user}</td>
-                <td className="px-5 py-4 text-sm whitespace-nowrap">
-                  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${log.role === 'Super Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{log.role}</span>
-                </td>
-                <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap">{log.action}</td>
-                <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap">{log.module}</td>
-                <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap">{log.target}</td>
-                <td className="px-5 py-4 text-sm text-gray-500">{log.details}</td>
-              </tr>
-            ))}
+            {filtered.map((log) => {
+              const isSecurity = Boolean(
+                log.module === 'Security' ||
+                /malware|quarantine|threat|infected/i.test(log.action + ' ' + log.details)
+              );
+
+              return (
+                <tr
+                  key={log.id}
+                  onClick={() => {
+                    if (isSecurity) {
+                      setSelectedIncident({
+                        id: log.target || log.id,
+                        user: log.user,
+                        data: {
+                          incident_id: log.target || log.id,
+                          timestamp: log.timestamp,
+                          uploader: { email: log.user, role: log.role },
+                          file: {
+                            original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
+                            threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
+                          },
+                        },
+                      });
+                    }
+                  }}
+                  className={`transition-colors ${isSecurity ? 'bg-rose-50/20 hover:bg-rose-50/40 cursor-pointer' : 'hover:bg-gray-50'}`}
+                >
+                  <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap">{log.timestamp}</td>
+                  <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap font-medium">{log.user}</td>
+                  <td className="px-5 py-4 text-sm whitespace-nowrap">
+                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                      log.role === 'Super Admin'
+                        ? 'bg-purple-100 text-purple-700'
+                        : isSecurity
+                          ? 'bg-rose-100 text-rose-700 font-bold'
+                          : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {log.role}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap">
+                    {isSecurity ? (
+                      <span className="inline-flex items-center gap-1.5 font-bold text-rose-700">
+                        <ShieldAlert size={14} className="text-rose-600" />
+                        {log.action}
+                      </span>
+                    ) : (
+                      log.action
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap">
+                    {isSecurity ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        Security
+                      </span>
+                    ) : (
+                      log.module
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-sm text-gray-800 whitespace-nowrap font-mono text-xs">{log.target}</td>
+                  <td className="px-5 py-4 text-sm text-gray-500">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={isSecurity ? 'text-rose-900 font-medium' : ''}>{log.details}</span>
+                      {isSecurity && (
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs font-bold text-rose-700 hover:text-rose-900 underline ml-2"
+                        >
+                          View Details
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {selectedIncident && (
+        <SecurityIncidentModal
+          incident={selectedIncident}
+          onClose={() => setSelectedIncident(null)}
+        />
+      )}
     </div>
   );
 }
