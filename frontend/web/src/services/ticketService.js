@@ -338,38 +338,107 @@ export const clearTicketFormOptionsCache = () => {
   optionsInFlight = null;
 };
 
-const fetchCustomerDashboard = async ({ createdBy = 1, limit = 5 } = {}) => {
-  const response = await ticketClient.get('/customer-dashboard', {
-    params: {
-      created_by: createdBy,
-      limit,
-    },
-  });
+const fetchCustomerDashboard = async ({ createdBy = 1, limit = 5, ...filters } = {}) => {
+  const params = {
+    created_by: createdBy,
+    limit,
+    ...filters,
+  };
+  const response = await ticketClient.get('/customer-dashboard', { params });
 
-  dashboardCache = response.data;
-  dashboardCacheAt = Date.now();
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
+  if (!hasFilters) {
+    dashboardCache = response.data;
+    dashboardCacheAt = Date.now();
+  }
   return response.data;
 };
 
-export const getCustomerDashboard = async ({ createdBy = 1, limit = 5, forceRefresh = false } = {}) => {
-  if (!forceRefresh && isDashboardCacheFresh()) {
+export const getCustomerDashboard = async ({ createdBy = 1, limit = 5, forceRefresh = false, ...filters } = {}) => {
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
+  if (!hasFilters && !forceRefresh && isDashboardCacheFresh()) {
     return dashboardCache;
   }
 
-  if (!forceRefresh && dashboardInFlight) {
+  if (!hasFilters && !forceRefresh && dashboardInFlight) {
     return dashboardInFlight;
   }
 
-  dashboardInFlight = fetchCustomerDashboard({ createdBy, limit }).finally(() => {
-    dashboardInFlight = null;
+  const promise = fetchCustomerDashboard({ createdBy, limit, ...filters }).finally(() => {
+    if (!hasFilters) dashboardInFlight = null;
   });
 
-  return dashboardInFlight;
+  if (!hasFilters) dashboardInFlight = promise;
+  return promise;
 };
 
-export const getCustomerTickets = async ({ createdBy = 1, limit = 20, forceRefresh = false } = {}) => {
-  const data = await getCustomerDashboard({ createdBy, limit, forceRefresh });
+export const getCustomerTickets = async ({ createdBy = 1, limit = 20, forceRefresh = false, ...filters } = {}) => {
+  const data = await getCustomerDashboard({ createdBy, limit, forceRefresh, ...filters });
   return (data?.recent_tickets || []).map(normalizeCustomerTicket);
+};
+
+export const getCustomerFilterOptions = async (createdBy = 1) => {
+  const response = await ticketClient.get('/customer/filter-options', {
+    params: { created_by: createdBy },
+  });
+  return response.data;
+};
+
+export const getCSFilterOptions = async () => {
+  const response = await ticketClient.get('/cs/filter-options');
+  return response.data;
+};
+
+export const saveTicketDraft = async (data) => {
+  let uploadedAttachments = [];
+  if (data.attachments && data.attachments.length > 0) {
+    const rawFiles = data.attachments.filter((f) => typeof File !== 'undefined' && f instanceof File);
+    const existing = data.attachments.filter((f) => !(typeof File !== 'undefined' && f instanceof File));
+    if (rawFiles.length > 0) {
+      const uploaded = await uploadAttachments(rawFiles);
+      uploadedAttachments = [...existing, ...uploaded];
+    } else {
+      uploadedAttachments = existing;
+    }
+  }
+
+  const payload = {
+    draft_id: data.id || data.draft_id || undefined,
+    title: data.title ?? '',
+    description: data.description ?? '',
+    machine_ID: data.machine_ID || undefined,
+    problem_category_ID: data.problem_category_ID || undefined,
+    priority_ID: data.priority_ID || 1,
+    attachments: uploadedAttachments,
+  };
+
+  const response = await ticketClient.post('/tickets/draft', payload);
+  return response.data;
+};
+
+export const getTicketDrafts = async () => {
+  const response = await ticketClient.get('/tickets/drafts');
+  return response.data?.drafts ?? [];
+};
+
+export const getTicketDraft = async (id) => {
+  const response = await ticketClient.get(`/tickets/drafts/${id}`);
+  return response.data?.draft ?? response.data;
+};
+
+export const deleteTicketDraft = async (id) => {
+  const response = await ticketClient.delete(`/tickets/drafts/${id}`);
+  return response.data;
+};
+
+export const getNotificationPreferences = async () => {
+  const response = await axiosInstance.get('/notification-preferences');
+  return response.data;
+};
+
+export const updateNotificationPreferences = async (preferences) => {
+  const response = await axiosInstance.put('/notification-preferences', preferences);
+  return response.data;
 };
 
 export const clearCustomerDashboardCache = () => {
@@ -388,29 +457,34 @@ const fetchCSDashboard = async ({ limit = 10 } = {}) => {
   return response.data;
 };
 
-const fetchIncomingTickets = async ({ limit = 50, page = 1 } = {}) => {
-  const response = await ticketClient.get('/cs-incoming', {
-    params: { limit, page },
-  });
+const fetchIncomingTickets = async ({ limit = 50, page = 1, ...filters } = {}) => {
+  const params = { limit, page, ...filters };
+  const response = await ticketClient.get('/cs-incoming', { params });
   const data = response.data?.incoming_tickets ?? [];
   const pagination = response.data?.pagination ?? null;
-  incomingTicketsCache = { list: data, pagination };
-  incomingTicketsCacheAt = Date.now();
+
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
+  if (!hasFilters) {
+    incomingTicketsCache = { list: data, pagination };
+    incomingTicketsCacheAt = Date.now();
+  }
   return { list: data, pagination };
 };
 
-export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = false, forceRefresh = false } = {}) => {
+export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = false, forceRefresh = false, ...filters } = {}) => {
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
   let result = { list: [], pagination: null };
   try {
-    if (!forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
+    if (!hasFilters && !forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
       result = incomingTicketsCache;
-    } else if (!forceRefresh && incomingTicketsInFlight) {
+    } else if (!hasFilters && !forceRefresh && incomingTicketsInFlight) {
       result = await incomingTicketsInFlight;
     } else {
-      incomingTicketsInFlight = fetchIncomingTickets({ limit, page }).finally(() => {
-        incomingTicketsInFlight = null;
+      const promise = fetchIncomingTickets({ limit, page, ...filters }).finally(() => {
+        if (!hasFilters) incomingTicketsInFlight = null;
       });
-      result = await incomingTicketsInFlight;
+      if (!hasFilters) incomingTicketsInFlight = promise;
+      result = await promise;
     }
   } catch (e) {
     console.warn("Failed to fetch incoming tickets from service:", e);
@@ -435,6 +509,7 @@ export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = fa
   }
   return list;
 };
+
 
 export const clearIncomingTicketsCache = () => {
   incomingTicketsCache = null;

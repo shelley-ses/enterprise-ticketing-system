@@ -80,6 +80,14 @@ class TicketController extends Controller
             ], 503);
         }
 
+        if ($request->filled('draft_id')) {
+            try {
+                app(\App\Services\TicketDraftService::class)->deleteDraft((int) $user->id, (int) $request->input('draft_id'));
+            } catch (\Throwable $e) {
+                // Non-blocking draft cleanup
+            }
+        }
+
         return response()->json($result, 201);
     }
 
@@ -135,7 +143,7 @@ class TicketController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $isCustomer = ($user instanceof \App\Models\Client) || ($request->header('X-User-Role') === 'customer');
+        $isCustomer = ($user instanceof \App\Models\Client);
 
         $data = $this->ticketService->showTicket($ticketId, $user, $isCustomer);
         if (!$data) {
@@ -156,6 +164,7 @@ class TicketController extends Controller
             'assigned_by_email' => ['nullable', 'email'],
             'proof_rejected' => ['nullable', 'boolean'],
             'rejection_reason' => ['nullable', 'string'],
+            'reason' => ['nullable', 'string', 'max:1000'],
             'title' => ['nullable', 'string', 'max:255', $this->ticketService->validateProperCasing()],
             'description' => ['nullable', 'string'],
             'problem_category_ID' => ['nullable', 'integer', 'exists:problem_categories,problem_category_ID'],
@@ -244,7 +253,32 @@ class TicketController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
-        $result = $this->ticketService->reopenTicket($ticketId, $user);
+        $reason = $request->input('reason');
+        $result = $this->ticketService->reopenTicket($ticketId, $user, $reason);
+        return response()->json($result['data'], $result['status']);
+    }
+
+    /**
+     * Reclassify ticket category and/or priority with SLA recalculation.
+     * Restricted to Customer Service and Administrators.
+     */
+    public function reclassifyTicket(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $validated = $request->validate([
+            'problem_category_ID' => ['nullable', 'integer', 'exists:problem_categories,problem_category_ID'],
+            'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
+        ]);
+
+        if (empty($validated['problem_category_ID']) && empty($validated['priority_ID'])) {
+            return response()->json(['message' => 'At least one of problem_category_ID or priority_ID must be provided.'], 422);
+        }
+
+        $result = $this->ticketService->reclassifyTicket($ticketId, $validated, $user);
         return response()->json($result['data'], $result['status']);
     }
 
@@ -338,5 +372,19 @@ class TicketController extends Controller
     public function getSuperAdminHistory(Request $request)
     {
         return app(SuperAdminConfigController::class)->getSuperAdminHistory($request);
+    }
+
+    /**
+     * View relevant customer and machine resolution context (TS029).
+     */
+    public function customerContext(Request $request, int $ticketId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $result = $this->ticketService->getCustomerContext($ticketId, $user);
+        return response()->json($result['data'], $result['status']);
     }
 }

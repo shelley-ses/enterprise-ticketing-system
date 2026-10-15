@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, RotateCcw, X } from 'lucide-react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -20,6 +20,7 @@ import {
   respondReassignment,
   getTicketDetails,
   updateTicket,
+  getCSFilterOptions,
   CS_TICKET_REFRESH_EVENT,
 } from '@/services/ticketService';
 
@@ -64,7 +65,14 @@ export default function CSIncoming() {
   const [category, setCategory] = useState('All Categories');
   // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
+  const [departmentFilter, setDepartmentFilter] = useState('All Departments');
+  const [statusFilter, setStatusFilter] = useState('All Statuses');
   const [assignmentFilter, setAssignmentFilter] = useState('All');
+  const [csFilterOptions, setCsFilterOptions] = useState({
+    departments: [],
+    statuses: [],
+    machines: [],
+  });
   const [incomingTab, setIncomingTab] = useState('open'); // 'open' | 'pending_assignment' | 'all'
   const [newTicketId, setNewTicketId] = useState(null);
   const newTicketTimerRef = useRef(null);
@@ -74,10 +82,21 @@ export default function CSIncoming() {
   const [modal, setModal] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
 
+  const resetFilters = useCallback(() => {
+    setSearch('');
+    setCategory('All Categories');
+    setMachineFilter('All Machines');
+    setDepartmentFilter('All Departments');
+    setStatusFilter('All Statuses');
+    setAssignmentFilter('All');
+    setTypeFilter('all');
+  }, []);
+
   const loadStaticData = useCallback(async () => {
-    const [depsResult, optionsResult] = await Promise.allSettled([
+    const [depsResult, optionsResult, csOptsResult] = await Promise.allSettled([
       getDepartments(),
       prefetchTicketFormOptions(),
+      getCSFilterOptions(),
     ]);
 
     if (depsResult.status === 'fulfilled') {
@@ -86,6 +105,17 @@ export default function CSIncoming() {
 
     if (optionsResult.status === 'fulfilled') {
       setPriorityOptions((optionsResult.value?.ticket_priorities || []).map((p) => p.priority_name));
+    }
+
+    if (csOptsResult.status === 'fulfilled' && csOptsResult.value) {
+      setCsFilterOptions({
+        departments: csOptsResult.value.departments || [],
+        statuses: csOptsResult.value.statuses || [],
+        machines: csOptsResult.value.machines || [],
+      });
+      if (csOptsResult.value.departments?.length > 0) {
+        setDepartments(csOptsResult.value.departments.map((d) => d.name || d.department_name || d));
+      }
     }
   }, []);
 
@@ -270,6 +300,9 @@ export default function CSIncoming() {
       if (category !== 'All Categories' && t.category !== category) return false;
       // if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
       if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
+      if (departmentFilter !== 'All Departments' && (t.department || '').trim().toLowerCase() !== departmentFilter.trim().toLowerCase()) return false;
+      if (statusFilter !== 'All Statuses' && (t.status || '').trim().toLowerCase() !== statusFilter.trim().toLowerCase()) return false;
+
       if (typeFilter === 'internal') {
         const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
         if (!isInternal) return false;
@@ -307,13 +340,15 @@ export default function CSIncoming() {
 
       if (!q) return true;
       return (
-        t.id.toLowerCase().includes(q) ||
-        t.customer.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
-        (t.equipment && t.equipment.toLowerCase().includes(q))
+        (t.id && t.id.toLowerCase().includes(q)) ||
+        (t.customer && t.customer.toLowerCase().includes(q)) ||
+        (t.title && t.title.toLowerCase().includes(q)) ||
+        (t.department && t.department.toLowerCase().includes(q)) ||
+        (t.equipment && t.equipment.toLowerCase().includes(q)) ||
+        (t.category && t.category.toLowerCase().includes(q))
       );
     });
-  }, [tickets, search, category, machineFilter, assignmentFilter, typeFilter, incomingTab]);
+  }, [tickets, search, category, machineFilter, departmentFilter, statusFilter, assignmentFilter, typeFilter, incomingTab]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -500,27 +535,81 @@ export default function CSIncoming() {
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets, customers..." className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
-            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
-          <select value={assignmentFilter} onChange={(e) => setAssignmentFilter(e.target.value)} className="w-full sm:w-[180px] md:w-[190px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-            <option value="All">All Assignments</option>
-            <option value="Pending Assignment">Pending Assignment</option>
-            <option value="Pending Reassign">Pending Reassign</option>
-            <option value="Pending Evaluation">Pending Evaluation</option>
-          </select>
-          <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-            {machines.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by ID, customer, keyword..."
+              className="flex-1 min-w-[220px] rounded-xl border border-gray-200 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+            />
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0 ml-auto">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              >
+                <option value="All Statuses">All Statuses</option>
+                {(csFilterOptions.statuses?.length > 0
+                  ? csFilterOptions.statuses.map((s) => s.status_name || s.name || s)
+                  : ['Open', 'In Progress', 'Pending Assignment', 'Resolved', 'Closed', 'On Hold', 'Reopened', 'Pending Evaluation']
+                ).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              >
+                <option value="All Departments">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+
+              <select
+                value={machineFilter}
+                onChange={(e) => setMachineFilter(e.target.value)}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              >
+                {machines.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              >
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <select
+                value={assignmentFilter}
+                onChange={(e) => setAssignmentFilter(e.target.value)}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              >
+                <option value="All">All Assignments</option>
+                <option value="Pending Assignment">Pending Assignment</option>
+                <option value="Pending Reassign">Pending Reassign</option>
+                <option value="Pending Evaluation">Pending Evaluation</option>
+              </select>
+
+              {(search || category !== 'All Categories' || machineFilter !== 'All Machines' || departmentFilter !== 'All Departments' || statusFilter !== 'All Statuses' || assignmentFilter !== 'All' || typeFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 border border-gray-200 rounded-xl transition cursor-pointer"
+                >
+                  <RotateCcw size={12} /> Reset
+                </button>
+              )}
+            </div>
+          </div>
 
       {/* Table */}
       <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
@@ -600,12 +689,30 @@ export default function CSIncoming() {
             </thead>
 
             <tbody className="divide-y divide-gray-100 text-gray-700">
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-500">
+                    <div className="max-w-sm mx-auto space-y-2">
+                      <p className="font-semibold text-gray-700">No tickets match your search or filter criteria.</p>
+                      <p className="text-xs text-gray-500">Try adjusting your filters or resetting them to view the full queue.</p>
+                      <button
+                        type="button"
+                        onClick={resetFilters}
+                        className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-[#252578] bg-blue-50 hover:bg-blue-100 rounded-xl transition cursor-pointer"
+                      >
+                        <RotateCcw size={12} /> Reset all filters
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
               {paginated.map((t, idx) => {
                 const isNew = t.id === newTicketId || t.ticket_ID === newTicketId;
                 return (
                   <tr
                     key={t.id}
-                    className={`${
+                    onClick={() => handleRowAction(t)}
+                    className={`cursor-pointer ${
                       isNew ? 'animate-new-pulse' : (idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50')
                     } transition-all`}
                   >

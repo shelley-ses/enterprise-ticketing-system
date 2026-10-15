@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Helpers\RoleHelper;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -601,6 +602,7 @@ class TicketService
             ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
             ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->leftJoin('employees as req', 'req.emp_id', '=', 't.requested_by')
             ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
@@ -619,6 +621,8 @@ class TicketService
                 'm.brand as machine_brand',
                 'mc.category_name as equipment_type',
                 'c.client_name',
+                DB::raw("TRIM(CONCAT(COALESCE(req.first_name, ''), ' ', COALESCE(req.last_name, ''))) as requester_employee_name"),
+                't.created_by',
                 't.assigned_to',
                 't.proof_rejected',
                 't.rejection_reason',
@@ -638,8 +642,10 @@ class TicketService
             return null;
         }
 
-        if ($ticket->is_internal && $user instanceof \App\Models\Client) {
-            return null;
+        if ($user instanceof \App\Models\Client) {
+            if ((int)$ticket->is_internal !== 0 || (int)$ticket->created_by !== (int)$user->id) {
+                return null;
+            }
         }
 
         $assignment = null;
@@ -665,7 +671,7 @@ class TicketService
         $auditLogs = DB::table('ticket_audit_logs as tal')
             ->leftJoin('employees as e', function ($join) {
                 $join->on('e.emp_id', '=', 'tal.action_by_ID')
-                    ->where('tal.actor_type', '!=', 'customer');
+                    ->whereIn('tal.actor_type', ['employee', 'superadmin', 'admin', 'cs', 'customerservice']);
             })
             ->leftJoin('clients as c', function ($join) {
                 $join->on('c.id', '=', 'tal.action_by_ID')
@@ -712,6 +718,8 @@ class TicketService
             $actorName = '';
             if ($log->actor_type === 'customer') {
                 $actorName = trim($log->customer_name ?? '') ?: 'Customer';
+            } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                $actorName = 'System';
             } else {
                 $emp = trim($log->employee_name ?? '');
                 $actorName = $emp ?: 'CS Representative';
@@ -789,26 +797,38 @@ class TicketService
         foreach ($auditLogs as $log) {
             if ($log->action_type === 'status_change') {
                 $details = json_decode($log->details, true);
+                $actor = $log->employee_name ?: 'Employee';
+                if ($log->actor_type === 'customer') {
+                    $actor = $log->customer_name ?: 'Customer';
+                } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                    $actor = 'System';
+                }
                 $statusHistory[] = [
                     'status' => $details['status'] ?? '',
                     'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
-                    'actor' => $log->employee_name ?: 'Employee',
+                    'actor' => $actor,
                 ];
             } elseif ($log->action_type === 'update') {
                 $details = json_decode($log->details, true);
                 if (($details['field'] ?? '') === 'ticket_status_ID') {
                     $statusName = $statusesMap[$details['new'] ?? 0] ?? 'Unknown';
+                    $actor = $log->employee_name ?: 'CS Representative';
+                    if ($log->actor_type === 'customer') {
+                        $actor = $log->customer_name ?: 'Customer';
+                    } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                        $actor = 'System';
+                    }
                     $statusHistory[] = [
                         'status' => $statusName,
                         'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
-                        'actor' => $log->employee_name ?: 'CS Representative',
+                        'actor' => $actor,
                     ];
                 }
             } elseif ($log->action_type === 'create') {
                 $statusHistory[] = [
                     'status' => 'Open',
                     'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
-                    'actor' => 'Customer',
+                    'actor' => $log->customer_name ?: 'Customer',
                 ];
             }
         }
@@ -849,11 +869,19 @@ class TicketService
             if ($log->action_type === 'status_change') {
                 $details = json_decode($log->details, true) ?? [];
                 if (!empty($details['remarks'])) {
+                    $author = 'Staff Member';
+                    if ($log->actor_type === 'customer') {
+                        $author = $log->customer_name ?: 'Customer';
+                    } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                        $author = 'System';
+                    } elseif ($log->employee_name) {
+                        $author = $log->employee_name;
+                    }
                     $auditRemarks[] = [
                         'id' => 'audit-remark-' . $log->log_ID,
                         'remark' => $details['remarks'],
                         'status' => $details['status'] ?? null,
-                        'author' => $log->employee_name ?: ($log->customer_name ?: 'Staff Member'),
+                        'author' => $author,
                         'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
                     ];
                 }
@@ -1012,7 +1040,11 @@ class TicketService
             'last_updated' => $updatedAtIso,
             'slaStatus' => $this->slaLabel($ticket->created_at),
             'equipment' => $ticket->machine_name ? ($ticket->machine_name . ($ticket->serial_number ? ' - ' . $ticket->serial_number : '')) : ($ticket->serial_number ?: 'Not specified'),
-            'customer' => $ticket->client_name,
+            'customer' => (bool) $ticket->is_internal
+                ? (($ticket->requester_employee_name !== '' && $ticket->requester_employee_name !== null)
+                    ? $ticket->requester_employee_name
+                    : ($ticket->requested_by ? 'Employee #' . $ticket->requested_by : 'Internal Requester'))
+                : ($ticket->client_name ?: 'Unknown Customer'),
             'accepted' => $accepted,
             'assigned_employee' => $primaryAssignedName,
             'assigned_employee_name' => $primaryAssignedName,
@@ -1055,10 +1087,73 @@ class TicketService
             return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
         }
 
+        // 1. Client cross-ticket and internal ticket isolation
+        if ($user instanceof \App\Models\Client) {
+            if ((int)$ticket->is_internal !== 0 || (int)$ticket->created_by !== (int)$user->id) {
+                return ['status' => 403, 'data' => ['message' => 'You do not have permission to update this ticket.', 'code' => 'NOT_OWNER']];
+            }
+        }
+
         if ($ticket->is_internal && $user instanceof \App\Models\Client) {
             return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
         }
 
+        // 2. Reject status 11 (On Hold) via generic update endpoint
+        if (array_key_exists('ticket_status_ID', $validated) && (int) $validated['ticket_status_ID'] === 11) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Status 11 (On Hold) cannot be set via the generic update endpoint. Use POST /tickets/{id}/hold with a mandatory reason.',
+                    'code' => 'USE_DEDICATED_HOLD_ENDPOINT',
+                ],
+            ];
+        }
+
+        // 3. Reject resuming a ticket that is On Hold via generic update endpoint
+        if ((int) $ticket->ticket_status_ID === 11 && array_key_exists('ticket_status_ID', $validated) && (int) $validated['ticket_status_ID'] !== 11) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Tickets on hold must be resumed via POST /tickets/{id}/resume.',
+                    'code' => 'USE_DEDICATED_HOLD_ENDPOINT',
+                ],
+            ];
+        }
+
+        // 4. Treat status 8 (or status 2 when ticket is in status 3 or 4) as Reopen
+        $statusToSet = array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null
+            ? (int) $validated['ticket_status_ID']
+            : null;
+
+        $isReopenAttempt = ($statusToSet === 8) || ($statusToSet === 2 && in_array((int)$ticket->ticket_status_ID, [3, 4], true));
+        if ($isReopenAttempt) {
+            $reason = $validated['reason'] ?? $validated['rejection_reason'] ?? null;
+            return $this->reopenTicket($ticketId, $user, $reason);
+        }
+
+        // 5. Ownership / permission checks on customer setting status 3 or 4
+        if ($user instanceof \App\Models\Client && ($statusToSet === 3 || $statusToSet === 4)) {
+            if ((int)$ticket->created_by !== (int)$user->id || (int)$ticket->is_internal !== 0) {
+                return ['status' => 403, 'data' => ['message' => 'You do not have permission to update this ticket.', 'code' => 'NOT_OWNER']];
+            }
+        }
+
+        // 6. Check closed/cancelled classification edit restriction
+        $isClosedOrCancelled = in_array((int)$ticket->ticket_status_ID, [4, 5, 9], true);
+        $attemptsCategoryChange = array_key_exists('problem_category_ID', $validated) && $validated['problem_category_ID'] !== null && (int)$validated['problem_category_ID'] !== (int)$ticket->problem_category_ID;
+        $attemptsPriorityChange = array_key_exists('priority_ID', $validated) && $validated['priority_ID'] !== null && (int)$validated['priority_ID'] !== (int)($ticket->priority_ID ?? 1);
+
+        if ($isClosedOrCancelled && ($attemptsCategoryChange || $attemptsPriorityChange)) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Cannot edit classification of a closed or cancelled ticket.',
+                    'code' => 'TICKET_CLOSED',
+                ],
+            ];
+        }
+
+        // 7. Content & Classification editing permission rules
         if ($user instanceof \App\Models\Client) {
             $isEditingContent = array_key_exists('title', $validated) ||
                 array_key_exists('description', $validated) ||
@@ -1074,20 +1169,31 @@ class TicketService
                     return ['status' => 403, 'data' => ['message' => 'Tickets can only be edited while Open and not yet assigned to an employee.']];
                 }
             }
+
+            if (array_key_exists('priority_ID', $validated) && $validated['priority_ID'] !== null) {
+                return ['status' => 403, 'data' => ['message' => 'Customers cannot edit ticket priority.', 'code' => 'FORBIDDEN']];
+            }
+        } else {
+            // Staff / Employee edits:
+            // Category edits: Customer service, admin, superadmin may edit on any non-closed ticket.
+            if ($attemptsCategoryChange && !RoleHelper::isCsOrAdmin($user)) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'Only Customer Service or Administrators can edit ticket category.',
+                        'code' => 'FORBIDDEN',
+                    ],
+                ];
+            }
         }
 
-        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
-            $statusToSet = (int) $validated['ticket_status_ID'];
+        // 8. State machine validation if ticket_status_ID is present
+        if ($statusToSet !== null) {
             $currentState = $this->stateMachine->resolveState($ticket);
             $targetState = $this->stateMachine->resolveTargetState($statusToSet, $ticket, [
                 'user' => $user,
                 'proof_rejected' => $validated['proof_rejected'] ?? false,
             ]);
-
-            // Reopened tickets always automatically route to In Progress (CS-owned)
-            if ($statusToSet === 8 || ($statusToSet === 2 && in_array($currentState, [TicketStateMachine::STATE_CLOSED, TicketStateMachine::STATE_RESOLVED], true))) {
-                $targetState = TicketStateMachine::STATE_IN_PROGRESS_CS;
-            }
 
             try {
                 $this->stateMachine->validateTransition($ticket, $currentState, $targetState, [
@@ -1108,14 +1214,14 @@ class TicketService
             }
 
             if ($statusToSet === 3 && $ticket->is_internal) {
-                $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
+                $isCS = RoleHelper::isCsOrAdmin($user);
                 if (!$isCS) {
                     return ['status' => 403, 'data' => ['message' => 'Only the assigned employee or customer service can resolve an internal ticket.']];
                 }
             }
 
             if ($statusToSet === 4 && $ticket->is_internal) {
-                $isCS = ($user && !($user instanceof \App\Models\Client) && strtolower($user->role) === 'customer service');
+                $isCS = RoleHelper::isCsOrAdmin($user);
                 $isRequestor = ($user && !($user instanceof \App\Models\Client) && $user->emp_id == $ticket->requested_by);
                 if (!$isCS && !$isRequestor) {
                     return ['status' => 403, 'data' => ['message' => 'Only the requestor or a customer service agent can close an internal ticket.']];
@@ -1155,8 +1261,7 @@ class TicketService
 
         $changes = [];
 
-        if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
-            $statusToSet = $validated['ticket_status_ID'];
+        if ($statusToSet !== null) {
             if ($ticket->ticket_status_ID != $statusToSet) {
                 $changes[] = ['field' => 'ticket_status_ID', 'old' => $ticket->ticket_status_ID, 'new' => $statusToSet];
             }
@@ -1210,33 +1315,16 @@ class TicketService
             return ['status' => 200, 'data' => ['message' => 'No changes to update.']];
         }
 
-        DB::transaction(function () use ($ticketId, $validated, $assignedBy, $changes, $ticket, $actorType) {
+        DB::transaction(function () use ($ticketId, $validated, $assignedBy, $changes, $ticket, $actorType, $attemptsCategoryChange, $attemptsPriorityChange) {
             $update = ['updated_at' => now()];
             if (array_key_exists('ticket_status_ID', $validated) && $validated['ticket_status_ID'] !== null) {
                 $statusToSet = (int) $validated['ticket_status_ID'];
 
-                // Reopen rule: Reopened tickets automatically transition to In Progress (CS-owned)
-                $isReopen = ($statusToSet === 8 || $statusToSet === 2) && ($ticket->ticket_status_ID == 3 || $ticket->ticket_status_ID == 4);
-                if ($isReopen || $statusToSet === 8) {
-                    $statusToSet = 2; // In Progress
-                    $update['ticket_status_ID'] = 2;
-                    $update['in_progress_owner'] = TicketStateMachine::OWNER_CS;
-                    $update['resolved_at'] = null;
-                    $update['closed_at'] = null;
-                    $update['proof_rejected'] = false;
-                    $update['rejection_reason'] = null;
-                    $update['assigned_to'] = null;
-                    DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
-                } else {
-                    $update['ticket_status_ID'] = $statusToSet;
-                    if ($statusToSet === 2) {
-                        $update['in_progress_owner'] = !empty($ticket->assigned_to) ? TicketStateMachine::OWNER_EMPLOYEE : TicketStateMachine::OWNER_CS;
-                    } elseif ($statusToSet === 11) {
-                        $update['previous_in_progress_owner'] = $ticket->in_progress_owner ?? TicketStateMachine::OWNER_EMPLOYEE;
-                        $update['in_progress_owner'] = null;
-                    } elseif (in_array($statusToSet, [3, 4, 9, 10], true)) {
-                        $update['in_progress_owner'] = null;
-                    }
+                $update['ticket_status_ID'] = $statusToSet;
+                if ($statusToSet === 2) {
+                    $update['in_progress_owner'] = !empty($ticket->assigned_to) ? TicketStateMachine::OWNER_EMPLOYEE : TicketStateMachine::OWNER_CS;
+                } elseif (in_array($statusToSet, [3, 4, 9, 10], true)) {
+                    $update['in_progress_owner'] = null;
                 }
                 
                 if ($statusToSet == 3 || $statusToSet == 4) {
@@ -1259,9 +1347,8 @@ class TicketService
                     } catch (\Exception $e) {}
                 }
                 
-                if (($statusToSet == 2 || $statusToSet == 8) && ($ticket->ticket_status_ID == 6)) {
-                    $isProofRejection = ($statusToSet == 2 && $ticket->ticket_status_ID == 6 && (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']));
-
+                if ($statusToSet == 2 && $ticket->ticket_status_ID == 6) {
+                    $isProofRejection = (array_key_exists('proof_rejected', $validated) && $validated['proof_rejected']);
                     if (!$isProofRejection) {
                         $update['resolved_at'] = null;
                         $update['closed_at'] = null;
@@ -1299,10 +1386,21 @@ class TicketService
 
             DB::table('tickets')->where('ticket_ID', $ticketId)->update($update);
 
+            // Recalculate SLA if category or priority changed
+            if ($attemptsCategoryChange || $attemptsPriorityChange) {
+                try {
+                    $newCat = $validated['problem_category_ID'] ?? $ticket->problem_category_ID;
+                    $newPrio = $validated['priority_ID'] ?? ($ticket->priority_ID ?? 1);
+                    $this->slaService->recalculateForReclassification($ticketId, $newCat, $newPrio);
+                } catch (\Throwable $e) {
+                    Log::warning("SLA recalculateForReclassification failed in updateTicket: " . $e->getMessage());
+                }
+            }
+
             foreach ($changes as $chg) {
                 $actionType = 'update';
-                if ($chg['field'] === 'ticket_status_ID' && ($chg['old'] == 3 || $chg['old'] == 4) && ($chg['new'] == 2 || $chg['new'] == 8)) {
-                    $actionType = 'reopen';
+                if ($chg['field'] === 'problem_category_ID' || $chg['field'] === 'priority_ID') {
+                    $actionType = 'update';
                 }
 
                 DB::table('ticket_audit_logs')->insert([
@@ -1557,7 +1655,108 @@ class TicketService
      */
     public function holdTicket(int $ticketId, $user, ?string $reason = null): array
     {
-        return $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $reason], $user);
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
+        }
+
+        if (!RoleHelper::isCsOrAdmin($user)) {
+            return [
+                'status' => 403,
+                'data' => [
+                    'message' => 'Only Customer Service or Administrators can put a ticket on hold.',
+                    'code' => 'FORBIDDEN',
+                ],
+            ];
+        }
+
+        $trimmedReason = trim((string) $reason);
+        if (empty($trimmedReason) || mb_strlen($trimmedReason) < 3) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'A reason is required to put a ticket on hold (minimum 3 characters).',
+                    'code' => 'REASON_REQUIRED',
+                ],
+            ];
+        }
+
+        if (mb_strlen($trimmedReason) > 1000) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'The reason cannot exceed 1000 characters.',
+                    'code' => 'REASON_TOO_LONG',
+                ],
+            ];
+        }
+
+        try {
+            $result = $this->stateMachine->applyTransition($ticketId, 'hold', ['reason' => $trimmedReason], $user);
+
+            if (($result['status'] ?? 0) === 200 && !empty($result['data']['transitioned'])) {
+                // TODO: TS005 per-user notification preferences
+                try {
+                    $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                    $customerHoldData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'type' => 'ticket_on_hold',
+                    ];
+                    $employeeHoldData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'reason' => $trimmedReason,
+                        'type' => 'ticket_on_hold',
+                    ];
+
+                    if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->requested_by,
+                            'employee',
+                            'Ticket Placed On Hold',
+                            "Ticket {$ticketRef} has been placed on hold.",
+                            $ticketId,
+                            $customerHoldData
+                        );
+                    } else {
+                        $this->notificationService->notifyCustomer(
+                            (int) $ticket->created_by,
+                            'Ticket Placed On Hold',
+                            "Ticket {$ticketRef} has been placed on hold.",
+                            $ticketId,
+                            $customerHoldData
+                        );
+                    }
+
+                    if (!empty($ticket->assigned_to)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->assigned_to,
+                            'employee',
+                            'Assigned Ticket Placed On Hold',
+                            "Ticket {$ticketRef} assigned to you has been placed on hold. Reason: \"{$trimmedReason}\".",
+                            $ticketId,
+                            $employeeHoldData
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch hold notifications for ticket {$ticketId}: " . $e->getMessage());
+                }
+            }
+
+            return $result;
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'INVALID_TICKET_TRANSITION',
+                    'from_status' => $e->fromStatus,
+                    'to_status' => $e->toStatus,
+                    'allowed_statuses' => $e->allowedStatuses,
+                ],
+            ];
+        }
     }
 
     /**
@@ -1565,7 +1764,81 @@ class TicketService
      */
     public function resumeTicket(int $ticketId, $user): array
     {
-        return $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
+        }
+
+        if (!RoleHelper::isCsOrAdmin($user)) {
+            return [
+                'status' => 403,
+                'data' => [
+                    'message' => 'Only Customer Service or Administrators can resume a ticket from on hold.',
+                    'code' => 'FORBIDDEN',
+                ],
+            ];
+        }
+
+        try {
+            $result = $this->stateMachine->applyTransition($ticketId, 'resume', [], $user);
+
+            if (($result['status'] ?? 0) === 200 && !empty($result['data']['transitioned'])) {
+                // TODO: TS005 per-user notification preferences
+                try {
+                    $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                    $resumeData = [
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'type' => 'ticket_resumed',
+                    ];
+
+                    if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->requested_by,
+                            'employee',
+                            'Ticket Resumed',
+                            "Ticket {$ticketRef} has been resumed and is back in progress.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    } else {
+                        $this->notificationService->notifyCustomer(
+                            (int) $ticket->created_by,
+                            'Ticket Resumed',
+                            "Ticket {$ticketRef} has been resumed and is back in progress.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    }
+
+                    if (!empty($ticket->assigned_to)) {
+                        $this->notificationService->notifyRecipient(
+                            (int) $ticket->assigned_to,
+                            'employee',
+                            'Assigned Ticket Resumed',
+                            "Ticket {$ticketRef} assigned to you has been resumed.",
+                            $ticketId,
+                            $resumeData
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch resume notifications for ticket {$ticketId}: " . $e->getMessage());
+                }
+            }
+
+            return $result;
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'INVALID_TICKET_TRANSITION',
+                    'from_status' => $e->fromStatus,
+                    'to_status' => $e->toStatus,
+                    'allowed_statuses' => $e->allowedStatuses,
+                ],
+            ];
+        }
     }
 
     /**
@@ -1581,15 +1854,439 @@ class TicketService
      */
     public function closeTicket(int $ticketId, $user): array
     {
-        return $this->stateMachine->applyTransition($ticketId, 'close', [], $user);
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
+        }
+
+        if ($user instanceof \App\Models\Client) {
+            if ((int)$ticket->is_internal !== 0 || (int)$ticket->created_by !== (int)$user->id) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'You do not have permission to close this ticket.',
+                        'code' => 'NOT_OWNER',
+                    ],
+                ];
+            }
+        } else {
+            if ((int)$ticket->is_internal === 1) {
+                $isRequester = isset($user->emp_id) && (int)$user->emp_id === (int)$ticket->requested_by;
+                $isCsOrAdmin = RoleHelper::isCsOrAdmin($user);
+                if (!$isRequester && !$isCsOrAdmin) {
+                    return [
+                        'status' => 403,
+                        'data' => [
+                            'message' => 'Only the requester or Customer Service can close this ticket.',
+                            'code' => 'FORBIDDEN',
+                        ],
+                    ];
+                }
+            }
+        }
+
+        try {
+            return $this->stateMachine->applyTransition($ticketId, 'close', [], $user);
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'INVALID_TICKET_TRANSITION',
+                    'from_status' => $e->fromStatus,
+                    'to_status' => $e->toStatus,
+                    'allowed_statuses' => $e->allowedStatuses,
+                ],
+            ];
+        }
     }
 
     /**
      * Reopen a closed or resolved ticket (routes automatically to In Progress CS-owned).
      */
-    public function reopenTicket(int $ticketId, $user): array
+    public function reopenTicket(int $ticketId, $user, ?string $reason = null): array
     {
-        return $this->stateMachine->applyTransition($ticketId, 'reopen', [], $user);
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
+        }
+
+        $trimmedReason = trim((string) $reason);
+        if (empty($trimmedReason) || mb_strlen($trimmedReason) < 3) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'A reason is required to reopen this ticket (minimum 3 characters).',
+                    'code' => 'REASON_REQUIRED',
+                ],
+            ];
+        }
+
+        if (mb_strlen($trimmedReason) > 1000) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'The reason cannot exceed 1000 characters.',
+                    'code' => 'REASON_TOO_LONG',
+                ],
+            ];
+        }
+
+        // Ownership checks
+        if ($user instanceof \App\Models\Client) {
+            if ((int)$ticket->is_internal !== 0 || (int)$ticket->created_by !== (int)$user->id) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'You do not have permission to reopen this ticket.',
+                        'code' => 'NOT_OWNER',
+                    ],
+                ];
+            }
+        } else {
+            if ((int)$ticket->is_internal === 1) {
+                $isRequester = isset($user->emp_id) && (int)$user->emp_id === (int)$ticket->requested_by;
+                $isCsOrAdmin = RoleHelper::isCsOrAdmin($user);
+                if (!$isRequester && !$isCsOrAdmin) {
+                    return [
+                        'status' => 403,
+                        'data' => [
+                            'message' => 'Only the requester or Customer Service can reopen this ticket.',
+                            'code' => 'FORBIDDEN',
+                        ],
+                    ];
+                }
+            } else {
+                if (!RoleHelper::isCsOrAdmin($user)) {
+                    return [
+                        'status' => 403,
+                        'data' => [
+                            'message' => 'Only Customer Service can reopen customer tickets.',
+                            'code' => 'FORBIDDEN',
+                        ],
+                    ];
+                }
+            }
+        }
+
+        // Validate status is Resolved (3) or Closed (4)
+        if (!in_array((int)$ticket->ticket_status_ID, [3, 4], true)) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => "Tickets can only be reopened from 'Closed' or 'Resolved' status.",
+                    'code' => 'NOT_REOPENABLE',
+                ],
+            ];
+        }
+
+        // Check reopen window
+        $windowConfig = TicketConfigurationService::getWindowConfig();
+        if (!($windowConfig['reopenEnabled'] ?? true)) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Reopening tickets is disabled by administrative operational policy.',
+                    'code' => 'WINDOW_EXPIRED',
+                ],
+            ];
+        }
+
+        $reopenDays = (int) ($windowConfig['reopenWindowDays'] ?? 2);
+        $allowedHours = $reopenDays * 24;
+        $cutoffTime = $ticket->closed_at
+            ? Carbon::parse($ticket->closed_at)
+            : ($ticket->resolved_at ? Carbon::parse($ticket->resolved_at) : null);
+
+        if ($cutoffTime && $cutoffTime->diffInHours(now()) > $allowedHours) {
+            $dayLabel = $reopenDays === 1 ? '1 day' : "{$reopenDays} days";
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => "Cannot reopen ticket: More than {$dayLabel} ({$allowedHours} hours) have passed since resolution/closure.",
+                    'code' => 'WINDOW_EXPIRED',
+                ],
+            ];
+        }
+
+        // Capture previous assigned employee before state machine nulls it
+        $previousAssignedTo = $ticket->assigned_to;
+        if (!$previousAssignedTo) {
+            $previousAssignedTo = DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->orderByDesc('assignment_ID')
+                ->value('employee_ID');
+        }
+
+        try {
+            $transitionResult = $this->stateMachine->applyTransition(
+                $ticketId,
+                'reopen',
+                [
+                    'reason' => $trimmedReason,
+                    'previous_assigned_to' => $previousAssignedTo,
+                ],
+                $user
+            );
+        } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => $e->getMessage(),
+                    'code' => 'WINDOW_EXPIRED',
+                ],
+            ];
+        }
+
+        if (isset($transitionResult['data']) && is_array($transitionResult['data'])) {
+            $transitionResult['data']['previous_assigned_to'] = $previousAssignedTo;
+        }
+
+        if (($transitionResult['status'] ?? 0) === 200 && !empty($transitionResult['data']['transitioned'])) {
+            // TODO: TS005 per-user notification preferences
+            try {
+                $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+                $reopenNotificationData = [
+                    'ticket_id' => $ticketId,
+                    'ticket_ref' => $ticketRef,
+                    'reason' => $trimmedReason,
+                    'type' => 'ticket_reopened',
+                ];
+
+                // Notify CS
+                $this->notificationService->notifyCS(
+                    'Ticket Reopened',
+                    "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                    $ticketId,
+                    $reopenNotificationData
+                );
+
+                // Notify previously assigned employee if one existed
+                if ($previousAssignedTo) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $previousAssignedTo,
+                        'employee',
+                        'Assigned Ticket Reopened',
+                        "Ticket {$ticketRef} previously assigned to you has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                }
+
+                // Notify customer or internal requester
+                if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                    $this->notificationService->notifyRecipient(
+                        (int) $ticket->requested_by,
+                        'employee',
+                        'Ticket Reopened',
+                        "Ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                } else {
+                    $this->notificationService->notifyCustomer(
+                        (int) $ticket->created_by,
+                        'Ticket Reopened',
+                        "Your ticket {$ticketRef} has been reopened. Reason: \"{$trimmedReason}\".",
+                        $ticketId,
+                        $reopenNotificationData
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Failed to dispatch reopen notifications for ticket {$ticketId}: " . $e->getMessage());
+            }
+
+            // Post reopen message to messaging-service only when actor is a customer
+            if ($user instanceof \App\Models\Client) {
+                try {
+                    $clientName = $user->client_name ?? 'Customer';
+                    Http::withHeaders([
+                        'X-Internal-Token' => env('INTERNAL_TOKEN'),
+                    ])->post("http://messaging-service:8000/api/internal/tickets/{$ticketId}/messages", [
+                        'message' => "Ticket reopened. Reason: {$trimmedReason}",
+                        'sender_name' => $clientName,
+                        'sender_type' => 'customer',
+                        'sender_id' => (int) $user->id,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to post reopen message to messaging-service for ticket {$ticketId}: " . $e->getMessage());
+                }
+            }
+        }
+
+        return $transitionResult;
+    }
+
+    /**
+     * Reclassify ticket category and/or priority with SLA recalculation.
+     * Restricted strictly to Customer Service and Administrators.
+     */
+    public function reclassifyTicket(int $ticketId, array $validated, $user): array
+    {
+        if (!RoleHelper::isCsOrAdmin($user)) {
+            return [
+                'status' => 403,
+                'data' => [
+                    'message' => 'Only Customer Service or Administrators can reclassify tickets.',
+                    'code' => 'FORBIDDEN',
+                ],
+            ];
+        }
+
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return ['status' => 404, 'data' => ['message' => 'Ticket not found']];
+        }
+
+        // Closed (4) or Cancelled (5, 9) tickets cannot be reclassified
+        if (in_array((int)$ticket->ticket_status_ID, [4, 5, 9], true)) {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'Cannot reclassify a closed or cancelled ticket.',
+                    'code' => 'TICKET_CLOSED',
+                ],
+            ];
+        }
+
+        $oldCategory = (int) $ticket->problem_category_ID;
+        $newCategory = array_key_exists('problem_category_ID', $validated) && $validated['problem_category_ID'] !== null
+            ? (int) $validated['problem_category_ID']
+            : $oldCategory;
+
+        $oldPriority = (int) ($ticket->priority_ID ?? 1);
+        $newPriority = array_key_exists('priority_ID', $validated) && $validated['priority_ID'] !== null
+            ? (int) $validated['priority_ID']
+            : $oldPriority;
+
+        if ($oldCategory === $newCategory && $oldPriority === $newPriority) {
+            return [
+                'status' => 200,
+                'data' => [
+                    'message' => 'No classification changes to update.',
+                    'ticket_id' => $ticketId,
+                    'problem_category_ID' => $oldCategory,
+                    'priority_ID' => $oldPriority,
+                ],
+            ];
+        }
+
+        $isAssigned = !empty($ticket->assigned_to);
+        $reassignmentNeeded = $isAssigned;
+
+        $actorId = $user->emp_id ?? $user->id ?? 1;
+        $actorType = 'employee';
+        if (isset($user->role) && in_array(strtolower(str_replace(' ', '', (string)$user->role)), ['superadmin', 'admin'], true)) {
+            $actorType = strtolower(str_replace(' ', '', (string)$user->role));
+        }
+
+        $slaRecalc = null;
+        DB::transaction(function () use (
+            $ticketId,
+            $newCategory,
+            $newPriority,
+            $oldCategory,
+            $oldPriority,
+            $actorId,
+            $actorType,
+            $reassignmentNeeded,
+            &$slaRecalc
+        ) {
+            DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                'problem_category_ID' => $newCategory,
+                'priority_ID' => $newPriority,
+                'updated_at' => now(),
+            ]);
+
+            try {
+                $slaRecalc = $this->slaService->recalculateForReclassification($ticketId, $newCategory, $newPriority);
+            } catch (\Throwable $e) {
+                Log::warning("SLA recalculateForReclassification failed in reclassifyTicket: " . $e->getMessage());
+            }
+
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'reclassification',
+                'action_by_ID' => $actorId,
+                'actor_type' => $actorType,
+                'details' => json_encode([
+                    'old_category_id' => $oldCategory,
+                    'new_category_id' => $newCategory,
+                    'old_priority_id' => $oldPriority,
+                    'new_priority_id' => $newPriority,
+                    'reassignment_needed' => $reassignmentNeeded,
+                ]),
+                'created_at' => now(),
+            ]);
+        });
+
+        $this->cacheService->clearTicketCaches();
+        $this->notificationService->broadcastTicketChange('updated', $ticketId, [
+            'problem_category_ID' => $newCategory,
+            'priority_ID' => $newPriority,
+        ]);
+
+        // TODO: TS005 per-user notification preferences
+        try {
+            $ticketRef = TicketNumberGeneratorService::refFor($ticketId);
+            $reclassifyData = [
+                'ticket_id' => $ticketId,
+                'ticket_ref' => $ticketRef,
+                'old_category_id' => $oldCategory,
+                'new_category_id' => $newCategory,
+                'old_priority_id' => $oldPriority,
+                'new_priority_id' => $newPriority,
+                'type' => 'ticket_reclassified',
+            ];
+
+            // Notify customer or internal requester
+            if ($ticket->is_internal && !empty($ticket->requested_by)) {
+                $this->notificationService->notifyRecipient(
+                    (int) $ticket->requested_by,
+                    'employee',
+                    'Ticket Classification Updated',
+                    "Ticket {$ticketRef} classification has been updated.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            } else {
+                $this->notificationService->notifyCustomer(
+                    (int) $ticket->created_by,
+                    'Ticket Classification Updated',
+                    "Your ticket {$ticketRef} classification has been updated.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            }
+
+            // Notify assigned employee if assigned
+            if (!empty($ticket->assigned_to)) {
+                $this->notificationService->notifyRecipient(
+                    (int) $ticket->assigned_to,
+                    'employee',
+                    'Assigned Ticket Classification Updated',
+                    "Ticket {$ticketRef} assigned to you has been reclassified.",
+                    $ticketId,
+                    $reclassifyData
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Failed to dispatch reclassification notifications for ticket {$ticketId}: " . $e->getMessage());
+        }
+
+        return [
+            'status' => 200,
+            'data' => [
+                'message' => 'Ticket classification updated successfully.',
+                'ticket_id' => $ticketId,
+                'old_category_id' => $oldCategory,
+                'new_category_id' => $newCategory,
+                'old_priority_id' => $oldPriority,
+                'new_priority_id' => $newPriority,
+                'reassignment_needed' => $reassignmentNeeded,
+                'sla' => $slaRecalc,
+            ],
+        ];
     }
 
     /**
@@ -1598,5 +2295,169 @@ class TicketService
     public function cancelTicket(int $ticketId, $user): array
     {
         return $this->stateMachine->applyTransition($ticketId, 'cancel', [], $user);
+    }
+
+    /**
+     * View customer and machine context for assigned employee, CS, or Admin (TS029).
+     * Server-side access control guarantees this context is only returned to the
+     * assigned employee or privileged support roles, with sensitive customer billing
+     * data strictly excluded.
+     */
+    public function getCustomerContext(int $ticketId, $user): array
+    {
+        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+        if (!$ticket) {
+            return [
+                'status' => 404,
+                'data' => ['message' => 'Ticket not found.', 'code' => 'TICKET_NOT_FOUND'],
+            ];
+        }
+
+        // 1. Server-side access control
+        if ($user instanceof \App\Models\Client) {
+            if ((int) $ticket->is_internal !== 0 || (int) $ticket->created_by !== (int) $user->id) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'Access denied. You do not have permission to view context for this ticket.',
+                        'code' => 'UNAUTHORIZED_CONTEXT_ACCESS',
+                    ],
+                ];
+            }
+        } else {
+            $role = strtolower(trim((string) ($user->role ?? '')));
+            $isCSOrAdmin = in_array($role, ['customer service', 'customer support', 'cs', 'admin', 'superadmin', 'super admin'], true);
+
+            $empId = $user->emp_id ?? $user->id ?? null;
+            $isAssigned = ((int) $ticket->assigned_to === (int) $empId);
+            if (!$isAssigned && $empId) {
+                $isAssigned = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->where('employee_ID', $empId)
+                    ->whereIn('assignment_status', ['assigned', 'accepted'])
+                    ->exists();
+            }
+
+            if (!$isAssigned && !$isCSOrAdmin) {
+                return [
+                    'status' => 403,
+                    'data' => [
+                        'message' => 'Access denied. Only the currently assigned employee or support administrators can view customer and machine context for this ticket.',
+                        'code' => 'UNAUTHORIZED_CONTEXT_ACCESS',
+                    ],
+                ];
+            }
+        }
+
+        // 2. Customer Contact Details (Sanitized, excluding billing/financial info)
+        $customerContext = [];
+        if ($ticket->is_internal) {
+            $reqId = $ticket->requested_by ?? $ticket->created_by;
+            $emp = DB::table('employees')->where('emp_id', $reqId)->first();
+            $missingFields = [];
+            if (empty($emp?->email)) $missingFields[] = 'email';
+            if (empty($emp?->department)) $missingFields[] = 'department';
+
+            $customerContext = [
+                'type' => 'internal_employee',
+                'id' => $emp ? (int) $emp->emp_id : null,
+                'name' => $emp ? trim("{$emp->first_name} {$emp->last_name}") : 'Internal Staff',
+                'first_name' => $emp->first_name ?? null,
+                'last_name' => $emp->last_name ?? null,
+                'email' => $emp->email ?? null,
+                'department' => $emp->department ?? null,
+                'role' => $emp->role ?? null,
+                'phone' => null,
+                'address' => null,
+                'preferred_contact_method' => 'Email',
+                'missing_fields' => $missingFields,
+            ];
+        } else {
+            $client = DB::table('clients')->where('id', $ticket->created_by)->first();
+            $missingFields = [];
+            if (empty($client?->contact_number)) $missingFields[] = 'phone';
+            if (empty($client?->email)) $missingFields[] = 'email';
+            if (empty($client?->address)) $missingFields[] = 'address';
+
+            $customerContext = [
+                'type' => 'customer',
+                'id' => $client ? (int) $client->id : null,
+                'name' => $client->client_name ?? 'Unknown Customer',
+                'email' => $client->email ?? null,
+                'phone' => $client->contact_number ?? null,
+                'address' => $client->address ?? null,
+                'preferred_contact_method' => !empty($client?->contact_number) ? 'Phone' : 'Email',
+                'status' => $client ? (bool) $client->status : false,
+                'missing_fields' => $missingFields,
+            ];
+        }
+
+        // 3. Machine Details & History Summary
+        $machineContext = null;
+        if (!empty($ticket->machine_ID)) {
+            $machine = DB::table('machines as m')
+                ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
+                ->where('m.machine_ID', $ticket->machine_ID)
+                ->select(
+                    'm.machine_ID',
+                    'm.machine_name',
+                    'm.brand',
+                    'm.model',
+                    'm.serial_number',
+                    'm.status',
+                    'm.purchase_date',
+                    'm.last_maintenance_date',
+                    'mc.category_name as category_name'
+                )
+                ->first();
+
+            if ($machine) {
+                $pastTicketCount = DB::table('tickets')
+                    ->where('machine_ID', $ticket->machine_ID)
+                    ->where('ticket_ID', '!=', $ticketId)
+                    ->count();
+
+                $lastResolved = DB::table('tickets')
+                    ->where('machine_ID', $ticket->machine_ID)
+                    ->where('ticket_ID', '!=', $ticketId)
+                    ->whereNotNull('resolved_at')
+                    ->orderByDesc('resolved_at')
+                    ->value('resolved_at');
+
+                $lastServiceDate = $lastResolved ?? $machine->last_maintenance_date ?? null;
+
+                $machineContext = [
+                    'linked' => true,
+                    'machine_id' => (int) $machine->machine_ID,
+                    'machine_name' => $machine->machine_name,
+                    'make' => $machine->brand ?? 'Unknown',
+                    'brand' => $machine->brand ?? 'Unknown',
+                    'model' => $machine->model ?? 'Unknown',
+                    'serial_number' => $machine->serial_number ?? 'N/A',
+                    'status' => $machine->status ?? 'active',
+                    'category' => $machine->category_name ?? 'General',
+                    'location' => $customerContext['address'] ?? 'Customer Site',
+                    'installation_date' => $machine->purchase_date ?? null,
+                    'purchase_date' => $machine->purchase_date ?? null,
+                    'last_maintenance_date' => $machine->last_maintenance_date ?? null,
+                    'history_summary' => [
+                        'past_ticket_count' => (int) $pastTicketCount,
+                        'last_service_date' => $lastServiceDate ? \Carbon\Carbon::parse($lastServiceDate)->toIso8601String() : null,
+                    ],
+                ];
+            }
+        }
+
+        return [
+            'status' => 200,
+            'data' => [
+                'success' => true,
+                'ticket_id' => (int) $ticketId,
+                'ticket_number' => $ticket->ticket_number ?? null,
+                'customer' => $customerContext,
+                'machine' => $machineContext,
+                'machine_message' => $machineContext ? null : 'No machine details linked',
+            ],
+        ];
     }
 }

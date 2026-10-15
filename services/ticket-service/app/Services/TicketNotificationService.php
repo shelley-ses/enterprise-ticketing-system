@@ -113,6 +113,22 @@ class TicketNotificationService
             return;
         }
 
+        // TS005: If recipient is a client, verify that in-app alerts are enabled in customer preferences
+        if ($recipientType === 'client') {
+            try {
+                $clientPrefs = \Illuminate\Support\Facades\Cache::store('redis')->get("client:notification_preferences:{$recipientId}");
+            } catch (\Throwable $e) {
+                $clientPrefs = null;
+            }
+            if (!$clientPrefs) {
+                $clientPrefs = \Illuminate\Support\Facades\Cache::get("client:notification_preferences:{$recipientId}");
+            }
+            if ($clientPrefs && isset($clientPrefs['in_app']) && $clientPrefs['in_app'] === false) {
+                Log::info("In-app notification for client [{$recipientId}] skipped due to customer preferences.");
+                return;
+            }
+        }
+
         DB::table('notifications')->insert([
             'recipient_id'   => $recipientId,
             'recipient_type' => $recipientType,
@@ -523,6 +539,20 @@ class TicketNotificationService
         // If configured as 'in_app' only, skip email dispatch
         if ($channel === 'in_app') {
             Log::info("Email notification for alert [{$alertKey}] skipped due to 'in_app only' delivery channel setting.");
+            return;
+        }
+
+        // TS005: Verify customer has not disabled email notifications in preferences
+        try {
+            $clientPrefs = \Illuminate\Support\Facades\Cache::store('redis')->get("client:notification_preferences:{$customerId}");
+        } catch (\Throwable $e) {
+            $clientPrefs = null;
+        }
+        if (!$clientPrefs) {
+            $clientPrefs = \Illuminate\Support\Facades\Cache::get("client:notification_preferences:{$customerId}");
+        }
+        if ($clientPrefs && isset($clientPrefs['email']) && $clientPrefs['email'] === false) {
+            Log::info("Customer email notification for client [{$customerId}] skipped due to customer preferences.");
             return;
         }
 

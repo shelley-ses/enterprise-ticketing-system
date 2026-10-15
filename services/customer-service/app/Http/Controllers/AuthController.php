@@ -368,6 +368,7 @@ class AuthController extends Controller
                 'regex:/[0-9]/',
                 'regex:/[^A-Za-z0-9]/',
             ],
+            'otp' => 'nullable|string',
         ];
 
         $request->validate($rules);
@@ -376,7 +377,7 @@ class AuthController extends Controller
             $user,
             $request->current_password,
             $request->new_password,
-            null // OTP flow disabled
+            $request->otp ?? null
         );
 
         return response()->json([
@@ -453,6 +454,112 @@ class AuthController extends Controller
         ]);
     }
 
+    public function resendFirstLoginOtp(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $cooldownKey = "first_login_otp_cooldown:{$user->id}";
+        if (Cache::has($cooldownKey)) {
+            $remaining = Cache::get($cooldownKey) - time();
+            if ($remaining > 0) {
+                return response()->json([
+                    'message' => "Please wait {$remaining} seconds before requesting another code.",
+                    'retry_after' => $remaining,
+                ], 429);
+            }
+        }
+
+        $email = $user->email;
+        $name = $user instanceof Employee ? trim($user->first_name . ' ' . $user->last_name) : ($user->client_name ?? 'Customer');
+        $success = $this->authService->sendFirstLoginOtp($email, $name);
+        if (!$success) {
+            return response()->json([
+                'message' => 'Unable to send OTP email. Please try again.',
+            ], 500);
+        }
+
+        Cache::put($cooldownKey, time() + 60, 60);
+        Log::info("First-login OTP resent for user {$email}");
+
+        return response()->json([
+            'message' => 'A new verification code has been sent to your email.',
+            'cooldown_seconds' => 60,
+        ], 200);
+    }
+
+    public function verifyFirstLoginOtp(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $request->validate([
+            'otp' => 'required|digits:6',
+        ]);
+
+        $result = $this->authService->verifyPasswordResetOtp($user->email, $request->otp);
+
+        return response()->json([
+            'message' => $result['message'],
+            'remaining_attempts' => $result['remaining_attempts'] ?? null,
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function getProfile(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        if ($user instanceof Employee) {
+            return response()->json([
+                'user' => [
+                    'id' => $user->emp_id,
+                    'emp_id' => $user->emp_id,
+                    'email' => $user->email,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'name' => trim($user->first_name . ' ' . $user->last_name),
+                    'role' => $user->role,
+                    'department' => $user->department,
+                    'is_readonly_cms' => true,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ],
+                'is_first_login' => $user->password_change_at === null,
+            ]);
+        }
+
+        $parts = explode(' ', $user->client_name ?? '');
+        $firstName = $parts[0] ?? '';
+        $lastName = implode(' ', array_slice($parts, 1));
+
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'client_name' => $user->client_name,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'name' => $user->client_name,
+                'email' => $user->email,
+                'contact_number' => $user->contact_number,
+                'phone' => $user->contact_number,
+                'address' => $user->address,
+                'status' => (bool)$user->status,
+                'role' => 'customer',
+                'is_readonly_cms' => true,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+            ],
+            'is_first_login' => optional($user->credential)->password_change_at === null,
+        ]);
+    }
+
     public function updateProfile(Request $request)
     {
         $user = $request->user();
@@ -464,23 +571,164 @@ class AuthController extends Controller
             return response()->json(['message' => 'SSO users cannot edit profile details locally.'], 403);
         }
 
-        $validated = $request->validate([
-            'firstName' => 'required|string|max:255',
-            'lastName' => 'required|string|max:255',
-            'email' => 'required|email|unique:clients,email,' . $user->id,
-            'phone' => 'nullable|string|max:20',
+        $request->validate([
+            'firstName' => 'sometimes|nullable|string|max:255',
+            'lastName' => 'sometimes|nullable|string|max:255',
+            'name' => 'sometimes|nullable|string|max:255',
+            'email' => 'required|email|max:255',
+            'phone' => 'nullable|string|min:7|max:20|regex:/^[0-9+\-\s()]+$/',
+            'address' => 'nullable|string|max:500',
+        ], [
+            'email.required' => 'Email address cannot be left blank.',
+            'email.email' => 'Enter a valid email address.',
+            'phone.regex' => 'Enter a valid phone number.',
+            'phone.min' => 'Phone number must be at least 7 characters.',
         ]);
 
-        $user->client_name = trim($validated['firstName'] . ' ' . $validated['lastName']);
-        $user->email = $validated['email'];
-        if ($request->has('phone')) {
-            $user->contact_number = $validated['phone'] ?? '';
+        $newEmail = strtolower(trim($request->email));
+
+        // Enforce duplicate-email check
+        $existing = Client::where('email', $newEmail)->where('id', '!=', $user->id)->first();
+        if ($existing) {
+            return response()->json([
+                'error' => 'EMAIL_ALREADY_EXISTS',
+                'message' => 'This email address is already associated with another account.',
+            ], 409);
         }
+
+        // Email change verification / confirmation
+        $oldEmail = strtolower(trim($user->email));
+        $emailChanged = ($newEmail !== $oldEmail);
+        if ($emailChanged) {
+            Log::info("Customer email change for client {$user->id} from {$oldEmail} to {$newEmail}");
+        }
+
+        if ($request->has('firstName') || $request->has('lastName')) {
+            $firstName = $request->input('firstName', '');
+            $lastName = $request->input('lastName', '');
+            $user->client_name = trim("{$firstName} {$lastName}");
+        } elseif ($request->filled('name')) {
+            $user->client_name = trim($request->name);
+        }
+
+        $user->email = $newEmail;
+
+        if ($request->has('phone')) {
+            $user->contact_number = $request->phone ?? '';
+        } elseif ($request->has('contact_number')) {
+            $user->contact_number = $request->contact_number ?? '';
+        }
+
+        if ($request->has('address')) {
+            $user->address = $request->address ?? '';
+        }
+
         $user->save();
 
-        return response()->json([
-            'message' => 'Profile updated successfully',
-            'user' => $user,
+        Log::info("Customer profile updated for client ID {$user->id}", [
+            'client_id' => $user->id,
+            'email' => $user->email,
+            'contact_number' => $user->contact_number,
+            'address' => $user->address,
         ]);
+
+        $parts = explode(' ', $user->client_name ?? '');
+        $firstName = $parts[0] ?? '';
+        $lastName = implode(' ', array_slice($parts, 1));
+
+        return response()->json([
+            'message' => 'Your profile has been updated',
+            'user' => [
+                'id' => $user->id,
+                'client_name' => $user->client_name,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'name' => $user->client_name,
+                'email' => $user->email,
+                'contact_number' => $user->contact_number,
+                'phone' => $user->contact_number,
+                'address' => $user->address,
+                'status' => (bool)$user->status,
+                'role' => 'customer',
+                'is_readonly_cms' => true,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+            ],
+        ], 200);
+    }
+
+    public function getNotificationPreferences(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $key = "client:notification_preferences:{$user->id}";
+        try {
+            $prefs = Cache::store('redis')->get($key);
+        } catch (\Throwable $e) {
+            $prefs = Cache::get($key);
+        }
+        if (!$prefs) {
+            $prefs = [
+                'in_app' => true,
+                'email' => true,
+            ];
+        }
+
+        return response()->json([
+            'preferences' => $prefs,
+            'in_app' => (bool) ($prefs['in_app'] ?? true),
+            'email' => (bool) ($prefs['email'] ?? true),
+        ], 200);
+    }
+
+    public function updateNotificationPreferences(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $request->validate([
+            'in_app' => 'required|boolean',
+            'email' => 'required|boolean',
+        ]);
+
+        $inApp = $request->boolean('in_app');
+        $email = $request->boolean('email');
+
+        if (!$inApp && !$email) {
+            return response()->json([
+                'error' => 'AT_LEAST_ONE_CHANNEL_REQUIRED',
+                'message' => 'At least one notification channel must stay enabled so you don\'t miss updates',
+            ], 422);
+        }
+
+        $prefs = [
+            'in_app' => $inApp,
+            'email' => $email,
+            'updated_at' => now()->toISOString(),
+        ];
+
+        $key = "client:notification_preferences:{$user->id}";
+        try {
+            Cache::store('redis')->put($key, $prefs, now()->addDays(365));
+        } catch (\Throwable $e) {
+            Cache::put($key, $prefs, 3600);
+        }
+
+        Log::info("Notification preferences updated for client ID {$user->id}", [
+            'client_id' => $user->id,
+            'preferences' => $prefs,
+        ]);
+
+        return response()->json([
+            'message' => 'Notification preferences updated successfully',
+            'preferences' => $prefs,
+            'in_app' => $inApp,
+            'email' => $email,
+        ], 200);
     }
 }

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class AttachmentController extends Controller
@@ -133,6 +134,7 @@ class AttachmentController extends Controller
 
         $isProof = filter_var($request->input('is_proof', false), FILTER_VALIDATE_BOOLEAN);
         $uploaded = [];
+        $quarantined = [];
 
         try {
             foreach ($files as $file) {
@@ -144,10 +146,10 @@ class AttachmentController extends Controller
                 $tempPath = $file->storeAs("temp-scans", "{$uuid}_{$safeName}", 'local');
                 $fullTempPath = storage_path("app/{$tempPath}");
 
-                // 3. Conditional Malware Scanning via ClamAV
+                // 3. Conditional Malware Scanning via ClamAV (TS084, TS085)
                 if ($malwareScanningEnabled) {
                     try {
-                        $isClean = $this->scanner->scan($fullTempPath);
+                        $scanDetails = $this->scanner->scanDetails($fullTempPath);
                     } catch (\Exception $e) {
                         @unlink($fullTempPath);
                         Log::error("ClamAV Scanning failed with exception: " . $e->getMessage());
@@ -156,19 +158,22 @@ class AttachmentController extends Controller
                         ], 500);
                     }
 
-                    if (!$isClean) {
-                        @unlink($fullTempPath);
-                        return response()->json([
-                            'message' => 'Security threat detected: We detected a potential virus or malware in the uploaded file: "' . $origName . '". This upload has been blocked for safety.',
-                            'virus_detected' => true,
-                            'file_name' => $origName
-                        ], 422);
+                    if (!$scanDetails['clean']) {
+                        $quarantined[] = $this->handleMalwareQuarantineAndAlert(
+                            $request,
+                            $origName,
+                            $fullTempPath,
+                            $file->getSize(),
+                            $scanDetails['threat'] ?? 'Malware.Detected',
+                            $uuid
+                        );
+                        continue; // Proceed with next file for partial-upload support!
                     }
                 } else {
                     Log::info("Malware scanning disabled by system configuration. Bypassing ClamAV scan for {$origName}");
                 }
 
-                // Move from local temp scan to public disk pending folder
+                // Move clean file from local temp scan to public disk pending folder
                 $pendingPath = "ticket-attachments/pending/{$uuid}/{$safeName}";
                 Storage::disk('public')->put($pendingPath, file_get_contents($fullTempPath));
                 @unlink($fullTempPath); // delete local temp file
@@ -207,15 +212,140 @@ class AttachmentController extends Controller
                 }
             }
 
+            // 4. Partial-upload evaluation (TS084)
+            $hasThreats = count($quarantined) > 0;
+            $hasClean = count($uploaded) > 0;
+
+            if ($hasThreats && !$hasClean) {
+                return response()->json([
+                    'message' => 'The uploaded file was flagged as a potential security risk and cannot be accepted. Please upload a clean file.',
+                    'virus_detected' => true,
+                    'has_threats' => true,
+                    'attachments' => [],
+                    'quarantined' => $quarantined,
+                ], 422);
+            }
+
+            if ($hasThreats && $hasClean) {
+                return response()->json([
+                    'message' => 'Upload completed with security warnings: Clean files were processed successfully, while infected files were blocked and quarantined.',
+                    'virus_detected' => true,
+                    'has_threats' => true,
+                    'attachments' => $uploaded,
+                    'quarantined' => $quarantined,
+                ], 200);
+            }
+
             return response()->json([
                 'message' => 'Files uploaded successfully.',
-                'attachments' => $uploaded
+                'virus_detected' => false,
+                'has_threats' => false,
+                'attachments' => $uploaded,
+                'quarantined' => [],
             ], 200);
 
         } catch (\Exception $e) {
             Log::error("Attachment upload exception: " . $e->getMessage());
             return response()->json(['message' => 'Upload failed: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Quarantine infected file, write durable security audit log, and dispatch alerts (TS084, TS085).
+     */
+    protected function handleMalwareQuarantineAndAlert(
+        Request $request,
+        string $origName,
+        string $fullTempPath,
+        int $fileSize,
+        string $threatName,
+        string $uuid
+    ): array {
+        $safeName = basename(preg_replace('/[^a-zA-Z0-9_.-]/', '_', $origName));
+        $fileHash = file_exists($fullTempPath) ? hash_file('sha256', $fullTempPath) : null;
+        $quarantineRef = "quarantine/{$uuid}_{$safeName}";
+
+        // 1. Quarantine isolation (stored in private local disk, completely isolated from public downloads)
+        try {
+            Storage::disk('local')->put($quarantineRef, file_get_contents($fullTempPath));
+        } catch (\Throwable $e) {
+            Log::error("Failed to write file to quarantine storage: " . $e->getMessage());
+        } finally {
+            @unlink($fullTempPath);
+        }
+
+        // 2. Identify uploader details
+        $user = $request->user();
+        $uploaderId = $user ? ($user->emp_id ?? $user->id) : null;
+        $uploaderEmail = $user?->email ?? 'anonymous';
+        $uploaderRole = $user?->role ?? ($user instanceof \App\Models\Client ? 'customer' : 'guest');
+        $ip = $request->ip();
+        $ticketId = $request->input('ticket_id');
+
+        // 3. Security Audit Logging (TS084)
+        Log::warning("SECURITY INCIDENT [MALWARE_QUARANTINED]: File='{$origName}', Size={$fileSize}, SHA256={$fileHash}, Threat='{$threatName}', Uploader={$uploaderEmail} (ID:{$uploaderId}, Role:{$uploaderRole}), IP={$ip}, TicketID={$ticketId}, QuarantineRef={$quarantineRef}");
+
+        // 4. Incident payload (STRICTLY NO malware binary transmitted per TS085)
+        $securityAlert = [
+            'incident_id' => Str::uuid()->toString(),
+            'event' => 'malware_detected',
+            'alert_type' => 'security_alert',
+            'timestamp' => now()->toIso8601String(),
+            'uploader' => [
+                'id' => $uploaderId,
+                'email' => $uploaderEmail,
+                'role' => $uploaderRole,
+                'ip_address' => $ip,
+            ],
+            'ticket_id' => $ticketId ? (int) $ticketId : null,
+            'file' => [
+                'original_name' => $origName,
+                'size' => $fileSize,
+                'hash_sha256' => $fileHash,
+                'threat_name' => $threatName,
+                'quarantine_ref' => $quarantineRef,
+            ],
+        ];
+
+        // 5. Dispatch incident alert to notification-service (TS085)
+        try {
+            $notifUrl = env('NOTIFICATION_SERVICE_URL', 'http://notification-service:8000');
+            Http::timeout(3)->post("{$notifUrl}/api/security-alerts", $securityAlert);
+        } catch (\Throwable $e) {
+            Log::warning("Could not dispatch security incident alert to notification-service: " . $e->getMessage());
+        }
+
+        // 6. Durable in-app security notification for Super Admins and Admins (TS085)
+        try {
+            $adminIds = DB::table('employees')
+                ->whereIn(DB::raw('LOWER(role)'), ['superadmin', 'super admin', 'admin'])
+                ->pluck('emp_id');
+
+            foreach ($adminIds as $adminId) {
+                DB::table('notifications')->insert([
+                    'recipient_id'   => $adminId,
+                    'recipient_type' => 'employee',
+                    'title'          => 'Security Alert: Malware Detected on Upload',
+                    'message'        => "Potential threat '{$threatName}' detected in file '{$origName}' uploaded by {$uploaderEmail}. The file was quarantined.",
+                    'ticket_id'      => $ticketId ? (int) $ticketId : null,
+                    'data'           => json_encode($securityAlert),
+                    'is_read'        => false,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Could not record in-app security alert notifications: " . $e->getMessage());
+        }
+
+        return [
+            'name' => $origName,
+            'virus_detected' => true,
+            'threat_name' => $threatName,
+            'status' => 'quarantined',
+            'quarantine_ref' => $quarantineRef,
+            'message' => "The uploaded file was flagged as a potential security risk and cannot be accepted. Please upload a clean file.",
+        ];
     }
 
     /**
@@ -373,6 +503,10 @@ class AttachmentController extends Controller
     public function serve(Request $request, $path)
     {
         $cleanPath = ltrim($path, '/');
+        if (str_starts_with($cleanPath, 'quarantine') || str_contains($cleanPath, 'quarantine/')) {
+            return response()->json(['message' => 'Access denied: Quarantined files cannot be accessed or downloaded.'], 403);
+        }
+
         if (!Storage::disk('public')->exists($cleanPath)) {
             return response()->json(['message' => 'File not found'], 404);
         }
@@ -394,6 +528,10 @@ class AttachmentController extends Controller
     public function download(Request $request, $path)
     {
         $cleanPath = ltrim($path, '/');
+        if (str_starts_with($cleanPath, 'quarantine') || str_contains($cleanPath, 'quarantine/')) {
+            return response()->json(['message' => 'Access denied: Quarantined files cannot be accessed or downloaded.'], 403);
+        }
+
         if (!Storage::disk('public')->exists($cleanPath)) {
             return response()->json(['message' => 'File not found'], 404);
         }

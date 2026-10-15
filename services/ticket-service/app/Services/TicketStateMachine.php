@@ -173,6 +173,10 @@ class TicketStateMachine
         if ($lower === 'accept') return self::STATE_IN_PROGRESS_EMPLOYEE;
         if ($lower === 'hold') return self::STATE_ON_HOLD;
         if ($lower === 'resume') {
+            // If held from Pending Assignment (status 10), resume back to Assigned
+            if ($ticket && (int)($ticket->held_from_status_ID ?? 0) === self::STATUS_ID_PENDING_ASSIGNMENT) {
+                return self::STATE_ASSIGNED;
+            }
             $prev = $ticket ? ($ticket->previous_in_progress_owner ?? $ticket->in_progress_owner) : null;
             return $prev === self::OWNER_CS ? self::STATE_IN_PROGRESS_CS : self::STATE_IN_PROGRESS_EMPLOYEE;
         }
@@ -236,6 +240,7 @@ class TicketStateMachine
         // Contextual resume from On Hold/Pending
         if ($fromState === self::STATE_ON_HOLD) {
             return in_array($toState, [
+                self::STATE_ASSIGNED,
                 self::STATE_IN_PROGRESS_CS,
                 self::STATE_IN_PROGRESS_EMPLOYEE,
                 self::STATE_CANCELLED,
@@ -254,6 +259,11 @@ class TicketStateMachine
 
         // Allow CS technician updates and reassignment while in Assigned (Pending Assignment) status
         if ($fromState === self::STATE_ASSIGNED && $toState === self::STATE_ASSIGNED) {
+            return true;
+        }
+
+        // Allow holding an assigned ticket (Pending Assignment to On Hold)
+        if ($fromState === self::STATE_ASSIGNED && $toState === self::STATE_ON_HOLD) {
             return true;
         }
 
@@ -330,13 +340,18 @@ class TicketStateMachine
 
         // 3. Contextual resume check for On Hold/Pending
         if ($fromState === self::STATE_ON_HOLD) {
-            $validResumes = [self::STATE_IN_PROGRESS_CS, self::STATE_IN_PROGRESS_EMPLOYEE, self::STATE_CANCELLED];
+            $validResumes = [
+                self::STATE_ASSIGNED,
+                self::STATE_IN_PROGRESS_CS,
+                self::STATE_IN_PROGRESS_EMPLOYEE,
+                self::STATE_CANCELLED,
+            ];
             if (!in_array($toState, $validResumes, true)) {
                 throw new InvalidTicketTransitionException(
                     $fromState,
                     $toState,
                     $validResumes,
-                    "Cannot transition ticket on hold to '{$toState}'. Tickets on hold can only resume to 'In Progress (CS-owned)' or 'In Progress (Employee-owned)'."
+                    "Cannot transition ticket on hold to '{$toState}'. Tickets on hold can only resume to 'Assigned', 'In Progress (CS-owned)' or 'In Progress (Employee-owned)'."
                 );
             }
             return;
@@ -382,6 +397,7 @@ class TicketStateMachine
                     'message' => "Ticket is already in state '{$currentState}'.",
                     'ticket' => $ticketRecord,
                     'state' => $currentState,
+                    'transitioned' => false,
                 ],
             ];
         }
@@ -389,24 +405,37 @@ class TicketStateMachine
         // Validate the attempted transition
         $this->validateTransition($ticketRecord, $currentState, $resolvedTargetState, $context);
 
-        // Determine actor details
+        // Determine actor details without default fallback to 1
         $actorType = 'employee';
-        $actorId = 1;
+        $actorId = 0;
         if (is_array($actor)) {
             $actorType = $actor['type'] ?? 'employee';
-            $actorId = $actor['id'] ?? $actor['emp_id'] ?? 1;
+            $actorId = (int) ($actor['id'] ?? $actor['emp_id'] ?? 0);
         } elseif ($actor instanceof \App\Models\Client || ($actor->role ?? '') === 'customer') {
             $actorType = 'customer';
-            $actorId = $actor->id ?? $actor->client_id ?? 1;
-        } elseif ($actor && isset($actor->emp_id)) {
-            $actorId = $actor->emp_id;
-        } elseif ($actor && isset($actor->id)) {
-            $actorId = $actor->id;
+            $actorId = (int) ($actor->id ?? $actor->client_id ?? 0);
+        } elseif ($actor && (isset($actor->emp_id) || isset($actor->id))) {
+            $actorId = (int) ($actor->emp_id ?? $actor->id);
+            $roleClean = strtolower(str_replace([' ', '_', '-'], '', (string) ($actor->role ?? '')));
+            if (in_array($roleClean, ['superadmin', 'admin', 'cs', 'customerservice'], true)) {
+                $actorType = $roleClean;
+            } else {
+                $actorType = 'employee';
+            }
+        } else {
+            $actorType = 'system';
+            $actorId = 0;
         }
 
         $updateFields = [
             'updated_at' => now(),
         ];
+
+        // Leaving On Hold (resume or cancel): clear held_from_status_ID and hold_reason
+        if ($currentState === self::STATE_ON_HOLD) {
+            $updateFields['held_from_status_ID'] = null;
+            $updateFields['hold_reason'] = null;
+        }
 
         $auditAction = 'status_transition';
         $auditDetails = [
@@ -429,7 +458,7 @@ class TicketStateMachine
                 if (!empty($context['assigned_to'])) {
                     $updateFields['assigned_to'] = $context['assigned_to'];
                 }
-                $auditAction = 'assign';
+                $auditAction = ($currentState === self::STATE_ON_HOLD) ? 'resume' : 'assign';
                 break;
 
             case self::STATE_REASSIGNED:
@@ -449,6 +478,11 @@ class TicketStateMachine
                     $updateFields['rejection_reason'] = null;
                     $auditAction = 'reopen';
                     $auditDetails['message'] = 'Ticket reopened and routed automatically to Customer Service (CS-owned).';
+                    if (!empty($context['reason'])) {
+                        $auditDetails['reason'] = $context['reason'];
+                    }
+                } elseif ($currentState === self::STATE_ON_HOLD) {
+                    $auditAction = 'resume';
                 } else {
                     $auditAction = 'in_progress';
                 }
@@ -457,15 +491,26 @@ class TicketStateMachine
             case self::STATE_IN_PROGRESS_EMPLOYEE:
                 $updateFields['ticket_status_ID'] = self::STATUS_ID_IN_PROGRESS;
                 $updateFields['in_progress_owner'] = self::OWNER_EMPLOYEE;
-                $auditAction = ($currentState === self::STATE_ASSIGNED) ? 'accept' : 'in_progress';
+                if ($currentState === self::STATE_ASSIGNED) {
+                    $auditAction = 'accept';
+                } elseif ($currentState === self::STATE_ON_HOLD) {
+                    $auditAction = 'resume';
+                } else {
+                    $auditAction = 'in_progress';
+                }
                 break;
 
             case self::STATE_ON_HOLD:
                 $updateFields['ticket_status_ID'] = self::STATUS_ID_ON_HOLD;
+                $updateFields['held_from_status_ID'] = (int) $ticketRecord->ticket_status_ID;
+                $updateFields['hold_reason'] = $context['reason'] ?? null;
                 // Save previous owner so contextual resume knows where to return
                 $updateFields['previous_in_progress_owner'] = $ticketRecord->in_progress_owner ?? self::OWNER_EMPLOYEE;
                 $updateFields['in_progress_owner'] = null;
                 $auditAction = 'hold';
+                if (!empty($context['reason'])) {
+                    $auditDetails['reason'] = $context['reason'];
+                }
                 break;
 
             case self::STATE_RESOLVED:
@@ -497,15 +542,64 @@ class TicketStateMachine
         }
 
         // Execute database updates inside transaction
-        DB::transaction(function () use ($ticketId, $updateFields, $auditAction, $actorId, $actorType, $auditDetails, $resolvedTargetState, $currentState) {
+        DB::transaction(function () use (
+            $ticketId,
+            $updateFields,
+            $auditAction,
+            $actorId,
+            $actorType,
+            $auditDetails,
+            $resolvedTargetState,
+            $currentState,
+            $context
+        ) {
             DB::table('tickets')->where('ticket_ID', $ticketId)->update($updateFields);
 
-            // If reopened, unassign any existing ticket_assignments
-            if ($resolvedTargetState === self::STATE_IN_PROGRESS_CS && in_array($currentState, [self::STATE_CLOSED, self::STATE_RESOLVED], true)) {
-                DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->delete();
+            // 1. Leaving On Hold -> resume SLA clock
+            if ($currentState === self::STATE_ON_HOLD) {
+                $this->slaService->resumeClock($ticketId);
             }
 
-            // Record SLA triggers
+            // 2. Entering On Hold -> pause SLA clock and write internal note
+            if ($resolvedTargetState === self::STATE_ON_HOLD) {
+                $this->slaService->pauseClock($ticketId);
+
+                $reason = $context['reason'] ?? null;
+                if ($reason) {
+                    $isStaff = in_array(strtolower($actorType), ['employee', 'admin', 'superadmin', 'cs', 'customerservice'], true);
+                    if ($isStaff && $actorId > 0) {
+                        DB::table('internal_notes')->insert([
+                            'ticket_id' => $ticketId,
+                            'employee_id' => $actorId,
+                            'note' => 'Hold reason: ' . $reason,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    } else {
+                        Log::warning("Skipped internal_notes insert for ticket {$ticketId} on hold: non-staff or invalid actor (actor_type: {$actorType}, actorId: {$actorId})");
+                    }
+                }
+            }
+
+            // 3. Reopening -> soft-end existing ticket_assignments (do NOT delete) and recalculate SLA
+            if ($resolvedTargetState === self::STATE_IN_PROGRESS_CS && in_array($currentState, [self::STATE_CLOSED, self::STATE_RESOLVED, self::STATE_REOPENED], true)) {
+                DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->whereNull('completed_at')
+                    ->update([
+                        'assignment_status' => 'reopened_unassigned',
+                        'completed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                try {
+                    $this->slaService->recalculateForReopen($ticketId);
+                } catch (\Throwable $e) {
+                    Log::warning("SLA recalculateForReopen failed for ticket {$ticketId}: " . $e->getMessage());
+                }
+            }
+
+            // 4. Record SLA resolution triggers
             if ($resolvedTargetState === self::STATE_RESOLVED || $resolvedTargetState === self::STATE_CLOSED) {
                 try {
                     $this->slaService->recordResolution($ticketId, now());
@@ -520,7 +614,7 @@ class TicketStateMachine
                 } catch (\Throwable $e) {}
             }
 
-            // Insert audit log
+            // 5. Insert audit log
             DB::table('ticket_audit_logs')->insert([
                 'ticket_ID' => $ticketId,
                 'action_type' => $auditAction,
@@ -554,6 +648,7 @@ class TicketStateMachine
                 'ticket' => $freshTicket,
                 'state' => $resolvedTargetState,
                 'in_progress_owner' => $freshTicket->in_progress_owner,
+                'transitioned' => true,
             ],
         ];
     }

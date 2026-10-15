@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import axiosInstance from '@/api/axiosInstance';
 import eyeIcon from '@/assets/eyetoggle.png';
@@ -6,7 +6,8 @@ import './ForceChangePasswordModal.css';
 
 /**
  * Blocking modal shown when the backend flags `is_first_login`.
- * Calls POST /change-password (auth:sanctum) with current + new password.
+ * Calls POST /first-login/verify-otp, POST /first-login/resend-otp,
+ * and POST /change-password with RSA-encrypted current + new passwords.
  * The modal cannot be closed / dismissed – navigation is blocked until the
  * password is successfully changed.
  */
@@ -16,6 +17,9 @@ export default function ForceChangePasswordModal() {
   const isEmployeePortal = import.meta.env.VITE_APP_MODE !== 'customer';
   const [step, setStep] = useState(isEmployeePortal ? 2 : 1); // 1: Verify OTP, 2: Change Password
   const [otp, setOtp] = useState(isEmployeePortal ? '000000' : '');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
+  const [resendNotice, setResendNotice] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -26,6 +30,26 @@ export default function ForceChangePasswordModal() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // Prevent leaving or accidental tab closing during mandatory flow
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = 'Password change is mandatory. If you leave, you will remain locked to this screen.';
+      return e.returnValue;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
   // Password strength validations
   const hasMinLength = newPassword.length >= 12;
   const hasUppercase = /[A-Z]/.test(newPassword);
@@ -34,10 +58,33 @@ export default function ForceChangePasswordModal() {
   const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSymbol;
   const isOtpValid = /^\d{6}$/.test(otp);
 
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || resending || busy) return;
+    setResending(true);
+    setError('');
+    setResendNotice('');
+
+    try {
+      const res = await axiosInstance.post('/first-login/resend-otp');
+      setResendNotice(res.data?.message || 'A new verification code has been sent to your email.');
+      setResendCooldown(res.data?.cooldown_seconds || 60);
+    } catch (err) {
+      if (err.response?.status === 429) {
+        setResendCooldown(err.response?.data?.retry_after || 60);
+        setError(err.response?.data?.message || 'Please wait before requesting another code.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to resend code. Please try again.');
+      }
+    } finally {
+      setResending(false);
+    }
+  };
+
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     if (busy) return;
     setError('');
+    setResendNotice('');
 
     if (!isOtpValid) {
       setError('Please enter a valid 6-digit OTP code.');
@@ -46,13 +93,16 @@ export default function ForceChangePasswordModal() {
 
     setBusy(true);
     try {
-      await axiosInstance.post('/forgot-password/verify', {
-        email: user?.email,
+      await axiosInstance.post('/first-login/verify-otp', {
         otp: otp,
       });
       setStep(2);
     } catch (err) {
-      const msg = err.response?.data?.message || 'Invalid or expired OTP code.';
+      const remaining = err.response?.data?.remaining_attempts;
+      let msg = err.response?.data?.message || 'Invalid or expired OTP code.';
+      if (remaining !== undefined && remaining !== null) {
+        msg = `${msg} (${remaining} attempts remaining before temporary lockout).`;
+      }
       setError(msg);
     } finally {
       setBusy(false);
@@ -70,35 +120,43 @@ export default function ForceChangePasswordModal() {
     }
 
     if (!isPasswordValid) {
-      setError('New password must meet all requirements.');
+      setError('New password must meet all complexity requirements.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match.');
+      setError('New password and confirmation password do not match.');
       return;
     }
 
     if (newPassword === currentPassword) {
-      setError('New password must be different from current password.');
+      setError('New password cannot be identical to your system-generated default credential.');
       return;
     }
 
     setBusy(true);
 
     try {
+      const { fetchEncryptionKey, encryptPayload } = await import('@/utils/rsa');
+      const { public_key, key_id } = await fetchEncryptionKey();
+
       await axiosInstance.post('/change-password', {
         otp: otp,
-        current_password: currentPassword,
-        new_password: newPassword,
-        new_password_confirmation: confirmPassword,
+        current_password: encryptPayload(currentPassword, public_key),
+        new_password: encryptPayload(newPassword, public_key),
+        new_password_confirmation: encryptPayload(confirmPassword, public_key),
+      }, {
+        headers: {
+          'X-Key-Id': key_id,
+        },
       });
 
       setSuccess(true);
+      sessionStorage.removeItem('first_login_pending');
 
-      // Log out on success to force user redirection back to the login page
+      // Revalidate session so user can enter the portal directly
       setTimeout(async () => {
-        await logout();
+        await revalidateSession();
       }, 1800);
     } catch (err) {
       const msg =
@@ -129,9 +187,9 @@ export default function ForceChangePasswordModal() {
                 </svg>
               </div>
 
-              <h2 className="fcp-title">Verification Required</h2>
+              <h2 className="fcp-title">Mandatory First Login Verification</h2>
               <p className="fcp-subtitle">
-                Please enter the 6-digit OTP code sent to your email to verify your identity.
+                To secure your account, please enter the 6-digit OTP code sent to your registered email address.
                 {user?.name ? ` Welcome, ${user.name}.` : ''}
               </p>
 
@@ -147,16 +205,37 @@ export default function ForceChangePasswordModal() {
                 </div>
               )}
 
+              {/* Resend Notice */}
+              {resendNotice && !error && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                  {resendNotice}
+                </div>
+              )}
+
               {/* OTP Code */}
-              <label className="fcp-label" htmlFor="fcp-otp">OTP Code</label>
+              <div className="flex items-center justify-between">
+                <label className="fcp-label" htmlFor="fcp-otp">OTP Code</label>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0 || resending || busy}
+                  className="text-xs text-[#252578] hover:underline disabled:text-gray-400 disabled:no-underline font-semibold cursor-pointer"
+                >
+                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : resending ? 'Sending...' : 'Resend Code'}
+                </button>
+              </div>
               <div className="fcp-input-wrap">
                 <input
                   id="fcp-otp"
                   type="text"
-                  className="fcp-input"
+                  className="fcp-input font-mono tracking-widest text-center text-lg font-bold"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Enter 6-digit OTP code"
+                  placeholder="000000"
                   autoComplete="one-time-code"
                   disabled={busy}
                 />
@@ -166,7 +245,7 @@ export default function ForceChangePasswordModal() {
               <div className="fcp-actions">
                 <button
                   type="button"
-                  className="fcp-btn-logout"
+                  className="fcp-btn-logout cursor-pointer"
                   onClick={logout}
                   disabled={busy}
                 >
@@ -174,7 +253,7 @@ export default function ForceChangePasswordModal() {
                 </button>
                 <button
                   type="submit"
-                  className="fcp-btn-submit"
+                  className="fcp-btn-submit cursor-pointer"
                   disabled={busy || !isOtpValid}
                 >
                   {busy ? (

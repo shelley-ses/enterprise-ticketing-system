@@ -10,6 +10,7 @@ use App\Http\Controllers\BranchPriorityController;
 use App\Http\Controllers\BranchCategoryController;
 use App\Http\Controllers\SLARuleController;
 use App\Http\Controllers\WorkflowEscalationController;
+use App\Http\Controllers\TicketDraftController;
 
 /*
 |--------------------------------------------------------------------------
@@ -23,6 +24,12 @@ Route::middleware('auth.subsystem')->get('/user', function (Request $request) {
 
 // ─── Core Ticket Public / Common Endpoints ────────────────────────────────────
 Route::get('/ticket-form-options', [TicketController::class, 'formOptions']);
+Route::get('/customer/filter-options', [TicketDashboardController::class, 'customerFilterOptions']);
+Route::get('/cs/filter-options', [TicketDashboardController::class, 'csFilterOptions']);
+Route::post('/tickets/draft', [TicketDraftController::class, 'saveDraft']);
+Route::get('/tickets/drafts', [TicketDraftController::class, 'listDrafts']);
+Route::get('/tickets/drafts/{id}', [TicketDraftController::class, 'getDraft']);
+Route::delete('/tickets/drafts/{id}', [TicketDraftController::class, 'deleteDraft']);
 
 // ─── Dashboards & Feed Endpoints ─────────────────────────────────────────────
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);
@@ -34,6 +41,43 @@ Route::get('/departments', function () {
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
     } catch (\Exception $e) {
         return response()->json(['departments' => []]);
+    }
+});
+
+Route::get('/employees/search', function (Request $request) {
+    $token = $request->bearerToken();
+    try {
+        $client = Illuminate\Support\Facades\Http::timeout(5);
+        if ($token) {
+            $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+        }
+        $resp = $client->get('http://employee-service:8000/api/employees/search', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'data' => [],
+            'total' => 0,
+            'message' => 'Employee service unavailable. Please try again later.'
+        ], 503);
+    }
+});
+
+Route::get('/employees/filter-options', function (Request $request) {
+    $token = $request->bearerToken();
+    try {
+        $client = Illuminate\Support\Facades\Http::timeout(5);
+        if ($token) {
+            $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+        }
+        $resp = $client->get('http://employee-service:8000/api/employees/filter-options', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    } catch (\Exception $e) {
+        return response()->json([
+            'departments' => [],
+            'roles' => [],
+            'branches' => []
+        ], 503);
     }
 });
 
@@ -51,6 +95,24 @@ Route::middleware('auth.subsystem')->group(function () {
         $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
             ->post("http://employee-service:8000/api/tickets/{$ticketId}/assign", $request->all());
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::get('/tickets/{ticketId}/eligible-employees', function (Request $request, $ticketId) {
+        $token = $request->bearerToken();
+        try {
+            $client = Illuminate\Support\Facades\Http::timeout(5);
+            if ($token) {
+                $client = $client->withHeaders(['Authorization' => "Bearer {$token}"]);
+            }
+            $resp = $client->get("http://employee-service:8000/api/tickets/{$ticketId}/eligible-employees", $request->all());
+            return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Employee service unavailable. Please try again later.',
+                'eligible_employees' => [],
+                'ineligible_employees' => [],
+            ], 503);
+        }
     });
 
     Route::post('/tickets/{ticketId}/employee-update', function (Request $request, $ticketId) {
@@ -187,6 +249,43 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::post('/tickets/{ticketId}/close', [TicketController::class, 'closeTicket']);
     Route::post('/tickets/{ticketId}/reopen', [TicketController::class, 'reopenTicket']);
     Route::post('/tickets/{ticketId}/cancel', [TicketController::class, 'cancelTicket']);
+    Route::patch('/tickets/{ticketId}/classification', [TicketController::class, 'reclassifyTicket']);
+    Route::get('/tickets/{ticketId}/customer-context', [TicketController::class, 'customerContext']);
+    Route::get('/tickets/{ticketId}/customer-info', [TicketController::class, 'customerContext']);
+
+    // ─── Security Incident Audit Details (TS085) ─────────────────────────────
+    Route::get('/security-incidents/{id}', function (Request $request, $id) {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $role = strtolower(trim((string) ($user->role ?? '')));
+        if (!in_array($role, ['superadmin', 'super admin', 'admin'], true)) {
+            return response()->json(['message' => 'Access denied: Admin role required to review security incident records.'], 403);
+        }
+
+        $row = Illuminate\Support\Facades\DB::table('notifications')
+            ->where(function ($q) use ($id) {
+                if (is_numeric($id)) {
+                    $q->where('notification_ID', $id);
+                }
+                $q->orWhere('data', 'like', "%{$id}%");
+            })
+            ->first();
+
+        if (!$row) {
+            return response()->json(['message' => 'Security incident record not found.'], 404);
+        }
+
+        $data = json_decode($row->data ?? '{}', true);
+        return response()->json([
+            'id' => $row->notification_ID ?? $id,
+            'title' => $row->title,
+            'message' => $row->message,
+            'incident_details' => $data,
+            'created_at' => $row->created_at,
+        ]);
+    });
 
     // ─── Notifications ────────────────────────────────────────────────────────
     Route::get('/notifications', [TicketNotificationController::class, 'getNotifications']);

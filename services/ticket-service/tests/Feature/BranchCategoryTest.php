@@ -46,6 +46,19 @@ class BranchCategoryTest extends TestCase
                 'is_active' => true,
                 'password_hash' => 'secret',
             ]);
+
+        $itCat = \Illuminate\Support\Facades\DB::table('problem_categories')->where('category_name', 'IT')->first();
+        if (!$itCat) {
+            $itCatId = \Illuminate\Support\Facades\DB::table('problem_categories')->insertGetId([
+                'category_name' => 'IT',
+                'description' => 'Information Technology',
+                'is_system_default' => 1,
+                'is_active' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            \Illuminate\Support\Facades\DB::table('branch_sla_policies')->where('category_name', 'IT')->update(['category_id' => $itCatId]);
+        }
     }
 
     public function test_unauthenticated_is_rejected(): void
@@ -328,11 +341,12 @@ class BranchCategoryTest extends TestCase
 
         $clientId = DB::table('clients')->value('id') ?? 1;
         $machineId = DB::table('machines')->value('machine_ID') ?? 1;
+        $itCatId = (int) DB::table('problem_categories')->where('category_name', 'IT')->value('problem_category_ID');
 
         $ticketId = DB::table('tickets')->insertGetId([
             'ticket_number' => 'SLA-TEST-001',
             'title' => 'Testing SLA override stamping',
-            'problem_category_ID' => 1, // IT
+            'problem_category_ID' => $itCatId,
             'branch_id' => 'luzon',
             'machine_ID' => $machineId,
             'created_by' => $clientId,
@@ -345,7 +359,7 @@ class BranchCategoryTest extends TestCase
 
         // Assign SLA
         $slaService = app(SLAService::class);
-        $res = $slaService->assignSlaToTicket($ticketId, 1, 1, 'High', now(), null, 'luzon');
+        $res = $slaService->assignSlaToTicket($ticketId, 1, $itCatId, 'High', now(), null, 'luzon');
         $this->assertTrue($res['is_branch_override']);
         $this->assertSame(200, $res['resolution_time_limit']);
 
@@ -369,7 +383,7 @@ class BranchCategoryTest extends TestCase
         $ticketId2 = DB::table('tickets')->insertGetId([
             'ticket_number' => 'SLA-TEST-002',
             'title' => 'New Ticket receiving new policy',
-            'problem_category_ID' => 1,
+            'problem_category_ID' => $itCatId,
             'branch_id' => 'luzon',
             'machine_ID' => $machineId,
             'created_by' => $clientId,
@@ -380,7 +394,7 @@ class BranchCategoryTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $res2 = $slaService->assignSlaToTicket($ticketId2, 1, 1, 'High', now(), null, 'luzon');
+        $res2 = $slaService->assignSlaToTicket($ticketId2, 1, $itCatId, 'High', now(), null, 'luzon');
         $this->assertSame(500, $res2['resolution_time_limit']);
     }
 }

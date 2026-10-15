@@ -480,26 +480,35 @@ class SuperAdminConfigController extends Controller
         }
 
         $logs = DB::table('ticket_audit_logs as tal')
-            ->leftJoin('employees as e', 'e.emp_id', '=', 'tal.action_by_ID')
+            ->leftJoin('employees as e', function ($join) {
+                $join->on('e.emp_id', '=', 'tal.action_by_ID')
+                    ->whereIn('tal.actor_type', ['employee', 'superadmin', 'admin', 'cs', 'customerservice']);
+            })
+            ->leftJoin('clients as c', function ($join) {
+                $join->on('c.id', '=', 'tal.action_by_ID')
+                    ->where('tal.actor_type', '=', 'customer');
+            })
             ->leftJoin('tickets as t', 't.ticket_ID', '=', 'tal.ticket_ID')
-            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
             ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role', 'c.client_name')
             ->orderBy('tal.created_at', 'desc')
             ->get();
 
         $formattedLogs = $logs->map(function ($log) {
-            $firstName = $log->first_name ?? 'System';
-            $lastName = $log->last_name ?? '';
-            $userFullName = trim($firstName . ' ' . $lastName) ?: 'System';
-            
+            $userFullName = 'System';
             $role = 'System';
-            if ($log->actor_type === 'superadmin') {
-                $role = 'Super Admin';
-            } elseif ($log->actor_type === 'customer') {
+
+            if ($log->actor_type === 'customer') {
                 $role = 'Customer';
                 $userFullName = $log->client_name ?? 'Customer';
-            } elseif ($log->role) {
-                $role = ucwords($log->role);
+            } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                $userFullName = 'System';
+                $role = 'System';
+            } elseif ($log->actor_type === 'superadmin') {
+                $role = 'Super Admin';
+                $userFullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? '')) ?: 'Super Admin';
+            } else {
+                $userFullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? '')) ?: 'Staff';
+                $role = $log->role ? ucwords($log->role) : 'Employee';
             }
 
             $action = 'Updated';
@@ -578,19 +587,36 @@ class SuperAdminConfigController extends Controller
         }
 
         $logs = DB::table('ticket_audit_logs as tal')
-            ->leftJoin('employees as e', 'e.emp_id', '=', 'tal.action_by_ID')
-            ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role')
-            ->where('tal.actor_type', 'superadmin')
-            ->orWhere('tal.action_type', 'like', 'config_%')
+            ->leftJoin('employees as e', function ($join) {
+                $join->on('e.emp_id', '=', 'tal.action_by_ID')
+                    ->whereIn('tal.actor_type', ['superadmin', 'admin', 'employee', 'cs', 'customerservice']);
+            })
+            ->leftJoin('clients as c', function ($join) {
+                $join->on('c.id', '=', 'tal.action_by_ID')
+                    ->where('tal.actor_type', '=', 'customer');
+            })
+            ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role', 'c.client_name')
+            ->where(function ($q) {
+                $q->where('tal.actor_type', 'superadmin')
+                    ->orWhere('tal.action_type', 'like', 'config_%');
+            })
             ->orderBy('tal.created_at', 'desc')
             ->get();
 
         $formattedLogs = $logs->map(function ($log) {
-            $firstName = $log->first_name ?? 'System';
-            $lastName = $log->last_name ?? '';
-            $userFullName = trim($firstName . ' ' . $lastName) ?: 'System';
-            
+            $userFullName = 'System';
             $role = 'Super Admin';
+
+            if ($log->actor_type === 'customer') {
+                $role = 'Customer';
+                $userFullName = $log->client_name ?? 'Customer';
+            } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                $userFullName = 'System';
+                $role = 'System';
+            } else {
+                $userFullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? '')) ?: 'Super Admin';
+                $role = ($log->actor_type === 'superadmin') ? 'Super Admin' : ($log->role ? ucwords($log->role) : 'Employee');
+            }
             $action = 'Updated';
             $module = 'System';
             $target = 'System';
