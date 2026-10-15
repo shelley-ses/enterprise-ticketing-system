@@ -672,6 +672,20 @@ export const updateTicket = async ({ ticketId, statusId, priorityId, assignedByE
   return response.data;
 };
 
+export const reopenTicket = async (ticketId, reason) => {
+  const numericId = Number(String(ticketId).replace(/\D/g, ''));
+  const response = await ticketClient.post(`/tickets/${numericId}/reopen`, {
+    reason: String(reason || '').trim(),
+  });
+  // Clear caches since ticket updates affect customer and CS dashboards
+  clearCustomerDashboardCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  clearEmployeeTicketsCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
 const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
   try {
     const response = await ticketClient.get('/employee-tickets', {

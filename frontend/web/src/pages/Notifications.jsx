@@ -14,6 +14,7 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
 import { respondReassignment } from '@/services/ticketService';
+import { Clock } from 'lucide-react';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -113,8 +114,9 @@ export default function Notifications() {
       const userStr = localStorage.getItem('user');
       let role = '';
       try { role = JSON.parse(userStr)?.role || ''; } catch {}
+      const isAutoClose = /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
       if (role === 'customer') return '/my-tickets';
-      if (role === 'employee') return '/employee/machine';
+      if (role === 'employee') return isAutoClose ? `/employee/history/${n.ticket_id}` : '/employee/machine';
       if (role === 'cs') return '/cs/incoming';
       return '/notifications';
     }
@@ -275,32 +277,54 @@ export default function Notifications() {
               </div>
             ) : (
               <div className="space-y-3">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    onClick={() => handleNotificationClick(n)}
-                    className={`bg-white rounded-3xl border border-gray-100 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-gray-200 transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : ''}`}
-                  >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${!n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                      </svg>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start mb-1 gap-4">
-                        <h3 className="text-sm font-bold text-gray-900 leading-snug">{n.title}</h3>
-                        <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
+                {notifications.map((n) => {
+                  const isAutoClose = /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+                  return (
+                    <div
+                      key={n.id}
+                      onClick={() => handleNotificationClick(n)}
+                      className={`bg-white rounded-3xl border p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex items-start gap-4 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-gray-200 transition-all duration-200 cursor-pointer animate-in fade-in duration-200 ${
+                        isAutoClose
+                          ? 'border-amber-200 bg-amber-50/15'
+                          : 'border-gray-100'
+                      } ${!n.is_read ? 'border-l-4 border-l-blue-600 pl-4' : ''}`}
+                    >
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        isAutoClose
+                          ? 'bg-amber-100 text-amber-700'
+                          : !n.is_read ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {isAutoClose ? (
+                          <Clock size={18} />
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                          </svg>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-600 leading-relaxed font-medium">{n.message}</p>
-                      {n.ticket_id && (
-                        <span className="inline-block text-[9px] font-extrabold text-[#252578] bg-blue-50 px-2 py-0.5 rounded-md mt-2">
-                          TKT-{String(n.ticket_id).padStart(4, '0')}
-                        </span>
-                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-1 gap-4">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-gray-900 leading-snug">{n.title}</h3>
+                            {isAutoClose && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Auto-Close Notice
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed font-medium">{n.message}</p>
+                        {n.ticket_id && (
+                          <span className="inline-block text-[9px] font-extrabold text-[#252578] bg-blue-50 px-2 py-0.5 rounded-md mt-2">
+                            TKT-{String(n.ticket_id).padStart(4, '0')}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

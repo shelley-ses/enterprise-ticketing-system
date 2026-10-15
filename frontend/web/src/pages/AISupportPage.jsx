@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Plus, MessageSquare, Trash2, ArrowLeft, Clock } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
-import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
+import { getTicketFormOptions, createTicket, getCustomerTickets, saveTicketDraft } from '@/services/ticketService';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import DuplicateTicketModal from '@/components/DuplicateTicketModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
@@ -174,12 +174,14 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
               </p>
               <div className="flex gap-2 mt-3">
                 <button
+                  type="button"
                   onClick={onCreateTicket}
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer"
                 >
                   Create Ticket
                 </button>
                 <button
+                  type="button"
                   onClick={onContinue}
                   className="px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
                 >
@@ -194,9 +196,10 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
   );
 }
 
-function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
+function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit, onSaveDraft }) {
   const [form, setForm] = useState(data || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [isTitleManuallyEdited, setIsTitleManuallyEdited] = useState(false);
@@ -206,6 +209,7 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
     if (data) {
       setForm(data);
       setIsSubmitting(false);
+      setIsSavingDraft(false);
       setTitleCasingData(null);
       setShowTitleCasingModal(false);
       setIsTitleManuallyEdited(false);
@@ -215,8 +219,21 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
 
   if (!isOpen) return null;
 
+  const handleSaveDraft = async () => {
+    if (isSubmitting || isSavingDraft || !onSaveDraft) return;
+    setIsSavingDraft(true);
+    setSubmitError(null);
+    try {
+      await onSaveDraft(form);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to save draft.';
+      setSubmitError(msg);
+      setIsSavingDraft(false);
+    }
+  };
+
   const handleSubmit = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isSavingDraft) return;
 
     const summaryTrimmed = (form.problemSummary || '').trim();
     // Only prompt for proper casing if the user manually edited the title
@@ -401,17 +418,36 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
             />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
           <button
+            type="button"
             onClick={onClose}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSavingDraft}
             className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
           >
             Cancel
           </button>
+          {onSaveDraft && (
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={isSubmitting || isSavingDraft}
+              className="px-5 py-2.5 rounded-xl border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+            >
+              {isSavingDraft ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-[#252578] border-t-transparent rounded-full animate-spin" />
+                  Saving Draft...
+                </>
+              ) : (
+                'Save as Draft'
+              )}
+            </button>
+          )}
           <button
+            type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSavingDraft}
             className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
               isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
             }`}
@@ -1376,6 +1412,107 @@ function AISupportPage() {
     }
   }, [addMessage, conversations, activeConversationId, currentUserId]);
 
+  const handleSaveTicketDraft = useCallback(async (formData) => {
+    try {
+      const options = ticketOptions || await getTicketFormOptions().catch(() => null);
+
+      let matchedMachine = null;
+      let machineId = 1;
+      if (options?.machines && options.machines.length > 0) {
+        matchedMachine = options.machines.find(m =>
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().trim() === formData.machineModel.toLowerCase().trim()) ||
+          (m.machine_name && formData.machineModel && formData.machineModel.toLowerCase().includes(m.machine_name.toLowerCase())) ||
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().includes(formData.machineModel.toLowerCase())) ||
+          (m.model && formData.machineModel && formData.machineModel.toLowerCase().includes(m.model.toLowerCase()))
+        );
+        if (matchedMachine) {
+          machineId = matchedMachine.machine_ID;
+        } else {
+          machineId = formData.machine_ID || options.machines[0].machine_ID;
+        }
+      }
+
+      // Check ongoing tickets for this user for duplicate detection
+      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+      
+      const activeConv = conversations.find(c => c.id === activeConversationId);
+      let ticketTitle = (formData.problemSummary || activeConv?.title || 'Support Ticket').trim();
+      ticketTitle = ticketTitle.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim();
+      if (ticketTitle.length > 0) {
+        ticketTitle = formatProperTitleCase(ticketTitle);
+      } else {
+        ticketTitle = 'Equipment Support Request';
+      }
+
+      // Duplicate protection: block if an active ongoing ticket exists for this machine or identical problem
+      const ongoingSameMachine = (existingTickets || []).find(t => {
+        const s = (t.status || '').toLowerCase();
+        const isActive = s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled' && s !== 'discarded';
+        if (!isActive) return false;
+
+        const isSameId = matchedMachine && t.machine_ID && Number(t.machine_ID) === Number(matchedMachine.machine_ID);
+        const tEquip = (t.equipment || t.machine_name || '').trim().toLowerCase();
+        const cand = (formData.machineModel || '').trim().toLowerCase();
+        const isSameName = Boolean(cand && tEquip && (tEquip.includes(cand) || cand.includes(tEquip)));
+        const isSameTitle = t.title && ticketTitle && t.title.trim().toLowerCase() === ticketTitle.trim().toLowerCase();
+
+        return isSameId || isSameName || isSameTitle;
+      });
+
+      if (ongoingSameMachine) {
+        setShowReviewModal(false);
+        const ticketNo = ongoingSameMachine.ticket_ID ? (String(ongoingSameMachine.ticket_ID).startsWith('TKT-') ? String(ongoingSameMachine.ticket_ID) : `TKT-${String(ongoingSameMachine.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+        const machineLabel = ongoingSameMachine.equipment || ongoingSameMachine.machine_name || formData.machineModel || 'this machine';
+        setDuplicateModal({
+          isOpen: true,
+          machineName: machineLabel,
+          ticketNo,
+          ticketStatus: ongoingSameMachine.status || 'Open',
+          existingTicket: ongoingSameMachine,
+        });
+        return;
+      }
+
+      let categoryId = 1;
+      if (options?.problem_categories && options.problem_categories.length > 0) {
+        const found = options.problem_categories.find(c =>
+          c.category_name?.toLowerCase() === (formData.category || '').toLowerCase()
+        );
+        if (found) categoryId = found.problem_category_ID;
+        else categoryId = options.problem_categories[0].problem_category_ID;
+      }
+
+      let priorityId = 2;
+      if (options?.ticket_priorities && options.ticket_priorities.length > 0) {
+        const found = options.ticket_priorities.find(p =>
+          p.priority_name?.toLowerCase() === (formData.priority || '').toLowerCase()
+        );
+        if (found) priorityId = found.priority_ID;
+        else priorityId = options.ticket_priorities[0].priority_ID;
+      }
+
+      const draftPayload = {
+        title: ticketTitle,
+        machine_ID: machineId,
+        problem_category_ID: categoryId,
+        priority_ID: priorityId,
+        description: formData.conversationSummary || formData.problemSummary || 'Draft created from AI Support Assistant.',
+      };
+
+      const res = await saveTicketDraft(draftPayload);
+      const savedDraftId = res.draft?.id || res.id;
+
+      setShowReviewModal(false);
+      setShowTicketCard(false);
+
+      // Redirect to the draft ticket creation page with draft data pre-loaded
+      navigate('/create-ticket', { state: { draftId: savedDraftId } });
+    } catch (err) {
+      console.error('Failed to save draft from AI Support:', err);
+      throw err;
+    }
+  }, [currentUserId, conversations, activeConversationId, ticketOptions, navigate]);
+
   const handleViewTicket = useCallback(() => {
     setShowSuccess(false);
     navigate('/my-tickets');
@@ -1669,6 +1806,7 @@ function AISupportPage() {
         machines={ticketOptions?.machines || []}
         onClose={() => setShowReviewModal(false)}
         onSubmit={handleSubmitTicket}
+        onSaveDraft={handleSaveTicketDraft}
       />
 
       <SuccessDialog

@@ -154,7 +154,11 @@ export default function TicketCreation() {
       if (savedId) {
         setDraftId(savedId);
       }
-      setDraftMessage('Draft saved successfully. You can return and complete it anytime from My Drafts.');
+      if (res.draft?.attachments) {
+        setExistingDraftAttachments(res.draft.attachments);
+        setFiles([]);
+      }
+      setDraftMessage('Draft saved successfully! You can return and complete it anytime from My Drafts.');
       setTimeout(() => setDraftMessage(''), 5000);
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save draft.';
@@ -300,6 +304,14 @@ export default function TicketCreation() {
       if (draftId) {
         payload.append('draft_id', draftId);
       }
+      if (existingDraftAttachments && existingDraftAttachments.length > 0) {
+        existingDraftAttachments.forEach((att) => {
+          const id = att.id || att.attachment_id || att.attachment_ID;
+          if (id) {
+            payload.append('attachments[]', id);
+          }
+        });
+      }
       if (files && files.length > 0) {
         files.forEach((f) => {
           payload.append('attachments[]', f);
@@ -367,6 +379,45 @@ export default function TicketCreation() {
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
           </svg>
           <div>{draftMessage}</div>
+        </div>
+      )}
+
+      {draftMessage && (
+        <div className="mb-6 rounded-xl p-4 text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-800 flex items-start gap-3 transition-all animate-in fade-in">
+          <svg className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+          </svg>
+          <div className="flex-1 flex justify-between items-center">
+            <span>{draftMessage}</span>
+            <button
+              type="button"
+              onClick={() => navigate('/my-tickets', { state: { tab: 'drafts' } })}
+              className="text-xs font-bold text-emerald-900 underline hover:no-underline ml-3 cursor-pointer"
+            >
+              View My Drafts
+            </button>
+          </div>
+        </div>
+      )}
+
+      {draftId && (
+        <div className="mb-6 rounded-xl p-3.5 bg-blue-50/70 border border-blue-200 text-xs text-[#252578] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-bold uppercase tracking-wider text-[10px] bg-blue-100 px-2 py-0.5 rounded-md">Draft Mode</span>
+            <span>You are editing draft #{draftId}. Your changes can be re-saved as draft or submitted.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDraftId(null);
+              setFormData({ title: '', machine_ID: '', problem_category_ID: '', description: '', priority_ID: 1 });
+              setExistingDraftAttachments([]);
+              setFiles([]);
+            }}
+            className="text-gray-500 hover:text-gray-700 text-xs font-semibold underline hover:no-underline cursor-pointer"
+          >
+            Clear and start fresh
+          </button>
         </div>
       )}
 
@@ -488,6 +539,37 @@ export default function TicketCreation() {
                 <span className="text-xs text-gray-500 mt-1">Supported formats: PDF, PNG, Word (max. 15MB per file, max. 45MB total)</span>
               </label>
             </div>
+            {/* Existing Resumed Attachments */}
+            {existingDraftAttachments.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Saved Draft Attachments ({existingDraftAttachments.length})</p>
+                {existingDraftAttachments.map((att, idx) => {
+                  const attName = att.name || att.file_name || (typeof att === 'string' ? att.split('/').pop() : `Attachment #${idx + 1}`);
+                  return (
+                    <div key={`existing-${idx}`} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm text-[#252578]">
+                        <svg className="w-4 h-4 shrink-0 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-medium truncate max-w-xs">{attName}</span>
+                        <span className="text-[10px] text-blue-600 font-semibold px-2 py-0.5 rounded-full bg-blue-100">Draft File</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setExistingDraftAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors cursor-pointer"
+                        title="Remove draft attachment"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {files.length > 0 && (
               <div className="mt-3 space-y-2">
                 {files.map((f, idx) => (
@@ -502,7 +584,7 @@ export default function TicketCreation() {
                     <button
                       type="button"
                       onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors cursor-pointer"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
