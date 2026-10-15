@@ -686,6 +686,48 @@ export const reopenTicket = async (ticketId, reason) => {
   return response.data;
 };
 
+export const holdTicket = async (ticketId, reason) => {
+  const numericId = Number(String(ticketId).replace(/\D/g, ''));
+  const response = await ticketClient.post(`/tickets/${numericId}/hold`, {
+    reason: String(reason || '').trim(),
+  });
+  clearCustomerDashboardCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  clearEmployeeTicketsCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
+export const resumeTicket = async (ticketId) => {
+  const numericId = Number(String(ticketId).replace(/\D/g, ''));
+  const response = await ticketClient.post(`/tickets/${numericId}/resume`);
+  clearCustomerDashboardCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  clearEmployeeTicketsCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
+export const reclassifyTicket = async ({ ticketId, problem_category_ID, priority_ID }) => {
+  const numericId = Number(String(ticketId).replace(/\D/g, ''));
+  const payload = {};
+  if (problem_category_ID !== undefined && problem_category_ID !== null) {
+    payload.problem_category_ID = Number(problem_category_ID);
+  }
+  if (priority_ID !== undefined && priority_ID !== null) {
+    payload.priority_ID = Number(priority_ID);
+  }
+  const response = await ticketClient.patch(`/tickets/${numericId}/classification`, payload);
+  clearCustomerDashboardCache();
+  clearIncomingTicketsCache();
+  clearCSDashboardCache();
+  clearEmployeeTicketsCache();
+  notifyCsTicketRefresh();
+  return response.data;
+};
+
 const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
   try {
     const response = await ticketClient.get('/employee-tickets', {
@@ -866,6 +908,11 @@ export const getReassignmentRequests = async (params = {}) => {
 
 export const getTicketDetails = async (ticketId) => {
   const response = await ticketClient.get(`/tickets/${ticketId}`);
+  return response.data;
+};
+
+export const getCustomerTicketContext = async (ticketId) => {
+  const response = await ticketClient.get(`/tickets/${ticketId}/customer-context`);
   return response.data;
 };
 

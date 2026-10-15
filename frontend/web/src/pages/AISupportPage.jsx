@@ -40,6 +40,36 @@ function FormattedText({ text }) {
         const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ');
         const cleanLine = isBullet ? trimmed.substring(2) : line;
 
+        // Structured step detection: "Step 1: ...", "1. ...", "2) ..."
+        const stepMatch = cleanLine.match(/^(?:step\s*(\d+)[:\.]|(\d+)[\.\)])\s*(.*)$/i);
+        if (stepMatch && !isBullet) {
+          const stepNum = stepMatch[1] || stepMatch[2];
+          const stepBody = stepMatch[3];
+          const stepParts = stepBody.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).map((part, idx) => {
+            if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+              return <strong key={idx} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
+            }
+            if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+              return <em key={idx} className="italic">{part.slice(1, -1)}</em>;
+            }
+            if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+              return <code key={idx} className="bg-white border border-gray-200 px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+            }
+            return part;
+          });
+
+          return (
+            <div key={lineIdx} className="my-2 p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-start gap-2.5 text-left shadow-xs">
+              <span className="bg-[#252578] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 mt-0.5 shadow-xs">
+                Step {stepNum}
+              </span>
+              <div className="flex-1 text-gray-800 text-xs font-medium leading-relaxed">
+                {stepParts}
+              </div>
+            </div>
+          );
+        }
+
         // Match **bold**, *italic*, and `code`
         const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
         const elements = parts.map((part, idx) => {
@@ -197,6 +227,7 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
 }
 
 function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit, onSaveDraft }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState(data || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -418,49 +449,61 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit, onS
             />
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
           <button
             type="button"
-            onClick={onClose}
-            disabled={isSubmitting || isSavingDraft}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
+            onClick={() => {
+              onClose();
+              navigate('/create-ticket', { state: { prefillData: form, fromAiChat: true } });
+            }}
+            className="text-xs text-[#252578] font-semibold hover:underline cursor-pointer"
           >
-            Cancel
+            Open in full ticket creation page →
           </button>
-          {onSaveDraft && (
+          <div className="flex items-center gap-3 ml-auto">
             <button
               type="button"
-              onClick={handleSaveDraft}
+              onClick={onClose}
               disabled={isSubmitting || isSavingDraft}
-              className="px-5 py-2.5 rounded-xl border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
             >
-              {isSavingDraft ? (
+              Cancel
+            </button>
+            {onSaveDraft && (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSubmitting || isSavingDraft}
+                className="px-5 py-2.5 rounded-xl border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+              >
+                {isSavingDraft ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-[#252578] border-t-transparent rounded-full animate-spin" />
+                    Saving Draft...
+                  </>
+                ) : (
+                  'Save as Draft'
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || isSavingDraft}
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
+                isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
+              }`}
+            >
+              {isSubmitting ? (
                 <>
-                  <span className="w-3.5 h-3.5 border-2 border-[#252578] border-t-transparent rounded-full animate-spin" />
-                  Saving Draft...
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Submitting...
                 </>
               ) : (
-                'Save as Draft'
+                'Submit Ticket'
               )}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting || isSavingDraft}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
-              isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
-            }`}
-          >
-            {isSubmitting ? (
-              <>
-                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              'Submit Ticket'
-            )}
-          </button>
+          </div>
         </div>
       </div>
 
@@ -580,6 +623,7 @@ function AISupportPage() {
   const [conversationPhase, setConversationPhase] = useState(0);
   const [escalationTicketData, setEscalationTicketData] = useState(null);
   const [ticketOptions, setTicketOptions] = useState(null);
+  const [feedbackMap, setFeedbackMap] = useState({});
 
   useEffect(() => {
     getTicketFormOptions()
@@ -947,19 +991,27 @@ function AISupportPage() {
         const errorText = err.response?.data?.error || 'AI Assistant is currently offline or unreachable. You can create a support ticket manually with our technical support team.';
         
         const offlineErrorContent = (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 space-y-2">
-            <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
-              <AlertTriangle size={18} />
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 space-y-3 text-left">
+            <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+              <AlertTriangle size={18} className="text-amber-600 shrink-0" />
               <span>AI Service Unavailable</span>
             </div>
-            <p className="text-xs leading-relaxed text-amber-800">{errorText}</p>
-            <div className="pt-1">
+            <p className="text-xs leading-relaxed text-amber-800 font-medium">{errorText}</p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleCreateTicket}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Plus size={14} />
-                Create Ticket Manually
+                Create Ticket With Context
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/create-ticket', { state: { prefillData: { problemSummary: text, description: text } } })}
+                className="px-3.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                Standard Ticket Form
               </button>
             </div>
           </div>
@@ -1540,6 +1592,31 @@ function AISupportPage() {
     }, 1200);
   }, [addMessage]);
 
+  const handleFeedbackResolved = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'resolved' }));
+    addMessage({
+      id: `feedback-resolved-${Date.now()}`,
+      role: 'ai',
+      content: 'Glad to hear the troubleshooting steps resolved your issue! If you experience any other machine problems, feel free to start a new chat anytime.',
+      timestamp: new Date().toISOString(),
+    });
+  }, [addMessage]);
+
+  const handleFeedbackUnresolved = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'unresolved' }));
+  }, []);
+
+  const handleContinueChattingFromPrompt = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'continue' }));
+    inputRef.current?.focus();
+    addMessage({
+      id: `ai-prompt-${Date.now()}`,
+      role: 'ai',
+      content: 'Please describe what happened when you tried the steps above, or share any specific error codes displayed on your machine.',
+      timestamp: new Date().toISOString(),
+    });
+  }, [addMessage]);
+
   const handleBack = useCallback(() => {
     const dept = (user?.department || user?.profile?.department?.name || '').toLowerCase();
     const role = (user?.role || user?.profile?.role?.name || '').toLowerCase();
@@ -1627,12 +1704,19 @@ function AISupportPage() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#252578] flex items-center justify-center">
-                <Bot size={18} className="text-white" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#252578] to-indigo-600 flex items-center justify-center shadow-xs">
+                <Bot size={20} className="text-white" />
               </div>
               <div>
-                <p className="font-semibold text-sm text-gray-800">AI Support Assistant</p>
-                <p className="text-[11px] text-gray-500">Powered by AI Knowledge Base</p>
+                <div className="flex items-center gap-2">
+                  <h1 className="font-bold text-sm text-gray-900">AI Support Assistant</h1>
+                  <span className="bg-indigo-50 border border-indigo-200 text-[#252578] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    Automated System
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Not a live human agent · AI searches technical manuals & knowledge base
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1673,6 +1757,12 @@ function AISupportPage() {
                         </div>
                       )}
                       <div>
+                        {msg.role === 'ai' && !isErrorMessage && (
+                          <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-[#252578]">
+                            <Bot size={13} />
+                            <span>AI Assistant (Automated)</span>
+                          </div>
+                        )}
                         {isErrorMessage ? (
                           <div className="bg-red-50 border border-red-200 rounded-2xl rounded-bl-md shadow-sm p-4 text-left">
                             <div className="flex items-start gap-3">
@@ -1708,13 +1798,71 @@ function AISupportPage() {
                           </div>
                         ) : (
                           <div className={msg.role === 'user'
-                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md'
-                            : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm px-4 py-3'
+                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md shadow-xs'
+                            : 'bg-white text-gray-800 border border-gray-150 rounded-2xl rounded-bl-md shadow-xs px-4 py-3'
                           }>
                             {typeof msg.content === 'string' ? (
                               <FormattedText text={msg.content} />
                             ) : (
                               msg.content
+                            )}
+
+                            {/* "Did this help?" Interactive Feedback Prompt on substantive AI troubleshooting messages */}
+                            {msg.role === 'ai' && !isErrorMessage && msg.id !== 'welcome' && msg.id !== 'gather-details' && (
+                              <div className="mt-3 pt-2.5 border-t border-gray-150 text-left">
+                                {feedbackMap[msg.id] === 'resolved' ? (
+                                  <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 text-xs text-green-800 flex items-center gap-2">
+                                    <CheckCircle size={15} className="text-green-600 shrink-0" />
+                                    <span className="font-semibold">Thank you for confirming! Marked as resolved.</span>
+                                  </div>
+                                ) : feedbackMap[msg.id] === 'unresolved' ? (
+                                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs space-y-2">
+                                    <p className="font-semibold text-amber-900">Issue still unresolved. How would you like to proceed?</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleContinueChattingFromPrompt(msg.id)}
+                                        className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold rounded-lg transition cursor-pointer text-xs"
+                                      >
+                                        Continue Troubleshooting
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFeedbackMap(prev => ({ ...prev, [msg.id]: 'escalated' }));
+                                          handleCreateTicket();
+                                        }}
+                                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition cursor-pointer text-xs inline-flex items-center gap-1 shadow-xs"
+                                      >
+                                        <Plus size={13} />
+                                        Create a Support Ticket
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs">
+                                    <span className="text-gray-500 font-medium text-[11px]">Did this help resolve your concern?</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedbackResolved(msg.id)}
+                                        className="px-2.5 py-1 bg-white hover:bg-green-50 text-gray-700 hover:text-green-800 border border-gray-200 hover:border-green-300 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <CheckCircle size={12} className="text-green-600" />
+                                        Yes
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedbackUnresolved(msg.id)}
+                                        className="px-2.5 py-1 bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-800 border border-gray-200 hover:border-amber-300 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <AlertTriangle size={12} className="text-amber-600" />
+                                        No, need help
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}

@@ -132,6 +132,19 @@ export default function TicketCreation() {
     }
   }, [location.state?.draftId]);
 
+  // Handle prefill data carried over from AI Support escalation
+  useEffect(() => {
+    if (location.state?.prefillData) {
+      const p = location.state.prefillData;
+      setFormData((prev) => ({
+        ...prev,
+        title: p.problemSummary || p.title || prev.title,
+        description: p.conversationSummary || p.description || prev.description,
+        machine_ID: p.machine_ID || prev.machine_ID,
+      }));
+    }
+  }, [location.state?.prefillData]);
+
   const handleSaveDraft = async () => {
     if (savingDraft || submitting) return;
     setError('');

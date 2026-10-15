@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import InternalNotesSection from '@/components/InternalNotesSection';
+import CustomerInfoPanel from '@/components/employee/CustomerInfoPanel';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
 
@@ -226,15 +227,37 @@ export default function EmployeeTicketUpdate() {
     setSuccessMessage('');
     setIsAddingNote(true);
 
+    const optimisticNote = {
+      id: `temp-${Date.now()}`,
+      text: trimmed,
+      author: `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.name || 'Staff Member',
+      role: user?.role || 'Technician',
+      timestamp: new Date().toISOString(),
+      isOptimistic: true,
+    };
+
+    setTicket((prev) => prev ? {
+      ...prev,
+      internalNotes: [...(prev.internalNotes || []), optimisticNote],
+    } : prev);
+
     const formData = new FormData();
     formData.append('internal_note', trimmed);
 
     try {
       await updateEmployeeTicket(numericId, formData);
-      setSuccessMessage('Internal note added!');
+      setSuccessMessage('Internal note added successfully!');
+      setTimeout(() => setSuccessMessage(''), 4000);
       await loadTicketData();
     } catch (err) {
-      setErrorMessage('Failed to add internal note.');
+      // Revert optimistic note
+      setTicket((prev) => prev ? {
+        ...prev,
+        internalNotes: (prev.internalNotes || []).filter((n) => n.id !== optimisticNote.id),
+      } : prev);
+      const msg = err?.response?.data?.message || err?.message || 'Failed to add internal note.';
+      setErrorMessage(msg);
+      throw err; // Re-throw so InternalNotesSection preserves input text
     } finally {
       setIsAddingNote(false);
     }
@@ -377,6 +400,16 @@ export default function EmployeeTicketUpdate() {
           <div className="space-y-6">
             {/* Reassignment disapproved banner */}
             <ReassignmentDisapprovalBanner ticket={ticket} />
+
+            {/* Customer & Machine Context Panel (TS029) */}
+            <CustomerInfoPanel
+              ticketId={numericId}
+              ticket={ticket}
+              user={user}
+              onViewRelatedTicket={(machineId) => {
+                navigate('/employee/progress', { state: { machineFilter: machineId } });
+              }}
+            />
 
             {/* Reassignment pending banner */}
             {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
@@ -660,6 +693,7 @@ export default function EmployeeTicketUpdate() {
               notes={ticket.internalNotes}
               onAddNote={handleAddInternalNote}
               isAdding={isAddingNote}
+              userRole={user?.role}
               disabledReason={ticket.reassignmentRequested ? 'Internal notes cannot be added while a reassignment request is pending.' : null}
             />
 
