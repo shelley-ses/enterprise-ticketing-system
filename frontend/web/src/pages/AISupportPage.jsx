@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Bot, Send, Paperclip, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Plus, MessageSquare, Trash2, ArrowLeft, Clock } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
-import { getTicketFormOptions, createTicket, getCustomerTickets } from '@/services/ticketService';
+import { getTicketFormOptions, createTicket, getCustomerTickets, saveTicketDraft } from '@/services/ticketService';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import DuplicateTicketModal from '@/components/DuplicateTicketModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
@@ -39,6 +39,36 @@ function FormattedText({ text }) {
         const trimmed = line.trim();
         const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ');
         const cleanLine = isBullet ? trimmed.substring(2) : line;
+
+        // Structured step detection: "Step 1: ...", "1. ...", "2) ..."
+        const stepMatch = cleanLine.match(/^(?:step\s*(\d+)[:\.]|(\d+)[\.\)])\s*(.*)$/i);
+        if (stepMatch && !isBullet) {
+          const stepNum = stepMatch[1] || stepMatch[2];
+          const stepBody = stepMatch[3];
+          const stepParts = stepBody.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).map((part, idx) => {
+            if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+              return <strong key={idx} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
+            }
+            if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+              return <em key={idx} className="italic">{part.slice(1, -1)}</em>;
+            }
+            if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+              return <code key={idx} className="bg-white border border-gray-200 px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+            }
+            return part;
+          });
+
+          return (
+            <div key={lineIdx} className="my-2 p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-start gap-2.5 text-left shadow-xs">
+              <span className="bg-[#252578] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 mt-0.5 shadow-xs">
+                Step {stepNum}
+              </span>
+              <div className="flex-1 text-gray-800 text-xs font-medium leading-relaxed">
+                {stepParts}
+              </div>
+            </div>
+          );
+        }
 
         // Match **bold**, *italic*, and `code`
         const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
@@ -174,12 +204,14 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
               </p>
               <div className="flex gap-2 mt-3">
                 <button
+                  type="button"
                   onClick={onCreateTicket}
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer"
                 >
                   Create Ticket
                 </button>
                 <button
+                  type="button"
                   onClick={onContinue}
                   className="px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
                 >
@@ -194,9 +226,11 @@ function TicketRecommendationCard({ onCreateTicket, onContinue }) {
   );
 }
 
-function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
+function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit, onSaveDraft }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState(data || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [isTitleManuallyEdited, setIsTitleManuallyEdited] = useState(false);
@@ -206,6 +240,7 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
     if (data) {
       setForm(data);
       setIsSubmitting(false);
+      setIsSavingDraft(false);
       setTitleCasingData(null);
       setShowTitleCasingModal(false);
       setIsTitleManuallyEdited(false);
@@ -215,8 +250,21 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
 
   if (!isOpen) return null;
 
+  const handleSaveDraft = async () => {
+    if (isSubmitting || isSavingDraft || !onSaveDraft) return;
+    setIsSavingDraft(true);
+    setSubmitError(null);
+    try {
+      await onSaveDraft(form);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to save draft.';
+      setSubmitError(msg);
+      setIsSavingDraft(false);
+    }
+  };
+
   const handleSubmit = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isSavingDraft) return;
 
     const summaryTrimmed = (form.problemSummary || '').trim();
     // Only prompt for proper casing if the user manually edited the title
@@ -401,30 +449,61 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit }) {
             />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
           <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
+            type="button"
+            onClick={() => {
+              onClose();
+              navigate('/create-ticket', { state: { prefillData: form, fromAiChat: true } });
+            }}
+            className="text-xs text-[#252578] font-semibold hover:underline cursor-pointer"
           >
-            Cancel
+            Open in full ticket creation page →
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
-              isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
-            }`}
-          >
-            {isSubmitting ? (
-              <>
-                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              'Submit Ticket'
+          <div className="flex items-center gap-3 ml-auto">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting || isSavingDraft}
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            {onSaveDraft && (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSubmitting || isSavingDraft}
+                className="px-5 py-2.5 rounded-xl border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+              >
+                {isSavingDraft ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-[#252578] border-t-transparent rounded-full animate-spin" />
+                    Saving Draft...
+                  </>
+                ) : (
+                  'Save as Draft'
+                )}
+              </button>
             )}
-          </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || isSavingDraft}
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 ${
+                isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#252578] hover:bg-[#1f1f66] cursor-pointer'
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit Ticket'
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -544,6 +623,7 @@ function AISupportPage() {
   const [conversationPhase, setConversationPhase] = useState(0);
   const [escalationTicketData, setEscalationTicketData] = useState(null);
   const [ticketOptions, setTicketOptions] = useState(null);
+  const [feedbackMap, setFeedbackMap] = useState({});
 
   useEffect(() => {
     getTicketFormOptions()
@@ -911,19 +991,27 @@ function AISupportPage() {
         const errorText = err.response?.data?.error || 'AI Assistant is currently offline or unreachable. You can create a support ticket manually with our technical support team.';
         
         const offlineErrorContent = (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 space-y-2">
-            <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
-              <AlertTriangle size={18} />
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 space-y-3 text-left">
+            <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+              <AlertTriangle size={18} className="text-amber-600 shrink-0" />
               <span>AI Service Unavailable</span>
             </div>
-            <p className="text-xs leading-relaxed text-amber-800">{errorText}</p>
-            <div className="pt-1">
+            <p className="text-xs leading-relaxed text-amber-800 font-medium">{errorText}</p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleCreateTicket}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Plus size={14} />
-                Create Ticket Manually
+                Create Ticket With Context
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/create-ticket', { state: { prefillData: { problemSummary: text, description: text } } })}
+                className="px-3.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                Standard Ticket Form
               </button>
             </div>
           </div>
@@ -1380,6 +1468,107 @@ function AISupportPage() {
     }
   }, [addMessage, conversations, activeConversationId, currentUserId]);
 
+  const handleSaveTicketDraft = useCallback(async (formData) => {
+    try {
+      const options = ticketOptions || await getTicketFormOptions().catch(() => null);
+
+      let matchedMachine = null;
+      let machineId = 1;
+      if (options?.machines && options.machines.length > 0) {
+        matchedMachine = options.machines.find(m =>
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().trim() === formData.machineModel.toLowerCase().trim()) ||
+          (m.machine_name && formData.machineModel && formData.machineModel.toLowerCase().includes(m.machine_name.toLowerCase())) ||
+          (m.machine_name && formData.machineModel && m.machine_name.toLowerCase().includes(formData.machineModel.toLowerCase())) ||
+          (m.model && formData.machineModel && formData.machineModel.toLowerCase().includes(m.model.toLowerCase()))
+        );
+        if (matchedMachine) {
+          machineId = matchedMachine.machine_ID;
+        } else {
+          machineId = formData.machine_ID || options.machines[0].machine_ID;
+        }
+      }
+
+      // Check ongoing tickets for this user for duplicate detection
+      const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
+      
+      const activeConv = conversations.find(c => c.id === activeConversationId);
+      let ticketTitle = (formData.problemSummary || activeConv?.title || 'Support Ticket').trim();
+      ticketTitle = ticketTitle.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim();
+      if (ticketTitle.length > 0) {
+        ticketTitle = formatProperTitleCase(ticketTitle);
+      } else {
+        ticketTitle = 'Equipment Support Request';
+      }
+
+      // Duplicate protection: block if an active ongoing ticket exists for this machine or identical problem
+      const ongoingSameMachine = (existingTickets || []).find(t => {
+        const s = (t.status || '').toLowerCase();
+        const isActive = s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled' && s !== 'discarded';
+        if (!isActive) return false;
+
+        const isSameId = matchedMachine && t.machine_ID && Number(t.machine_ID) === Number(matchedMachine.machine_ID);
+        const tEquip = (t.equipment || t.machine_name || '').trim().toLowerCase();
+        const cand = (formData.machineModel || '').trim().toLowerCase();
+        const isSameName = Boolean(cand && tEquip && (tEquip.includes(cand) || cand.includes(tEquip)));
+        const isSameTitle = t.title && ticketTitle && t.title.trim().toLowerCase() === ticketTitle.trim().toLowerCase();
+
+        return isSameId || isSameName || isSameTitle;
+      });
+
+      if (ongoingSameMachine) {
+        setShowReviewModal(false);
+        const ticketNo = ongoingSameMachine.ticket_ID ? (String(ongoingSameMachine.ticket_ID).startsWith('TKT-') ? String(ongoingSameMachine.ticket_ID) : `TKT-${String(ongoingSameMachine.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
+        const machineLabel = ongoingSameMachine.equipment || ongoingSameMachine.machine_name || formData.machineModel || 'this machine';
+        setDuplicateModal({
+          isOpen: true,
+          machineName: machineLabel,
+          ticketNo,
+          ticketStatus: ongoingSameMachine.status || 'Open',
+          existingTicket: ongoingSameMachine,
+        });
+        return;
+      }
+
+      let categoryId = 1;
+      if (options?.problem_categories && options.problem_categories.length > 0) {
+        const found = options.problem_categories.find(c =>
+          c.category_name?.toLowerCase() === (formData.category || '').toLowerCase()
+        );
+        if (found) categoryId = found.problem_category_ID;
+        else categoryId = options.problem_categories[0].problem_category_ID;
+      }
+
+      let priorityId = 2;
+      if (options?.ticket_priorities && options.ticket_priorities.length > 0) {
+        const found = options.ticket_priorities.find(p =>
+          p.priority_name?.toLowerCase() === (formData.priority || '').toLowerCase()
+        );
+        if (found) priorityId = found.priority_ID;
+        else priorityId = options.ticket_priorities[0].priority_ID;
+      }
+
+      const draftPayload = {
+        title: ticketTitle,
+        machine_ID: machineId,
+        problem_category_ID: categoryId,
+        priority_ID: priorityId,
+        description: formData.conversationSummary || formData.problemSummary || 'Draft created from AI Support Assistant.',
+      };
+
+      const res = await saveTicketDraft(draftPayload);
+      const savedDraftId = res.draft?.id || res.id;
+
+      setShowReviewModal(false);
+      setShowTicketCard(false);
+
+      // Redirect to the draft ticket creation page with draft data pre-loaded
+      navigate('/create-ticket', { state: { draftId: savedDraftId } });
+    } catch (err) {
+      console.error('Failed to save draft from AI Support:', err);
+      throw err;
+    }
+  }, [currentUserId, conversations, activeConversationId, ticketOptions, navigate]);
+
   const handleViewTicket = useCallback(() => {
     setShowSuccess(false);
     navigate('/my-tickets');
@@ -1405,6 +1594,31 @@ function AISupportPage() {
         timestamp: new Date().toISOString(),
       });
     }, 1200);
+  }, [addMessage]);
+
+  const handleFeedbackResolved = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'resolved' }));
+    addMessage({
+      id: `feedback-resolved-${Date.now()}`,
+      role: 'ai',
+      content: 'Glad to hear the troubleshooting steps resolved your issue! If you experience any other machine problems, feel free to start a new chat anytime.',
+      timestamp: new Date().toISOString(),
+    });
+  }, [addMessage]);
+
+  const handleFeedbackUnresolved = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'unresolved' }));
+  }, []);
+
+  const handleContinueChattingFromPrompt = useCallback((msgId) => {
+    setFeedbackMap(prev => ({ ...prev, [msgId]: 'continue' }));
+    inputRef.current?.focus();
+    addMessage({
+      id: `ai-prompt-${Date.now()}`,
+      role: 'ai',
+      content: 'Please describe what happened when you tried the steps above, or share any specific error codes displayed on your machine.',
+      timestamp: new Date().toISOString(),
+    });
   }, [addMessage]);
 
   const handleBack = useCallback(() => {
@@ -1494,12 +1708,19 @@ function AISupportPage() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#252578] flex items-center justify-center">
-                <Bot size={18} className="text-white" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#252578] to-indigo-600 flex items-center justify-center shadow-xs">
+                <Bot size={20} className="text-white" />
               </div>
               <div>
-                <p className="font-semibold text-sm text-gray-800">AI Support Assistant</p>
-                <p className="text-[11px] text-gray-500">Powered by AI Knowledge Base</p>
+                <div className="flex items-center gap-2">
+                  <h1 className="font-bold text-sm text-gray-900">AI Support Assistant</h1>
+                  <span className="bg-indigo-50 border border-indigo-200 text-[#252578] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    Automated System
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Not a live human agent · AI searches technical manuals & knowledge base
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1540,6 +1761,12 @@ function AISupportPage() {
                         </div>
                       )}
                       <div>
+                        {msg.role === 'ai' && !isErrorMessage && (
+                          <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-[#252578]">
+                            <Bot size={13} />
+                            <span>AI Assistant (Automated)</span>
+                          </div>
+                        )}
                         {isErrorMessage ? (
                           <div className="bg-red-50 border border-red-200 rounded-2xl rounded-bl-md shadow-sm p-4 text-left">
                             <div className="flex items-start gap-3">
@@ -1575,13 +1802,71 @@ function AISupportPage() {
                           </div>
                         ) : (
                           <div className={msg.role === 'user'
-                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md'
-                            : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm px-4 py-3'
+                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md shadow-xs'
+                            : 'bg-white text-gray-800 border border-gray-150 rounded-2xl rounded-bl-md shadow-xs px-4 py-3'
                           }>
                             {typeof msg.content === 'string' ? (
                               <FormattedText text={msg.content} />
                             ) : (
                               msg.content
+                            )}
+
+                            {/* "Did this help?" Interactive Feedback Prompt on substantive AI troubleshooting messages */}
+                            {msg.role === 'ai' && !isErrorMessage && msg.id !== 'welcome' && msg.id !== 'gather-details' && (
+                              <div className="mt-3 pt-2.5 border-t border-gray-150 text-left">
+                                {feedbackMap[msg.id] === 'resolved' ? (
+                                  <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 text-xs text-green-800 flex items-center gap-2">
+                                    <CheckCircle size={15} className="text-green-600 shrink-0" />
+                                    <span className="font-semibold">Thank you for confirming! Marked as resolved.</span>
+                                  </div>
+                                ) : feedbackMap[msg.id] === 'unresolved' ? (
+                                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs space-y-2">
+                                    <p className="font-semibold text-amber-900">Issue still unresolved. How would you like to proceed?</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleContinueChattingFromPrompt(msg.id)}
+                                        className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold rounded-lg transition cursor-pointer text-xs"
+                                      >
+                                        Continue Troubleshooting
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFeedbackMap(prev => ({ ...prev, [msg.id]: 'escalated' }));
+                                          handleCreateTicket();
+                                        }}
+                                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition cursor-pointer text-xs inline-flex items-center gap-1 shadow-xs"
+                                      >
+                                        <Plus size={13} />
+                                        Create a Support Ticket
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center justify-between gap-2 py-1 text-xs">
+                                    <span className="text-gray-500 font-medium text-[11px]">Did this help resolve your concern?</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedbackResolved(msg.id)}
+                                        className="px-2.5 py-1 bg-white hover:bg-green-50 text-gray-700 hover:text-green-800 border border-gray-200 hover:border-green-300 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <CheckCircle size={12} className="text-green-600" />
+                                        Yes
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedbackUnresolved(msg.id)}
+                                        className="px-2.5 py-1 bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-800 border border-gray-200 hover:border-amber-300 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <AlertTriangle size={12} className="text-amber-600" />
+                                        No, need help
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
@@ -1673,6 +1958,7 @@ function AISupportPage() {
         machines={ticketOptions?.machines || []}
         onClose={() => setShowReviewModal(false)}
         onSubmit={handleSubmitTicket}
+        onSaveDraft={handleSaveTicketDraft}
       />
 
       <SuccessDialog

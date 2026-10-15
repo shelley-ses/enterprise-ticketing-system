@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, RotateCcw, X } from 'lucide-react';
 import actionIcon from '@/assets/action.png';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
@@ -11,15 +11,82 @@ import {
   getDepartments,
   acceptTicket,
   getTicketFormOptions,
+  getCSFilterOptions,
   updateEmployeeTicketOverride,
   getTicketDetails,
   updateTicket,
   respondReassignment,
 } from '@/services/ticketService';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
-import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import SkeletonLoader from '@/components/SkeletonLoader';
+
+const getDisplayStatus = (ticket) => ticket.status;
+
+const buildTicketSearchString = (t) => {
+  if (!t) return '';
+  const id = String(t.id || t.ticket_ID || t.ticket_number || '');
+  const customer = String(
+    t.customer ||
+    t.customer_name ||
+    t.requestor ||
+    t.created_by_name ||
+    (typeof t.customer === 'object' ? t.customer?.name : '') ||
+    ''
+  );
+  const isInternal = Boolean(
+    t.title?.startsWith('[Internal]') ||
+    t.is_internal ||
+    t.ticket_type === 'Internal' ||
+    t.type === 'Internal'
+  );
+  const typeStr = isInternal ? 'internal' : 'external';
+  const title = String(t.title || '');
+  const category = String(t.category || '');
+  const rawStatus = String(t.status || '');
+  const displayStatus = String(
+    getDisplayStatus(t) === 'Reopen' ? 'Reopened' : (getDisplayStatus(t) || '')
+  );
+  const reassignmentBadge = t.reassignmentRequested ? 'pending reassignment' : '';
+  const statusStr = `${rawStatus} ${displayStatus} ${reassignmentBadge}`;
+  const dept = String(t.department || '');
+  const equip = String(t.equipment || t.machine_name || '');
+  const facility = String(t.facility || '');
+
+  const dateValue = t.date || t.created_at || t.submitted_at || t.updated_at || '';
+  const rawDate = String(dateValue);
+  const formattedDate = formatDisplayDate(dateValue);
+  let extraDates = '';
+  try {
+    const parsed = parseUTCDate(dateValue);
+    if (parsed && !isNaN(parsed.getTime())) {
+      extraDates = [
+        parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
+      ].join(' ');
+    }
+  } catch (e) {}
+
+  return [
+    id,
+    customer,
+    typeStr,
+    title,
+    category,
+    statusStr,
+    dept,
+    equip,
+    facility,
+    rawDate,
+    formattedDate,
+    extraDates,
+  ]
+    .join(' ')
+    .toLowerCase();
+};
 
 export default function CSAssigned() {
   const { user } = useAuth();
@@ -32,25 +99,83 @@ export default function CSAssigned() {
   const [modalLoading, setModalLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('All Customers');
   const [category, setCategory] = useState('All Categories');
   // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
+  const [departmentFilter, setDepartmentFilter] = useState('All Departments');
+  const [statusFilter, setStatusFilter] = useState('All Statuses');
+  const [csFilterOptions, setCsFilterOptions] = useState({
+    departments: [],
+    statuses: [],
+    machines: [],
+  });
   const [notificationBanner, setNotificationBanner] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
-  const [assignedTab, setAssignedTab] = useState('all'); // 'all' | 'in_progress' | 'pending_evaluation' | 'reassigned' | 'resolved_closed'
+  const [assignedTab, setAssignedTab] = useState('all'); // 'all' | 'in_progress' | 'pending_evaluation' | 'on_hold' | 'reassigned' | 'resolved_closed'
 
   // modal state: null | { mode: 'assign'|'summary', ticket }
   const [modal, setModal] = useState(null);
 
+  const resetFilters = useCallback(() => {
+    setSearch('');
+    setCustomerFilter('All Customers');
+    setCategory('All Categories');
+    setMachineFilter('All Machines');
+    setDepartmentFilter('All Departments');
+    setStatusFilter('All Statuses');
+    setTypeFilter('all');
+  }, []);
+
+  const clearFilter = useCallback((key) => {
+    switch (key) {
+      case 'search':
+        setSearch('');
+        break;
+      case 'customer':
+        setCustomerFilter('All Customers');
+        break;
+      case 'machine':
+        setMachineFilter('All Machines');
+        break;
+      case 'department':
+        setDepartmentFilter('All Departments');
+        break;
+      case 'status':
+        setStatusFilter('All Statuses');
+        break;
+      case 'category':
+        setCategory('All Categories');
+        break;
+      case 'type':
+        setTypeFilter('all');
+        break;
+      default:
+        break;
+    }
+  }, []);
+
   const loadStaticData = useCallback(async () => {
     try {
-      const [deps, options] = await Promise.all([
+      const [depsResult, optionsResult, csOptsResult] = await Promise.allSettled([
         getDepartments(),
         getTicketFormOptions(),
+        getCSFilterOptions(),
       ]);
-      setDepartments((deps?.departments || []).map((d) => d.name));
-      setPriorityOptions((options?.ticket_priorities || []).map((p) => p.priority_name));
+      if (depsResult.status === 'fulfilled') {
+        setDepartments((depsResult.value?.departments || depsResult.value || []).map((d) => d.name || d));
+      }
+      if (optionsResult.status === 'fulfilled') {
+        setPriorityOptions((optionsResult.value?.ticket_priorities || []).map((p) => p.priority_name));
+      }
+      if (csOptsResult.status === 'fulfilled' && csOptsResult.value) {
+        setCsFilterOptions({
+          departments: csOptsResult.value.departments || [],
+          statuses: csOptsResult.value.statuses || [],
+          machines: csOptsResult.value.machines || [],
+        });
+      }
     } catch (e) {
       console.warn('Failed to load static options:', e);
     }
@@ -67,10 +192,10 @@ export default function CSAssigned() {
         getAssignableEmployees({ forceRefresh }),
       ]);
 
-      // Assigned page: show tickets with assigned / in progress / evaluation / resolved / closed / reassigned
+      // Assigned page: show tickets with assigned / in progress / evaluation / resolved / closed / reassigned / on hold
       const assignedTickets = incoming.filter(t =>
         t.reassignmentRequested === true ||
-        ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+        ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed', 'On Hold'].includes(t.status) ||
         (t.assigned && t.assigned.length > 0)
       );
       
@@ -133,14 +258,42 @@ export default function CSAssigned() {
     deferRefresh: false,
   });
 
+  const customers = useMemo(() => {
+    const list = Array.from(new Set(tickets.map((t) => t.customer || t.requestor || t.created_by_name).filter(Boolean)));
+    return ['All Customers', ...list.sort()];
+  }, [tickets]);
+
   const categories = useMemo(
-    () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category)))],
+    () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category).filter(Boolean)))],
     [tickets]
   );
 
-  const machines = useMemo(
-    () => ['All Machines', ...Array.from(new Set(tickets.map((t) => t.equipment).filter(Boolean)))],
-    [tickets]
+  const machines = useMemo(() => {
+    const fromTickets = tickets.map((t) => t.equipment || t.machine_name).filter(Boolean);
+    const fromBackend = (csFilterOptions.machines || []).map((m) => m.machine_name || m.label || m.name || m);
+    return ['All Machines', ...Array.from(new Set([...fromTickets, ...fromBackend])).sort()];
+  }, [tickets, csFilterOptions.machines]);
+
+  const statuses = useMemo(() => {
+    const defaultStatuses = ['In Progress', 'Pending Evaluation', 'On Hold', 'Pending Assignment', 'Resolved', 'Closed', 'Reopened'];
+    const fromBackend = (csFilterOptions.statuses || []).map((s) => s.status_name || s.name || s);
+    return ['All Statuses', ...Array.from(new Set([...defaultStatuses, ...fromBackend]))];
+  }, [csFilterOptions.statuses]);
+
+  const departmentOptions = useMemo(() => {
+    const fromDeps = departments.map((d) => d.name || d);
+    const fromTickets = tickets.map((t) => t.department).filter(Boolean);
+    return ['All Departments', ...Array.from(new Set([...fromDeps, ...fromTickets])).sort()];
+  }, [departments, tickets]);
+
+  const hasActiveFilters = Boolean(
+    search.trim() ||
+    customerFilter !== 'All Customers' ||
+    machineFilter !== 'All Machines' ||
+    statusFilter !== 'All Statuses' ||
+    departmentFilter !== 'All Departments' ||
+    category !== 'All Categories' ||
+    typeFilter !== 'all'
   );
 
   // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached', 'Closed'];
@@ -150,6 +303,7 @@ export default function CSAssigned() {
     let inProgress = 0;
     let pendingEval = 0;
     let reassigned = 0;
+    let onHold = 0;
     let resolvedClosed = 0;
 
     tickets.forEach((t) => {
@@ -157,18 +311,22 @@ export default function CSAssigned() {
       if (t.reassignmentRequested === true) reassigned++;
       if (t.status === 'In Progress') inProgress++;
       if (t.status === 'Pending Evaluation') pendingEval++;
+      if (t.status === 'On Hold') onHold++;
       if (t.status === 'Resolved' || t.status === 'Closed') resolvedClosed++;
     });
 
-    return { all, inProgress, pendingEval, reassigned, resolvedClosed };
+    return { all, inProgress, pendingEval, reassigned, onHold, resolvedClosed };
   }, [tickets]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((t) => {
       if (category !== 'All Categories' && t.category !== category) return false;
-      // if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
-      if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
+      if (customerFilter !== 'All Customers' && (t.customer || t.requestor || t.created_by_name || '') !== customerFilter) return false;
+      if (machineFilter !== 'All Machines' && (t.equipment || t.machine_name || '') !== machineFilter) return false;
+      if (departmentFilter !== 'All Departments' && (t.department || '').trim().toLowerCase() !== departmentFilter.trim().toLowerCase()) return false;
+      if (statusFilter !== 'All Statuses' && (t.status || '').trim().toLowerCase() !== statusFilter.trim().toLowerCase()) return false;
+
       if (typeFilter === 'internal') {
         const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
         if (!isInternal) return false;
@@ -180,18 +338,18 @@ export default function CSAssigned() {
       // Tab filter
       if (assignedTab === 'in_progress' && t.status !== 'In Progress') return false;
       if (assignedTab === 'pending_evaluation' && t.status !== 'Pending Evaluation') return false;
+      if (assignedTab === 'on_hold' && t.status !== 'On Hold') return false;
       if (assignedTab === 'reassigned' && !t.reassignmentRequested) return false;
       if (assignedTab === 'resolved_closed' && t.status !== 'Resolved' && t.status !== 'Closed') return false;
       
       if (!q) return true;
-      return (
-        t.id.toLowerCase().includes(q) ||
-        t.customer.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
-        (t.equipment && t.equipment.toLowerCase().includes(q))
-      );
+      const cleanQ = q.trim().toLowerCase();
+      const searchBlob = buildTicketSearchString(t);
+      if (searchBlob.includes(cleanQ)) return true;
+      const tokens = cleanQ.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+      return tokens.length > 0 && tokens.every((token) => searchBlob.includes(token));
     });
-  }, [tickets, search, category, machineFilter, typeFilter, assignedTab]);
+  }, [tickets, search, customerFilter, machineFilter, departmentFilter, statusFilter, category, typeFilter, assignedTab]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -213,7 +371,7 @@ export default function CSAssigned() {
       return;
     }
 
-    const isSummary = t.reassignmentRequested || t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed' || t.status === 'Reopened';
+    const isSummary = t.reassignmentRequested || t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed' || t.status === 'Reopened' || t.status === 'On Hold';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -339,21 +497,155 @@ export default function CSAssigned() {
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets, customers..." className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
-            <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
-          <select value={machineFilter} onChange={(e) => setMachineFilter(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-            {machines.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+          <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm w-full shrink-0">
+            <div className="flex flex-wrap items-center gap-3 w-full">
+              {/* Ticket ID & Keyword Search Field */}
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  placeholder="Search by ticket ID, customer, type, title, category, status, date..."
+                  className="w-full pl-10 pr-9 py-2.5 text-xs sm:text-sm rounded-xl border border-gray-200 bg-gray-50/50 outline-none focus:ring-2 focus:ring-[#252578] focus:bg-white transition-all"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => { setSearch(''); setPage(1); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Customer Dropdown */}
+              <select
+                value={customerFilter}
+                onChange={(e) => { setCustomerFilter(e.target.value); setPage(1); }}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
+              >
+                {customers.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              {/* Machine Dropdown */}
+              <select
+                value={machineFilter}
+                onChange={(e) => { setMachineFilter(e.target.value); setPage(1); }}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
+              >
+                {machines.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+
+              {/* Status Dropdown */}
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
+              >
+                {statuses.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+
+              {/* Department Dropdown */}
+              <select
+                value={departmentFilter}
+                onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
+              >
+                {departmentOptions.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+
+              {/* Category Dropdown */}
+              <select
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
+              >
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Active Filter Chips & Reset All Action */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+                <span className="text-xs font-semibold text-gray-500 mr-1 flex items-center gap-1">
+                  <Filter className="w-3.5 h-3.5 text-[#252578]" /> Active Filters:
+                </span>
+
+                {search && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Search: &quot;{search}&quot;
+                    <button type="button" onClick={() => clearFilter('search')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {customerFilter !== 'All Customers' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Customer: {customerFilter}
+                    <button type="button" onClick={() => clearFilter('customer')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {machineFilter !== 'All Machines' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Machine: {machineFilter}
+                    <button type="button" onClick={() => clearFilter('machine')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {statusFilter !== 'All Statuses' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Status: {statusFilter}
+                    <button type="button" onClick={() => clearFilter('status')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {departmentFilter !== 'All Departments' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Dept: {departmentFilter}
+                    <button type="button" onClick={() => clearFilter('department')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {category !== 'All Categories' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+                    Category: {category}
+                    <button type="button" onClick={() => clearFilter('category')} className="hover:text-blue-950 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-1.5 ml-auto px-3 py-1 text-xs font-semibold text-gray-600 hover:text-red-700 bg-gray-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" /> Reset all filters
+                </button>
+              </div>
+            )}
+          </div>
 
       {/* Table */}
       <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
@@ -410,6 +702,22 @@ export default function CSAssigned() {
           </button>
           <button
             type="button"
+            onClick={() => { setAssignedTab('on_hold'); setPage(1); }}
+            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
+              assignedTab === 'on_hold'
+                ? 'border-amber-600 text-amber-700'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            On Hold
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              assignedTab === 'on_hold' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {counts.onHold}
+            </span>
+          </button>
+          <button
+            type="button"
             onClick={() => { setAssignedTab('reassigned'); setPage(1); }}
             className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
               assignedTab === 'reassigned'
@@ -444,7 +752,7 @@ export default function CSAssigned() {
 
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-xl font-semibold text-[#252578]">
-            {assignedTab === 'reassigned' ? 'Reassigned Tickets' : assignedTab === 'pending_evaluation' ? 'Pending Evaluation' : assignedTab === 'in_progress' ? 'In Progress Tickets' : assignedTab === 'resolved_closed' ? 'Resolved / Closed Tickets' : 'Assigned Tickets'}
+            {assignedTab === 'reassigned' ? 'Reassigned Tickets' : assignedTab === 'pending_evaluation' ? 'Pending Evaluation' : assignedTab === 'on_hold' ? 'On Hold Tickets' : assignedTab === 'in_progress' ? 'In Progress Tickets' : assignedTab === 'resolved_closed' ? 'Resolved / Closed Tickets' : 'Assigned Tickets'}
           </h2>
           <div className="text-sm text-gray-500">{filtered.length} tickets</div>
         </div>
@@ -526,6 +834,7 @@ export default function CSAssigned() {
                     <td className="py-4 px-4">
                       <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
                         isReassignmentReq ? 'bg-amber-100 text-amber-800 border border-amber-200 font-bold' :
+                        t.status === 'On Hold' ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold' :
                         t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
                         t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
                         t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
@@ -599,6 +908,27 @@ export default function CSAssigned() {
           onStatusUpdate={async (updatedFields) => {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
             
+            setTickets((prev) => prev.map((t) => (
+              (t.id === (updatedFields.id || modal.ticket.id) || t.ticket_ID === (updatedFields.ticket_ID || modal.ticket.ticket_ID)) ? { ...t, ...updatedFields } : t
+            )));
+
+            // If the status is 'On Hold', resumed, or classification updated,
+            // the dedicated endpoint (POST /hold, POST /resume, or PATCH /classification) was already executed directly in TicketSummary.
+            if (updatedFields.status === 'On Hold' || updatedFields.hold_reason !== undefined || updatedFields.category || updatedFields.priority) {
+              try {
+                const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+                const assignedTickets = incoming.filter(t =>
+                  t.reassignmentRequested === true ||
+                  ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed', 'On Hold'].includes(t.status) ||
+                  (t.assigned && t.assigned.length > 0)
+                );
+                setTickets(assignedTickets);
+              } catch (e) {
+                // Keep local state
+              }
+              return;
+            }
+
             try {
               const numericId = modal.ticket.ticket_ID || Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
               
@@ -620,7 +950,6 @@ export default function CSAssigned() {
                   'Reopened': 8,
                   'Reopen': 8,
                   'Pending Assignment': 9,
-                  'On Hold': 11,
                 };
                 
                 await updateTicket({
@@ -632,7 +961,7 @@ export default function CSAssigned() {
                 });
               }
 
-              // Close the modal immediately after a successful update
+              // Close the modal immediately after a generic status/reassignment update
               setModal(null);
             } catch (err) {
               console.error('Failed to update ticket status on backend:', err);
@@ -643,7 +972,7 @@ export default function CSAssigned() {
               const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
               const assignedTickets = incoming.filter(t =>
                 t.reassignmentRequested === true ||
-                ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+                ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed', 'On Hold'].includes(t.status) ||
                 (t.assigned && t.assigned.length > 0)
               );
               setTickets(assignedTickets);

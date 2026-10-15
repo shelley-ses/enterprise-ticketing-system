@@ -94,6 +94,14 @@ export default function PreferencesCard({ role }) {
       } else if (channel === 'in_app') {
         setWarningMessage('Disabling In-App notifications means you will only receive updates via Email alerts.');
       }
+    } else {
+      if (nextEmail && nextInApp) {
+        setWarningMessage('');
+      } else if (!nextEmail) {
+        setWarningMessage('Disabling Email means you will only receive ticket updates via In-App notifications.');
+      } else if (!nextInApp) {
+        setWarningMessage('Disabling In-App notifications means you will only receive updates via Email alerts.');
+      }
     }
 
     // Optimistically update

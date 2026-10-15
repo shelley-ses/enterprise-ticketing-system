@@ -14,6 +14,7 @@ import {
   saveCustomerTicketDetail,
   getTicketDetails,
   updateTicket,
+  reopenTicket,
 } from '@/services/ticketService';
 import { statusColors } from '@/constants/employeeTickets';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -289,9 +290,9 @@ export default function CustomerDashboard() {
     const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const timestamp = new Date().toISOString();
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
-          const timestamp = new Date().toISOString();
           const timeline = t.timeline || [
             { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
           ];
@@ -313,28 +314,18 @@ export default function CustomerDashboard() {
         return t;
       });
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
-      setSelectedTicket(null);
-      window.alert('Ticket reopened successfully.');
       loadDashboardData();
-      return;
+      return { success: true };
     }
 
-    setLoadingText('Reopening ticket...');
-    setModalLoading(true);
     try {
       const numericId = Number(String(ticketId).replace(/\D/g, ''));
-      await updateTicket({
-        ticketId: numericId,
-        statusId: 8, // Reopened
-      });
-      setSelectedTicket(null);
-      window.alert('Ticket reopened successfully.');
+      const res = await reopenTicket(numericId, reason);
       loadDashboardData();
+      return res;
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
-      window.alert(err?.response?.data?.message || 'Failed to reopen ticket.');
-    } finally {
-      setModalLoading(false);
+      throw err;
     }
   };
 
