@@ -8,6 +8,7 @@ import {
   getCustomerTickets,
   saveTicketDraft,
   getTicketDraft,
+  getEscalateHandoff,
 } from '@/services/ticketService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
@@ -131,6 +132,36 @@ export default function TicketCreation() {
         });
     }
   }, [location.state?.draftId]);
+
+  // Load AI Chatbot escalation handoff if navigated from AI assistant (TS027)
+  useEffect(() => {
+    const conversationId = location.state?.conversationId || new URLSearchParams(location.search).get('conversation_id');
+    if (conversationId && !location.state?.draftId) {
+      getEscalateHandoff(conversationId)
+        .then((res) => {
+          if (res?.fallback) {
+            setError(res.notice || "We couldn't carry over your chat details — please fill in your ticket.");
+            return;
+          }
+          const handoff = res?.data;
+          if (handoff) {
+            setFormData((prev) => ({
+              ...prev,
+              title: handoff.title || prev.title || '',
+              description: handoff.description || prev.description || '',
+              problem_category_ID: handoff.problem_category_ID || prev.problem_category_ID || '',
+              machine_ID: handoff.machine_ID || prev.machine_ID || '',
+              origin: handoff.origin || 'ai_chatbot',
+              conversation_id: handoff.conversation_id || conversationId,
+            }));
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not load AI escalation handoff:', err);
+          setError("We couldn't carry over your chat details — please fill in your ticket.");
+        });
+    }
+  }, [location.state?.conversationId, location.search, location.state?.draftId]);
 
   const handleSaveDraft = async () => {
     if (savingDraft || submitting) return;
@@ -299,6 +330,12 @@ export default function TicketCreation() {
       payload.append('priority_ID', formData.priority_ID);
       if (draftId) {
         payload.append('draft_id', draftId);
+      }
+      if (formData.origin) {
+        payload.append('origin', formData.origin);
+      }
+      if (formData.conversation_id) {
+        payload.append('conversation_id', formData.conversation_id);
       }
       if (files && files.length > 0) {
         files.forEach((f) => {

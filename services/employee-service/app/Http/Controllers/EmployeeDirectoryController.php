@@ -271,34 +271,168 @@ class EmployeeDirectoryController extends Controller
     }
 
     /**
-     * Get the authenticated employee's profile info.
+     * Get the authenticated employee's profile info as synced from the Auth system (TS105).
+     * Includes last synced timestamp, read-only field metadata, and graceful fallback to cached record.
      */
     public function employeeProfile(Request $request)
     {
         $user = $request->user();
         if (!$user || $user instanceof \App\Models\Client) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        $employee = DB::table('employees')->where('emp_id', $user->emp_id)->first();
+        $empId = $user->emp_id ?? $user->id;
+        $employee = DB::table('employees')->where('emp_id', $empId)->first();
         if (!$employee) {
-            return response()->json(['message' => 'Employee not found'], 404);
+            return response()->json(['success' => false, 'message' => 'Employee profile not found'], 404);
         }
+
+        $authSyncStatus = 'synced';
+        $syncNote = null;
+        $authServiceUrl = env('CUSTOMER_SERVICE_URL', 'http://customer-service:8000');
+        $token = $request->bearerToken();
+
+        // Attempt live sync from central Auth system
+        try {
+            $client = \Illuminate\Support\Facades\Http::timeout(3);
+            if ($token) {
+                $client = $client->withToken($token);
+            }
+            $res = $client->get("{$authServiceUrl}/api/auth/me");
+            if ($res->successful()) {
+                $authData = $res->json('user') ?? $res->json('data') ?? $res->json();
+                if (is_array($authData)) {
+                    $updates = [];
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'last_synced_at')) {
+                        $updates['last_synced_at'] = now();
+                    }
+                    if (!empty($authData['first_name'])) $updates['first_name'] = $authData['first_name'];
+                    if (!empty($authData['last_name'])) $updates['last_name'] = $authData['last_name'];
+                    if (!empty($authData['email'])) $updates['email'] = $authData['email'];
+                    if (!empty($authData['role'])) $updates['role'] = $authData['role'];
+                    if (!empty($authData['department'])) $updates['department'] = $authData['department'];
+                    if (!empty($authData['branch']) && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
+                        $updates['branch'] = $authData['branch'];
+                    }
+
+                    if (!empty($updates)) {
+                        DB::table('employees')->where('emp_id', $empId)->update($updates);
+                        $employee = DB::table('employees')->where('emp_id', $empId)->first();
+                    }
+                }
+            } else {
+                $authSyncStatus = 'cached';
+                $syncNote = 'Central Auth service responded with error; displaying last known synced profile data.';
+            }
+        } catch (\Throwable $e) {
+            // Graceful degradation when Auth service is temporarily unavailable (TS105)
+            $authSyncStatus = 'cached';
+            $syncNote = 'Central Auth service is temporarily unavailable; displaying last known cached profile data.';
+        }
+
+        $hasBranch = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch');
+        $branchValue = $hasBranch ? ($employee->branch ?? 'Main') : 'Main';
+        $lastSynced = $employee->last_synced_at ?? $employee->last_seen_at ?? null;
 
         return response()->json([
+            'success' => true,
+            'data' => [
+                'emp_id' => (int) $employee->emp_id,
+                'employee_id' => (string) $employee->emp_id,
+                'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')),
+                'first_name' => $employee->first_name,
+                'last_name' => $employee->last_name,
+                'email' => $employee->email,
+                'department' => $employee->department,
+                'role' => $employee->role,
+                'branch' => $branchValue,
+                'phone_number' => $employee->phone_number ?? null,
+                'is_active' => (bool) $employee->is_active,
+                'last_synced_at' => $lastSynced,
+                'auth_sync_status' => $authSyncStatus,
+                'sync_note' => $syncNote,
+                'auth_sourced_fields' => [
+                    'emp_id' => ['label' => 'Employee ID', 'read_only' => true],
+                    'name' => ['label' => 'Full Name', 'read_only' => true],
+                    'first_name' => ['label' => 'First Name', 'read_only' => true],
+                    'last_name' => ['label' => 'Last Name', 'read_only' => true],
+                    'email' => ['label' => 'Email Address', 'read_only' => true],
+                    'department' => ['label' => 'Department', 'read_only' => true],
+                    'role' => ['label' => 'Role / Job Title', 'read_only' => true],
+                    'branch' => ['label' => 'Branch Assignment', 'read_only' => true],
+                ],
+                'editable_fields' => [
+                    'phone_number' => ['label' => 'Contact / Phone Number', 'read_only' => false],
+                ],
+            ],
+            // Backwards-compatible root keys
             'emp_id' => $employee->emp_id,
-            'name' => $employee->first_name . ' ' . $employee->last_name,
+            'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')),
             'first_name' => $employee->first_name,
             'last_name' => $employee->last_name,
             'email' => $employee->email,
             'department' => $employee->department,
             'role' => $employee->role,
+            'branch' => $branchValue,
+            'last_synced_at' => $lastSynced,
         ]);
     }
 
     /**
+     * Update employee profile (TS105).
+     * Rejects any attempt to modify central Auth-sourced fields server-side with 403 Forbidden.
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+        if (!$user || $user instanceof \App\Models\Client) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $empId = $user->emp_id ?? $user->id;
+        $employee = DB::table('employees')->where('emp_id', $empId)->first();
+        if (!$employee) {
+            return response()->json(['success' => false, 'message' => 'Employee not found'], 404);
+        }
+
+        $authSourcedFields = ['emp_id', 'employee_id', 'first_name', 'last_name', 'name', 'email', 'department', 'role', 'branch'];
+        $attemptedAuthFields = [];
+
+        foreach ($authSourcedFields as $field) {
+            if ($request->has($field)) {
+                $incomingVal = trim((string) $request->input($field));
+                $currentVal = trim((string) ($employee->$field ?? ''));
+                if ($incomingVal !== '' && $incomingVal !== $currentVal) {
+                    $attemptedAuthFields[] = $field;
+                }
+            }
+        }
+
+        if (!empty($attemptedAuthFields)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden: Central identity and role fields are synced from the central Auth system and are read-only.',
+                'error_code' => 'AUTH_SOURCED_FIELD_READ_ONLY',
+                'rejected_fields' => $attemptedAuthFields,
+            ], 403);
+        }
+
+        // Allow update of local non-auth fields (e.g. phone_number)
+        $updates = [];
+        if ($request->has('phone_number') && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'phone_number')) {
+            $updates['phone_number'] = $request->input('phone_number');
+        }
+
+        if (!empty($updates)) {
+            DB::table('employees')->where('emp_id', $empId)->update($updates);
+        }
+
+        return $this->employeeProfile($request);
+    }
+
+    /**
      * Search and filter employees by name, department, branch, or role (TS107).
-     * Scoped to the Admin's permitted visibility.
+     * Supports combinable filters, pagination, and strictly enforces Admin branch scope.
      */
     public function searchEmployees(Request $request)
     {
@@ -308,13 +442,18 @@ class EmployeeDirectoryController extends Controller
         $branch = trim((string) $request->query('branch', ''));
         $role = trim((string) $request->query('role', ''));
         $status = trim((string) $request->query('status', ''));
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = max(1, min(100, (int) $request->query('per_page', 15)));
+
+        $isSqlite = DB::getDriverName() === 'sqlite';
+        $concatNameRaw = $isSqlite ? "(first_name || ' ' || last_name)" : "CONCAT(first_name, ' ', last_name)";
 
         $query = DB::table('employees')
             ->select(
                 'emp_id as id',
                 'first_name',
                 'last_name',
-                DB::raw("CONCAT(first_name, ' ', last_name) as name"),
+                DB::raw("{$concatNameRaw} as name"),
                 'email',
                 'role',
                 'department',
@@ -325,18 +464,18 @@ class EmployeeDirectoryController extends Controller
 
         $hasBranch = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch');
         $hasBranchId = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id');
-        if ($hasBranch) {
-            $query->addSelect('branch');
-        } elseif ($hasBranchId) {
-            $query->addSelect('branch_id as branch');
+        $branchCol = $hasBranch ? 'branch' : ($hasBranchId ? 'branch_id' : null);
+
+        if ($branchCol) {
+            $query->addSelect("{$branchCol} as branch");
         }
 
-        // 1. Partial Name search (first_name, last_name, full name, or email)
+        // 1. Partial Name/Email search
         if ($queryText !== '') {
-            $query->where(function ($q) use ($queryText) {
+            $query->where(function ($q) use ($queryText, $concatNameRaw) {
                 $q->where('first_name', 'like', "%{$queryText}%")
                   ->orWhere('last_name', 'like', "%{$queryText}%")
-                  ->orWhere(DB::raw("CONCAT(first_name, ' ', last_name)"), 'like', "%{$queryText}%")
+                  ->orWhere(DB::raw($concatNameRaw), 'like', "%{$queryText}%")
                   ->orWhere('email', 'like', "%{$queryText}%");
             });
         }
@@ -360,25 +499,25 @@ class EmployeeDirectoryController extends Controller
             }
         }
 
-        // 5. Branch scoping & filtering
-        if ($hasBranch || $hasBranchId) {
-            $branchCol = $hasBranch ? 'branch' : 'branch_id';
-            // Admin branch scope restriction
-            if ($user && isset($user->role) && !in_array(strtolower(trim($user->role)), ['superadmin', 'super admin'], true)) {
-                $userBranch = $user->branch ?? $user->branch_id ?? null;
-                if ($userBranch) {
-                    $query->where($branchCol, $userBranch);
-                }
-            }
-            if ($branch !== '' && strtolower($branch) !== 'all') {
-                $query->where($branchCol, $branch);
+        // 5. Branch scoping & filtering (TS107)
+        if ($branchCol) {
+            $isAdminScoped = $user && isset($user->role) && !in_array(strtolower(trim($user->role)), ['superadmin', 'super admin', 'system administrator'], true);
+            $userBranch = $user->branch ?? $user->branch_id ?? null;
+
+            if ($isAdminScoped && !empty($userBranch) && strtolower($userBranch) !== 'all') {
+                // Strictly lock to Admin's authorized branch scope regardless of submitted filter
+                $query->whereRaw('LOWER(' . $branchCol . ') = ?', [strtolower($userBranch)]);
+            } elseif ($branch !== '' && strtolower($branch) !== 'all') {
+                $query->whereRaw('LOWER(' . $branchCol . ') = ?', [strtolower($branch)]);
             }
         }
 
+        $total = $query->count();
         $employees = $query
             ->orderByDesc('is_active')
             ->orderBy('first_name')
             ->orderBy('last_name')
+            ->forPage($page, $perPage)
             ->get();
 
         $formatted = $employees->map(function ($emp) {
@@ -400,13 +539,18 @@ class EmployeeDirectoryController extends Controller
         return response()->json([
             'success' => true,
             'data' => $formatted,
-            'total' => $formatted->count(),
+            'total' => $total,
+            'count' => $formatted->count(),
+            'per_page' => $perPage,
+            'current_page' => $page,
+            'last_page' => (int) ceil($total / max(1, $perPage)),
             'message' => $formatted->isEmpty() ? 'No employees match your search — try adjusting your filters.' : 'Employees retrieved successfully.',
         ]);
     }
 
     /**
      * Get dynamic filter options (departments, branches, roles) for Admin search (TS107).
+     * Scoped to the Admin's permitted branch authority.
      */
     public function filterOptions(Request $request)
     {
@@ -445,13 +589,7 @@ class EmployeeDirectoryController extends Controller
         $branches = [];
         if (\Illuminate\Support\Facades\Schema::hasTable('branches')) {
             $branchesQuery = DB::table('branches')->where('is_active', true)->orderBy('name');
-            if ($user && isset($user->role) && !in_array(strtolower(trim($user->role)), ['superadmin', 'super admin'], true)) {
-                $userBranch = $user->branch ?? $user->branch_id ?? null;
-                if ($userBranch) {
-                    $branchesQuery->where('slug', $userBranch);
-                }
-            }
-            $branches = $branchesQuery->select('slug', 'name', 'code')->get();
+            $branches = $branchesQuery->select('slug', 'name', 'code')->get()->toArray();
         } else {
             $branches = [
                 ['slug' => 'main', 'name' => 'Main Branch', 'code' => 'MAIN'],
@@ -461,7 +599,19 @@ class EmployeeDirectoryController extends Controller
             ];
         }
 
+        // Scope branches to Admin's branch if non-superadmin
+        if ($user && isset($user->role) && !in_array(strtolower(trim($user->role)), ['superadmin', 'super admin', 'system administrator'], true)) {
+            $userBranch = $user->branch ?? $user->branch_id ?? null;
+            if ($userBranch && strtolower($userBranch) !== 'all') {
+                $branches = array_values(array_filter($branches, function ($b) use ($userBranch) {
+                    $slug = is_array($b) ? ($b['slug'] ?? '') : ($b->slug ?? '');
+                    return strtolower($slug) === strtolower($userBranch);
+                }));
+            }
+        }
+
         return response()->json([
+            'success' => true,
             'departments' => array_values(array_unique($departments)),
             'roles' => array_values(array_unique($roles)),
             'branches' => $branches,

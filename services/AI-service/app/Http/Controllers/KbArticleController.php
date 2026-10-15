@@ -312,6 +312,8 @@ class KbArticleController extends Controller
             'version' => 'sometimes|nullable|string|max:20',
             'tags' => 'sometimes|nullable|array',
             'description' => 'sometimes|nullable|string',
+            'content' => 'sometimes|nullable|string',
+            'status' => 'sometimes|nullable|in:Draft,Published,Archived',
         ]);
 
         $history = is_array($article->history) ? $article->history : [];
@@ -321,24 +323,31 @@ class KbArticleController extends Controller
             'timestamp' => now()->format('Y-m-d H:i:s'),
             'actor' => $auth['actor'],
             'action' => 'Updated Metadata',
-            'details' => 'Article metadata modified.',
+            'details' => 'Article metadata or content modified.',
         ];
 
         $article->fill($validated);
         $article->history = $history;
         $article->save();
 
+        // Enqueue background auto-indexing on update
+        try {
+            event(new \App\Events\ArticleUpdated($article, $auth['actor']));
+        } catch (\Throwable $e) {
+            Log::warning('Dispatching ArticleUpdated event failed: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Article metadata updated successfully.',
+            'message' => 'Article updated successfully.',
             'data' => $this->formatArticle($article),
         ]);
     }
 
     /**
      * POST /api/articles/{id}/publish
-     * Super Admin action: Publish article, activating existing embeddings without re-extraction.
-     * Blocks publishing if the article has no successfully processed embeddings.
+     * Super Admin action: Publish article, activating existing embeddings and/or enqueuing
+     * background re-indexing so the article becomes retrievable without manual steps.
      */
     public function publish(Request $request, $id): JsonResponse
     {
@@ -355,39 +364,35 @@ class KbArticleController extends Controller
             return response()->json(['success' => false, 'message' => 'Article not found.'], 404);
         }
 
-        // Explicit Check: Blocks publishing when the article has no successfully processed embeddings
-        $embeddingsCount = KbEmbedding::where('article_id', $article->id)->count();
-        $isProcessed = ($article->processing_status === 'Ready for AI Search' || $article->processing_status === 'Ready');
-
-        if ($embeddingsCount === 0 || !$isProcessed) {
-            Log::warning('Publish blocked: article lacks processed embeddings', [
-                'article_id' => $article->id,
-                'title' => $article->title,
-                'embeddings_count' => $embeddingsCount,
-                'processing_status' => $article->processing_status,
-            ]);
-
+        // Check if content exists
+        if (empty($article->content) && empty($article->description)) {
             return response()->json([
                 'success' => false,
-                'message' => "Cannot publish article: no successfully processed embeddings exist for this article. Please extract and process document content before publishing.",
-                'error_code' => 'NO_EMBEDDINGS',
+                'message' => "Cannot publish article without content or description.",
+                'error_code' => 'NO_CONTENT',
             ], 422);
         }
 
         try {
-            $updated = $this->ragService->publishArticle($article, $auth['actor']);
+            $embeddingsCount = KbEmbedding::where('article_id', $article->id)->count();
+            if ($embeddingsCount > 0) {
+                $updated = $this->ragService->publishArticle($article, $auth['actor']);
+            } else {
+                $article->status = 'Published';
+                $article->published_at = now();
+                $article->processing_status = 'Processing';
+                $article->save();
+                $updated = $article;
+            }
+
+            // Enqueue background re-indexing
+            event(new \App\Events\ArticlePublished($updated, $auth['actor']));
 
             return response()->json([
                 'success' => true,
-                'message' => 'Article published successfully and activated in RAG search index.',
+                'message' => 'Article published successfully and queued for active RAG search indexing.',
                 'data' => $this->formatArticle($updated),
             ]);
-        } catch (ArticleMissingEmbeddingsException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'error_code' => 'NO_EMBEDDINGS',
-            ], 422);
         } catch (\Throwable $e) {
             Log::error('Failed to publish article: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
@@ -493,6 +498,7 @@ class KbArticleController extends Controller
         // Permanently hard-delete stored files, embeddings, chunks, and database record
         try {
             $this->ragService->deleteArticle($article, $actor, skipAuditLog: true);
+            event(new \App\Events\ArticleDeleted($articleId, $title, $actor, now()->toIso8601String(), $category));
         } catch (\App\Exceptions\ArticleProcessingInProgressException $e) {
             return response()->json([
                 'success' => false,

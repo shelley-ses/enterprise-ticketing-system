@@ -19,6 +19,8 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 Route::post('/chat', [AiChatController::class, 'chat']);
 Route::get('/conversations', [AiChatController::class, 'conversations']);
 Route::get('/conversations/{id}', [AiChatController::class, 'showConversation']);
+Route::get('/conversations/{id}/escalate-handoff', [AiChatController::class, 'escalateHandoff']);
+Route::get('/escalate-handoff/{id}', [AiChatController::class, 'escalateHandoff']);
 Route::delete('/conversations/{id}', [AiChatController::class, 'deleteConversation']);
 Route::delete('/conversations/{id}/messages/{messageId}', [AiChatController::class, 'deleteMessage']);
 Route::post('/tickets', [AiChatController::class, 'markTicketCreated']);

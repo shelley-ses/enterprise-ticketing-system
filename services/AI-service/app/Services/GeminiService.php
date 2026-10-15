@@ -43,6 +43,37 @@ class GeminiService
 
         $isGreeting = $this->isGreetingOnly($lastUserQuery);
 
+        // TS050 Safety Guardrail: Detect dangerous high-voltage electrical or heavy machinery physical internal repair
+        if (!empty($lastUserQuery) && $this->detectHazardousRepairIntent($lastUserQuery)) {
+            Log::warning('TS050 Safety Guardrail triggered: Dangerous high-voltage or heavy machinery repair inquiry intercepted.', [
+                'query' => $lastUserQuery,
+            ]);
+            $title = $this->deriveTitleFromMessages($messages) ?: 'Urgent: High-Voltage / Machinery Physical Inspection Needed';
+            $dangerNotice = "⚠️ SAFETY HAZARD ALERT: For your safety, do not attempt to service, disassemble, or touch live high-voltage electrical components, open electrical cabinets, or bypass safety interlocks on heavy machinery.\n\nPhysical intervention on high-voltage and industrial machinery must strictly be handled by certified service engineers with proper lockout/tagout procedures. I have escalated this issue directly to a high-priority technician dispatch ticket.";
+
+            return [
+                'content' => $dangerNotice,
+                'reply' => $dangerNotice,
+                'escalate' => true,
+                'is_fallback' => true,
+                'fallback' => true,
+                'safety_alert' => true,
+                'ticket_data' => [
+                    'title' => $title,
+                    'description' => $lastUserQuery . " [SAFETY ESCALATION: Hazardous high-voltage or heavy equipment repair inquiry]",
+                    'priority' => 'High',
+                    'suggested_category' => 'Hardware',
+                    'category_confidence' => 0.95,
+                ],
+                'ticket_title' => $title,
+                'ticket_description' => $lastUserQuery . " [SAFETY ESCALATION: Hazardous high-voltage or heavy equipment repair inquiry]",
+                'rag_matched' => false,
+                'rag_sources' => [],
+                'rag_duration_ms' => 0.0,
+                'total_duration_ms' => round((hrtime(true) - $requestStartTime) / 1e6, 2),
+            ];
+        }
+
         // 2. Perform RAG retrieval strictly over Published articles
         $ragResult = [
             'chunks' => [],
@@ -106,7 +137,11 @@ class GeminiService
                 "{\n" .
                 '  "escalate": true,' . "\n" .
                 '  "ticket_title": "Concise natural summary of the problem (e.g. CGI Machine Paper Jam Error, NEVER include numbers or bullets like 1. or 2.)",' . "\n" .
-                '  "ticket_description": "Detailed summary of the problem and troubleshooting attempted"' . "\n" .
+                '  "ticket_description": "Detailed human-readable summary of the problem and troubleshooting attempted",' . "\n" .
+                '  "suggested_category": "Classified category name or null if not confident (e.g. Hardware, Software, Network)",' . "\n" .
+                '  "category_confidence": 0.85,' . "\n" .
+                '  "suggested_machine": "Specific machine name or serial number mentioned by user or null if not identified",' . "\n" .
+                '  "machine_confidence": 0.90' . "\n" .
                 "}\n" .
                 "```";
 
@@ -235,6 +270,10 @@ class GeminiService
                 $ticketData = [
                     'title' => !empty($cleanTitle) ? ucfirst($cleanTitle) : $this->deriveTitleFromMessages($messages),
                     'description' => $parsed['ticket_description'] ?? 'Submitted via AI Support Assistant.',
+                    'category' => !empty($parsed['suggested_category']) && strtolower($parsed['suggested_category']) !== 'null' ? trim($parsed['suggested_category']) : null,
+                    'category_confidence' => isset($parsed['category_confidence']) ? (float) $parsed['category_confidence'] : 0.85,
+                    'machine' => !empty($parsed['suggested_machine']) && strtolower($parsed['suggested_machine']) !== 'null' ? trim($parsed['suggested_machine']) : null,
+                    'machine_confidence' => isset($parsed['machine_confidence']) ? (float) $parsed['machine_confidence'] : 0.85,
                 ];
             }
         } else {
@@ -250,6 +289,10 @@ class GeminiService
                 $ticketData = [
                     'title' => $this->deriveTitleFromMessages($messages),
                     'description' => 'Automated troubleshooting suggested technician dispatch for this issue.',
+                    'category' => null,
+                    'category_confidence' => 0.0,
+                    'machine' => null,
+                    'machine_confidence' => 0.0,
                 ];
             }
         }
@@ -347,5 +390,41 @@ class GeminiService
         ];
         $cleaned = trim(preg_replace('/[^\w\s]/', '', strtolower($text)));
         return in_array($cleaned, $greetings, true);
+    }
+
+    /**
+     * TS050 Safety Guardrails: Identify dangerous high-voltage electrical or heavy machinery physical internal repair.
+     */
+    public function detectHazardousRepairIntent(string $query): bool
+    {
+        $q = strtolower(trim($query));
+        $dangerKeywords = [
+            'high voltage',
+            'high-voltage',
+            'live wire',
+            'live wiring',
+            'electric shock',
+            'electrocution',
+            'open transformer',
+            'touch transformer',
+            'bypass interlock',
+            'bypass safety interlock',
+            'repair capacitor',
+            'discharge capacitor',
+            'heavy machinery gear repair',
+            'internal gear assembly',
+            'hydraulic press repair',
+            'running roller bypass',
+            'reach inside gear',
+            'service live power board',
+        ];
+
+        foreach ($dangerKeywords as $keyword) {
+            if (str_contains($q, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
