@@ -1,11 +1,21 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X } from 'lucide-react';
+import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import NotificationModal from '@/components/NotificationModal';
-import SkeletonLoader from '@/components/SkeletonLoader';
 import { statusColors } from '@/constants/employeeTickets';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -96,14 +106,14 @@ export default function MyTickets({ mode = 'all' }) {
   const loadDrafts = useCallback(async () => {
     setLoadingDrafts(true);
     try {
-      const list = await getTicketDrafts();
+      const list = await getTicketDrafts({ client_id: customerId });
       setDrafts(list || []);
     } catch (err) {
       console.warn('Failed to load ticket drafts:', err);
     } finally {
       setLoadingDrafts(false);
     }
-  }, []);
+  }, [customerId]);
 
   const loadFilterOptions = useCallback(async () => {
     try {
@@ -782,26 +792,21 @@ export default function MyTickets({ mode = 'all' }) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-[#252578]">{isHistory ? 'Ticket History' : 'My Tickets'}</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {isHistory ? 'Review completed and discarded tickets.' : 'Track and manage your submitted support tickets.'}
-          </p>
-        </div>
-        {!isHistory && (
-          <button
-            onClick={() => navigate('/ai-support')}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg cursor-pointer"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-            Create Ticket
-          </button>
-        )}
-      </div>
+    <div className="flex flex-col gap-6 font-sans text-dark-slate">
+      <PageHeader
+        title={isHistory ? 'Ticket History' : 'My Tickets'}
+        subtitle={isHistory ? 'Review completed and discarded tickets.' : 'Track and manage your submitted support tickets.'}
+        actions={
+          !isHistory && (
+            <Button
+              onClick={() => navigate('/ai-support')}
+              icon={<Plus className="h-4 w-4" />}
+            >
+              Create Ticket
+            </Button>
+          )
+        }
+      />
 
       {!isHistory && (
         <div className="flex border-b border-gray-200 gap-2">
@@ -810,13 +815,13 @@ export default function MyTickets({ mode = 'all' }) {
             onClick={() => setActiveTab('tickets')}
             className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
               activeTab === 'tickets'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
+                ? 'border-brand-primary text-brand-primary'
+                : 'border-transparent text-muted-slate hover:text-dark-slate'
             }`}
           >
             All Tickets
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              activeTab === 'tickets' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
+              activeTab === 'tickets' ? 'bg-brand-primary/10 text-brand-primary' : 'bg-page text-muted-slate'
             }`}>
               {visibleTickets.length}
             </span>
@@ -826,13 +831,13 @@ export default function MyTickets({ mode = 'all' }) {
             onClick={() => { setActiveTab('drafts'); loadDrafts(); }}
             className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
               activeTab === 'drafts'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
+                ? 'border-brand-primary text-brand-primary'
+                : 'border-transparent text-muted-slate hover:text-dark-slate'
             }`}
           >
             My Drafts
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              activeTab === 'drafts' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+              activeTab === 'drafts' ? 'bg-amber-100 text-amber-800' : 'bg-page text-muted-slate'
             }`}>
               {drafts.length}
             </span>
@@ -842,19 +847,19 @@ export default function MyTickets({ mode = 'all' }) {
 
       {activeTab === 'tickets' ? (
         <>
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-150 bg-surface px-4 py-3 shadow-level-1">
             <input
               type="text"
               placeholder="Search by Ticket ID or title..."
               value={filters.search}
               onChange={(event) => updateFilter('search', event.target.value)}
-              className="flex-1 min-w-[220px] rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+              className="flex-1 min-w-[220px] rounded-xl border border-gray-200 bg-surface px-4 py-2.5 text-sm text-dark-slate placeholder:text-muted-slate/60 outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
             />
             <div className="flex flex-wrap items-center gap-2.5 ml-auto shrink-0">
               <select
                 value={filters.status}
                 onChange={(event) => updateFilter('status', event.target.value)}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 <option value="">All statuses</option>
                 {(filterOptions.statuses.length > 0
@@ -868,7 +873,7 @@ export default function MyTickets({ mode = 'all' }) {
               <select
                 value={filters.category}
                 onChange={(event) => updateFilter('category', event.target.value)}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 <option value="">All categories</option>
                 {(filterOptions.categories.length > 0
@@ -883,12 +888,15 @@ export default function MyTickets({ mode = 'all' }) {
                 <select
                   value={filters.machine}
                   onChange={(event) => updateFilter('machine', event.target.value)}
-                  className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+                  className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                 >
                   <option value="">All machines</option>
                   {filterOptions.machines.map((m) => {
-                    const label = m.machine_name ? `${m.machine_name} - ${m.serial_number || ''}` : (m.name || m);
-                    return <option key={label} value={label}>{label}</option>;
+                    const label = typeof m === 'string'
+                      ? m
+                      : m.label || (m.machine_name ? `${m.machine_name}${m.serial_number ? ` - ${m.serial_number}` : ''}` : (m.name || `Machine #${m.machine_ID || ''}`));
+                    const key = typeof m === 'object' && m ? (m.machine_ID || m.value || label) : label;
+                    return <option key={key} value={label}>{label}</option>;
                   })}
                 </select>
               )}
@@ -901,237 +909,209 @@ export default function MyTickets({ mode = 'all' }) {
                   const v = event.target.value;
                   setFilters((c) => ({ ...c, dateFrom: v, dateTo: v }));
                 }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
+                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               />
 
               {(filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={resetFilters}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 border border-gray-200 rounded-xl transition cursor-pointer"
+                  icon={<RotateCcw className="h-3.5 w-3.5" />}
                 >
-                  <RotateCcw size={12} /> Reset
-                </button>
+                  Reset
+                </Button>
               )}
             </div>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <table className="w-full text-left">
-              <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="px-5 py-4">ID</th>
-                  <th className="px-5 py-4">Title</th>
-                  <th className="px-5 py-4">Equipment</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4">Date Created</th>
-                  <th className="px-5 py-4">Last Updated</th>
-                  <th className="px-5 py-4 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[120px]">ID</TableHead>
+                  <TableHead className="min-w-[240px]">Title</TableHead>
+                  <TableHead className="min-w-[160px]">Equipment</TableHead>
+                  <TableHead className="w-[140px]">Status</TableHead>
+                  <TableHead className="w-[140px]">Date Created</TableHead>
+                  <TableHead className="w-[140px]">Last Updated</TableHead>
+                  <TableHead className="w-[80px] text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {visibleTickets.length === 0 && loading && (
-                  <tr>
-                    <td colSpan={7}>
-                      <div className="rounded-xl bg-white p-8">
-                        <table className="w-full">
-                          <tbody>
-                            <SkeletonLoader variant="table-row" />
-                            <SkeletonLoader variant="table-row" />
-                            <SkeletonLoader variant="table-row" />
-                            <SkeletonLoader variant="table-row" />
-                            <SkeletonLoader variant="table-row" />
-                          </tbody>
-                        </table>
-                      </div>
-                    </td>
-                  </tr>
+                  <DataTableSkeleton columns={7} rows={5} />
                 )}
                 {visibleTickets.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-500">
-                      <div className="max-w-sm mx-auto space-y-2">
-                        <p className="font-semibold text-gray-700">No tickets match your search or filter criteria.</p>
-                        <p className="text-xs text-gray-500">Try adjusting your keyword search, removing filters, or resetting.</p>
-                        {(filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
-                          <button
-                            type="button"
-                            onClick={resetFilters}
-                            className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-[#252578] bg-blue-50 hover:bg-blue-100 rounded-xl transition cursor-pointer"
-                          >
-                            <RotateCcw size={12} /> Clear all filters
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                  <DataTableEmptyState
+                    colSpan={7}
+                    title="No tickets match your criteria"
+                    description="Try adjusting your keyword search or removing filters."
+                    action={
+                      (filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
+                        <Button variant="outline" size="sm" onClick={resetFilters} icon={<RotateCcw className="h-3.5 w-3.5" />}>
+                          Clear all filters
+                        </Button>
+                      )
+                    }
+                  />
                 )}
                 {visibleTickets.map((ticket) => (
-                  <tr key={ticket.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleViewTicket(ticket)}>
-                    <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap">{ticket.id}</td>
-                    <td className="px-5 py-4 text-sm font-medium text-gray-800 max-w-[280px]">
-                      <div className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={ticket.title}>{ticket.title}</div>
-                      <div className="truncate max-w-[260px] text-xs text-gray-500 font-normal whitespace-nowrap overflow-hidden text-ellipsis md:hidden" title={ticket.description}>{ticket.description}</div>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-600 max-w-[160px] truncate whitespace-nowrap overflow-hidden text-ellipsis" title={ticket.equipment || ticket.category}>{ticket.equipment || ticket.category || '—'}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClass(ticket.status)}`}>
-                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  <TableRow
+                    key={ticket.id}
+                    className="cursor-pointer"
+                    onClick={() => handleViewTicket(ticket)}
+                  >
+                    <TableCell className="font-semibold text-brand-primary whitespace-nowrap">
+                      {ticket.id}
+                    </TableCell>
+                    <TableCell className="max-w-[280px]">
+                      <div className="truncate font-medium text-dark-slate" title={ticket.title}>{ticket.title}</div>
+                      <div className="truncate max-w-[260px] text-xs text-muted-slate md:hidden" title={ticket.description}>{ticket.description}</div>
+                    </TableCell>
+                    <TableCell className="text-muted-slate max-w-[160px] truncate" title={ticket.equipment || ticket.category}>
+                      {ticket.equipment || ticket.category || '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
                         {ticket.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(ticket.date_created)}</td>
-                    <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(ticket.last_updated)}</td>
-                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={(e) => {
-                          if (openMenuId === ticket.id) {
-                            setOpenMenuId(null);
-                            setMenuPos(null);
-                            return;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setMenuPos({ x: rect.right - 144, y: rect.bottom + 4 });
-                          setOpenMenuId(ticket.id);
-                        }}
-                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger cursor-pointer"
-                        aria-label="Actions"
-                      >
-                        <MoreVertical size={18} />
-                      </button>
-                    </td>
-                  </tr>
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                      {formatDisplayDate(ticket.date_created)}
+                    </TableCell>
+                    <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                      {formatDisplayDate(ticket.last_updated)}
+                    </TableCell>
+                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="rounded-full p-2 text-muted-slate hover:bg-page hover:text-dark-slate transition-colors cursor-pointer"
+                            aria-label="Actions"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {isHistory ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => handleViewTicket(ticket)}
+                                disabled={ticket.status !== 'Closed'}
+                              >
+                                Reopen
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                destructive
+                                onClick={() => handleDeleteTicket(ticket)}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <>
+                              {canEditTicket(ticket) && (
+                                <DropdownMenuItem onClick={() => handleEditTicket(ticket)}>
+                                  Edit
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem
+                                destructive
+                                onClick={() => handleDeleteTicket(ticket)}
+                              >
+                                Discard
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </>
       ) : (
         /* ─── My Drafts Tab (TS020) ─── */
-        <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <table className="w-full text-left">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-5 py-4">Draft Title / Summary</th>
-                <th className="px-5 py-4">Equipment</th>
-                <th className="px-5 py-4">Category</th>
-                <th className="px-5 py-4">Last Saved</th>
-                <th className="px-5 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
+        <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Draft Title / Summary</TableHead>
+                <TableHead>Equipment</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Last Saved</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {drafts.length === 0 && loadingDrafts && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-gray-500">
-                    Loading drafts...
-                  </td>
-                </tr>
+                <DataTableSkeleton columns={5} rows={3} />
               )}
               {drafts.length === 0 && !loadingDrafts && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-500">
-                    <div className="max-w-sm mx-auto space-y-2">
-                      <div className="w-10 h-10 mx-auto rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
-                        <FileText size={20} />
-                      </div>
-                      <p className="font-semibold text-gray-700">No saved drafts.</p>
-                      <p className="text-xs text-gray-500">
-                        When creating a ticket, you can click &quot;Save as Draft&quot; to save your in-progress work and continue anytime.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/create-ticket')}
-                        className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition cursor-pointer"
-                      >
-                        Create New Ticket
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <DataTableEmptyState
+                  colSpan={5}
+                  icon={FileText}
+                  title="No saved drafts"
+                  description="When creating a ticket, you can click 'Save as Draft' to continue anytime."
+                  action={
+                    <Button size="sm" onClick={() => navigate('/create-ticket')} icon={<Plus className="h-3.5 w-3.5" />}>
+                      Create New Ticket
+                    </Button>
+                  }
+                />
               )}
               {drafts.map((draft) => (
-                <tr key={draft.id} className="hover:bg-gray-50 transition">
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-800 max-w-[280px]">
-                    <div className="truncate" title={draft.title}>
+                <TableRow key={draft.id}>
+                  <TableCell className="max-w-[280px]">
+                    <div className="truncate font-semibold text-dark-slate" title={draft.title}>
                       {draft.title || 'Untitled draft'}
                     </div>
                     {draft.description && (
-                      <div className="text-xs text-gray-400 font-normal truncate mt-0.5">
+                      <div className="text-xs text-muted-slate truncate mt-0.5">
                         {draft.description}
                       </div>
                     )}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">
+                  </TableCell>
+                  <TableCell className="text-muted-slate">
                     {draft.machine_ID ? `Equipment #${draft.machine_ID}` : '—'}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">
+                  </TableCell>
+                  <TableCell className="text-muted-slate">
                     {draft.problem_category_ID ? `Category #${draft.problem_category_ID}` : '—'}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-gray-600 whitespace-nowrap">
+                  </TableCell>
+                  <TableCell className="text-muted-slate text-xs whitespace-nowrap">
                     {formatDisplayDate(draft.last_saved_at || draft.updated_at)}
-                  </td>
-                  <td className="px-5 py-4 text-right">
+                  </TableCell>
+                  <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleEditDraft(draft)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-[#252578] bg-blue-50 hover:bg-blue-100 rounded-lg transition cursor-pointer"
+                        icon={<Edit3 className="h-3.5 w-3.5" />}
                       >
-                        <Edit3 size={12} /> Continue Editing
-                      </button>
-                      <button
-                        type="button"
+                        Continue
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         onClick={() => handleDeleteDraft(draft)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition cursor-pointer"
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
                       >
-                        <Trash2 size={12} /> Delete
-                      </button>
+                        Delete
+                      </Button>
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      )}
-
-      {openMenuId && menuPos && createPortal(
-        (() => {
-          const t = visibleTickets.find(x => x.id === openMenuId);
-          if (!t) return null;
-          const isHist = isHistory;
-          const canEdit = canEditTicket(t);
-          return (
-            <div data-menu-id={t.id}
-              style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, zIndex: 9999 }}
-              className="w-36 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
-              {isHist ? (
-                <>
-                  <button onClick={() => { handleViewTicket(t); setMenuPos(null); setOpenMenuId(null); }} disabled={t.status !== 'Closed'} className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm ${t.status === 'Closed' ? 'text-[#252578] hover:bg-indigo-50' : 'text-gray-400 cursor-not-allowed'} `}>
-                    Reopen
-                  </button>
-                  <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
-                    Delete
-                  </button>
-                </>
-              ) : (
-                <>
-                  {canEdit && (
-                    <button onClick={() => { handleEditTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-100">
-                      Edit
-                    </button>
-                  )}
-                  <button onClick={() => { handleDeleteTicket(t); setMenuPos(null); }} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
-                    Delete
-                  </button>
-                </>
-              )}
-            </div>
-          );
-        })(),
-        document.body
       )}
 
       <TicketModal
@@ -1156,49 +1136,42 @@ export default function MyTickets({ mode = 'all' }) {
       />
 
       {editingTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-          <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+          <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-surface shadow-level-4">
+            <div className="flex items-start justify-between border-b border-gray-150 px-6 py-5 shrink-0 bg-surface">
               <div>
-                {!editingTicket.assigned_to ? (
-                  <>
-                    <h2 className="text-xl font-bold text-gray-900">Edit Ticket</h2>
-                    <p className="mt-0.5 text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-[#252578]">{editingTicket.id}</p>
-                    <h2 className="mt-1 text-xl font-bold text-gray-900">Edit Ticket</h2>
-                  </>
-                )}
+                <h2 className="text-xl font-bold text-dark-slate">Edit Ticket</h2>
+                <p className="mt-0.5 text-xs font-semibold text-brand-primary">{editingTicket.id}</p>
               </div>
-              <button type="button" onClick={() => setEditingTicket(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <button
+                type="button"
+                onClick={() => setEditingTicket(null)}
+                className="rounded-full p-2 text-muted-slate hover:bg-page hover:text-dark-slate transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5 text-dark-slate">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Title</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-slate">Title</label>
                 <input
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
                   onBlur={(e) => { const n = normalizeCasing(e.target.value); if (n !== e.target.value) { setEditTitle(n); e.target.value = n; } }}
                   placeholder={editingTicket.title || 'Enter title'}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] placeholder:text-gray-400"
+                  className="w-full rounded-xl border border-gray-200 bg-surface px-4 py-2.5 text-sm text-dark-slate outline-none transition-all placeholder:text-muted-slate/60 focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                 />
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="min-w-0 md:col-span-2">
-                  <p className="text-xs font-semibold uppercase text-gray-400">Category</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-slate">Category</p>
                   {editOptions ? (
                     <select
                       value={editCategory}
                       onChange={(e) => setEditCategory(e.target.value)}
                       title={editingTicket.category || ''}
-                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                     >
                       <option value="">{editingTicket.category ? `Current: ${editingTicket.category}` : 'Select category'}</option>
                       {(editOptions.problem_categories || editOptions.category_options || []).map((cat) => (
@@ -1208,60 +1181,63 @@ export default function MyTickets({ mode = 'all' }) {
                       ))}
                     </select>
                   ) : (
-                    <p className="mt-1 text-sm text-gray-800 break-words">{editingTicket.category}</p>
+                    <p className="mt-1 text-sm text-dark-slate break-words">{editingTicket.category}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Status</p>
-                  <p className="mt-1 text-sm font-semibold text-gray-800">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-slate">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-dark-slate">
                     {!editingTicket.assigned_to && editingTicket.status === 'In Progress' ? 'Open' : editingTicket.status}
                   </p>
                 </div>
                 <div className="min-w-0 md:col-span-2">
-                  <p className="text-xs font-semibold uppercase text-gray-400">Equipment</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-slate">Equipment</p>
                   {editOptions ? (
                     <select
                       value={editEquipment}
                       onChange={(e) => setEditEquipment(e.target.value)}
                       title={editingTicket.equipment || ''}
-                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                     >
                       <option value="">{editingTicket.equipment ? `Current: ${editingTicket.equipment}` : 'Select equipment'}</option>
-                      {(editOptions.equipment_options || editOptions.machines || []).map((m) => (
-                        <option key={m.machine_ID || m.value} value={m.machine_ID || m.value} title={m.machine_name ? `${m.machine_name} - ${m.serial_number}` : m.label}>
-                          {m.machine_name ? `${m.machine_name} - ${m.serial_number}` : m.label}
-                        </option>
-                      ))}
+                      {(editOptions.equipment_options || editOptions.machines || []).map((m) => {
+                        const optVal = m.machine_ID || m.value || '';
+                        const optLabel = m.machine_name ? `${m.machine_name}${m.serial_number ? ` - ${m.serial_number}` : ''}` : (typeof m.label === 'string' ? m.label : (m.name || `Machine #${optVal}`));
+                        return (
+                          <option key={optVal || optLabel} value={optVal} title={optLabel}>
+                            {optLabel}
+                          </option>
+                        );
+                      })}
                     </select>
                   ) : (
-                    <p className="mt-1 text-sm text-gray-800 break-words">{editingTicket.equipment}</p>
+                    <p className="mt-1 text-sm text-dark-slate break-words">{editingTicket.equipment}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase text-gray-400">Date Created</p>
-                  <p className="mt-1 text-sm text-gray-800">{formatDate(editingTicket.date_created)}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-slate">Date Created</p>
+                  <p className="mt-1 text-sm text-dark-slate">{formatDate(editingTicket.date_created)}</p>
                 </div>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Description</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-slate">Description</label>
                 <textarea
                   rows="4"
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
                   onBlur={(e) => { const n = normalizeCasing(e.target.value); if (n !== e.target.value) { setEditDescription(n); e.target.value = n; } }}
                   placeholder={editingTicket.description || 'Enter description'}
-                  className="w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] placeholder:text-gray-400"
+                  className="w-full resize-none rounded-xl border border-gray-200 bg-surface px-4 py-2.5 text-sm text-dark-slate outline-none transition-all placeholder:text-muted-slate/60 focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                 />
               </div>
             </div>
-            <div className="border-t border-gray-100 px-6 py-4 shrink-0 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleSaveEdit}
-                className="rounded-xl bg-[#252578] px-8 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg"
-              >
-                Save
-              </button>
+            <div className="border-t border-gray-150 px-6 py-4 shrink-0 flex justify-end gap-3 bg-surface">
+              <Button variant="outline" onClick={() => setEditingTicket(null)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEdit}>
+                Save Changes
+              </Button>
             </div>
           </div>
         </div>
@@ -1289,9 +1265,9 @@ export default function MyTickets({ mode = 'all' }) {
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
-            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
-            <p className="text-sm font-semibold text-[#252578] text-center font-sans">
+          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-150">
+            <div className="w-10 h-10 border-4 border-brand-primary/10 border-t-brand-primary rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-brand-primary text-center font-sans">
               {loadingText}
             </p>
           </div>
