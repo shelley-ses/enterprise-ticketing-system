@@ -27,6 +27,144 @@ class TicketStateMachineTest extends TestCase
 
         $this->stateMachine = app(TicketStateMachine::class);
 
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'sqlite') {
+            \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
+            if (!\Illuminate\Support\Facades\Schema::hasTable('ticket_statuses')) {
+                \Illuminate\Support\Facades\Schema::create('ticket_statuses', function ($t) {
+                    $t->increments('ticket_status_ID');
+                    $t->string('status_name');
+                    $t->string('color_code')->nullable();
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('ticket_priorities')) {
+                \Illuminate\Support\Facades\Schema::create('ticket_priorities', function ($t) {
+                    $t->increments('priority_ID');
+                    $t->string('priority_name');
+                    $t->string('color_code')->nullable();
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('slas')) {
+                \Illuminate\Support\Facades\Schema::create('slas', function ($t) {
+                    $t->increments('sla_ID');
+                    $t->string('sla_name');
+                    $t->integer('response_time_minutes')->default(240);
+                    $t->integer('resolution_time_minutes')->default(1440);
+                    $t->boolean('is_active')->default(true);
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('problem_categories')) {
+                \Illuminate\Support\Facades\Schema::create('problem_categories', function ($t) {
+                    $t->increments('problem_category_ID');
+                    $t->string('category_name');
+                    $t->boolean('is_active')->default(true);
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('machines')) {
+                \Illuminate\Support\Facades\Schema::create('machines', function ($t) {
+                    $t->increments('machine_ID');
+                    $t->string('machine_name');
+                    $t->string('serial_number')->nullable();
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('employees')) {
+                \Illuminate\Support\Facades\Schema::create('employees', function ($t) {
+                    $t->bigIncrements('emp_id');
+                    $t->string('first_name');
+                    $t->string('last_name');
+                    $t->string('email')->unique();
+                    $t->string('role');
+                    $t->string('department');
+                    $t->string('branch')->nullable()->default('Main');
+                    $t->boolean('is_active')->default(true);
+                    $t->string('password_hash')->default('secret');
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('clients')) {
+                \Illuminate\Support\Facades\Schema::create('clients', function ($t) {
+                    $t->increments('id');
+                    $t->string('client_name');
+                    $t->string('email')->nullable();
+                    $t->string('contact_number')->nullable();
+                    $t->string('address')->nullable();
+                    $t->boolean('status')->default(true);
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('tickets')) {
+                \Illuminate\Support\Facades\Schema::create('tickets', function ($t) {
+                    $t->increments('ticket_ID');
+                    $t->string('ticket_number')->nullable();
+                    $t->string('title');
+                    $t->text('description');
+                    $t->unsignedBigInteger('created_by')->nullable();
+                    $t->unsignedBigInteger('requested_by')->nullable();
+                    $t->unsignedBigInteger('ticket_type_ID')->default(2);
+                    $t->unsignedBigInteger('ticket_status_ID')->default(1);
+                    $t->unsignedBigInteger('priority_ID')->default(1);
+                    $t->unsignedBigInteger('sla_ID')->nullable()->default(1);
+                    $t->unsignedBigInteger('problem_category_ID')->nullable()->default(1);
+                    $t->unsignedBigInteger('machine_ID')->nullable()->default(1);
+                    $t->string('in_progress_owner')->nullable();
+                    $t->timestamp('held_at')->nullable();
+                    $t->integer('total_held_seconds')->default(0);
+                    $t->timestamp('resolution_due_at')->nullable();
+                    $t->timestamp('resolved_at')->nullable();
+                    $t->timestamp('closed_at')->nullable();
+                    $t->boolean('is_internal')->default(false);
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('ticket_assignments')) {
+                \Illuminate\Support\Facades\Schema::create('ticket_assignments', function ($t) {
+                    $t->increments('assignment_ID');
+                    $t->unsignedBigInteger('ticket_ID');
+                    $t->unsignedBigInteger('employee_ID');
+                    $t->string('assignment_status')->default('assigned');
+                    $t->boolean('is_active')->default(true);
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('internal_notes')) {
+                \Illuminate\Support\Facades\Schema::create('internal_notes', function ($t) {
+                    $t->increments('id');
+                    $t->unsignedBigInteger('ticket_id');
+                    $t->unsignedBigInteger('employee_id');
+                    $t->text('note');
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('ticket_audit_logs')) {
+                \Illuminate\Support\Facades\Schema::create('ticket_audit_logs', function ($t) {
+                    $t->increments('log_ID');
+                    $t->unsignedBigInteger('ticket_ID')->nullable();
+                    $t->string('action_type')->nullable();
+                    $t->unsignedBigInteger('action_by_ID')->nullable();
+                    $t->string('actor_type')->nullable();
+                    $t->text('details')->nullable();
+                    $t->timestamps();
+                });
+            }
+            if (!\Illuminate\Support\Facades\Schema::hasTable('notifications')) {
+                \Illuminate\Support\Facades\Schema::create('notifications', function ($t) {
+                    $t->increments('id');
+                    $t->unsignedBigInteger('recipient_id')->nullable();
+                    $t->string('recipient_type')->nullable();
+                    $t->string('title')->nullable();
+                    $t->text('message')->nullable();
+                    $t->unsignedBigInteger('ticket_id')->nullable();
+                    $t->json('data')->nullable();
+                    $t->boolean('is_read')->default(false);
+                    $t->timestamps();
+                });
+            }
+        }
+
         // Ensure baseline statuses exist
         $statuses = [
             ['ticket_status_ID' => 1, 'status_name' => 'Open', 'color_code' => '#f59e0b'],
@@ -67,6 +205,8 @@ class TicketStateMachineTest extends TestCase
             ['machine_ID' => 1],
             ['machine_name' => 'Test Machine', 'serial_number' => 'SN-TSM-001', 'created_at' => now(), 'updated_at' => now()]
         );
+
+        \App\Models\Employee::unguard();
 
         $this->superAdmin = Employee::where('role', 'superadmin')->first()
             ?? Employee::create([

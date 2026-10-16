@@ -82,7 +82,7 @@ class GeminiService
         ];
 
         if (!empty($lastUserQuery) && !$isGreeting) {
-            $ragResult = $this->ragService->retrieve($lastUserQuery, 3, 0.40);
+            $ragResult = $this->ragService->retrieve($lastUserQuery, 3, 0.20);
 
             // =========================================================================
             // FALLBACK PATH: No Published article matched customer query
