@@ -14,11 +14,20 @@ import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { PersistentBanner } from '@/components/ui/alert-banner';
+import { useToast } from '@/context/ToastContext';
+import { ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const toast = useToast();
   const effectiveUser = user || JSON.parse(localStorage.getItem('user') || 'null');
   const customerId = effectiveUser?.id || 1;
 
@@ -384,201 +393,209 @@ export default function TicketCreation() {
     : (options.ticket_priorities || []).map((p) => ({
       value: p.priority_ID,
       label: p.priority_name,
-    }));
-
-  return (
+    }));  return (
     <>
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-8">
-        <button onClick={() => navigate(-1)} className="text-gray-500 hover:text-[#252578] flex items-center gap-2 text-sm font-medium mb-4 transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-          Back to Dashboard
-        </button>
-        <h1 className="text-3xl font-bold text-[#252578]">Create New Ticket</h1>
-        <p className="text-gray-500 mt-2">Submit a new support request for your equipment.</p>
-      </div>
+      <div className="max-w-4xl mx-auto space-y-6 font-sans">
+        <PageHeader
+          title="Create New Ticket"
+          subtitle="Submit a new support and diagnostic request for your equipment."
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Back
+            </Button>
+          }
+        />
 
-      {draftMessage && (
-        <div className="mb-6 rounded-xl p-4 text-sm font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs flex items-center gap-3">
-          <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <div>{draftMessage}</div>
-        </div>
-      )}
+        {draftMessage && (
+          <PersistentBanner
+            variant="success"
+            message={draftMessage}
+          />
+        )}
 
-      {error && (
-        <div className={`mb-6 rounded-xl p-4 text-sm font-medium border flex items-start gap-3 transition-all ${
-          error.includes('Security threat')
-            ? 'bg-red-50/90 text-red-800 border-red-200 shadow-md ring-2 ring-red-500/20'
-            : 'bg-red-50 text-red-700 border-red-100'
-        }`}>
-          {error.includes('Security threat') && (
-            <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-            </svg>
-          )}
-          <div>{error}</div>
-        </div>
-      )}
+        {error && (
+          <PersistentBanner
+            variant="error"
+            message={error}
+          />
+        )}
 
-      <div className="bg-white/70 backdrop-blur-lg border border-white rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-8">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Ticket Title</label>
-              <input 
-                name="title"
-                type="text" 
-                required 
-                value={formData.title}
+        <div className="bg-surface border border-slate-100 rounded-2xl p-6 sm:p-8 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <Label htmlFor="ticket-title">Ticket Title <span className="text-destructive">*</span></Label>
+                <Input
+                  id="ticket-title"
+                  name="title"
+                  type="text"
+                  required
+                  value={formData.title}
+                  onChange={handleChange}
+                  onBlur={() => {
+                    const trimmed = (formData.title || '').trim();
+                    if (needsProperCasing(trimmed)) {
+                      const proper = formatProperTitleCase(trimmed);
+                      setTitleCasingData({
+                        original: trimmed,
+                        formatted: proper,
+                      });
+                      setShowTitleCasingModal(true);
+                    }
+                  }}
+                  placeholder="Brief description of the issue"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="ticket-machine">Equipment Name / ID <span className="text-destructive">*</span></Label>
+                <select
+                  id="ticket-machine"
+                  name="machine_ID"
+                  required
+                  value={formData.machine_ID}
+                  onChange={handleChange}
+                  disabled={loadingOptions}
+                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                >
+                  <option value="">Select Equipment</option>
+                  {equipmentOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <Label htmlFor="ticket-category">Problem Category <span className="text-destructive">*</span></Label>
+                <select
+                  id="ticket-category"
+                  name="problem_category_ID"
+                  required
+                  value={formData.problem_category_ID}
+                  onChange={handleChange}
+                  disabled={loadingOptions}
+                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                >
+                  <option value="">Select Category</option>
+                  {categoryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="ticket-priority">Priority <span className="text-destructive">*</span></Label>
+                <select
+                  id="ticket-priority"
+                  name="priority_ID"
+                  required
+                  value={formData.priority_ID}
+                  onChange={handleChange}
+                  disabled={loadingOptions}
+                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                >
+                  {priorityOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ticket-description">Detailed Description <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="ticket-description"
+                name="description"
+                required
+                rows={5}
+                value={formData.description}
                 onChange={handleChange}
-                onBlur={() => {
-                  const trimmed = (formData.title || '').trim();
-                  if (needsProperCasing(trimmed)) {
-                    const proper = formatProperTitleCase(trimmed);
-                    setTitleCasingData({
-                      original: trimmed,
-                      formatted: proper,
-                    });
-                    setShowTitleCasingModal(true);
-                  }
-                }}
-                placeholder="Brief description of the issue" 
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all" 
+                onBlur={handleCasingBlur('description')}
+                placeholder="Please describe symptoms, error messages, and current machine status in detail..."
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Equipment Name / ID</label>
-              <select 
-                name="machine_ID"
-                required 
-                value={formData.machine_ID}
-                onChange={handleChange}
-                disabled={loadingOptions}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
-              >
-                <option value="">Select Equipment</option>
-                {equipmentOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-              <select 
-                name="problem_category_ID"
-                required 
-                value={formData.problem_category_ID}
-                onChange={handleChange}
-                disabled={loadingOptions}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
-              >
-                <option value="">Select Category</option>
-                {categoryOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
-              <select 
-                name="priority_ID"
-                required 
-                value={formData.priority_ID}
-                onChange={handleChange}
-                disabled={loadingOptions}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all"
-              >
-                {priorityOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Detailed Description</label>
-            <textarea 
-              name="description"
-              required 
-              rows="5" 
-              value={formData.description}
-              onChange={handleChange}
-              onBlur={handleCasingBlur('description')}
-              placeholder="Please provide as much detail as possible..." 
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#252578] focus:border-transparent outline-none transition-all resize-y"
-            ></textarea>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Attachments (Optional)</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
-              <input type="file" id="ticket-creation-file-upload" className="hidden" onChange={handleFileChange} accept=".pdf,.png,.docx,.doc,.jpg,.jpeg" multiple />
-              <label htmlFor="ticket-creation-file-upload" className="cursor-pointer flex flex-col items-center">
-                <svg className="w-10 h-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                <span className="text-sm font-medium text-[#252578]">Click to upload</span>
-                <span className="text-xs text-gray-500 mt-1">Supported formats: PDF, PNG, Word (max. 15MB per file, max. 45MB total)</span>
-              </label>
-            </div>
-            {files.length > 0 && (
-              <div className="mt-3 space-y-2">
-                {files.map((f, idx) => (
-                  <div key={idx} className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-green-600">
-                      <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                      <span className="font-medium truncate max-w-xs">{f.name}</span>
-                      <span className="text-xs text-gray-400">({(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+            <div className="space-y-2">
+              <Label>Attachments (Optional)</Label>
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
+                <input
+                  type="file"
+                  id="ticket-creation-file-upload"
+                  className="hidden"
+                  onChange={handleFileChange}
+                  accept=".pdf,.png,.docx,.doc,.jpg,.jpeg"
+                  multiple
+                />
+                <label htmlFor="ticket-creation-file-upload" className="cursor-pointer flex flex-col items-center">
+                  <div className="h-10 w-10 rounded-full bg-blue-50 text-accent flex items-center justify-center mb-2">
+                    <CheckCircle2 className="h-5 w-5" />
                   </div>
-                ))}
+                  <span className="text-sm font-semibold text-primary">Click to upload files</span>
+                  <span className="text-xs text-muted-slate mt-1 uppercase tracking-wider">
+                    PDF, PNG, Word — max 15MB per file, 45MB total
+                  </span>
+                </label>
               </div>
-            )}
-            {fileError && <p className="text-sm text-red-500 mt-2">{fileError}</p>}
-          </div>
 
-          <div className="flex flex-wrap justify-end gap-3 mt-4 border-t border-gray-100 pt-6">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={loadingOptions || savingDraft || submitting}
-              className="px-6 py-3 border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {savingDraft ? 'Saving Draft...' : 'Save as Draft'}
-            </button>
-            <button 
-              type="submit" 
-              disabled={loadingOptions || submitting || savingDraft}
-              className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {submitting ? 'Submitting...' : 'Submit Ticket'}
-            </button>
-          </div>
-        </form>
+              {files.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {files.map((f, idx) => (
+                    <div key={idx} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-semibold text-dark-slate truncate max-w-xs">{f.name}</span>
+                        <span className="text-muted-slate shrink-0">({(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1 text-muted-slate hover:text-destructive hover:bg-red-50 rounded-md transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {fileError && <p className="text-xs text-destructive mt-1">{fileError}</p>}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate(-1)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSaveDraft}
+                disabled={loadingOptions || savingDraft || submitting}
+                loading={savingDraft}
+              >
+                Save as Draft
+              </Button>
+              <Button
+                type="submit"
+                variant="default"
+                disabled={loadingOptions || submitting || savingDraft}
+                loading={submitting}
+              >
+                Submit Ticket
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
 
       <TitleCasingModal
         isOpen={showTitleCasingModal}

@@ -402,7 +402,16 @@ export const saveTicketDraft = async (data) => {
     }
   }
 
+  let clientId = data.client_id;
+  if (!clientId) {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null');
+      clientId = u?.id || u?.client_id;
+    } catch {}
+  }
+
   const payload = {
+    client_id: clientId || undefined,
     draft_id: data.id || data.draft_id || undefined,
     title: data.title ?? '',
     description: data.description ?? '',
@@ -416,18 +425,53 @@ export const saveTicketDraft = async (data) => {
   return response.data;
 };
 
-export const getTicketDrafts = async () => {
-  const response = await ticketClient.get('/tickets/drafts');
-  return response.data?.drafts ?? [];
+export const getTicketDrafts = async (params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null');
+      if (u?.id || u?.client_id) {
+        query.client_id = u.id || u.client_id;
+      }
+    } catch {}
+  }
+
+  try {
+    const response = await ticketClient.get('/tickets/drafts', { params: query });
+    return response.data?.drafts ?? [];
+  } catch (error) {
+    if (error.response?.status === 401) {
+      return [];
+    }
+    throw error;
+  }
 };
 
-export const getTicketDraft = async (id) => {
-  const response = await ticketClient.get(`/tickets/drafts/${id}`);
+export const getTicketDraft = async (id, params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null');
+      if (u?.id || u?.client_id) {
+        query.client_id = u.id || u.client_id;
+      }
+    } catch {}
+  }
+  const response = await ticketClient.get(`/tickets/drafts/${id}`, { params: query });
   return response.data?.draft ?? response.data;
 };
 
-export const deleteTicketDraft = async (id) => {
-  const response = await ticketClient.delete(`/tickets/drafts/${id}`);
+export const deleteTicketDraft = async (id, params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || 'null');
+      if (u?.id || u?.client_id) {
+        query.client_id = u.id || u.client_id;
+      }
+    } catch {}
+  }
+  const response = await ticketClient.delete(`/tickets/drafts/${id}`, { params: query });
   return response.data;
 };
 
@@ -1172,27 +1216,6 @@ export const saveBranchSlaPolicy = async (branchId, payload) => {
 
 export const deleteBranchSlaPolicy = async (branchId, payload) => {
   const response = await ticketClient.delete(branchSlaPolicyPath(branchId), { data: payload });
-  return response.data;
-};
-
-// Ticket Drafts (TS020)
-export const getTicketDrafts = async () => {
-  const response = await ticketClient.get('/tickets/drafts');
-  return response.data?.drafts ?? response.data ?? [];
-};
-
-export const getTicketDraft = async (id) => {
-  const response = await ticketClient.get(`/tickets/drafts/${id}`);
-  return response.data?.draft ?? response.data;
-};
-
-export const saveTicketDraft = async (payload) => {
-  const response = await ticketClient.post('/tickets/drafts', payload);
-  return response.data;
-};
-
-export const deleteTicketDraft = async (id) => {
-  const response = await ticketClient.delete(`/tickets/drafts/${id}`);
   return response.data;
 };
 
