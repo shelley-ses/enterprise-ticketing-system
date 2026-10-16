@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X, Sparkles, Sliders, Settings, Table, ArrowUpDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/context/AuthContext';
 import {
   getSuperAdminConfig,
@@ -4162,37 +4163,36 @@ export default function SuperAdminTicketConfig() {
   return (
     <div className="flex flex-col gap-6">
       {/* Interactive Hierarchical Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-gray-500">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-muted">
         <button
           type="button"
           onClick={() => handleSelectGroup(GROUP_CLASSIFICATION)}
-          className="hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors"
+          className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           Ticket Configuration
         </button>
-        <ChevronRight size={13} className="text-gray-400 shrink-0" />
+        <ChevronRight size={13} className="text-slate-300 shrink-0" />
         <button
           type="button"
           onClick={() => handleSelectGroup(currentGroup.id)}
-          className="hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors"
+          className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           {currentGroup.label}
         </button>
-        <ChevronRight size={13} className="text-gray-400 shrink-0" />
-        <span className="text-gray-900 font-semibold cursor-default select-none" aria-current="page">
+        <ChevronRight size={13} className="text-slate-300 shrink-0" />
+        <span className="text-slate-dark font-semibold cursor-default select-none" aria-current="page">
           {currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}
         </span>
       </nav>
 
-      <div>
-        <h1 className="text-3xl font-bold text-[#252578]">Ticket Configuration</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Configure ticket classification, lifecycle state machines, service level agreements, and system policies.
-        </p>
-      </div>
+      <PageHeader
+        pattern="B"
+        title="Ticket Configuration"
+        subtitle="Configure ticket classification, lifecycle state machines, service level agreements, and system policies."
+      />
 
       {/* Level 1: 5 Group Pills */}
-      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit flex-wrap shadow-xs">
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit flex-wrap shadow-xs">
         {GROUPS_CONFIG.map((group) => {
           const isActive = activeGroup === group.id;
           return (
@@ -4201,8 +4201,8 @@ export default function SuperAdminTicketConfig() {
               type="button"
               onClick={() => handleSelectGroup(group.id)}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${isActive
-                  ? 'bg-white text-[#252578] shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
+                  ? 'bg-card text-primary shadow-xs'
+                  : 'text-slate-muted hover:text-slate-dark'
                 }`}
             >
               {group.label}
@@ -4212,11 +4212,11 @@ export default function SuperAdminTicketConfig() {
       </div>
 
       {/* Level 2: Secondary Sub-Tab Strip (consistently rendered for all groups to prevent layout shifts) */}
-      <div className="flex items-center border-b border-gray-200 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
+      <div className="flex items-center border-b border-border overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
         <div className="flex items-center gap-2 ml-3 min-w-max">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-muted mr-2 select-none">
             <span>{currentGroup.label}</span>
-            <ChevronRight size={13} className="text-gray-300" />
+            <ChevronRight size={13} className="text-slate-300" />
           </div>
 
           <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
@@ -4228,8 +4228,8 @@ export default function SuperAdminTicketConfig() {
                   type="button"
                   onClick={() => handleSelectSubTab(sub.id)}
                   className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
-                      ? 'border-[#252578] text-[#252578]'
-                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                      ? 'border-accent text-primary'
+                      : 'border-transparent text-slate-muted hover:text-slate-dark hover:border-slate-300'
                     }`}
                 >
                   {sub.label}

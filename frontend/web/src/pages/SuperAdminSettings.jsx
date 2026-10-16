@@ -23,6 +23,8 @@ import {
 import NotificationModal from '@/components/NotificationModal';
 import BranchSelector from '@/components/BranchSelector';
 import { useBranch } from '@/context/BranchContext';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
 import {
   getCompanyInfo,
   updateCompanyInfo,
@@ -476,50 +478,46 @@ export default function SuperAdminSettings() {
   return (
     <div className="flex flex-col gap-6">
       {/* Interactive Breadcrumb */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-gray-500">
-        <span className="text-gray-400">Super Admin</span>
-        <span className="text-gray-300">/</span>
-        <span className="text-[#252578] font-semibold">System Settings</span>
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-muted">
+        <span className="text-slate-400">Super Admin</span>
+        <span className="text-slate-300">/</span>
+        <span className="text-primary font-semibold">System Settings</span>
       </nav>
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+      <PageHeader
+        pattern="B"
+        title="System Settings"
+        subtitle="Configure global corporate information, system operational state, and diagnostic logging."
+        actions={
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl sm:text-3xl font-bold text-[#252578]">System Settings</h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 shadow-2xs">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
               <CheckCircle2 size={13} className="shrink-0" />
               <span>Persisted & Synchronized</span>
             </span>
+            <div className="flex items-center gap-2 self-start sm:self-auto rounded-xl border border-border bg-card px-3.5 py-2 shadow-2xs">
+              <span className="text-xs text-slate-muted font-medium">Platform:</span>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${
+                  currentBranchStatus === 'Operational'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    currentBranchStatus === 'Operational' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                />
+                {currentBranchStatus} ({selectedBranch.name})
+              </span>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-gray-500">
-            Configure global corporate information, system operational state, and diagnostic logging.
-          </p>
+        }
+      />
 
-        </div>
-
-        {/* Active Branch System State Pill */}
-        <div className="flex items-center gap-2 self-start sm:self-auto rounded-xl border border-gray-200 bg-white px-3.5 py-2 shadow-2xs">
-          <span className="text-xs text-gray-400 font-medium">Platform:</span>
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${
-              currentBranchStatus === 'Operational'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-amber-50 text-amber-700 border-amber-200'
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                currentBranchStatus === 'Operational' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-              }`}
-            />
-            {currentBranchStatus} ({selectedBranch.name})
-          </span>
-        </div>
-      </div>
-
-      {/* Navigation Pills (reusing SuperAdmin group-pill pattern) */}
-      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit flex-wrap shadow-xs">
+      {/* Navigation Pills */}
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit flex-wrap shadow-xs">
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -528,7 +526,7 @@ export default function SuperAdminSettings() {
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-                isActive ? 'bg-white text-[#252578] shadow-sm' : 'text-gray-600 hover:text-gray-800'
+                isActive ? 'bg-card text-primary shadow-xs' : 'text-slate-muted hover:text-slate-dark'
               }`}
             >
               {tab.icon}
@@ -550,9 +548,9 @@ export default function SuperAdminSettings() {
         {/* =================================================================== */}
         {(activeTab === 'all' || activeTab === 'company') && (
           <section aria-labelledby="section-company-heading" className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-7 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-border gap-3">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252578]/10 text-[#252578]">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Building2 size={20} />
                 </div>
                 <div>
@@ -779,23 +777,26 @@ export default function SuperAdminSettings() {
               </div>
 
               {/* Form Action Bar */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-100 flex-wrap gap-3">
-                <button
+              <div className="flex items-center justify-between pt-4 border-t border-border flex-wrap gap-3">
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={handleResetCompanyInfo}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                  className="text-xs text-slate-muted hover:text-slate-dark"
                 >
                   <RotateCcw size={13} />
                   Restore Defaults ({selectedBranch.name})
-                </button>
+                </Button>
 
-                <button
+                <Button
                   type="submit"
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#1a1a5e] hover:shadow-md cursor-pointer ml-auto"
+                  disabled={isSavingCompany}
+                  className="ml-auto"
                 >
                   <Save size={16} />
                   Save Company Info
-                </button>
+                </Button>
               </div>
             </form>
           </section>
@@ -1056,8 +1057,8 @@ export default function SuperAdminSettings() {
                       onClick={() => setLogLevel(item.level)}
                       className={`rounded-xl border p-4 transition-all cursor-pointer select-none flex flex-col justify-between ${
                         isSelected
-                          ? 'border-[#252578] bg-[#252578]/5 shadow-xs ring-1 ring-[#252578]'
-                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/40 opacity-80'
+                          ? 'border-primary bg-primary/5 shadow-xs ring-1 ring-primary'
+                          : 'border-border bg-card hover:border-slate-300 hover:bg-slate-50/40 opacity-80'
                       }`}
                     >
                       <div>
@@ -1065,9 +1066,9 @@ export default function SuperAdminSettings() {
                           <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold border ${item.badgeClass}`}>
                             {item.level}
                           </span>
-                          {isSelected && <CheckCircle2 size={14} className="text-[#252578]" />}
+                          {isSelected && <CheckCircle2 size={14} className="text-primary" />}
                         </div>
-                        <p className="text-xs text-gray-600 mt-2.5 leading-relaxed">{item.description}</p>
+                        <p className="text-xs text-slate-muted mt-2.5 leading-relaxed">{item.description}</p>
                       </div>
                     </div>
                   );
@@ -1075,15 +1076,15 @@ export default function SuperAdminSettings() {
               </div>
 
               {/* Action Bar */}
-              <div className="flex items-center justify-end pt-4 border-t border-gray-100">
-                <button
+              <div className="flex items-center justify-end pt-4 border-t border-border">
+                <Button
                   type="button"
+                  disabled={isSavingLogLevel}
                   onClick={() => handleSaveLogLevel(logLevel)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#1a1a5e] hover:shadow-md cursor-pointer"
                 >
                   <Save size={16} />
                   Save Log Level
-                </button>
+                </Button>
               </div>
             </div>
           </section>
