@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Filter } from 'lucide-react';
+import { Filter, Plus, Search, Eye, Inbox } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import { AssignModal } from '@/components/CSModals';
 import { useAuth } from '@/context/AuthContext';
@@ -17,9 +17,14 @@ import {
   acceptTicket,
   assignTicketToEmployees,
 } from '@/services/ticketService';
-import SkeletonLoader from '@/components/SkeletonLoader';
 import { statusColors } from '@/constants/employeeTickets';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
+import { ConfirmationModal } from '@/components/ui/confirmation-modal';
 
 const STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'Resolved', 'Closed', 'Discarded', 'On Hold'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
@@ -435,108 +440,127 @@ export default function EmployeeMyTickets({ roleContext }) {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-[#252578]">My Tickets</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Track and manage your submitted support tickets.
-          </p>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg"
-        >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Ticket
-        </button>
-      </div>
+    <div className="flex flex-col gap-6 font-sans text-dark-slate">
+      <PageHeader
+        title="My Tickets"
+        subtitle="Track and manage your submitted support tickets."
+        actions={
+          <Button
+            onClick={() => setIsModalOpen(true)}
+            icon={<Plus className="h-4 w-4" />}
+          >
+            Create Ticket
+          </Button>
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-        <input type="text" placeholder="Search ID or title" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} className="w-full md:w-[680px] max-w-[680px] shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
-        <div className="flex flex-wrap items-center gap-3 ml-auto shrink-0">
-          <select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-150 bg-surface px-4 py-3 shadow-level-1">
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
+          <input
+            type="text"
+            placeholder="Search ID or title..."
+            value={filters.search}
+            onChange={(event) => updateFilter('search', event.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5 ml-auto shrink-0">
+          <select
+            value={filters.status}
+            onChange={(event) => updateFilter('status', event.target.value)}
+            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
             <option value="">All statuses</option>
-            {(roleContext === 'cs' ? STATUSES.filter(s => s !== 'Pending Assignment') : STATUSES).map((status) => <option key={status} value={status}>{status}</option>)}
+            {(roleContext === 'cs' ? STATUSES.filter(s => s !== 'Pending Assignment') : STATUSES).map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
           </select>
-          <select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="w-full sm:w-[150px] md:w-[160px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
+          <select
+            value={filters.category}
+            onChange={(event) => updateFilter('category', event.target.value)}
+            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
             <option value="">All categories</option>
-            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+            {categories.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
           </select>
-          <input type="date" value={filters.dateFrom} onChange={(event) => { const v = event.target.value; setFilters((c) => ({ ...c, dateFrom: v, dateTo: v })); }} className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]" />
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(event) => {
+              const v = event.target.value;
+              setFilters((c) => ({ ...c, dateFrom: v, dateTo: v }));
+            }}
+            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          />
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left" style={{ minWidth: '900px' }}>
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-5 py-4">ID</th>
-                <th className="px-5 py-4">Title</th>
-                <th className="px-5 py-4">Category</th>
-                <th className="px-5 py-4">Status</th>
-                <th className="px-5 py-4">Date Created</th>
-                <th className="px-5 py-4">Last Updated</th>
-                <th className="px-5 py-4 text-center">View</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {visibleTickets.length === 0 && loading && (
-                <tr>
-                  <td colSpan="7">
-                    <div className="rounded-xl bg-white p-8">
-                      <table className="w-full">
-                        <tbody>
-                          <SkeletonLoader variant="table-row" />
-                          <SkeletonLoader variant="table-row" />
-                          <SkeletonLoader variant="table-row" />
-                          <SkeletonLoader variant="table-row" />
-                          <SkeletonLoader variant="table-row" />
-                        </tbody>
-                      </table>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {visibleTickets.length === 0 && !loading && (
-                <tr>
-                  <td colSpan="7" className="px-5 py-8 text-center text-sm text-gray-500">
-                    No tickets match the current filters.
-                  </td>
-                </tr>
-              )}
-              {visibleTickets.map((ticket) => (
-                <tr key={ticket.id} className="hover:bg-gray-50">
-                  <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{ticket.id}</td>
-                  <td className="px-5 py-4 text-sm font-medium text-gray-800">{ticket.title}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{ticket.category}</td>
-                  <td className="px-5 py-4">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClass(ticket.status)}`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {ticket.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.date_created)}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{formatDate(ticket.last_updated)}</td>
-                  <td className="px-5 py-4 text-center">
-                    <button onClick={() => handleViewTicket(ticket)} className="rounded-full p-2 text-blue-600 hover:bg-blue-50" aria-label={`View ${ticket.id}`}>
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[120px]">ID</TableHead>
+              <TableHead className="min-w-[240px]">Title</TableHead>
+              <TableHead className="w-[160px]">Category</TableHead>
+              <TableHead className="w-[140px]">Status</TableHead>
+              <TableHead className="w-[140px]">Date Created</TableHead>
+              <TableHead className="w-[140px]">Last Updated</TableHead>
+              <TableHead className="w-[100px] text-center">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleTickets.length === 0 && loading && (
+              <DataTableSkeleton columns={7} rows={4} />
+            )}
+            {visibleTickets.length === 0 && !loading && (
+              <DataTableEmptyState
+                colSpan={7}
+                icon={Inbox}
+                title="No tickets found"
+                description="No tickets match the current filters."
+              />
+            )}
+            {visibleTickets.map((ticket) => (
+              <TableRow key={ticket.id}>
+                <TableCell className="font-semibold text-brand-primary whitespace-nowrap">
+                  {ticket.id}
+                </TableCell>
+                <TableCell className="max-w-[280px]">
+                  <p className="font-medium text-dark-slate line-clamp-2">{ticket.title}</p>
+                </TableCell>
+                <TableCell className="text-muted-slate text-sm truncate">
+                  {ticket.category}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
+                    {ticket.status}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                  {formatDate(ticket.date_created)}
+                </TableCell>
+                <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                  {formatDate(ticket.last_updated)}
+                </TableCell>
+                <TableCell className="text-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleViewTicket(ticket)}
+                    icon={<Eye className="h-3.5 w-3.5" />}
+                  >
+                    View
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
 
       <TicketModal
@@ -583,16 +607,15 @@ export default function EmployeeMyTickets({ roleContext }) {
       )}
 
       {confirmDiscard && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-            <h2 className="text-lg font-bold text-gray-900">Discard this ticket?</h2>
-            <p className="mt-2 text-sm text-gray-600">This will mark {confirmDiscard.id} as Discarded in your current browser.</p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setConfirmDiscard(null)} className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
-              <button onClick={handleConfirmDiscard} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Discard</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmationModal
+          open={!!confirmDiscard}
+          onOpenChange={(open) => !open && setConfirmDiscard(null)}
+          title="Discard this ticket?"
+          description={`This will mark ${confirmDiscard.id} as Discarded.`}
+          confirmLabel="Discard"
+          badgeVariant="destructive"
+          onConfirm={handleConfirmDiscard}
+        />
       )}
 
       {csAssignTicket && (
@@ -607,35 +630,35 @@ export default function EmployeeMyTickets({ roleContext }) {
       )}
 
       {confirmCreated && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 text-center shadow-level-4 border border-gray-150">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="mt-4 text-lg font-bold text-gray-900">Ticket submitted</h2>
-            <p className="mt-2 text-sm text-gray-600">{confirmCreated.id} has been created successfully.</p>
-             <button
-               onClick={() => {
-                 const ticketId = confirmCreated.ticket_ID || confirmCreated.id;
-                 setConfirmCreated(null);
-                 const targetPath = roleContext === 'cs' ? '/cs/messages' : '/employee/messages';
-                 navigate(targetPath, { state: { selectedTicketId: ticketId } });
-               }}
-               className="mt-6 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1f1f66]"
-             >
-               Done
-             </button>
+            <h2 className="mt-4 text-lg font-bold text-dark-slate">Ticket Submitted</h2>
+            <p className="mt-1.5 text-xs text-muted-slate">{confirmCreated.id} has been created successfully.</p>
+            <Button
+              className="mt-6 w-full"
+              onClick={() => {
+                const ticketId = confirmCreated.ticket_ID || confirmCreated.id;
+                setConfirmCreated(null);
+                const targetPath = roleContext === 'cs' ? '/cs/messages' : '/employee/messages';
+                navigate(targetPath, { state: { selectedTicketId: ticketId } });
+              }}
+            >
+              Done
+            </Button>
           </div>
         </div>
       )}
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
-            <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
-            <p className="text-sm font-semibold text-[#252578] text-center font-sans">
+          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-150">
+            <div className="w-10 h-10 border-4 border-brand-primary/10 border-t-brand-primary rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-brand-primary text-center font-sans">
               {loadingText}
             </p>
           </div>
