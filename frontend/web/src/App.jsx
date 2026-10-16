@@ -10,6 +10,7 @@ import GuestRoute from '@/routes/GuestRoute';
 import AuthGate from '@/routes/AuthGate';
 import SkeletonLoader from '@/components/SkeletonLoader.jsx';
 import PageTitleUpdater from '@/components/PageTitleUpdater.jsx';
+import { ToastProvider } from '@/context/ToastContext';
 
 // Lazy loaded page and layout components
 const Loginpage = React.lazy(() => import('./pages/Loginpage.jsx'));
@@ -128,6 +129,7 @@ function App() {
   return (
     <AuthProvider>
       <BranchProvider>
+        <ToastProvider>
         <Router basename={routerBasename}>
         <PageTitleUpdater />
         <AuthGate>
@@ -337,6 +339,7 @@ function App() {
           </Suspense>
         </AuthGate>
       </Router>
+        </ToastProvider>
     </BranchProvider>
     </AuthProvider>
   );
