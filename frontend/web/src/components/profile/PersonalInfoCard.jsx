@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { User, AlertCircle, CheckCircle, Lock, Shield, Mail, Phone, MapPin, X, AlertTriangle } from 'lucide-react';
+import { User, AlertCircle, CheckCircle, Lock, Shield, Mail, Phone, MapPin, X, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 export default function PersonalInfoCard({ profile, onProfileUpdated }) {
   const { updateProfile } = useAuth();
@@ -146,23 +148,23 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
   const hasUnsavedChanges = isEmailChanging || isPhoneChanging || isAddressChanging;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
-      <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+    <div className="bg-card rounded-xl border border-border shadow-xs font-sans">
+      <div className="px-6 pt-5 pb-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-            <User size={16} className="text-blue-600" />
+            <User size={16} className="text-accent" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800">Personal Information</h3>
-            <p className="text-xs text-gray-500">
+            <h3 className="text-sm font-bold text-dark-slate">Personal Information</h3>
+            <p className="text-xs text-muted-slate">
               {isEmployeeRole ? 'Your account details are managed by SSO.' : 'Update your contact and profile details.'}
             </p>
           </div>
         </div>
         {hasUnsavedChanges && !isEmployeeRole && (
-          <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+          <Badge variant="warning">
             Unsaved changes
-          </span>
+          </Badge>
         )}
       </div>
 
@@ -188,10 +190,10 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
           {/* Read-Only: Customer ID */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+              <label className="text-[11px] font-bold text-muted-slate uppercase tracking-wide">
                 Customer ID
               </label>
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-slate bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
                 <Lock size={10} /> Read-Only (CMS record)
               </span>
             </div>
@@ -199,17 +201,17 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
               type="text"
               value={profile.id || 'CUST-001'}
               disabled
-              className="w-full h-9 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-600 cursor-not-allowed font-mono"
+              className="w-full h-9 rounded-lg border border-border bg-slate-50 px-3 text-sm text-muted-slate cursor-not-allowed font-mono"
             />
           </div>
 
           {/* Read-Only: Customer Name */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+              <label className="text-[11px] font-bold text-muted-slate uppercase tracking-wide">
                 Full Name / Organization
               </label>
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-slate bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
                 <Shield size={10} /> Read-Only (CMS record)
               </span>
             </div>
@@ -217,19 +219,19 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
               type="text"
               value={profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || '—'}
               disabled
-              className="w-full h-9 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-600 cursor-not-allowed"
+              className="w-full h-9 rounded-lg border border-border bg-slate-50 px-3 text-sm text-muted-slate cursor-not-allowed"
             />
           </div>
 
           {/* Editable: Email */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide flex items-center gap-1">
-                <Mail size={12} className="text-gray-400" />
+              <label className="text-[11px] font-bold text-dark-slate uppercase tracking-wide flex items-center gap-1">
+                <Mail size={12} className="text-muted-slate" />
                 Email Address <span className="text-red-500">*</span>
               </label>
               {isEmployeeRole && (
-                <span className="text-[10px] text-gray-400">Managed by SSO</span>
+                <span className="text-[10px] text-muted-slate">Managed by SSO</span>
               )}
             </div>
             <input
@@ -238,10 +240,10 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
               onChange={handleChange('email')}
               placeholder="name@example.com"
               disabled={isEmployeeRole}
-              className={`w-full h-9 rounded-lg border px-3 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none transition disabled:bg-gray-50 disabled:text-gray-500 ${
+              className={`w-full h-9 rounded-lg border px-3 text-sm text-dark-slate placeholder:text-muted-slate/50 focus:outline-none transition disabled:bg-slate-50 disabled:text-muted-slate ${
                 validationErrors.email
                   ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100 bg-red-50/20'
-                  : 'border-gray-200 bg-white focus:border-[#252578] focus:ring-2 focus:ring-[#252578]/10'
+                  : 'border-border bg-card focus:border-accent focus:ring-2 focus:ring-accent/10'
               }`}
             />
             {validationErrors.email && (
@@ -254,12 +256,12 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
           {/* Editable: Phone */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide flex items-center gap-1">
-                <Phone size={12} className="text-gray-400" />
+              <label className="text-[11px] font-bold text-dark-slate uppercase tracking-wide flex items-center gap-1">
+                <Phone size={12} className="text-muted-slate" />
                 Phone Number
               </label>
               {isEmployeeRole && (
-                <span className="text-[10px] text-gray-400">Managed by SSO</span>
+                <span className="text-[10px] text-muted-slate">Managed by SSO</span>
               )}
             </div>
             <input
@@ -268,10 +270,10 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
               onChange={handleChange('phone')}
               placeholder="e.g. +63 912 345 6789"
               disabled={isEmployeeRole}
-              className={`w-full h-9 rounded-lg border px-3 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none transition disabled:bg-gray-50 disabled:text-gray-500 ${
+              className={`w-full h-9 rounded-lg border px-3 text-sm text-dark-slate placeholder:text-muted-slate/50 focus:outline-none transition disabled:bg-slate-50 disabled:text-muted-slate ${
                 validationErrors.phone
                   ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100 bg-red-50/20'
-                  : 'border-gray-200 bg-white focus:border-[#252578] focus:ring-2 focus:ring-[#252578]/10'
+                  : 'border-border bg-card focus:border-accent focus:ring-2 focus:ring-accent/10'
               }`}
             />
             {validationErrors.phone && (
@@ -284,8 +286,8 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
           {/* Editable: Address */}
           <div className="space-y-1.5 md:col-span-2">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wide flex items-center gap-1">
-                <MapPin size={12} className="text-gray-400" />
+              <label className="text-[11px] font-bold text-dark-slate uppercase tracking-wide flex items-center gap-1">
+                <MapPin size={12} className="text-muted-slate" />
                 Mailing / Contact Address
               </label>
             </div>
@@ -295,28 +297,38 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
               onChange={handleChange('address')}
               placeholder="Street address, City, Province/State, Postal code"
               disabled={isEmployeeRole}
-              className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:border-[#252578] focus:ring-2 focus:ring-[#252578]/10 transition disabled:bg-gray-50 disabled:text-gray-500"
+              className="w-full h-9 rounded-lg border border-border bg-card px-3 text-sm text-dark-slate placeholder:text-muted-slate/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 transition disabled:bg-slate-50 disabled:text-muted-slate"
             />
           </div>
         </div>
 
         {!isEmployeeRole && (
-          <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
-            <button
+          <div className="mt-5 pt-4 border-t border-border flex items-center justify-end gap-3">
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={handleCancel}
               disabled={saving || !hasUnsavedChanges}
-              className="h-9 px-4 text-sm font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="cursor-pointer"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              size="sm"
               disabled={saving || !hasUnsavedChanges}
-              className="h-9 px-5 text-sm font-semibold bg-[#252578] hover:bg-[#1f1f66] text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+              className="cursor-pointer"
             >
-              {saving ? 'Saving changes...' : 'Save changes'}
-            </button>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  Saving changes...
+                </>
+              ) : (
+                'Save changes'
+              )}
+            </Button>
           </div>
         )}
       </form>
@@ -324,25 +336,25 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
       {/* Confirmation Modal for Contact Updates (TS002) */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 animate-scale-in">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div className="bg-card rounded-xl max-w-md w-full p-6 shadow-2xl border border-border animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#252578] flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-primary flex items-center justify-center">
                   <AlertTriangle size={18} />
                 </div>
-                <h4 className="text-base font-bold text-gray-800">Confirm Profile Update</h4>
+                <h4 className="text-base font-bold text-dark-slate">Confirm Profile Update</h4>
               </div>
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+                className="text-muted-slate hover:text-dark-slate p-1 rounded-lg cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="py-4 space-y-3.5">
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-muted-slate">
                 You are about to update your profile contact information. This affects where future ticket updates and notifications will be delivered:
               </p>
 
@@ -357,45 +369,55 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
                 </div>
               )}
 
-              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2 text-xs">
-                <p className="font-bold text-gray-700 uppercase tracking-wider text-[10px]">Summary of changes:</p>
+              <div className="bg-slate-50 rounded-xl p-3 border border-border space-y-2 text-xs">
+                <p className="font-bold text-muted-slate uppercase tracking-wider text-[10px]">Summary of changes:</p>
                 {isEmailChanging && (
-                  <div className="flex justify-between items-center text-gray-600">
-                    <span className="font-medium text-gray-500">Email:</span>
-                    <span className="font-bold text-gray-800">{form.email}</span>
+                  <div className="flex justify-between items-center text-muted-slate">
+                    <span className="font-medium text-muted-slate">Email:</span>
+                    <span className="font-bold text-dark-slate">{form.email}</span>
                   </div>
                 )}
                 {isPhoneChanging && (
-                  <div className="flex justify-between items-center text-gray-600">
-                    <span className="font-medium text-gray-500">Phone:</span>
-                    <span className="font-bold text-gray-800">{form.phone || '(Removed)'}</span>
+                  <div className="flex justify-between items-center text-muted-slate">
+                    <span className="font-medium text-muted-slate">Phone:</span>
+                    <span className="font-bold text-dark-slate">{form.phone || '(Removed)'}</span>
                   </div>
                 )}
                 {isAddressChanging && (
-                  <div className="flex justify-between items-center text-gray-600">
-                    <span className="font-medium text-gray-500">Address:</span>
-                    <span className="font-bold text-gray-800 truncate max-w-[200px]">{form.address || '(Removed)'}</span>
+                  <div className="flex justify-between items-center text-muted-slate">
+                    <span className="font-medium text-muted-slate">Address:</span>
+                    <span className="font-bold text-dark-slate truncate max-w-[200px]">{form.address || '(Removed)'}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
-              <button
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer"
+                className="cursor-pointer"
               >
                 Back to Editing
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                size="sm"
                 onClick={handleConfirmSave}
                 disabled={saving}
-                className="px-5 py-2 text-xs font-bold text-white bg-[#252578] hover:bg-[#1f1f66] rounded-xl transition shadow-sm cursor-pointer"
+                className="cursor-pointer"
               >
-                {saving ? 'Updating...' : 'Confirm & Update'}
-              </button>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    Updating...
+                  </>
+                ) : (
+                  'Confirm & Update'
+                )}
+              </Button>
             </div>
           </div>
         </div>
@@ -403,3 +425,4 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
     </div>
   );
 }
+

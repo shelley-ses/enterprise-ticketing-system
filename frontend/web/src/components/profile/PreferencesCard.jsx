@@ -4,16 +4,16 @@ import { getNotificationPreferences, updateNotificationPreferences } from '@/ser
 
 function ChannelToggleRow({ icon: Icon, label, description, checked, onChange, disabled }) {
   return (
-    <div className="flex items-center justify-between px-6 py-3.5 hover:bg-gray-50/50 transition-colors">
+    <div className="flex items-center justify-between px-6 py-3.5 hover:bg-slate-50/50 transition-colors font-sans">
       <div className="flex items-start gap-3">
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-          checked ? 'bg-blue-50 text-[#252578]' : 'bg-gray-100 text-gray-400'
+          checked ? 'bg-blue-50 text-accent' : 'bg-slate-100 text-muted-slate'
         }`}>
           <Icon size={16} />
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-800">{label}</p>
-          <p className="text-xs text-gray-500">{description}</p>
+          <p className="text-sm font-semibold text-dark-slate">{label}</p>
+          <p className="text-xs text-muted-slate">{description}</p>
         </div>
       </div>
       <button
@@ -22,12 +22,12 @@ function ChannelToggleRow({ icon: Icon, label, description, checked, onChange, d
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-          checked ? 'bg-[#252578]' : 'bg-gray-200'
+        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+          checked ? 'bg-primary' : 'bg-slate-200'
         }`}
       >
         <span
-          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200 ${
+          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-xs transform ring-0 transition duration-200 ${
             checked ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
@@ -118,19 +118,19 @@ export default function PreferencesCard({ role }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
-      <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+    <div className="bg-card rounded-xl border border-border shadow-xs font-sans">
+      <div className="px-6 pt-5 pb-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-            <SlidersHorizontal size={16} className="text-blue-600" />
+            <SlidersHorizontal size={16} className="text-accent" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800">Notification Preferences</h3>
-            <p className="text-xs text-gray-500">Configure how and where you receive ticket updates.</p>
+            <h3 className="text-sm font-bold text-dark-slate">Notification Preferences</h3>
+            <p className="text-xs text-muted-slate">Configure how and where you receive ticket updates.</p>
           </div>
         </div>
         {saving && (
-          <span className="text-[11px] font-medium text-gray-400 animate-pulse">
+          <span className="text-[11px] font-medium text-muted-slate animate-pulse">
             Saving...
           </span>
         )}
@@ -159,13 +159,13 @@ export default function PreferencesCard({ role }) {
         )}
 
         <div className="mb-2">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+          <p className="text-[10px] font-bold text-muted-slate uppercase tracking-widest">
             Delivery Channels
           </p>
         </div>
       </div>
 
-      <div className="divide-y divide-gray-100 pb-4">
+      <div className="divide-y divide-border pb-4">
         <ChannelToggleRow
           icon={Mail}
           label="Email Notifications"
@@ -184,11 +184,12 @@ export default function PreferencesCard({ role }) {
         />
       </div>
 
-      <div className="px-6 py-3 bg-gray-50/70 border-t border-gray-100 rounded-b-2xl">
-        <p className="text-[11px] text-gray-500">
+      <div className="px-6 py-3 bg-slate-50/70 border-t border-border rounded-b-xl">
+        <p className="text-[11px] text-muted-slate">
           * At least one channel must stay enabled to ensure you never miss critical ticket updates.
         </p>
       </div>
     </div>
   );
 }
+

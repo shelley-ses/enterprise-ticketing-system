@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { useAuth } from '@/context/AuthContext';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
 import ProfileHero from '@/components/profile/ProfileHero';
 import PersonalInfoCard from '@/components/profile/PersonalInfoCard';
 import PreferencesCard from '@/components/profile/PreferencesCard';
@@ -71,18 +73,21 @@ export default function Profile() {
 
   return (
     <div className="p-8 space-y-6 max-w-5xl mx-auto">
-      <button
-        onClick={() => navigate(dashboardUrl)}
-        className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-[#252578] transition-colors -mb-4 cursor-pointer"
-      >
-        <ArrowLeft size={16} />
-        Back to Dashboard
-      </button>
-
-      <div>
-        <h1 className="text-xl font-bold text-gray-800">My Profile</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage your account details and preferences.</p>
-      </div>
+      <PageHeader
+        title="My Profile"
+        subtitle="Manage your account details and preferences."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(dashboardUrl)}
+            className="cursor-pointer gap-1.5 text-muted-slate hover:text-dark-slate"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Dashboard
+          </Button>
+        }
+      />
 
       <ProfileHero profile={profile} />
 
@@ -95,3 +100,4 @@ export default function Profile() {
     </div>
   );
 }
+
