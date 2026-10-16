@@ -1,14 +1,28 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  X,
+  FileText,
+  Paperclip,
+  CheckCircle2,
+  AlertCircle,
+  Star,
+  ArrowUpDown,
+  RotateCcw,
+  Pencil,
+  Eye,
+  Check,
+} from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
-import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import { getFeedbackFormStatus, getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 const getFileName = (file, fallback = 'Attachment') => {
   if (!file) return fallback;
@@ -238,43 +252,41 @@ export default function CustomerTicketDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex items-start justify-between border-b border-gray-150 px-6 py-5 shrink-0 bg-white">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-card border border-border shadow-modal animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-start justify-between border-b border-border px-6 py-5 shrink-0 bg-card">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-[#252578]">{ticket.id}</span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColors[ticket.status] || 'bg-gray-100 text-gray-700'}`}>
+              <span className="text-sm font-semibold text-primary font-mono">{ticket.id}</span>
+              <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
                 {ticket.status}
-              </span>
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${priorityColors[ticket.priority] || 'bg-gray-100 text-gray-700'}`}>
+              </Badge>
+              <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
                 {ticket.priority}
-              </span>
+              </Badge>
               {ticket.is_internal && (
-                <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700">
+                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                   Internal
-                </span>
+                </Badge>
               )}
               {ticket.slaStatus && (
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  ticket.slaStatus === 'Violated' ? 'bg-red-100 text-red-800' :
-                  ticket.slaStatus === 'Near Violation' ? 'bg-amber-100 text-amber-800' :
-                  ticket.slaStatus === 'Achieved' ? 'bg-green-100 text-green-800' :
-                  'bg-blue-50 text-[#252578]'
-                }`}>
+                <Badge variant={
+                  ticket.slaStatus === 'Violated' ? 'destructive' :
+                  ticket.slaStatus === 'Near Violation' ? 'amber' :
+                  ticket.slaStatus === 'Achieved' ? 'emerald' :
+                  'outline'
+                }>
                   {ticket.slaStatus}
-                </span>
+                </Badge>
               )}
             </div>
-            <h2 className="mt-1 text-xl font-bold text-gray-900">{ticket.title}</h2>
+            <h2 className="mt-1 text-xl font-bold text-slate-dark">{ticket.title}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
+            className="rounded-lg p-1.5 text-slate-muted hover:bg-page hover:text-slate-dark transition-colors cursor-pointer"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -282,47 +294,47 @@ export default function CustomerTicketDetailModal({
           <ReassignmentDisapprovalBanner ticket={ticket} />
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2 min-w-0">
-              <p className="text-field-label uppercase text-gray-400">Description</p>
-              <p className="mt-1 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Description</p>
+              <p className="mt-1 rounded-xl bg-page border border-border p-4 text-sm leading-6 text-slate-dark break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
                 {ticket.description || 'No description available.'}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Requestor</p>
-              <p className="mt-1 text-field-value text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Requestor</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Equipment / Machine</p>
-              <p className="mt-1 text-field-value text-gray-800">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Equipment / Machine</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Equipment Type</p>
-              <p className="mt-1 text-field-value text-gray-800">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Equipment Type</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">
                 {ticket.equipment_type || ticket.equipmentType || ticket.machine_category || ticket.machine?.category_name || (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment')}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Assigned Employee</p>
-              <p className="mt-1 text-field-value text-gray-800">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Assigned Employee</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">
                 {ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || (ticket.assigned_employees?.[0]?.name) || (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null) || 'Unassigned'}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Category</p>
-              <p className="mt-1 text-field-value text-gray-800">{ticket.category || '—'}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Category</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.category || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Date Filed</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Last Updated</p>
+              <p className="mt-1 text-sm font-semibold text-slate-dark">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
             </div>
             {(ticket.resolved_at || ticket.closed_at) && (
               <div>
-                <p className="text-field-label uppercase text-gray-400">Date Resolved</p>
-                <p className="mt-1 text-field-value text-green-700 font-semibold">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Date Resolved</p>
+                <p className="mt-1 text-sm font-semibold text-emerald-700">
                   {formatDisplayDate(ticket.resolved_at || ticket.closed_at)}
                 </p>
               </div>
@@ -330,7 +342,7 @@ export default function CustomerTicketDetailModal({
 
             {ticket.attachments && ticket.attachments.length > 0 && (
               <div className="md:col-span-2">
-                <p className="text-field-label uppercase text-gray-400">Attachments ({ticket.attachments.length})</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Attachments ({ticket.attachments.length})</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {ticket.attachments.map((file, idx) => {
                     const fName = getFileName(file);
@@ -343,11 +355,9 @@ export default function CustomerTicketDetailModal({
                           e.preventDefault();
                           setPreviewFile({ name: fName, url: fUrl });
                         }}
-                        className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-badge text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        className="flex items-center gap-1.5 rounded-xl border border-border bg-page px-3 py-2 text-xs font-medium text-primary hover:text-accent hover:underline cursor-pointer transition-colors"
                       >
-                        <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                        </svg>
+                        <Paperclip className="h-4 w-4 shrink-0 text-slate-muted" />
                         <span className="truncate max-w-[220px]">{fName}</span>
                       </a>
                     );
@@ -358,7 +368,7 @@ export default function CustomerTicketDetailModal({
 
             {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
               <div className="md:col-span-2">
-                <p className="text-field-label uppercase text-green-700 font-bold">Proof of Completion Files</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Proof of Completion Files</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(ticket.proofAttachments || ticket.proofFiles).map((file, pIdx) => {
                     const fName = getFileName(file);
@@ -371,11 +381,9 @@ export default function CustomerTicketDetailModal({
                           e.preventDefault();
                           setPreviewFile({ name: fName, url: fUrl });
                         }}
-                        className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-badge text-green-700 hover:text-green-900 hover:underline cursor-pointer"
+                        className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer transition-colors"
                       >
-                        <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
                         <span className="truncate max-w-[220px]">{fName}</span>
                       </a>
                     );
@@ -386,25 +394,25 @@ export default function CustomerTicketDetailModal({
 
             {/* Remarks History */}
             {remarksList && remarksList.length > 0 && (
-              <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
+              <div className="md:col-span-2 border-t border-border pt-4 mt-2">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-field-label uppercase text-gray-500 font-bold flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#252578] inline-block" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-dark flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-primary inline-block" />
                     Remarks History ({remarksList.length})
                   </h3>
                 </div>
                 <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
                   {remarksList.map((rem, idx) => (
-                    <div key={rem.id || idx} className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs shadow-xs">
-                      <div className="flex items-center justify-between text-gray-500 mb-1">
-                        <span className="font-bold text-[#252578] text-[11px] uppercase tracking-wide">
+                    <div key={rem.id || idx} className="rounded-xl border border-border bg-page p-3 text-xs shadow-xs">
+                      <div className="flex items-center justify-between text-slate-muted mb-1">
+                        <span className="font-bold text-primary text-[11px] uppercase tracking-wide">
                           {rem.author || 'Staff Member'}
                         </span>
-                        <span className="text-timestamp text-gray-400">
+                        <span className="text-[10px] text-slate-muted">
                           {formatDisplayDate(rem.timestamp)}
                         </span>
                       </div>
-                      <p className="text-gray-700 leading-relaxed break-words whitespace-pre-wrap font-medium">
+                      <p className="text-slate-dark leading-relaxed break-words whitespace-pre-wrap font-medium">
                         {rem.remark || rem.text}
                       </p>
                     </div>
@@ -413,46 +421,46 @@ export default function CustomerTicketDetailModal({
               </div>
             )}
 
-            <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
+            <div className="md:col-span-2 border-t border-border pt-4 mt-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-field-label uppercase text-gray-400">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-muted">
                   Ticket Timeline &amp; History
                 </h3>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setTimelineSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-                  className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-button text-gray-600 transition-colors hover:bg-gray-100"
+                  className="h-7 text-xs"
                 >
-                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
-                  </svg>
+                  <ArrowUpDown className="h-3 w-3 mr-1" />
                   {timelineSortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
-                </button>
+                </Button>
               </div>
 
               {sortedTimelineEvents.length === 0 ? (
-                <p className="text-xs italic text-gray-400">No timeline events recorded.</p>
+                <p className="text-xs italic text-slate-muted">No timeline events recorded.</p>
               ) : (
-                <div className="relative ml-3 space-y-4 border-l-2 border-gray-100 py-1.5 pl-6">
+                <div className="relative ml-3 space-y-4 border-l-2 border-border py-1.5 pl-6">
                   {sortedTimelineEvents.map((evt, idx) => {
                     const dotColor =
                       evt.type === 'system'
-                        ? 'bg-[#252578]'
+                        ? 'bg-primary'
                         : evt.type === 'status'
-                          ? 'bg-blue-500'
+                          ? 'bg-accent'
                           : evt.type === 'internal_note'
-                            ? 'bg-red-400'
+                            ? 'bg-destructive'
                             : evt.type === 'remark'
-                              ? 'bg-green-500'
+                              ? 'bg-emerald-500'
                               : evt.type === 'reassign'
                                 ? 'bg-amber-500'
-                                : 'bg-gray-400';
+                                : 'bg-slate-400';
 
                     return (
                       <div key={evt.id || idx} className="relative text-xs">
                         <div className={`absolute top-1 h-3 w-3 rounded-full border-2 border-white shadow ${dotColor}`} style={{ left: '-31px' }} />
-                        <div className="mb-0.5 flex items-center justify-between text-timestamp text-gray-400">
-                          <span className="text-timestamp uppercase tracking-wide text-[#252578]">
+                        <div className="mb-0.5 flex items-center justify-between text-slate-muted">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
                             {evt.type === 'system'
                               ? 'System'
                               : evt.type === 'status'
@@ -465,10 +473,10 @@ export default function CustomerTicketDetailModal({
                                       ? 'Reassignment'
                                       : evt.type || 'Update'}
                           </span>
-                          <span>{formatDisplayDate(evt.timestamp)}</span>
+                          <span className="text-[10px] text-slate-muted">{formatDisplayDate(evt.timestamp)}</span>
                         </div>
                         <p
-                          className="rounded-lg border border-gray-100/50 bg-gray-50/50 p-2.5 font-semibold leading-relaxed text-gray-700 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                          className="rounded-lg border border-border bg-page p-2.5 font-medium leading-relaxed text-slate-dark break-words whitespace-pre-wrap max-w-full overflow-hidden"
                           style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                         >
                           {evt.text}
@@ -492,10 +500,10 @@ export default function CustomerTicketDetailModal({
           </div>
         </div>
 
-        <div className="border-t border-gray-100 bg-gray-50 px-6 py-4 shrink-0">
+        <div className="border-t border-border bg-card px-6 py-4 shrink-0">
           {showReopenForm ? (
             <div className="w-full text-left flex flex-col gap-2">
-              <label htmlFor="reopen-reason-input" className="text-field-label uppercase text-gray-600">
+              <label htmlFor="reopen-reason-input" className="text-xs font-semibold uppercase tracking-wider text-slate-dark">
                 Reason for Reopening * (Required)
               </label>
               <textarea
@@ -503,38 +511,41 @@ export default function CustomerTicketDetailModal({
                 placeholder="Please provide a mandatory reason for reopening this ticket..."
                 value={reopenReason}
                 onChange={(e) => setReopenReason(e.target.value)}
-                className="min-h-16 w-full resize-none rounded-xl border border-gray-200 bg-white p-3 text-xs font-sans text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25"
+                className="min-h-16 w-full resize-none rounded-xl border border-border bg-card p-3 text-xs font-sans text-slate-dark outline-none focus:ring-2 focus:ring-accent"
               />
               <div className="mt-2 flex justify-end gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setShowReopenForm(false);
                     setReopenReason('');
                   }}
-                  className="rounded-xl px-3 py-1.5 text-button text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   Close
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="default"
+                  size="sm"
                   disabled={!reopenReason.trim()}
                   onClick={() => {
                     setPendingReason(reopenReason.trim());
                     setShowReopenConfirm(true);
                   }}
-                  className="rounded-xl bg-[#252578] px-3 py-1.5 text-button text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirm Reopen
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <div className="flex w-full justify-end gap-3">
               {(isCS || onAssign || onViewTicket) ? (
                 !isAlreadyAssigned ? (
-                  <button
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={() => {
                       if (onAssign) {
                         onAssign(ticket);
@@ -542,13 +553,13 @@ export default function CustomerTicketDetailModal({
                         onClose();
                       }
                     }}
-                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                   >
                     Assign
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={() => {
                       if (onViewTicket) {
                         onViewTicket(ticket);
@@ -558,58 +569,52 @@ export default function CustomerTicketDetailModal({
                         navigate(`/cs/history/${ticketId}`, { state: { ticket, backPath: window.location.pathname } });
                       }
                     }}
-                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                   >
                     View Ticket
-                  </button>
+                  </Button>
                 )
               ) : (
                 isEmployee && ticket?.status !== 'Closed' && ticket?.status !== 'Resolved' && (
-                  <button
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={() => {
                       onClose();
                       navigate('/employee/ticket-update', { state: { ticket } });
                     }}
-                    className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                   >
                     Update Ticket
-                  </button>
+                  </Button>
                 )
               )}
               {canShowReopenAction && (
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   onClick={() => setShowReopenForm(true)}
-                  className="rounded-xl bg-[#252578] px-4 py-2 text-button text-white transition-colors hover:bg-[#1f1f66]"
                 >
                   Re-open Ticket
-                </button>
+                </Button>
               )}
               {isExternalClosed && !isEmployee && (
-                <button
+                <Button
                   type="button"
+                  variant={feedbackAlreadySubmitted || feedbackSubmitted ? 'default' : 'secondary'}
                   onClick={() => setShowFeedbackModal(true)}
-                  className={`rounded-xl px-4 py-2 text-button text-white transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    feedbackAlreadySubmitted || feedbackSubmitted
-                      ? 'bg-emerald-600 hover:bg-emerald-700'
-                      : 'bg-[#252578] hover:bg-[#1f1f66]'
-                  }`}
+                  className="flex items-center gap-1.5"
                 >
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
+                  <Star className="h-4 w-4" />
                   {feedbackAlreadySubmitted || feedbackSubmitted ? 'View Feedback' : 'Give Feedback'}
-                </button>
+                </Button>
               )}
               {ticket.can_discard && ticket.status === 'Open' && (
-                <button
+                <Button
                   type="button"
+                  variant="destructive"
                   onClick={() => onDiscard?.(ticket)}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-button text-white transition-colors hover:bg-red-700"
                 >
                   Discard Ticket
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -626,14 +631,14 @@ export default function CustomerTicketDetailModal({
         />
       )}
       {showReopenConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-            <h2 className="text-lg font-bold text-gray-900">Reopen Ticket?</h2>
-            <p className="mt-2 text-sm text-gray-600 break-words whitespace-normal">Are you sure you want to reopen <span className="font-semibold text-[#252578]">{ticket.id}</span>? This will change its status to Reopened.</p>
-            {pendingReason && <p className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 break-words whitespace-normal"><span className="font-semibold">Reason:</span> {pendingReason}</p>}
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
+          <div className="w-full max-w-md rounded-xl bg-card border border-border p-6 shadow-modal animate-in fade-in zoom-in-95 duration-200">
+            <h2 className="text-lg font-bold text-slate-dark">Reopen Ticket?</h2>
+            <p className="mt-2 text-sm text-slate-muted break-words whitespace-normal">Are you sure you want to reopen <span className="font-semibold text-primary">{ticket.id}</span>? This will change its status to Reopened.</p>
+            {pendingReason && <p className="mt-3 rounded-lg bg-page border border-border p-3 text-xs text-slate-dark break-words whitespace-normal"><span className="font-semibold">Reason:</span> {pendingReason}</p>}
             <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => { setShowReopenConfirm(false); setPendingReason(''); }} className="rounded-xl px-4 py-2 text-button text-gray-600 hover:bg-gray-100">Cancel</button>
-              <button onClick={() => { onReopen?.(ticket.ticket_ID || ticket.id, pendingReason); setShowReopenConfirm(false); setShowReopenForm(false); setReopenReason(''); setPendingReason(''); }} className="rounded-xl bg-[#252578] px-4 py-2 text-button text-white hover:bg-[#1f1f66]">Confirm Reopen</button>
+              <Button variant="outline" onClick={() => { setShowReopenConfirm(false); setPendingReason(''); }}>Cancel</Button>
+              <Button variant="default" onClick={() => { onReopen?.(ticket.ticket_ID || ticket.id, pendingReason); setShowReopenConfirm(false); setShowReopenForm(false); setReopenReason(''); setPendingReason(''); }}>Confirm Reopen</Button>
             </div>
           </div>
         </div>

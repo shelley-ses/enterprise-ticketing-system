@@ -1,12 +1,31 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import {
+  HelpCircle,
+  X,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  ChevronDown,
+  Pencil,
+  Paperclip,
+  Loader2,
+  Eye,
+  Clock,
+  User,
+  Building2,
+  Tag,
+  Shield,
+  Check,
+} from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import FilePreviewModal from './FilePreviewModal';
-import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { useAuth } from '@/context/AuthContext';
 import { updateEmployeeTicketOverride } from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 /* Helper functions for robust file attachment handling */
 const getFileUrl = (file) => {
@@ -32,36 +51,42 @@ const getFileName = (file) => {
 export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "Update this ticket?", message = "Are you sure you want to save the changes to this ticket?", confirmText = "Yes, Update" }) {
   useLockBodyScroll(true);
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl w-105 max-w-full shadow-2xl p-7 flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-full bg-[#252578]/10 flex items-center justify-center mb-4">
-          <svg className="w-7 h-7 text-[#252578]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
+      <div className="bg-card border border-border rounded-xl w-full max-w-md shadow-modal p-6 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
+        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4 text-primary">
+          <HelpCircle className="w-6 h-6" />
         </div>
 
-        <h4 className="text-lg font-bold text-gray-800 mb-2">
+        <h4 className="text-lg font-bold text-slate-dark mb-2">
           {title}
         </h4>
-        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+        <p className="text-sm text-slate-muted mb-6 leading-relaxed">
           {message}
         </p>
 
         <div className="flex gap-3 w-full">
-          <button
+          <Button
+            type="button"
+            variant="outline"
             onClick={onCancel}
             disabled={isSaving}
-            className="flex-1 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+            className="flex-1"
           >
             Go Back
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="default"
             onClick={onConfirm}
             disabled={isSaving}
-            className="flex-1 py-2.5 text-sm font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition-colors shadow-lg shadow-[#252578]/30"
+            className="flex-1"
           >
-            {isSaving ? 'Saving...' : confirmText}
-          </button>
+            {isSaving ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="w-4 h-4 animate-spin" /> Saving...
+              </span>
+            ) : confirmText}
+          </Button>
         </div>
       </div>
     </div>
@@ -172,90 +197,90 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-        <div className="bg-white rounded-xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
+        <div className="bg-card border border-border rounded-xl w-140 max-w-full max-h-[90vh] flex flex-col shadow-modal relative animate-in fade-in zoom-in-95 duration-200">
 
           {/* Scrollable content */}
           <div className="overflow-y-auto flex-1 p-6">
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-[#252578] transition-colors text-sm"
+              className="absolute top-4 right-4 text-slate-muted hover:text-slate-dark transition-colors p-1 rounded-md"
             >
-              ✕
+              <X className="w-5 h-5" />
             </button>
 
             {readOnly ? (
               <>
                 {/* Ticket card at top for read-only */}
-                <div className="bg-[#252578] text-white rounded-xl p-5 mb-5">
-                  <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
+                <div className="bg-primary text-white rounded-xl p-5 mb-5 shadow-sm">
+                  <div className="text-xs text-white/70 mb-1 font-mono font-medium">{ticket.id}</div>
                   <div className="text-base font-bold leading-snug mb-2">{ticket.title}</div>
-                  <p className="text-sm opacity-80 leading-relaxed">{ticket.description || 'No description available.'}</p>
+                  <p className="text-sm text-white/80 leading-relaxed">{ticket.description || 'No description available.'}</p>
                 </div>
 
                 {/* Summary rows */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Requestor</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Requestor</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Status</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-100 text-amber-800 border border-amber-200' : (statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700')}`}>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Status</span>
+                    <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
                       {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
-                    </span>
+                    </Badge>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Department</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.department || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Department</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.department || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Priority</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Priority</span>
+                    <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
                       {ticket.priority || '—'}
-                    </span>
+                    </Badge>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Category</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.category || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Category</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.category || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Equipment / Machine</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
-                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Equipment Type</span>
+                    <span className="text-xs font-semibold text-slate-dark">{equipmentTypeDisplay}</span>
                   </div>
-                  <div className="bg-gray-50 rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
+                  <div className="bg-page border border-border rounded-xl px-4 py-3">
+                    <div className="text-xs font-medium text-slate-muted mb-2">Assigned Employee(s)</div>
                     {assignedEmployeesList.length === 0 ? (
-                      <div className="text-xs text-gray-400 italic">None assigned</div>
+                      <div className="text-xs text-slate-muted italic">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {assignedEmployeesList.map((emp) => (
-                          <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                            <span className="text-xs font-medium text-gray-700">{emp.name}</span>
-                            <span className="text-[10px] text-gray-400">{emp.department}</span>
+                          <div key={emp.id} className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5">
+                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                            <span className="text-xs font-medium text-slate-dark">{emp.name}</span>
+                            <span className="text-[10px] text-slate-muted">{emp.department}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Date Submitted</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Date Submitted</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
                   </div>
                   {(ticket.resolved_at || ticket.closed_at) && (
-                    <div className="flex items-center justify-between bg-green-50/70 border border-green-200/50 rounded-xl px-4 py-3">
-                      <span className="text-xs font-medium text-green-700 font-bold">Date Resolved</span>
-                      <span className="text-xs font-bold text-green-800">{formatDisplayDate(ticket.resolved_at || ticket.closed_at)}</span>
+                    <div className="flex items-center justify-between bg-emerald-50/70 border border-emerald-200/50 rounded-xl px-4 py-3">
+                      <span className="text-xs font-bold text-emerald-800">Date Resolved</span>
+                      <span className="text-xs font-bold text-emerald-900">{formatDisplayDate(ticket.resolved_at || ticket.closed_at)}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Last Updated</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Last Updated</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
                   </div>
 
                   {ticket.attachments && ticket.attachments.length > 0 && (
@@ -340,75 +365,76 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             ) : (
               <>
                 {/* Header badge */}
-                <div className="flex items-center gap-2 mb-5">
-                  <div className={`w-2 h-2 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-500' : 'bg-green-500'}`} />
-                  <span className={`text-xs font-semibold uppercase tracking-wide ${ticket.reassignmentRequested ? 'text-amber-600' : 'text-green-600'}`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Badge variant={ticket.reassignmentRequested ? 'amber' : (ticket.status === 'Pending Evaluation' ? 'sky' : 'emerald')}>
                     {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned')}
-                  </span>
+                  </Badge>
                 </div>
 
-                <h3 className="text-xl font-bold text-[#252578] mb-5">
+                <h3 className="text-xl font-bold text-slate-dark mb-4">
                   Ticket Summary
                 </h3>
 
                 {/* Ticket card */}
-                <div className="bg-[#252578] text-white rounded-xl p-4 mb-5">
+                <div className="bg-primary text-white rounded-xl p-4 mb-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <div className="text-xs opacity-70 mb-1">{ticket.id}</div>
+                      <div className="text-xs text-white/70 mb-1 font-mono">{ticket.id}</div>
                       <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
-                      <div className="text-xs opacity-60 mt-0.5">{ticket.category}</div>
+                      <div className="text-xs text-white/70 mt-0.5">{ticket.category}</div>
                     </div>
-                    <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-medium shrink-0">{ticket.sla}</span>
+                    <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
+                      {ticket.sla}
+                    </Badge>
                   </div>
-                  <p className="text-xs opacity-80 leading-relaxed pt-2 border-t border-white/10">{ticket.description || 'No description available.'}</p>
+                  <p className="text-xs text-white/80 leading-relaxed pt-2 border-t border-white/15">{ticket.description || 'No description available.'}</p>
                 </div>
 
                 {/* Summary rows */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Requestor</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Requestor</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Status</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${ticket.reassignmentRequested ? 'bg-amber-100 text-amber-800 border border-amber-200' : (statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700')}`}>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Status</span>
+                    <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
                       {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
-                    </span>
+                    </Badge>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Department</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.department || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Department</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.department || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Priority</span>
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Priority</span>
+                    <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
                       {ticket.priority || '—'}
-                    </span>
+                    </Badge>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Category</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.category || '—'}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Category</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.category || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment / Machine</span>
-                    <span className="text-xs font-semibold text-gray-800">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Equipment / Machine</span>
+                    <span className="text-xs font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-gray-500">Equipment Type</span>
-                    <span className="text-xs font-semibold text-gray-800">{equipmentTypeDisplay}</span>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-medium text-slate-muted">Equipment Type</span>
+                    <span className="text-xs font-semibold text-slate-dark">{equipmentTypeDisplay}</span>
                   </div>
-                  <div className="bg-gray-50 rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-gray-500 mb-2">Assigned Employee(s)</div>
+                  <div className="bg-page border border-border rounded-xl px-4 py-3">
+                    <div className="text-xs font-medium text-slate-muted mb-2">Assigned Employee(s)</div>
                     {assignedEmployeesList.length === 0 ? (
-                      <div className="text-xs text-gray-400 italic">None assigned</div>
+                      <div className="text-xs text-slate-muted italic">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {assignedEmployeesList.map((emp) => (
-                          <div key={emp.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                            <span className="text-xs font-medium text-gray-700">{emp.name}</span>
-                            <span className="text-[10px] text-gray-400">{emp.department}</span>
+                          <div key={emp.id} className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5">
+                            <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                            <span className="text-xs font-medium text-slate-dark">{emp.name}</span>
+                            <span className="text-[10px] text-slate-muted">{emp.department}</span>
                           </div>
                         ))}
                       </div>
@@ -729,8 +755,9 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       Please accept the proof of completion before resolving.
                     </span>
                   )}
-                  <button
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={async () => {
                       if (isExternal && hasProof) {
                         if (!proofOpened) {
@@ -765,16 +792,18 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       }
                     }}
                     disabled={isProcessing || (isExternal && hasProof && (!proofOpened || !proofAccepted))}
-                    className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
+                    {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
                     Resolve Ticket
-                  </button>
+                  </Button>
                 </>
               )}
 
             {ticket.status === 'Resolved' && (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={async () => {
                   setIsProcessing(true);
                   try {
@@ -799,10 +828,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   }
                 }}
                 disabled={isProcessing}
-                className="px-5 py-2.5 bg-gray-700 hover:bg-gray-800 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
               >
+                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
                 Close Ticket
-              </button>
+              </Button>
             )}
 
             {(() => {
@@ -813,8 +842,9 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
               if (isReopenable) {
                 return (
-                  <button
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={async () => {
                       setIsProcessing(true);
                       try {
@@ -839,26 +869,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       }
                     }}
                     disabled={isProcessing}
-                    className="px-5 py-2.5 bg-[#252578] hover:bg-[#1e1e60] text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
                   >
+                    {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
                     Reopen Ticket
-                  </button>
+                  </Button>
                 );
               }
               return null;
             })()}
 
             {!ticket.reassignmentRequested && ticket.status !== 'Closed' && ticket.status !== 'Resolved' && onEdit && (
-              <button
+              <Button
+                variant="outline"
                 onClick={onEdit}
                 disabled={isProcessing}
-                className="px-6 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
+                <Pencil className="w-3.5 h-3.5 mr-1.5" />
                 Reassign
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -988,42 +1016,42 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-        <div className="bg-white rounded-xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
+        <div className="bg-card border border-border rounded-xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-modal animate-in fade-in zoom-in-95 duration-200">
 
           {/* Scrollable content */}
           <div className="overflow-y-auto flex-1 p-6">
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-500 hover:text-[#252578] transition-colors text-sm"
+              className="absolute top-4 right-4 text-slate-muted hover:text-slate-dark transition-colors p-1 rounded-md"
             >
-              ✕
+              <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-[#252578] mb-4">
+            <h3 className="text-xl font-bold text-slate-dark mb-4">
               {ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved' ? 'Reassign Ticket' : 'Assign Ticket'}
             </h3>
 
             {/* Ticket Info */}
-            <div className="bg-[#252578] text-white rounded-2xl p-4 mb-4 flex items-center justify-between">
+            <div className="bg-primary text-white rounded-xl p-4 mb-4 flex items-center justify-between shadow-sm">
               <div className="flex-1 mr-4">
-                <div className="text-xs opacity-80">{ticket.id}</div>
+                <div className="text-xs text-white/70 font-mono">{ticket.id}</div>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-transparent border-b border-white/30 text-sm font-semibold mt-0.5 outline-none focus:border-white transition-colors py-1"
+                  className="w-full bg-transparent border-b border-white/30 text-sm font-semibold mt-0.5 outline-none focus:border-white transition-colors py-1 text-white"
                 />
-                <div className="text-xs opacity-70 mt-1">{ticket.category}</div>
+                <div className="text-xs text-white/70 mt-1">{ticket.category}</div>
               </div>
-              <span className="bg-white text-[#252578] text-xs px-3 py-1 rounded-full font-medium shrink-0">
+              <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
                 {ticket.sla}
-              </span>
+              </Badge>
             </div>
 
             {/* Department */}
             <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-700 mb-1.5">
+              <label className="block text-xs font-medium text-slate-dark mb-1.5">
                 Department
               </label>
               <select
@@ -1034,7 +1062,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   setSelectedEmployees([]);
                   setShowValidationError(false);
                 }}
-                className="w-full px-3 py-2.5 text-sm bg-white rounded-xl focus:ring-2 focus:ring-[#252578] outline-none transition-all shadow-sm"
+                className="w-full px-3 py-2 text-sm bg-card border border-border rounded-xl text-slate-dark focus:ring-2 focus:ring-accent outline-none transition-all shadow-xs"
               >
                 <option value="">Select department...</option>
                 {filteredDepartments.map((d) => (
@@ -1043,6 +1071,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
               </select>
               {deptAutoNotice && (
                 <div className="mt-2 text-xs bg-amber-50 text-amber-900 border border-amber-200 rounded-lg p-2.5 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>{deptAutoNotice}</span>
                 </div>
               )}
@@ -1050,31 +1079,30 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
             {/* Priority */}
             <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-700 mb-2">
+              <label className="block text-xs font-medium text-slate-dark mb-2">
                 Priority
               </label>
               <div className="flex gap-2 flex-wrap">
                 {priorityOptions.map((p) => (
-                  <button
+                  <Button
                     key={p}
+                    type="button"
+                    variant={priority === p ? 'default' : 'outline'}
+                    size="sm"
                     onClick={() => setPriority(p)}
-                    className={`px-4 py-1.5 rounded-xl transition-all text-xs font-medium ${priority === p
-                        ? 'bg-[#252578] text-white shadow-lg'
-                        : 'bg-white hover:bg-gray-100 text-gray-700'
-                      }`}
                   >
                     {p}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
             {/* Employees */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1.5">
+              <label className="block text-xs font-medium text-slate-dark mb-1.5">
                 Assign Employee(s)
                 {selectedEmployees.length > 0 && (
-                  <span className="ml-2 text-[#252578] font-semibold">
+                  <span className="ml-2 text-primary font-semibold">
                     ({selectedEmployees.length} selected)
                   </span>
                 )}
@@ -1089,7 +1117,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                     return (
                       <span
                         key={id}
-                        className="flex items-center gap-1 bg-[#252578]/10 text-[#252578] text-[11px] font-medium px-2.5 py-1 rounded-full"
+                        className="flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 text-xs font-medium px-2.5 py-1 rounded-full"
                       >
                         {emp.name}
                         <button
@@ -1098,7 +1126,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                           disabled={isSaving}
                           className="ml-0.5 font-bold hover:text-red-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          ×
+                          <X className="w-3 h-3" />
                         </button>
                       </span>
                     );
@@ -1106,55 +1134,49 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 </div>
               )}
 
-              <div className="max-h-44 overflow-auto bg-gray-50 rounded-2xl p-2">
+              <div className="max-h-44 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1">
                 {employeesInDept.length === 0 ? (
-                  <div className="text-xs text-gray-500 p-2">
+                  <div className="text-xs text-slate-muted p-2">
                     Select a department to see employees
                   </div>
                 ) : (
                   employeesInDept.map((emp) => (
                     <label
                       key={emp.id}
-                      className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-white rounded-xl transition-all cursor-pointer"
+                      className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-card rounded-lg transition-all cursor-pointer border border-transparent hover:border-border"
                     >
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
                           checked={selectedEmployees.includes(emp.id)}
                           onChange={() => toggleEmp(emp.id)}
-                          className="w-3.5 h-3.5 accent-[#252578]"
+                          className="w-4 h-4 rounded border-border text-primary focus:ring-accent"
                         />
                         <div>
-                          <div className="text-xs font-medium text-gray-800">{emp.name}</div>
-                          <div className="text-[11px] text-gray-500">{emp.department} • {emp.status}</div>
+                          <div className="text-xs font-medium text-slate-dark">{emp.name}</div>
+                          <div className="text-[11px] text-slate-muted">{emp.department} • {emp.status}</div>
                         </div>
                       </div>
-                      <div className={`text-[11px] px-2 py-0.5 rounded-full ${emp.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-200 text-gray-600'
-                        }`}>
+                      <Badge variant={emp.status === 'active' ? 'emerald' : 'secondary'} className="text-[10px]">
                         {emp.status === 'active' ? 'Active' : 'Inactive'}
-                      </div>
+                      </Badge>
                     </label>
                   ))
                 )}
               </div>
 
               {showValidationError && selectedEmployees.length === 0 && (
-                <p className="mt-2 text-xs font-semibold text-red-500 flex items-center gap-1 bg-red-50 p-2 rounded-xl border border-red-100">
-                  <svg className="w-3.5 h-3.5 shrink-0 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
+                <p className="mt-2 text-xs font-semibold text-destructive flex items-center gap-1.5 bg-destructive/10 p-2.5 rounded-lg border border-destructive/20">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-destructive" />
                   At least one employee must be selected.
                 </p>
               )}
             </div>
 
-
             {/* Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (
-              <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4">
-                <div className="text-xs font-medium text-gray-500 mb-2">
+              <div className="bg-page border border-border rounded-xl px-4 py-3 mt-4">
+                <div className="text-xs font-medium text-slate-muted mb-2">
                   Attachments
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
@@ -1162,32 +1184,32 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
                     return (
-                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                      <div key={idx} className="flex items-center justify-between bg-card border border-border rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
+                          <Paperclip className="w-4 h-4 text-slate-muted shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p
                               onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
-                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600 hover:underline"
+                              className="text-xs font-medium text-slate-dark truncate cursor-pointer hover:text-accent hover:underline"
                             >
                               {fileName}
                             </p>
-                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>}
+                            {file.size && <p className="text-[10px] text-slate-muted">{(file.size / 1024).toFixed(1)} KB</p>}
                           </div>
                         </div>
                         {fileUrl && (
-                          <a
-                            href={fileUrl}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
                             onClick={(e) => {
                               e.preventDefault();
                               setPreviewFile({ name: fileName, url: fileUrl });
                             }}
-                            className="text-xs text-[#252578] hover:text-[#1e1e60] font-semibold px-2 py-1 hover:bg-blue-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                            className="h-7 text-xs text-primary"
                           >
-                            View
-                          </a>
+                            <Eye className="w-3.5 h-3.5 mr-1" /> View
+                          </Button>
                         )}
                       </div>
                     );
@@ -1198,8 +1220,8 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
             {/* Proof of Completion Attachments */}
             {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
-              <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4">
-                <div className="text-xs font-medium text-green-700 font-semibold mb-2">
+              <div className="bg-page border border-border rounded-xl px-4 py-3 mt-4">
+                <div className="text-xs font-semibold text-emerald-800 mb-2">
                   Proof of Completion Documents
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
@@ -1207,32 +1229,32 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
                     return (
-                      <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
+                      <div key={idx} className="flex items-center justify-between bg-card border border-border rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p
                               onClick={() => setPreviewFile({ name: fileName, url: fileUrl })}
-                              className="text-xs font-medium text-gray-700 truncate cursor-pointer hover:text-green-700 hover:underline"
+                              className="text-xs font-medium text-slate-dark truncate cursor-pointer hover:text-emerald-700 hover:underline"
                             >
                               {fileName}
                             </p>
-                            {file.size && <p className="text-[10px] text-gray-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+                            {file.size && <p className="text-[10px] text-slate-muted">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
                           </div>
                         </div>
                         {fileUrl && (
-                          <a
-                            href={fileUrl}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
                             onClick={(e) => {
                               e.preventDefault();
                               setPreviewFile({ name: fileName, url: fileUrl });
                             }}
-                            className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 hover:bg-green-50 rounded transition-colors flex-shrink-0 cursor-pointer"
+                            className="h-7 text-xs text-emerald-700 hover:text-emerald-900"
                           >
-                            View
-                          </a>
+                            <Eye className="w-3.5 h-3.5 mr-1" /> View
+                          </Button>
                         )}
                       </div>
                     );
@@ -1244,23 +1266,27 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
           </div>
 
           {/* Sticky footer */}
-          <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
-            <button
+          <div className="flex justify-end gap-3 px-6 py-4 border-t border-border shrink-0 bg-card">
+            <Button
               type="button"
+              variant="outline"
               onClick={onClose}
               disabled={isSaving}
-              className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="default"
               onClick={handleAcceptClick}
               disabled={isSaving}
-              className="px-7 py-2.5 bg-[#252578] text-white text-xs font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-300"
             >
-              {isSaving ? 'Saving...' : (ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved') ? 'Save Changes' : 'Assign Ticket'}
-            </button>
+              {isSaving ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Saving...
+                </span>
+              ) : (ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved') ? 'Save Changes' : 'Assign Ticket'}
+            </Button>
           </div>
 
         </div>
