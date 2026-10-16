@@ -9,6 +9,8 @@ import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL, KB_API_URL } from '@/config/api.config';
 import echo from '@/services/echo';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
 
 function formatTimestamp(ts) {
   if (!ts) return '—';
@@ -204,14 +206,14 @@ const fileTypeIcons = {
 
 function StatCard({ icon: Icon, label, value, sub, bgClass }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 ${bgClass || 'bg-[#252578]/10 text-[#252578]'}`}>
-        <Icon size={22} />
+    <div className="bg-card rounded-xl border border-border shadow-xs p-4 flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 ${bgClass || 'bg-primary/10 text-primary'}`}>
+        <Icon size={20} />
       </div>
       <div>
-        <p className="text-2xl font-bold text-gray-800">{value}</p>
-        <p className="text-xs text-gray-500">{label}</p>
-        {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+        <p className="text-2xl font-bold text-slate-dark">{value}</p>
+        <p className="text-xs text-slate-muted">{label}</p>
+        {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -220,18 +222,18 @@ function StatCard({ icon: Icon, label, value, sub, bgClass }) {
 function EmptyState({ onUpload }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-        <FolderOpen size={36} className="text-gray-300" />
+      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+        <FolderOpen size={36} className="text-slate-300" />
       </div>
-      <h3 className="text-lg font-bold text-gray-700 mb-1">No knowledge documents have been uploaded yet.</h3>
-      <p className="text-sm text-gray-400 mb-6">Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base.</p>
-      <button
+      <h3 className="text-lg font-bold text-slate-dark mb-1">No knowledge documents have been uploaded yet.</h3>
+      <p className="text-sm text-slate-muted mb-6">Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base.</p>
+      <Button
         onClick={onUpload}
-        className="flex items-center gap-2 px-5 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1f1f66] transition-all cursor-pointer"
+        className="gap-2"
       >
         <Upload size={16} />
         Upload First Document
-      </button>
+      </Button>
     </div>
   );
 }
@@ -2515,28 +2517,29 @@ function AIKnowledgeBase() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">AI Knowledge Base</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage documents for the AI Support Assistant</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowCategories(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:border-gray-300 transition-all cursor-pointer"
-          >
-            <FolderOpen size={16} />
-            Categories
-          </button>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1f1f66] transition-all cursor-pointer"
-          >
-            <Upload size={16} />
-            Upload Document
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        pattern="B"
+        title="AI Knowledge Base"
+        subtitle="Manage documents for the AI Support Assistant"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowCategories(true)}
+            >
+              <FolderOpen size={16} />
+              Categories
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => setShowUploadModal(true)}
+            >
+              <Upload size={16} />
+              Upload Document
+            </Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard icon={FileText} label="Total Documents" value={summary.total} bgClass="bg-purple-100 text-purple-700" sub={`${summary.published} published · ${summary.draft} draft`} />
