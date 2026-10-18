@@ -452,12 +452,27 @@ class SuperAdminConfigController extends Controller
             return response()->json(['message' => 'Priority level not found'], 404);
         }
 
-        DB::table('ticket_priorities')->where('priority_ID', $id)->delete();
+        $activeTicketsCount = DB::table('tickets')->where('priority_ID', $id)->count();
+        if ($activeTicketsCount > 0) {
+            return response()->json([
+                'message' => "Cannot remove priority '{$priority->priority_name}' because {$activeTicketsCount} ticket(s) are currently using it. Please reassign those tickets to another priority level first."
+            ], 422);
+        }
+
+        try {
+            DB::table('ticket_priorities')->where('priority_ID', $id)->delete();
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => "Failed to delete priority '{$priority->priority_name}': it is referenced by existing ticket records or configurations."
+            ], 422);
+        }
+
+        $adminId = $user?->emp_id ?? $user?->id ?? 1;
 
         DB::table('ticket_audit_logs')->insert([
             'ticket_ID' => null,
             'action_type' => 'config_delete',
-            'action_by_ID' => $user->emp_id,
+            'action_by_ID' => $adminId,
             'actor_type' => 'superadmin',
             'details' => json_encode([
                 'module' => 'Priority Configuration',
