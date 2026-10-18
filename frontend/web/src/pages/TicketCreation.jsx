@@ -11,6 +11,7 @@ import {
   uploadAttachments,
   getEscalateHandoff,
 } from '@/services/ticketService';
+import { getSystemStatus } from '@/services/configurationService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
@@ -61,6 +62,7 @@ export default function TicketCreation() {
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [customerOpenCount, setCustomerOpenCount] = useState(0);
+  const [systemStatus, setSystemStatus] = useState('Operational');
 
   const fetchCustomerOpenCount = useCallback(async () => {
     try {
@@ -94,6 +96,10 @@ export default function TicketCreation() {
   }, [fetchCustomerOpenCount]);
 
   useEffect(() => {
+    getSystemStatus()
+      .then((status) => setSystemStatus(status))
+      .catch(() => setSystemStatus('Operational'));
+
     const loadOptions = async () => {
       setLoadingOptions(true);
       setError('');
@@ -346,6 +352,11 @@ export default function TicketCreation() {
     e.preventDefault();
     if (submitting) return;
 
+    if (systemStatus === 'Under Maintenance') {
+      setError('Ticket submission is currently disabled. The system is undergoing scheduled maintenance.');
+      return;
+    }
+
     // TS096: Before pre-submission validation block, verify requester's open tickets count
     const limitConfig = getMaxOpenTicketsLimit();
     if (!limitConfig.isUnlimited) {
@@ -578,6 +589,18 @@ export default function TicketCreation() {
             </svg>
           )}
           <div>{error}</div>
+        </div>
+      )}
+
+      {systemStatus === 'Under Maintenance' && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 flex items-start gap-3 shadow-xs">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="text-sm font-bold">System Under Maintenance</h3>
+            <p className="text-xs text-amber-800 mt-1">
+              The ticketing system is currently undergoing scheduled maintenance. Ticket creation is temporarily disabled. Please check back later.
+            </p>
+          </div>
         </div>
       )}
 
@@ -826,17 +849,17 @@ export default function TicketCreation() {
             <button
               type="button"
               onClick={handleSaveDraft}
-              disabled={loadingOptions || savingDraft || submitting}
+              disabled={loadingOptions || savingDraft || submitting || systemStatus === 'Under Maintenance'}
               className="px-6 py-3 border border-[#252578] text-[#252578] hover:bg-[#252578]/5 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {savingDraft ? 'Saving Draft...' : 'Save as Draft'}
             </button>
             <button 
               type="submit" 
-              disabled={loadingOptions || submitting || savingDraft}
+              disabled={loadingOptions || submitting || savingDraft || systemStatus === 'Under Maintenance'}
               className="px-8 py-3 bg-[#252578] text-white text-sm font-semibold rounded-xl hover:bg-[#1e1e60] transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              {submitting ? 'Submitting...' : 'Submit Ticket'}
+              {submitting ? 'Submitting...' : systemStatus === 'Under Maintenance' ? 'Maintenance Active' : 'Submit Ticket'}
             </button>
           </div>
         </form>

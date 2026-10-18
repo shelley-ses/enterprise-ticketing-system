@@ -20,6 +20,21 @@ export const refreshAccessToken = async () => {
     return refreshInFlight;
   }
 
+  const token = tokenStore.getToken();
+  if (token === 'frontend-dev-token') {
+    return false;
+  }
+
+  try {
+    const rawUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u.role === 'superadmin' || u.role === 'employee' || u.role === 'admin' || u.department === 'superadmin') {
+        return false;
+      }
+    }
+  } catch {}
+
   refreshInFlight = refreshClient
     .post(AUTH_ENDPOINTS.REFRESH_TOKEN, {})
     .then((response) => {

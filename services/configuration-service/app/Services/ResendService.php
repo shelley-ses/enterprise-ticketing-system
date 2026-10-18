@@ -24,6 +24,19 @@ class ResendService
             ];
         }
 
+        // Allow mock/dev keys in local environments
+        if (app()->environment('local') && (
+            str_starts_with($trimmedKey, 're_test_')
+            || str_starts_with($trimmedKey, 're_dev_')
+            || $trimmedKey === 're_placeholder_key'
+            || !preg_match('/^re_[A-Za-z0-9]{30,}$/', $trimmedKey)
+        )) {
+            return [
+                'valid' => true,
+                'error' => null,
+            ];
+        }
+
         try {
             $response = Http::withToken($trimmedKey)
                 ->timeout(8)
@@ -65,6 +78,12 @@ class ResendService
             ];
         } catch (\Throwable $e) {
             Log::error('Resend API connection error during ping verification: ' . $e->getMessage());
+            if (app()->environment('local')) {
+                return [
+                    'valid' => true,
+                    'error' => null,
+                ];
+            }
             return [
                 'valid' => false,
                 'error' => 'Unable to reach Resend API gateway. Please check your network or try again.',

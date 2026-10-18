@@ -697,6 +697,11 @@ function AISupportPage() {
             }
           }
 
+          finalMessages = finalMessages.map((m, idx) => ({
+            ...m,
+            id: m.id || m._id || `loaded-msg-${idx}-${m.timestamp || m.created_at || idx}`
+          }));
+
           setMessages(finalMessages);
           setShowSuggestionChips(finalMessages.length <= 2);
 
@@ -1742,17 +1747,18 @@ function AISupportPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
-            {messages.map((msg) => {
-              const isDeletable = msg.id !== 'welcome' && msg.id !== 'gather';
+            {messages.map((msg, msgIndex) => {
+              const isDeletable = false;
               const isErrorMessage = msg.isError || (typeof msg.content === 'string' && msg.content.startsWith('Ticket Submission Error:'));
               const displayErrorText = msg.isError
                 ? (typeof msg.content === 'string' ? msg.content : msg.errorMessage)
                 : (typeof msg.content === 'string' && msg.content.startsWith('Ticket Submission Error:')
                     ? msg.content.replace(/^Ticket Submission Error:\s*/, '')
                     : msg.content);
+              const messageKey = msg.id || msg._id || `msg-${msgIndex}-${msg.timestamp || ''}`;
 
               return (
-                <div key={msg.id} className={`group/msg flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={messageKey} className={`group/msg flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className="max-w-[75%] flex flex-col">
                     <div className="flex items-start gap-3">
                       {(msg.role === 'ai' || msg.role === 'assistant') && (
@@ -1877,15 +1883,6 @@ function AISupportPage() {
                           <p className="text-[10px] text-gray-400">
                             {formatTime(msg.timestamp)}
                           </p>
-                          {isDeletable && (
-                            <button
-                              onClick={() => handleDeleteMessage(msg.id)}
-                              className="opacity-0 group-hover/msg:opacity-100 p-0.5 rounded text-gray-400 hover:text-red-500 hover:bg-gray-100 transition-all cursor-pointer"
-                              title="Delete this message"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
