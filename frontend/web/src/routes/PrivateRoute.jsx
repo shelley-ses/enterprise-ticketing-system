@@ -158,14 +158,14 @@ export default function PrivateRoute({ children, role }) {
     if (role) {
       const normalizedRole = role.toLowerCase();
       if (isSuperAdmin && normalizedRole !== 'superadmin') {
-        return <Navigate to="/superadmin/ticket-config" replace />;
+        return <Navigate to="/superadmin/config" replace />;
       }
       if (isAdmin && normalizedRole !== 'admin') {
         return <Navigate to="/admin/dashboard" replace />;
       }
       if (normalizedRole === 'customer') {
         if (isSuperAdmin) {
-          return <Navigate to="/superadmin/ticket-config" replace />;
+          return <Navigate to="/superadmin/config" replace />;
         }
         if (isAdmin) {
           return <Navigate to="/admin/dashboard" replace />;
@@ -178,7 +178,7 @@ export default function PrivateRoute({ children, role }) {
         }
       }
       if (normalizedRole === 'admin' && !isAdmin) {
-        if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+        if (isSuperAdmin) return <Navigate to="/superadmin/config" replace />;
         if (isCS) return <Navigate to="/cs/dashboard" replace />;
         return <Navigate to="/employee/dashboard" replace />;
       }

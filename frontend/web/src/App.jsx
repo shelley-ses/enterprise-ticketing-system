@@ -10,6 +10,7 @@ import GuestRoute from '@/routes/GuestRoute';
 import AuthGate from '@/routes/AuthGate';
 import SkeletonLoader from '@/components/SkeletonLoader.jsx';
 import PageTitleUpdater from '@/components/PageTitleUpdater.jsx';
+import MaintenanceGate from '@/components/MaintenanceGate.jsx';
 
 // Lazy loaded page and layout components
 const Loginpage = React.lazy(() => import('./pages/Loginpage.jsx'));
@@ -115,7 +116,7 @@ function EmployeePortalGate() {
   const isCS         = checkIsCS(user);
   const isEmployee   = checkIsEmployee(user);
 
-  if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+  if (isSuperAdmin) return <Navigate to="/superadmin/config" replace />;
   if (isAdmin)      return <Navigate to="/admin/dashboard" replace />;
   if (isCS)         return <Navigate to="/cs/dashboard" replace />;
   if (isEmployee)   return <Navigate to="/employee/dashboard" replace />;
@@ -263,7 +264,9 @@ function App() {
                 path="/ai-support"
                 element={
                   <PrivateRoute role="customer">
-                    <AISupportPage />
+                    <MaintenanceGate>
+                      <AISupportPage />
+                    </MaintenanceGate>
                   </PrivateRoute>
                 }
               />
@@ -299,8 +302,10 @@ function App() {
                   </PrivateRoute>
                 }
               >
-                <Route index element={<Navigate to="ticket-config" replace />} />
-                <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
+                <Route index element={<Navigate to="config" replace />} />
+                <Route path="config" element={<SuperAdminTicketConfig />} />
+                <Route path="config/:subtab" element={<SuperAdminTicketConfig />} />
+                <Route path="ticket-config" element={<Navigate to="/superadmin/config" replace />} />
                 <Route path="ticket-config/:group" element={<SuperAdminTicketConfig />} />
                 <Route path="ticket-config/:group/:subtab" element={<SuperAdminTicketConfig />} />
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />

@@ -4,6 +4,7 @@ import Header from './Header';
 import SidebarEmployee from './SidebarEmployee';
 import { useAuth } from '@/context/AuthContext';
 import ForceChangePasswordModal from './ForceChangePasswordModal';
+import MaintenanceGate from './MaintenanceGate';
 
 export default function EmployeeLayout() {
   const { isFirstLogin } = useAuth();
@@ -16,7 +17,9 @@ export default function EmployeeLayout() {
 
       <main className="pt-24 pb-8 px-6 lg:px-12 flex-1 sm:ml-20 ml-0">
         <div className="max-w-7xl mx-auto">
-          <Outlet />
+          <MaintenanceGate>
+            <Outlet />
+          </MaintenanceGate>
         </div>
       </main>
 

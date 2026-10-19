@@ -4,7 +4,7 @@ import SidebarBase from './SidebarBase';
 
 export default function SidebarSuperAdmin({ collapsed, onHoverChange }) {
   const navItems = [
-    { name: 'Ticket Configuration', path: '/superadmin/ticket-config', icon: <Settings size={20} /> },
+    { name: 'Ticket Configuration', path: '/superadmin/config', icon: <Settings size={20} /> },
     { name: 'AI Knowledge Base', path: '/superadmin/knowledge-base', icon: <Book size={20} /> },
     { name: 'Audit Logs', path: '/superadmin/audit-logs', icon: <ClipboardList size={20} /> },
     { name: 'History', path: '/superadmin/history', icon: <History size={20} /> },

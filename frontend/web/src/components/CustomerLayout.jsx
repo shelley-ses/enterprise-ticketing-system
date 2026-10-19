@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import ForceChangePasswordModal from './ForceChangePasswordModal';
+import MaintenanceGate from './MaintenanceGate';
 
 export default function CustomerLayout() {
   const { isFirstLogin } = useAuth();
@@ -19,7 +20,9 @@ export default function CustomerLayout() {
       <main className="pt-24 pb-8 px-6 lg:px-12 flex-1 sm:ml-20 ml-0">
         <div className="max-w-7xl mx-auto">
           <PrivateRoute role="customer">
-            <Outlet />
+            <MaintenanceGate>
+              <Outlet />
+            </MaintenanceGate>
           </PrivateRoute>
         </div>
       </main>

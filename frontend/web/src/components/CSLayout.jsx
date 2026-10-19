@@ -5,6 +5,7 @@ import SidebarCS from './SidebarCS';
 import { CS_TICKET_REFRESH_EVENT } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import ForceChangePasswordModal from './ForceChangePasswordModal';
+import MaintenanceGate from './MaintenanceGate';
 
 export default function CSLayout() {
   const { isFirstLogin } = useAuth();
@@ -30,7 +31,9 @@ export default function CSLayout() {
 
       <main className="pt-24 pb-8 px-6 lg:px-12 flex-1 sm:ml-20 ml-0">
         <div className="max-w-7xl mx-auto">
-          <Outlet context={{ refreshKey }} />
+          <MaintenanceGate>
+            <Outlet context={{ refreshKey }} />
+          </MaintenanceGate>
         </div>
       </main>
 
