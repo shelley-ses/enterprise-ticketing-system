@@ -48,25 +48,53 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
   };
 };
 
+export const resolveUserRole = (user) => {
+  if (!user) return '';
+  const profileRole = user.profile?.role
+    ? (typeof user.profile.role === 'object' ? user.profile.role.name : user.profile.role)
+    : '';
+  // If user has a specific profile role (like "Super Admin", "IT Admin", "Customer Service"), trust that over a generic "customer" fallback
+  if (profileRole && (!user.role || user.role === 'customer')) {
+    return profileRole;
+  }
+  if (typeof user.role === 'object' && user.role !== null) {
+    return user.role.name || '';
+  }
+  if (typeof user.role === 'string' && user.role) {
+    return user.role;
+  }
+  return profileRole || 'customer';
+};
+
+export const resolveUserDepartment = (user) => {
+  if (!user) return '';
+  if (typeof user.department === 'string' && user.department) return user.department;
+  if (typeof user.department === 'object' && user.department !== null) return user.department.name || '';
+  if (user.profile?.department) {
+    return typeof user.profile.department === 'object' ? user.profile.department.name : user.profile.department;
+  }
+  return '';
+};
+
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
 const checkIsSuperAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
 const checkIsAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
@@ -75,8 +103,8 @@ const checkIsEmployee = (user) => {
   if (checkIsCS(user)) return false;
   if (checkIsAdmin(user)) return false;
   if (checkIsSuperAdmin(user)) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
   return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
@@ -84,8 +112,8 @@ const checkIsEmployee = (user) => {
 const normalizeUser = (userData) => {
   if (!userData) return null;
 
-  let firstName = userData.first_name;
-  let lastName = userData.last_name;
+  let firstName = userData.first_name || userData.profile?.first_name;
+  let lastName = userData.last_name || userData.profile?.last_name;
 
   if (!firstName && userData.client_name) {
     const parts = userData.client_name.split(' ');
@@ -93,12 +121,16 @@ const normalizeUser = (userData) => {
     lastName = parts.slice(1).join(' ');
   }
 
+  const role = resolveUserRole(userData);
+  const department = resolveUserDepartment(userData);
+
   return {
     ...userData,
     first_name: firstName || userData.name || '',
     last_name: lastName || '',
-    phone: userData.phone || userData.contact_number || '',
-    role: userData.role || 'customer',
+    phone: userData.phone || userData.contact_number || userData.profile?.phone || '',
+    department,
+    role,
   };
 };
 
@@ -211,6 +243,14 @@ export function AuthProvider({ children }) {
       return true;
     } catch (err) {
       if (err.response?.status === 401) {
+        const isEmployeeMode = import.meta.env.VITE_APP_MODE === 'employee';
+        const storedUser = readStoredUser();
+        if (isEmployeeMode && storedUser) {
+          setUser(storedUser);
+          setIsAuthenticated(true);
+          return true;
+        }
+
         try {
           const resp = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN, {}, { withCredentials: true });
           const newToken = resp.data?.token;
@@ -457,7 +497,8 @@ export function AuthProvider({ children }) {
 
       if (typeof window !== 'undefined') {
         const isCustomerSite = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
-        window.history.replaceState(null, '', isCustomerSite ? '/customer' : '/');
+        const targetUrl = isCustomerSite ? (import.meta.env.BASE_URL || '/') : '/';
+        window.history.replaceState(null, '', targetUrl);
       }
     }
 

@@ -212,56 +212,65 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
             {readOnly ? (
               <>
                 {/* Ticket card at top for read-only */}
-                <div className="bg-primary text-white rounded-xl p-5 mb-5 shadow-sm">
-                  <div className="text-xs text-white/70 mb-1 font-mono font-medium">{ticket.id}</div>
-                  <div className="text-base font-bold leading-snug mb-2">{ticket.title}</div>
-                  <p className="text-sm text-white/80 leading-relaxed">{ticket.description || 'No description available.'}</p>
+                <div className="bg-primary text-white rounded-xl p-5 mb-5 shadow-sm space-y-3">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/90">TKT No.</span>
+                    <p className="text-xs font-normal font-mono text-white/80 mt-0.5">{ticket.id}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/90">Ticket Title</span>
+                    <p className="text-base font-normal leading-snug text-white mt-0.5">{ticket.title}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/90">Description</span>
+                    <p className="text-sm font-normal text-white/80 leading-relaxed mt-0.5">{ticket.description || 'No description available.'}</p>
+                  </div>
                 </div>
 
                 {/* Summary rows */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Requestor</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Requestor</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Status</span>
+                    <span className="text-xs font-bold text-slate-dark">Status</span>
                     <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
                       {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Department</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.department || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Department</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.department || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Priority</span>
+                    <span className="text-xs font-bold text-slate-dark">Priority</span>
                     <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
                       {ticket.priority || '—'}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Category</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.category || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Category</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.category || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Equipment / Machine</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                    <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Equipment Type</span>
-                    <span className="text-xs font-semibold text-slate-dark">{equipmentTypeDisplay}</span>
+                    <span className="text-xs font-bold text-slate-dark">Equiment Type</span>
+                    <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
                   </div>
                   <div className="bg-page border border-border rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-slate-muted mb-2">Assigned Employee(s)</div>
+                    <div className="text-xs font-bold text-slate-dark mb-2">Assigned Employee</div>
                     {assignedEmployeesList.length === 0 ? (
-                      <div className="text-xs text-slate-muted italic">None assigned</div>
+                      <div className="text-xs text-slate-muted italic font-normal">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {assignedEmployeesList.map((emp) => (
                           <div key={emp.id} className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5">
                             <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                            <span className="text-xs font-medium text-slate-dark">{emp.name}</span>
+                            <span className="text-xs font-normal text-slate-600">{emp.name}</span>
                             <span className="text-[10px] text-slate-muted">{emp.department}</span>
                           </div>
                         ))}
@@ -269,18 +278,18 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     )}
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Date Submitted</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Date Filed</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
                   </div>
                   {(ticket.resolved_at || ticket.closed_at) && (
                     <div className="flex items-center justify-between bg-emerald-50/70 border border-emerald-200/50 rounded-xl px-4 py-3">
                       <span className="text-xs font-bold text-emerald-800">Date Resolved</span>
-                      <span className="text-xs font-bold text-emerald-900">{formatDisplayDate(ticket.resolved_at || ticket.closed_at)}</span>
+                      <span className="text-xs font-normal text-emerald-900">{formatDisplayDate(ticket.resolved_at || ticket.closed_at)}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Last Updated</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Last Updated</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
                   </div>
 
                   {ticket.attachments && ticket.attachments.length > 0 && (
@@ -376,69 +385,85 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                 </h3>
 
                 {/* Ticket card */}
-                <div className="bg-primary text-white rounded-xl p-4 mb-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="bg-primary text-white rounded-xl p-5 mb-4 shadow-sm space-y-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-xs text-white/70 mb-1 font-mono">{ticket.id}</div>
-                      <div className="text-sm font-semibold leading-snug">{ticket.title}</div>
-                      <div className="text-xs text-white/70 mt-0.5">{ticket.category}</div>
+                      <span className="text-xs font-bold uppercase tracking-wider text-white/90">TKT No.</span>
+                      <p className="text-xs font-normal font-mono text-white/80 mt-0.5">{ticket.id}</p>
                     </div>
-                    <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
-                      {ticket.sla}
-                    </Badge>
+                    {ticket.sla && (
+                      <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
+                        {ticket.sla}
+                      </Badge>
+                    )}
                   </div>
-                  <p className="text-xs text-white/80 leading-relaxed pt-2 border-t border-white/15">{ticket.description || 'No description available.'}</p>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/90">Ticket Title</span>
+                    <p className="text-base font-normal leading-snug text-white mt-0.5">{ticket.title}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white/90">Description</span>
+                    <p className="text-sm font-normal text-white/80 leading-relaxed mt-0.5">{ticket.description || 'No description available.'}</p>
+                  </div>
                 </div>
 
                 {/* Summary rows */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Requestor</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Requestor</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.customer || ticket.requestor || ticket.created_by_name || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Status</span>
+                    <span className="text-xs font-bold text-slate-dark">Status</span>
                     <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
                       {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Department</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.department || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Department</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.department || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Priority</span>
+                    <span className="text-xs font-bold text-slate-dark">Priority</span>
                     <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
                       {ticket.priority || '—'}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Category</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.category || '—'}</span>
+                    <span className="text-xs font-bold text-slate-dark">Category</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.category || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Equipment / Machine</span>
-                    <span className="text-xs font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                    <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-medium text-slate-muted">Equipment Type</span>
-                    <span className="text-xs font-semibold text-slate-dark">{equipmentTypeDisplay}</span>
+                    <span className="text-xs font-bold text-slate-dark">Equiment Type</span>
+                    <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
                   </div>
                   <div className="bg-page border border-border rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-slate-muted mb-2">Assigned Employee(s)</div>
+                    <div className="text-xs font-bold text-slate-dark mb-2">Assigned Employee</div>
                     {assignedEmployeesList.length === 0 ? (
-                      <div className="text-xs text-slate-muted italic">None assigned</div>
+                      <div className="text-xs text-slate-muted italic font-normal">None assigned</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {assignedEmployeesList.map((emp) => (
                           <div key={emp.id} className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5">
                             <div className={`w-1.5 h-1.5 rounded-full ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                            <span className="text-xs font-medium text-slate-dark">{emp.name}</span>
+                            <span className="text-xs font-normal text-slate-600">{emp.name}</span>
                             <span className="text-[10px] text-slate-muted">{emp.department}</span>
                           </div>
                         ))}
                       </div>
                     )}
+                  </div>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">Date Filed</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">Last Updated</span>
+                    <span className="text-xs font-normal text-slate-600">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</span>
                   </div>
                 </div>
 

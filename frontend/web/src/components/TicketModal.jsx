@@ -3,6 +3,7 @@ import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/tic
 import TitleCasingModal from '@/components/TitleCasingModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { getMaxOpenTicketsLimit } from '@/data/ticketLimitConfig';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const initialFormData = {
   title: '',
@@ -26,6 +27,7 @@ const MIN_TITLE_CHARS = 5;
 const MIN_DESCRIPTION_CHARS = 20;
 
 export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCount = null }) {
+  useLockBodyScroll(isOpen);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');

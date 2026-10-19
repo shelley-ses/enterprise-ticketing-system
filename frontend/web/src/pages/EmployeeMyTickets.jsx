@@ -454,22 +454,22 @@ export default function EmployeeMyTickets({ roleContext }) {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-150 bg-surface px-4 py-3 shadow-level-1">
-        <div className="relative flex-1 min-w-[240px]">
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
           <input
             type="text"
             placeholder="Search ID or title..."
             value={filters.search}
             onChange={(event) => updateFilter('search', event.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
+            className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2.5 ml-auto shrink-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
           <select
             value={filters.status}
             onChange={(event) => updateFilter('status', event.target.value)}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             <option value="">All statuses</option>
             {(roleContext === 'cs' ? STATUSES.filter(s => s !== 'Pending Assignment') : STATUSES).map((status) => (
@@ -479,7 +479,7 @@ export default function EmployeeMyTickets({ roleContext }) {
           <select
             value={filters.category}
             onChange={(event) => updateFilter('category', event.target.value)}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             <option value="">All categories</option>
             {categories.map((category) => (
@@ -493,14 +493,14 @@ export default function EmployeeMyTickets({ roleContext }) {
               const v = event.target.value;
               setFilters((c) => ({ ...c, dateFrom: v, dateTo: v }));
             }}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           />
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>
@@ -631,7 +631,7 @@ export default function EmployeeMyTickets({ roleContext }) {
 
       {confirmCreated && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl bg-surface p-6 text-center shadow-level-4 border border-gray-150">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 text-center shadow-level-4 border border-slate-200">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
@@ -656,7 +656,7 @@ export default function EmployeeMyTickets({ roleContext }) {
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-150">
+          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-slate-200">
             <div className="w-10 h-10 border-4 border-brand-primary/10 border-t-brand-primary rounded-full animate-spin" />
             <p className="text-sm font-semibold text-brand-primary text-center font-sans">
               {loadingText}

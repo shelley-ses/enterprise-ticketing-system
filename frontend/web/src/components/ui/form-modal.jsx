@@ -29,7 +29,12 @@ export function FormModal({
         <div className="flex items-start gap-4 pb-4 border-b border-slate-100">
           {icon && (
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-50 text-accent">
-              {icon}
+              {React.isValidElement(icon)
+                ? icon
+                : typeof icon === "function" ||
+                  (typeof icon === "object" && icon !== null && (icon.$$typeof || icon.render))
+                ? React.createElement(icon, { className: "w-5 h-5" })
+                : null}
             </div>
           )}
           <div className="flex-1 min-w-0">

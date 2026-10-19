@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X, Plus } from 'lucide-react';
+import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
@@ -38,6 +38,7 @@ import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfi
 
 import { parseUTCDate } from '@/utils/dateUtils';
 import TitleCasingModal from '@/components/TitleCasingModal';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 
@@ -73,6 +74,7 @@ export default function MyTickets({ mode = 'all' }) {
   const [modalLoading, setModalLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Loading...');
   const [editingTicket, setEditingTicket] = useState(null);
+  useLockBodyScroll(!!editingTicket);
   const [editTitle, setEditTitle] = useState('');
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
@@ -847,19 +849,22 @@ export default function MyTickets({ mode = 'all' }) {
 
       {activeTab === 'tickets' ? (
         <>
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-150 bg-surface px-4 py-3 shadow-level-1">
-            <input
-              type="text"
-              placeholder="Search by Ticket ID or title..."
-              value={filters.search}
-              onChange={(event) => updateFilter('search', event.target.value)}
-              className="flex-1 min-w-[220px] rounded-xl border border-gray-200 bg-surface px-4 py-2.5 text-sm text-dark-slate placeholder:text-muted-slate/60 outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
-            />
-            <div className="flex flex-wrap items-center gap-2.5 ml-auto shrink-0">
+          <div className="w-full flex flex-col gap-3.5 shrink-0">
+            <div className="relative w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by Ticket ID or title..."
+                value={filters.search}
+                onChange={(event) => updateFilter('search', event.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-surface pl-10 pr-4 py-2.5 text-sm text-dark-slate placeholder:text-muted-slate/60 outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent transition-colors"
+              />
+            </div>
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
               <select
                 value={filters.status}
                 onChange={(event) => updateFilter('status', event.target.value)}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 <option value="">All statuses</option>
                 {(filterOptions.statuses.length > 0
@@ -873,7 +878,7 @@ export default function MyTickets({ mode = 'all' }) {
               <select
                 value={filters.category}
                 onChange={(event) => updateFilter('category', event.target.value)}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 <option value="">All categories</option>
                 {(filterOptions.categories.length > 0
@@ -888,7 +893,7 @@ export default function MyTickets({ mode = 'all' }) {
                 <select
                   value={filters.machine}
                   onChange={(event) => updateFilter('machine', event.target.value)}
-                  className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                  className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
                 >
                   <option value="">All machines</option>
                   {filterOptions.machines.map((m) => {
@@ -909,7 +914,7 @@ export default function MyTickets({ mode = 'all' }) {
                   const v = event.target.value;
                   setFilters((c) => ({ ...c, dateFrom: v, dateTo: v }));
                 }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               />
 
               {(filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
@@ -918,6 +923,7 @@ export default function MyTickets({ mode = 'all' }) {
                   size="sm"
                   onClick={resetFilters}
                   icon={<RotateCcw className="h-3.5 w-3.5" />}
+                  className="shrink-0"
                 >
                   Reset
                 </Button>
@@ -927,7 +933,7 @@ export default function MyTickets({ mode = 'all' }) {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1038,7 +1044,7 @@ export default function MyTickets({ mode = 'all' }) {
         </>
       ) : (
         /* ─── My Drafts Tab (TS020) ─── */
-        <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1138,7 +1144,7 @@ export default function MyTickets({ mode = 'all' }) {
       {editingTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
           <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-surface shadow-level-4">
-            <div className="flex items-start justify-between border-b border-gray-150 px-6 py-5 shrink-0 bg-surface">
+            <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5 shrink-0 bg-surface">
               <div>
                 <h2 className="text-xl font-bold text-dark-slate">Edit Ticket</h2>
                 <p className="mt-0.5 text-xs font-semibold text-brand-primary">{editingTicket.id}</p>
@@ -1231,7 +1237,7 @@ export default function MyTickets({ mode = 'all' }) {
                 />
               </div>
             </div>
-            <div className="border-t border-gray-150 px-6 py-4 shrink-0 flex justify-end gap-3 bg-surface">
+            <div className="border-t border-slate-200 px-6 py-4 shrink-0 flex justify-end gap-3 bg-surface">
               <Button variant="outline" onClick={() => setEditingTicket(null)}>
                 Cancel
               </Button>
@@ -1265,7 +1271,7 @@ export default function MyTickets({ mode = 'all' }) {
 
       {modalLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-150">
+          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-slate-200">
             <div className="w-10 h-10 border-4 border-brand-primary/10 border-t-brand-primary rounded-full animate-spin" />
             <p className="text-sm font-semibold text-brand-primary text-center font-sans">
               {loadingText}

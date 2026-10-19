@@ -82,35 +82,35 @@ export default function TicketInfoModal({ ticket, onClose }) {
           {/* Description */}
           {ticket.description && (
             <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Description</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{ticket.description}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-1">Description</p>
+              <p className="text-sm font-normal text-slate-600 leading-relaxed">{ticket.description}</p>
             </div>
           )}
 
           {/* Requestor / Date Filed */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-400 mb-0.5">Requestor</p>
-              <p className="text-sm font-semibold text-gray-800">{ticket.customer || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Requestor</p>
+              <p className="text-sm font-normal text-slate-600">{ticket.customer || '—'}</p>
               {ticket.facility && (
-                <p className="text-xs text-gray-500 mt-0.5">{ticket.facility}</p>
+                <p className="text-xs text-slate-muted mt-0.5">{ticket.facility}</p>
               )}
             </div>
             <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-400 mb-0.5">Date Filed</p>
-              <p className="text-sm font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Date Filed</p>
+              <p className="text-sm font-normal text-slate-600">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
             </div>
           </div>
 
           {/* Category / Last Updated */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Category</p>
-              <p className="text-sm font-semibold text-gray-800">{ticket.category || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-1">Category</p>
+              <p className="text-sm font-normal text-slate-600">{ticket.category || '—'}</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-400 mb-0.5">Last Updated</p>
-              <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate ?? '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Last Updated</p>
+              <p className="text-sm font-normal text-slate-600">{ticket.lastUpdate ?? '—'}</p>
             </div>
           </div>
 

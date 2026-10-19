@@ -381,22 +381,22 @@ export default function EmployeeAssigned() {
         </button>
       </div>
 
-      <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-150 bg-surface px-4 py-3 shadow-level-1 w-full shrink-0">
-        <div className="relative flex-1 min-w-[240px]">
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
           <input
             type="search"
             placeholder="Search ID, title, customer..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
+            className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
           />
         </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 shrink-0 lg:ml-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             {['All Status', 'Open', 'In Progress', 'Pending Reassignment', 'Reassignment Failed', 'Escalated', 'Pending', 'On Hold'].map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -405,7 +405,7 @@ export default function EmployeeAssigned() {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             {[
               'All Category',
@@ -422,7 +422,7 @@ export default function EmployeeAssigned() {
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -431,7 +431,7 @@ export default function EmployeeAssigned() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-150 bg-surface shadow-level-1">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
         <Table>
           <TableHeader>
             <TableRow>

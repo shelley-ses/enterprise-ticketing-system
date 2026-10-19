@@ -486,7 +486,7 @@ export default function EmployeeDashboard() {
       </div>
 
       <div className="flex flex-col gap-6">
-        <div className="rounded-2xl border border-gray-150 bg-surface p-6 shadow-level-1 flex flex-col gap-5">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs flex flex-col gap-5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-dark-slate">Active Assigned Tickets</h2>
@@ -502,22 +502,22 @@ export default function EmployeeDashboard() {
             </Button>
           </div>
 
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-xl border border-gray-150 bg-page/60 p-3 w-full">
-            <div className="relative flex-1 min-w-[240px]">
+          <div className="w-full space-y-3 shrink-0">
+            <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
               <input
                 type="search"
                 placeholder="Search ID, title, customer..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
+                className="w-full rounded-xl border border-gray-200 bg-surface pl-9 pr-4 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 {['All Status', 'Open', 'In Progress', 'Escalated', 'Pending', 'Pending Reassign', 'On Hold'].map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -526,7 +526,7 @@ export default function EmployeeDashboard() {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 {['All Category', 'MRI', 'CT Scan', 'Ultrasound', 'X-Ray', 'Ventilator', 'Defibrillator'].map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -535,7 +535,7 @@ export default function EmployeeDashboard() {
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
-                className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
               >
                 {['All Priority', 'Critical', 'High', 'Medium', 'Low'].map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -544,7 +544,7 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-gray-150">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -600,7 +600,7 @@ export default function EmployeeDashboard() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-150 bg-surface p-6 shadow-level-1">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           <div className="flex justify-between items-center mb-5">
             <div>
               <h2 className="text-lg font-bold text-dark-slate">My Recent Tickets</h2>
@@ -616,7 +616,7 @@ export default function EmployeeDashboard() {
             </Button>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-gray-150">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -691,7 +691,7 @@ export default function EmployeeDashboard() {
 
       {(myTicketsModalLoading || dashboardModalLoading) && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] animate-in fade-in duration-200">
-          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-150">
+          <div className="bg-surface rounded-2xl p-6 shadow-level-4 flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-slate-200">
             <div className="w-10 h-10 border-4 border-brand-primary/10 border-t-brand-primary rounded-full animate-spin" />
             <p className="text-sm font-semibold text-brand-primary text-center font-sans">
               {myTicketsLoadingText}

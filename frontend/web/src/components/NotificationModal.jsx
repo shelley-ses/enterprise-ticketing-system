@@ -1,4 +1,5 @@
 import React from 'react';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const icons = {
   success: (
@@ -32,6 +33,7 @@ const icons = {
 };
 
 export default function NotificationModal({ isOpen, type, title, message, onConfirm, onCancel, onClose, confirmText, cancelText, confirmClassName }) {
+  useLockBodyScroll(isOpen);
   if (!isOpen) return null;
 
   const isConfirm = type === 'confirm';

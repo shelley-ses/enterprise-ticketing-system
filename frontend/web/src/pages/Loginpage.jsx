@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, resolveUserRole, resolveUserDepartment } from '@/context/AuthContext';
 import loginImage from '@/assets/login.png';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,8 +16,8 @@ const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') {
     return true;
@@ -27,15 +27,15 @@ const checkIsCS = (user) => {
 
 const checkIsSuperAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
 const checkIsAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
@@ -45,8 +45,8 @@ const checkIsEmployee = (user) => {
   if (checkIsAdmin(user)) return false;
   if (checkIsSuperAdmin(user)) return false;
   
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   
   if (dept === 'service' || dept.includes('engineer')) {
     return true;

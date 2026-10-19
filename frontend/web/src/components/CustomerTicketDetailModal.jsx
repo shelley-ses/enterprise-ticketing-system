@@ -49,6 +49,7 @@ export default function CustomerTicketDetailModal({
   onViewTicket,
   onFeedbackSubmitted,
 }) {
+  useLockBodyScroll(Boolean(ticket));
   const navigate = useNavigate();
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
   const [reopenReason, setReopenReason] = useState('');
@@ -279,7 +280,10 @@ export default function CustomerTicketDetailModal({
                 </Badge>
               )}
             </div>
-            <h2 className="mt-1 text-xl font-bold text-slate-dark">{ticket.title}</h2>
+            <div className="mt-2">
+              <span className="text-xs font-bold text-slate-dark uppercase tracking-wider">Ticket Title</span>
+              <h2 className="mt-0.5 text-xl font-normal text-slate-dark">{ticket.title}</h2>
+            </div>
           </div>
           <button
             type="button"
@@ -294,47 +298,47 @@ export default function CustomerTicketDetailModal({
           <ReassignmentDisapprovalBanner ticket={ticket} />
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2 min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Description</p>
-              <p className="mt-1 rounded-xl bg-page border border-border p-4 text-sm leading-6 text-slate-dark break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Description</p>
+              <p className="mt-1 rounded-xl bg-page border border-border p-4 text-sm font-normal leading-6 text-slate-600 break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
                 {ticket.description || 'No description available.'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Requestor</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Requestor</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{ticket.customer || ticket.requestor || ticket.created_by_name || customerName || '—'}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Equipment / Machine</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment/Machine</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{ticket.equipment || ticket.machine_name || ticket.machine?.machine_name || '—'}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Equipment Type</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equiment Type</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">
                 {ticket.equipment_type || ticket.equipmentType || ticket.machine_category || ticket.machine?.category_name || (ticket.category ? `${ticket.category} Equipment` : 'Medical Equipment')}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Assigned Employee</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Assigned Employee</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">
                 {ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || (ticket.assigned_employees?.[0]?.name) || (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null) || 'Unassigned'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Category</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">{ticket.category || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Category</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{ticket.category || '—'}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Date Filed</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Date Filed</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{formatDisplayDate(ticket.date_created || ticket.created_at || ticket.date)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Last Updated</p>
-              <p className="mt-1 text-sm font-semibold text-slate-dark">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Last Updated</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{formatDisplayDate(ticket.last_updated || ticket.updated_at || ticket.lastUpdate)}</p>
             </div>
             {(ticket.resolved_at || ticket.closed_at) && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Date Resolved</p>
-                <p className="mt-1 text-sm font-semibold text-emerald-700">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Date Resolved</p>
+                <p className="mt-1 text-sm font-normal text-emerald-700">
                   {formatDisplayDate(ticket.resolved_at || ticket.closed_at)}
                 </p>
               </div>

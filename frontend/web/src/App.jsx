@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 
 // Vite's BASE_URL is '/', '/ticketing/', or '/customer-service/' depending on context.
 const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthProvider, useAuth, resolveUserRole, resolveUserDepartment } from '@/context/AuthContext';
 import { BranchProvider } from '@/context/BranchContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
@@ -58,31 +58,32 @@ const AdminSettings = React.lazy(() => import('./pages/AdminSettings.jsx'));
 // ─── Role helpers (mirrors GuestRoute / PrivateRoute) ─────────────────────────
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+};
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
   if (checkIsAdmin(user)) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (checkIsSuperAdmin(user)) return false;
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
   return role === 'employee' || role.includes('service') || role.includes('engineer');
-};
-const checkIsSuperAdmin = (user) => {
-  if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
-};
-const checkIsAdmin = (user) => {
-  if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
 // ─── Employee Portal Gate ─────────────────────────────────────────────────────

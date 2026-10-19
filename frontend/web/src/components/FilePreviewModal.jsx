@@ -23,50 +23,50 @@ export default function FilePreviewModal({ file, onClose }) {
     (typeof file === 'string' ? file : '');
 
   const [imgError, setImgError] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const [blobUrl, setBlobUrl] = useState('');
   const [blobLoading, setBlobLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const extractCleanSubPath = (inputUrl) => {
+    if (!inputUrl) return '';
+    let cleaned = String(inputUrl).trim().replace(/^https?:\/\/[^\/]+/, '');
+    if (cleaned.includes('/api/ticketing/attachment/storage/')) {
+      cleaned = cleaned.substring(cleaned.indexOf('/api/ticketing/attachment/storage/') + '/api/ticketing/attachment/storage/'.length);
+    } else if (cleaned.includes('/api/ticketing/attachment/download/')) {
+      cleaned = cleaned.substring(cleaned.indexOf('/api/ticketing/attachment/download/') + '/api/ticketing/attachment/download/'.length);
+    } else if (cleaned.includes('/storage/')) {
+      cleaned = cleaned.substring(cleaned.indexOf('/storage/') + '/storage/'.length);
+    } else if (cleaned.includes('/download/')) {
+      cleaned = cleaned.substring(cleaned.indexOf('/download/') + '/download/'.length);
+    } else if (cleaned.startsWith('storage/')) {
+      cleaned = cleaned.substring('storage/'.length);
+    } else if (cleaned.startsWith('/')) {
+      cleaned = cleaned.substring(1);
+    }
+    return cleaned.replace(/^\/+/, '');
+  };
 
   const getAbsoluteUrl = (inputUrl) => {
     if (!inputUrl) return '';
     if (inputUrl.startsWith('blob:') || inputUrl.startsWith('data:')) return inputUrl;
 
-    const cleaned = String(inputUrl).trim();
+    const subPath = extractCleanSubPath(inputUrl);
+    if (!subPath) return '';
+    return `/api/ticketing/attachment/storage/${subPath}`;
+  };
 
-    // If it contains /storage/ anywhere (e.g. http://localhost:8006/storage/... or http://attachment-service:8000/storage/...)
-    const storageIdx = cleaned.indexOf('/storage/');
-    if (storageIdx !== -1) {
-      return cleaned.substring(storageIdx);
-    }
+  const getDownloadUrl = (inputUrl) => {
+    if (!inputUrl) return '';
+    if (inputUrl.startsWith('blob:') || inputUrl.startsWith('data:')) return inputUrl;
 
-    if (cleaned.startsWith('storage/')) {
-      return `/${cleaned}`;
-    }
-
-    if (cleaned.startsWith('/storage/')) {
-      return cleaned;
-    }
-
-    // If it contains /download/ anywhere
-    const downloadIdx = cleaned.indexOf('/download/');
-    if (downloadIdx !== -1) {
-      return cleaned.substring(downloadIdx);
-    }
-
-    // If it is a relative path to ticket-attachments/
-    const attIdx = cleaned.indexOf('ticket-attachments/');
-    if (attIdx !== -1) {
-      return `/storage/${cleaned.substring(attIdx)}`;
-    }
-
-    if (cleaned.startsWith('/')) {
-      return `/storage${cleaned}`;
-    }
-
-    return `/storage/${cleaned}`;
+    const subPath = extractCleanSubPath(inputUrl);
+    if (!subPath) return '';
+    return `/api/ticketing/attachment/download/${subPath}`;
   };
 
   const absoluteUrl = getAbsoluteUrl(rawUrl);
+  const downloadUrl = getDownloadUrl(rawUrl);
   const previewUrl = blobUrl || absoluteUrl;
 
   const getExt = (filename) => {
@@ -108,6 +108,7 @@ export default function FilePreviewModal({ file, onClose }) {
       try {
         setBlobLoading(true);
         setImgError(false);
+        setFetchError(false);
 
         const headers = {};
         const token = tokenStore?.getToken ? tokenStore.getToken() : null;
@@ -115,10 +116,30 @@ export default function FilePreviewModal({ file, onClose }) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const res = await fetch(absoluteUrl, { headers });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
+        let res = await fetch(absoluteUrl, { headers });
+        let contentType = res.headers.get('content-type') || '';
 
+        // If gateway route returned HTML (proxy fallback) or 404, try /storage/ subpath fallback
+        if ((!res.ok || contentType.includes('text/html')) && !absoluteUrl.startsWith('/storage/')) {
+          const subPath = extractCleanSubPath(rawUrl);
+          const fallbackDirectUrl = `/storage/${subPath}`;
+          try {
+            const altRes = await fetch(fallbackDirectUrl, { headers });
+            const altType = altRes.headers.get('content-type') || '';
+            if (altRes.ok && !altType.includes('text/html')) {
+              res = altRes;
+              contentType = altType;
+            }
+          } catch {
+            // retain primary response
+          }
+        }
+
+        if (!res.ok || contentType.includes('text/html')) {
+          throw new Error(`HTTP ${res.status} or unexpected content type`);
+        }
+
+        const blob = await res.blob();
         let finalBlob = blob;
         if (isPdf && blob.type !== 'application/pdf') {
           finalBlob = new Blob([blob], { type: 'application/pdf' });
@@ -127,10 +148,16 @@ export default function FilePreviewModal({ file, onClose }) {
         }
 
         objectUrl = URL.createObjectURL(finalBlob);
-        if (!cancelled) setBlobUrl(objectUrl);
-        else URL.revokeObjectURL(objectUrl);
+        if (!cancelled) {
+          setBlobUrl(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
+        }
       } catch (err) {
-        console.warn('FilePreviewModal: Direct blob fetch fallback:', err);
+        console.warn('FilePreviewModal: Direct preview load failed:', err);
+        if (!cancelled) {
+          setFetchError(true);
+        }
       } finally {
         if (!cancelled) setBlobLoading(false);
       }
@@ -143,32 +170,31 @@ export default function FilePreviewModal({ file, onClose }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [absoluteUrl, isPdf, isImg, ext]);
+  }, [absoluteUrl, rawUrl, isPdf, isImg, ext]);
 
   const handleDownload = async (e) => {
     if (e) e.preventDefault();
     setIsDownloading(true);
     try {
-      let downloadEndpoint = absoluteUrl;
-      if (absoluteUrl.includes('/storage/')) {
-        downloadEndpoint = absoluteUrl.replace('/storage/', '/download/');
-      }
-
       const headers = {};
       const token = tokenStore?.getToken ? tokenStore.getToken() : null;
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       let blobData = null;
-      try {
-        const response = await fetch(downloadEndpoint, { headers });
-        if (response.ok) {
-          blobData = await response.blob();
-        } else {
-          const fallbackResp = await fetch(absoluteUrl, { headers });
-          if (fallbackResp.ok) blobData = await fallbackResp.blob();
+      const targets = [downloadUrl, absoluteUrl, `/storage/${extractCleanSubPath(rawUrl)}`];
+
+      for (const endpoint of targets) {
+        if (!endpoint) continue;
+        try {
+          const response = await fetch(endpoint, { headers });
+          const cType = response.headers.get('content-type') || '';
+          if (response.ok && !cType.includes('text/html')) {
+            blobData = await response.blob();
+            break;
+          }
+        } catch {
+          // try next target
         }
-      } catch {
-        // Fallback to direct window.open if fetch fails
       }
 
       if (blobData) {
@@ -181,10 +207,10 @@ export default function FilePreviewModal({ file, onClose }) {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(downloadBlobUrl);
       } else {
-        window.open(absoluteUrl, '_blank');
+        window.open(downloadUrl || absoluteUrl, '_blank');
       }
     } catch {
-      window.open(absoluteUrl, '_blank');
+      window.open(downloadUrl || absoluteUrl, '_blank');
     } finally {
       setIsDownloading(false);
     }
@@ -238,6 +264,36 @@ export default function FilePreviewModal({ file, onClose }) {
             <div className="text-center text-slate-400 py-16">
               <Loader2 className="w-9 h-9 animate-spin mx-auto mb-3 text-white/80" />
               <p className="text-xs font-medium">Loading preview...</p>
+            </div>
+          ) : fetchError ? (
+            <div className="text-center text-slate-400 py-16 max-w-md mx-auto">
+              <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-75 text-amber-400" />
+              <p className="text-sm font-semibold text-slate-200">Attachment preview unavailable</p>
+              <p className="text-xs text-slate-400 mt-1">
+                The file could not be displayed directly. You can try downloading it or opening it in a new window.
+              </p>
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <Button
+                  size="sm"
+                  onClick={handleDownload}
+                  disabled={isDownloading}
+                  className="cursor-pointer gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {isDownloading ? 'Downloading...' : 'Download File'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="cursor-pointer gap-1.5 bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
+                >
+                  <a href={downloadUrl || absoluteUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open in New Tab
+                  </a>
+                </Button>
+              </div>
             </div>
           ) : isImg && !imgError ? (
             <img

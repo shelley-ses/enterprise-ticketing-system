@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateEmployeeTicket } from '@/services/ticketService';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 function ProofFileItem({ file, onRemove }) {
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -49,6 +50,7 @@ export default function ProofCompletionModal({
   onClose,
   onStatusChange,
 }) {
+  useLockBodyScroll(Boolean(ticket));
   const navigate = useNavigate();
   const [proofFiles, setProofFiles] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');

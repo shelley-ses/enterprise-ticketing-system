@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { Menu, X, LogOut, ChevronDown, ChevronUp } from 'lucide-react';
-import sbsiLogo from '@/assets/SBSI.png';
+import sbsiLogo from '@/assets/SBSI1.png';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { useAuth } from '@/context/AuthContext';
 import { ConfirmationModal } from '@/components/ui/confirmation-modal';
@@ -142,7 +142,7 @@ export default function SidebarBase({ navItems, bottomItems, collapsed = true, o
     try {
       const isCustomer = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
       await logout();
-      const redirectUrl = isCustomer ? '/customer' : '/';
+      const redirectUrl = isCustomer ? (import.meta.env.BASE_URL || '/') : '/';
       window.location.replace(redirectUrl);
     } catch (err) {
       console.error('Logout failed:', err);
@@ -205,8 +205,8 @@ export default function SidebarBase({ navItems, bottomItems, collapsed = true, o
               className="flex items-center h-20 px-4 gap-3 flex-shrink-0 border-b border-white/10"
               onClick={closeMobile}
             >
-              <div className="w-10 h-10 flex-shrink-0 overflow-hidden rounded-lg bg-white/10 p-1 flex items-center justify-center">
-                <img src={sbsiLogo} alt="SBSI" className="w-full h-full object-contain" />
+              <div className="h-8 flex-shrink-0 flex items-center">
+                <img src={sbsiLogo} alt="SBSI" className="h-full w-auto object-contain" />
               </div>
               <div className="flex flex-col leading-tight">
                 <span className="text-sm font-bold tracking-wider uppercase text-white font-sans">
@@ -297,8 +297,8 @@ export default function SidebarBase({ navItems, bottomItems, collapsed = true, o
               !showLabel ? 'justify-center' : ''
             }`}
           >
-            <div className="w-10 h-10 flex-shrink-0 overflow-hidden rounded-lg bg-white/10 p-1 flex items-center justify-center">
-              <img src={sbsiLogo} alt="SBSI" className="w-full h-full object-contain" />
+            <div className={`${!showLabel ? 'h-6 max-w-[48px]' : 'h-8'} flex-shrink-0 flex items-center justify-center transition-all duration-200`}>
+              <img src={sbsiLogo} alt="SBSI" className="h-full w-auto object-contain" />
             </div>
             {showLabel && (
               <div className="flex flex-col leading-tight animate-fade-slide-in">

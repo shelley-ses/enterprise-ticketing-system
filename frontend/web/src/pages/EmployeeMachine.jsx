@@ -293,22 +293,22 @@ export default function EmployeeMachine() {
       </div>
 
       {/* Filter toolbar */}
-      <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-xs w-full shrink-0">
-        <div className="relative flex-1 min-w-[240px] max-w-[480px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
           <input
             type="search"
             placeholder="Search ID, title, customer..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            className="w-full rounded-xl border border-gray-200 bg-surface pl-10 pr-4 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
           />
         </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent min-w-[8.5rem]"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             <option value="All Status">All Status</option>
             <option value="In Progress">In Progress</option>
@@ -322,7 +322,7 @@ export default function EmployeeMachine() {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent min-w-[8.5rem]"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             <option value="All Category">All Category</option>
             <option value="MRI">MRI</option>
@@ -334,7 +334,7 @@ export default function EmployeeMachine() {
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent min-w-[8.5rem]"
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
           >
             <option value="All Priority">All Priority</option>
             <option value="Critical">Critical</option>

@@ -343,40 +343,40 @@ export default function CSDashboard() {
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <MetricCard
-          label="Unassigned Tickets"
+          title="Unassigned Tickets"
           value={stats?.unassigned ?? 0}
-          icon={Inbox}
+          icon={<Inbox className="w-5 h-5" />}
           loading={loading}
         />
         <MetricCard
-          label="Pending Tickets"
+          title="Pending Tickets"
           value={stats?.pending ?? 0}
-          icon={Clock}
+          icon={<Clock className="w-5 h-5" />}
           loading={loading}
         />
         <MetricCard
-          label="Assigned Tickets"
+          title="Assigned Tickets"
           value={stats?.assigned ?? 0}
-          icon={CheckCircle2}
+          icon={<CheckCircle2 className="w-5 h-5" />}
           loading={loading}
         />
         <MetricCard
-          label="High Priority"
+          title="High Priority"
           value={stats?.highPriority ?? 0}
-          icon={AlertTriangle}
+          icon={<AlertTriangle className="w-5 h-5" />}
           loading={loading}
         />
         <MetricCard
-          label="SLA Breached"
+          title="SLA Breached"
           value={stats?.slaBreached ?? 0}
-          icon={AlertTriangle}
+          icon={<AlertTriangle className="w-5 h-5 text-rose-600" />}
           variant="crimson"
           loading={loading}
         />
         <MetricCard
-          label="Escalated Tickets"
+          title="Escalated Tickets"
           value={stats?.escalated ?? 0}
-          icon={AlertTriangle}
+          icon={<AlertTriangle className="w-5 h-5 text-amber-600" />}
           variant="amber"
           loading={loading}
         />

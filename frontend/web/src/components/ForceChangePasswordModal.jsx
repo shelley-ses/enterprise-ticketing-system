@@ -5,12 +5,14 @@ import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2 } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 /**
  * Blocking modal shown when the backend flags `is_first_login`.
  * Conforms to ONE UI Section VI.5 & VI.6 standards.
  */
 export default function ForceChangePasswordModal() {
+  useLockBodyScroll(true);
   const { user, revalidateSession, logout } = useAuth();
 
   const isEmployeePortal = import.meta.env.VITE_APP_MODE !== 'customer';

@@ -95,32 +95,49 @@ export default function AdminReports() {
           <MetricCard
             title="Ticket Volume"
             value="2,450"
-            icon={<TrendingUp className="w-5 h-5" />}
-            iconBg="bg-primary/10 text-primary"
+            trend="+12.4%"
+            trendPositive={true}
+            subtitle="vs last period"
+            icon={<TrendingUp className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
           />
           <MetricCard
             title="SLA Compliance"
             value="92.5%"
-            icon={<ShieldCheck className="w-5 h-5" />}
+            trend="+1.8%"
+            trendPositive={true}
+            subtitle="above target"
+            icon={<ShieldCheck className="w-5 h-5 text-emerald-600" />}
             iconBg="bg-emerald-50 text-emerald-600"
           />
           <MetricCard
             title="CSAT Score"
             value={`${csatData?.average_score || 4.67} / 5.0`}
-            icon={<Smile className="w-5 h-5" />}
+            trend="+4.2%"
+            trendPositive={true}
+            subtitle="satisfaction"
+            icon={<Smile className="w-5 h-5 text-amber-600" />}
             iconBg="bg-amber-50 text-amber-600"
+            variant="amber"
           />
           <MetricCard
             title="Active Staff"
             value="18"
-            icon={<Users className="w-5 h-5" />}
-            iconBg="bg-accent/10 text-accent"
+            trend="100%"
+            trendPositive={true}
+            subtitle="active on duty"
+            icon={<Users className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
           />
           <MetricCard
             title="Escalation Risk"
             value="Low (7% Crit)"
-            icon={<ShieldAlert className="w-5 h-5" />}
+            trend="-2.1%"
+            trendPositive={true}
+            subtitle="risk trajectory"
+            icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
             iconBg="bg-rose-50 text-rose-600"
+            variant="crimson"
           />
         </div>
 

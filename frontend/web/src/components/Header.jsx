@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, LogOut, User, Bell, PanelLeft, ChevronDown } from 'lucide-react';
+import { Home, User, Bell, PanelLeft, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { getNotifications, markNotificationRead, markNotificationsRead, getTicketDetails, getAssignableEmployees, getDepartments, respondReassignment } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -8,14 +8,13 @@ import NotificationDropdown from '@/components/notifications/NotificationDropdow
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
 import { getSystemStatus } from '@/services/configurationService';
-import { ConfirmationModal } from '@/components/ui/confirmation-modal';
 
 export default function Header({ sidebarHovered }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
@@ -220,28 +219,6 @@ export default function Header({ sidebarHovered }) {
     }
   };
 
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  const handleLogoutClick = () => {
-    setDropdownOpen(false);
-    setShowLogoutModal(true);
-  };
-
-  const confirmLogout = async () => {
-    setLoggingOut(true);
-    try {
-      const isCustomer = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
-      await logout();
-      const redirectUrl = isCustomer ? '/customer' : '/';
-      window.location.replace(redirectUrl);
-    } catch (err) {
-      console.error('Logout failed:', err);
-      setLoggingOut(false);
-      setShowLogoutModal(false);
-    }
-  };
-
   const getPageTitle = () => {
     const p = location.pathname.toLowerCase();
     if (p.includes('/dashboard')) return 'Dashboard';
@@ -359,13 +336,6 @@ export default function Header({ sidebarHovered }) {
                       <Home size={16} className="mr-2.5 text-muted-slate" /> Back to Home
                     </button>
                   )}
-                  <div className="h-px bg-slate-100 my-1" />
-                  <button
-                    onClick={handleLogoutClick}
-                    className="flex items-center w-full px-4 py-2.5 hover:bg-red-50 text-destructive text-sm font-medium transition-colors cursor-pointer"
-                  >
-                    <LogOut size={16} className="mr-2.5" /> Logout
-                  </button>
                 </div>
               </>
             )}
@@ -409,18 +379,6 @@ export default function Header({ sidebarHovered }) {
           </div>
         </div>
       )}
-
-      {/* Logout Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={showLogoutModal}
-        onClose={() => setShowLogoutModal(false)}
-        onConfirm={confirmLogout}
-        title="Sign Out"
-        description="Are you sure you want to sign out of your account?"
-        confirmLabel="Sign Out"
-        variant="destructive"
-        loading={loggingOut}
-      />
     </>
   );
 }

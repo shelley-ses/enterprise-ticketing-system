@@ -77,15 +77,21 @@ export default function EmployeeHistoryDetail() {
 
   const getAbsoluteUrl = (rawUrl) => {
     if (!rawUrl) return '';
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:')) {
-      return rawUrl;
+    if (rawUrl.startsWith('blob:') || rawUrl.startsWith('data:')) return rawUrl;
+
+    let cleaned = String(rawUrl).trim().replace(/^https?:\/\/[^\/]+/, '');
+    if (cleaned.includes('/api/ticketing/attachment/storage/')) {
+      return cleaned;
     }
-    const backendApiUrl = import.meta.env.VITE_TICKET_API_URL || 'http://localhost:8002/api';
-    const backendHost = backendApiUrl.replace(/\/api$/, '').replace(/\/api\/$/, '');
-    if (rawUrl.startsWith('/')) {
-      return `${backendHost}${rawUrl}`;
+    if (cleaned.includes('/storage/')) {
+      cleaned = cleaned.substring(cleaned.indexOf('/storage/') + '/storage/'.length);
+    } else if (cleaned.startsWith('storage/')) {
+      cleaned = cleaned.substring('storage/'.length);
+    } else if (cleaned.startsWith('/')) {
+      cleaned = cleaned.substring(1);
     }
-    return `${backendHost}/${rawUrl}`;
+    cleaned = cleaned.replace(/^\/+/, '');
+    return `/api/ticketing/attachment/storage/${cleaned}`;
   };
 
   const remarksList = useMemo(() => {

@@ -331,21 +331,21 @@ export default function CSAssigned() {
       )}
 
       {/* Filter toolbar */}
-      <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-xs w-full shrink-0">
-        <div className="relative flex-1 min-w-[240px] max-w-[500px]">
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tickets, customers..."
-            className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            className="w-full rounded-lg border border-border bg-card pl-9 pr-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
-        <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
           <select
             value={machineFilter}
             onChange={(e) => setMachineFilter(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent min-w-[8.5rem]"
+            className="flex-1 min-w-[140px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
             {machines.map((m) => (
               <option key={m} value={m}>{m}</option>
@@ -354,7 +354,7 @@ export default function CSAssigned() {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent min-w-[8.5rem]"
+            className="flex-1 min-w-[140px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>

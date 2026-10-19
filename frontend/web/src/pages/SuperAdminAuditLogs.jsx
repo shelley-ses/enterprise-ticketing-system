@@ -92,7 +92,7 @@ export default function SuperAdminAuditLogs() {
         subtitle="Track who did what, when, and to what."
       />
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-xs">
+      <div className="flex flex-wrap items-center gap-3 w-full">
         <div className="relative flex-1 min-w-[280px]">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-muted pointer-events-none" />
           <Input
