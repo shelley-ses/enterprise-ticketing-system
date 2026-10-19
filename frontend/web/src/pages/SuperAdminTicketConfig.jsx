@@ -203,6 +203,91 @@ export const GROUPS_CONFIG = [
   },
 ];
 
+export const SUBTAB_METADATA = {
+  // Classification
+  [TAB_TICKET_CATEGORIES]: {
+    icon: Tag,
+    subtitle: 'Problem categories & default classifications',
+  },
+  [TAB_EQUIPMENT]: {
+    icon: HardDrive,
+    subtitle: 'Hardware, equipment, and device categories',
+  },
+  [TAB_PRIORITY]: {
+    icon: AlertCircle,
+    subtitle: 'Urgency tiers, response targets & colors',
+  },
+  [TAB_BRANCH_CONFIG]: {
+    icon: Building2,
+    subtitle: 'Branch-level categories & SLA overrides',
+  },
+  [TAB_DEFAULTS]: {
+    icon: Sliders,
+    subtitle: 'Default status, priority, and dynamic SLA',
+  },
+  [TAB_NUMBER_FORMAT]: {
+    icon: Hash,
+    subtitle: 'Ticket ID prefix, date format & sequence padding',
+  },
+  [TAB_LIMITS]: {
+    icon: Users,
+    subtitle: 'Concurrency thresholds & max open ticket limits',
+  },
+
+  // Lifecycle & Workflow
+  [TAB_WORKFLOW]: {
+    icon: GitBranch,
+    subtitle: 'Progression stages from submission to closure',
+  },
+  [TAB_TRANSITIONS]: {
+    icon: ArrowRight,
+    subtitle: 'Allowed state transitions & workflow matrix',
+  },
+  [TAB_WINDOWS]: {
+    icon: Clock,
+    subtitle: 'Reopening grace periods & auto-closure timers',
+  },
+  [TAB_FEEDBACK]: {
+    icon: Star,
+    subtitle: 'CSAT rating questions & feedback triggers',
+  },
+
+  // SLA & Escalations
+  [TAB_SLA]: {
+    icon: ShieldCheck,
+    subtitle: 'Department SLA response & resolution hours',
+  },
+  [TAB_ESCALATION]: {
+    icon: ShieldAlert,
+    subtitle: 'Automated breach escalation & alert stages',
+  },
+
+  // Notifications
+  [NOTIF_SUBTAB_RECIPIENTS]: {
+    icon: Users,
+    subtitle: 'Alert recipient groups, managers & technicians',
+  },
+  [NOTIF_SUBTAB_CHANNELS]: {
+    icon: Bell,
+    subtitle: 'In-app, browser notification & sound channels',
+  },
+  [NOTIF_SUBTAB_EMAIL_DELIVERY]: {
+    icon: Send,
+    subtitle: 'SMTP / Resend API delivery configuration',
+  },
+  [NOTIF_SUBTAB_EMAIL_TEMPLATES]: {
+    icon: Mail,
+    subtitle: 'Transactional email notification templates',
+  },
+
+  // Storage & Security
+  [TAB_FILES]: {
+    icon: FileUp,
+    subtitle: 'File size limits, allowed extensions & ClamAV',
+  },
+};
+
+
 // ==========================================
 // TS094: Ticket Number Format Configuration Constants
 // ==========================================
@@ -1602,7 +1687,18 @@ export default function SuperAdminTicketConfig() {
         showSuccess('Saved', 'Priority has been saved.');
       }
       setEditingItem(null);
-      loadConfig();
+      try {
+        const fresh = await getSuperAdminConfig();
+        if (fresh) {
+          setItems((prev) => ({
+            ...prev,
+            ticketCategories: fresh.ticket_categories || prev.ticketCategories,
+            equipment: fresh.equipment || prev.equipment,
+            priorities: fresh.priorities || prev.priorities,
+          }));
+        }
+      } catch {}
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to save configuration settings.');
@@ -1654,10 +1750,26 @@ export default function SuperAdminTicketConfig() {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
       }
-      loadConfig();
+
+      // Optimistically remove from state immediately so UI updates in 0ms without requiring page refresh
+      setItems((prev) => ({
+        ...prev,
+        ticketCategories: tab === TAB_TICKET_CATEGORIES
+          ? (prev.ticketCategories || []).filter((c) => c.id !== item.id)
+          : prev.ticketCategories,
+        equipment: tab === TAB_EQUIPMENT
+          ? (prev.equipment || []).filter((e) => e.id !== item.id)
+          : prev.equipment,
+        priorities: tab === TAB_PRIORITY
+          ? (prev.priorities || []).filter((p) => p.id !== item.id)
+          : prev.priorities,
+      }));
+
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to delete item.');
+      await loadConfig({ source: 'background' });
     }
   };
 
@@ -1728,11 +1840,13 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteWorkflowStatus(status.id);
         showSuccess('Deleted', `${status.name} has been deleted.`);
-        await loadConfig();
+        setWorkflowStatuses((prev) => prev.filter((s) => s.id !== status.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
         const errMsg = err?.response?.data?.message || 'Failed to delete workflow status.';
         showError('Error', errMsg);
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1804,10 +1918,12 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteEscalationRule(rule.id);
         showSuccess('Deleted', `${rule.name} has been deleted.`);
-        await loadConfig();
+        setEscalationRules((prev) => prev.filter((r) => r.id !== rule.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete escalation rule:', err);
         showError('Error', 'Failed to delete escalation rule.');
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -4000,6 +4116,7 @@ export default function SuperAdminTicketConfig() {
         try {
           const res = await deleteBranchCategory(selectedBranch.id, cat.id);
           showSuccess('Category Removed', res.message || `Category "${cat.name}" removed.`);
+          setBranchCategories((prev) => prev.filter((c) => c.id !== cat.id));
           await loadBranchCategoriesAndSla();
         } catch (err) {
           const body = err.response?.data;
@@ -4160,7 +4277,7 @@ export default function SuperAdminTicketConfig() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-[1440px] mx-auto w-full">
       {/* Interactive Hierarchical Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-gray-500">
         <button
@@ -4191,8 +4308,8 @@ export default function SuperAdminTicketConfig() {
         </p>
       </div>
 
-      {/* Level 1: 5 Group Pills */}
-      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit flex-wrap shadow-xs">
+      {/* Level 1: 5 Group Pills (Centered) */}
+      <div className="flex gap-1.5 rounded-2xl bg-gray-100 p-1.5 w-fit flex-wrap shadow-xs">
         {GROUPS_CONFIG.map((group) => {
           const isActive = activeGroup === group.id;
           return (
@@ -4200,7 +4317,7 @@ export default function SuperAdminTicketConfig() {
               key={group.id}
               type="button"
               onClick={() => handleSelectGroup(group.id)}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${isActive
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${isActive
                   ? 'bg-white text-[#252578] shadow-sm'
                   : 'text-gray-600 hover:text-gray-800'
                 }`}
@@ -4211,41 +4328,82 @@ export default function SuperAdminTicketConfig() {
         })}
       </div>
 
-      {/* Level 2: Secondary Sub-Tab Strip (consistently rendered for all groups to prevent layout shifts) */}
-      <div className="flex items-center border-b border-gray-200 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
-        <div className="flex items-center gap-2 ml-3 min-w-max">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
-            <span>{currentGroup.label}</span>
-            <ChevronRight size={13} className="text-gray-300" />
-          </div>
+      {/* Level 2 & 3: Centered Master-Detail Workspace (Facebook Settings style) */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+        {/* Left: Facebook Settings Vertical Sub-Category List */}
+        <aside className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24" aria-label={`${currentGroup.label} Subcategories`}>
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-3 shadow-xs">
+            <div className="px-3 py-2.5 mb-2 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Settings Menu
+                </span>
+                <h2 className="text-sm font-bold text-gray-800">
+                  {currentGroup.label}
+                </h2>
+              </div>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-[#252578] border border-blue-100">
+                {currentGroup.subTabs.length} items
+              </span>
+            </div>
 
-          <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
-            {currentGroup.subTabs.map((sub) => {
-              const isSubActive = currentSubTab === sub.id;
-              return (
-                <button
-                  key={sub.id}
-                  type="button"
-                  onClick={() => handleSelectSubTab(sub.id)}
-                  className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
-                      ? 'border-[#252578] text-[#252578]'
-                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+            <nav className="flex flex-col gap-1.5 max-h-64 sm:max-h-80 lg:max-h-[calc(100vh-170px)] overflow-y-auto [scrollbar-width:thin]" aria-label={`${currentGroup.label} Subcategories`}>
+              {currentGroup.subTabs.map((sub) => {
+                const isSubActive = currentSubTab === sub.id;
+                const meta = SUBTAB_METADATA[sub.id] || { icon: Settings, subtitle: '' };
+                const IconComponent = meta.icon || Settings;
+
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => handleSelectSubTab(sub.id)}
+                    className={`group flex items-center gap-3 w-full p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                      isSubActive
+                        ? 'bg-[#252578]/5 border-l-4 border-[#252578] shadow-xs text-[#252578]'
+                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
                     }`}
-                >
-                  {sub.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      </div>
+                  >
+                    <div
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                        isSubActive
+                          ? 'bg-[#252578] text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700'
+                      }`}
+                    >
+                      <IconComponent size={18} />
+                    </div>
 
-      {/* Level 3: Tab Content Area with Smooth Entry Transition */}
-      <div
-        ref={tabContentRef}
-        key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
-        className="animate-fade-slide-in min-h-[400px] flex flex-col gap-6 scroll-mt-36"
-      >
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-semibold truncate ${isSubActive ? 'text-[#252578]' : 'text-gray-800'}`}>
+                        {sub.label}
+                      </div>
+                      {meta.subtitle && (
+                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {meta.subtitle}
+                        </div>
+                      )}
+                    </div>
+
+                    <ChevronRight
+                      size={15}
+                      className={`shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                        isSubActive ? 'text-[#252578]' : 'text-gray-300 group-hover:text-gray-400'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        {/* Right: Tab Content Area */}
+        <div
+          ref={tabContentRef}
+          key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
+          className="flex-1 min-w-0 w-full animate-fade-slide-in flex flex-col gap-6 scroll-mt-36"
+        >
         {tab === TAB_WORKFLOW ? (
           <div className="flex flex-col gap-6">
           {/* Page Header */}
@@ -9353,6 +9511,7 @@ export default function SuperAdminTicketConfig() {
           </div>
         </>
       )}
+        </div>
       </div>
 
       {openMenuId && menuPos && createPortal(
