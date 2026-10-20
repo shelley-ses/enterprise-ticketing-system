@@ -46,6 +46,14 @@ class TicketController extends Controller
      */
     public function store(Request $request)
     {
+        // Enforce Maintenance Mode: Block ticket creation when system is Under Maintenance
+        $systemStatus = \App\Services\TicketConfigurationService::getSystemStatus();
+        if (trim(strtolower($systemStatus)) === 'under maintenance') {
+            return response()->json([
+                'message' => 'Ticket creation is temporarily disabled. The system is currently undergoing scheduled maintenance. Please try again later.'
+            ], 503);
+        }
+
         $user = $request->user();
         if (!$user instanceof \App\Models\Client) {
             return response()->json(['message' => 'Only authenticated customers can create external tickets.'], 403);
@@ -143,6 +151,14 @@ class TicketController extends Controller
         $user = $request->user();
         if (!$user || $user instanceof \App\Models\Client) {
             return response()->json(['message' => 'Only employees can create internal tickets.'], 403);
+        }
+
+        $systemStatus = \App\Services\TicketConfigurationService::getSystemStatus();
+        $isSuperAdmin = ($user instanceof \App\Models\Employee) && strtolower(str_replace([' ', '_', '-'], '', (string) ($user->role ?? ''))) === 'superadmin';
+        if (!$isSuperAdmin && trim(strtolower($systemStatus)) === 'under maintenance') {
+            return response()->json([
+                'message' => 'Ticket creation is temporarily disabled. The system is currently undergoing scheduled maintenance. Please try again later.'
+            ], 503);
         }
 
         $validated = $request->validate([

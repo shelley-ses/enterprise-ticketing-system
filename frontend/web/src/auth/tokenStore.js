@@ -3,7 +3,14 @@ const TOKEN_STORAGE_KEY = 'access_token';
 let accessToken = null;
 
 try {
-  accessToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
+  accessToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (!accessToken) {
+    accessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (accessToken) {
+      sessionStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  }
 } catch {
   accessToken = null;
 }
@@ -14,7 +21,7 @@ export function setToken(token) {
   try {
     if (token) {
       sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
     } else {
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
       localStorage.removeItem(TOKEN_STORAGE_KEY);

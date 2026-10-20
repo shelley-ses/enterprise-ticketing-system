@@ -12,9 +12,11 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
 import { getTicketDetails } from '@/services/ticketService';
+import { getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Clock, AlertCircle, ShieldAlert } from 'lucide-react';
 
 export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
@@ -26,7 +28,33 @@ export default function EmployeeHistoryDetail() {
   const [error, setError] = useState(null);
   const backPath = state?.backPath ?? '/employee/progress';
   const [previewFile, setPreviewFile] = useState(null);
-  const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
+  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [now, setNow] = useState(Date.now());
+
+  const [windowConfig, setWindowConfig] = useState(() => {
+    const cached = getCachedWindowConfiguration();
+    return {
+      autoCloseEnabled: Boolean(cached?.autoCloseEnabled ?? true),
+      autoCloseWindowDays: Number(cached?.autoCloseWindowDays ?? 2),
+    };
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    getWindowConfiguration()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setWindowConfig({
+            autoCloseEnabled: Boolean(cfg.autoCloseEnabled ?? true),
+            autoCloseWindowDays: Number(cfg.autoCloseWindowDays ?? 2),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const numericId = useMemo(() => {
     if (ticketId) {
@@ -121,6 +149,97 @@ export default function EmployeeHistoryDetail() {
     });
   }, [ticket]);
 
+  const isResolved = ticket?.status === 'Resolved';
+  const resolvedDate = ticket?.resolved_at || ticket?.lastUpdate || ticket?.updated_at || ticket?.date;
+
+  useEffect(() => {
+    if (!isResolved) return;
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isResolved]);
+
+  const { remainingSeconds, isAutoCloseExpired } = useMemo(() => {
+    if (!isResolved || !resolvedDate || !windowConfig.autoCloseEnabled) {
+      return { remainingSeconds: null, isAutoCloseExpired: false };
+    }
+    const resolvedMs = new Date(resolvedDate).getTime();
+    if (isNaN(resolvedMs)) return { remainingSeconds: null, isAutoCloseExpired: false };
+    const windowMs = (windowConfig.autoCloseWindowDays || 2) * 24 * 60 * 60 * 1000;
+    const deadlineMs = resolvedMs + windowMs;
+    const diffSec = Math.floor((deadlineMs - now) / 1000);
+    return {
+      remainingSeconds: diffSec,
+      isAutoCloseExpired: diffSec <= 0,
+    };
+  }, [isResolved, resolvedDate, windowConfig, now]);
+
+  useEffect(() => {
+    if (isResolved && isAutoCloseExpired && windowConfig.autoCloseEnabled) {
+      const nowIso = new Date().toISOString();
+      setTicket((prev) => {
+        if (!prev || prev.status === 'Closed') return prev;
+        const priorTimeline = prev.timeline || [];
+        return {
+          ...prev,
+          status: 'Closed',
+          closed_at: nowIso,
+          auto_closed: true,
+          closed_by: 'system',
+          timeline: [
+            ...priorTimeline,
+            {
+              id: `auto-close-${Date.now()}`,
+              type: 'system_autoclose',
+              text: 'Closed automatically by system due to inactivity following resolution window.',
+              timestamp: nowIso,
+            },
+          ],
+        };
+      });
+    }
+  }, [isResolved, isAutoCloseExpired, windowConfig.autoCloseEnabled]);
+
+  const formatCountdown = (totalSec) => {
+    if (totalSec === null || totalSec < 0) return '00:00:00';
+    const d = Math.floor(totalSec / 86400);
+    const h = Math.floor((totalSec % 86400) / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (d > 0) {
+      return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+    }
+    return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+  };
+
+  const formatRemainingText = (totalSec) => {
+    if (totalSec === null || totalSec <= 0) return 'less than a minute';
+    const d = Math.floor(totalSec / 86400);
+    const h = Math.floor((totalSec % 86400) / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const parts = [];
+    if (d > 0) parts.push(`${d} day${d > 1 ? 's' : ''}`);
+    if (h > 0) parts.push(`${h} hour${h > 1 ? 's' : ''}`);
+    if (m > 0 && d === 0) parts.push(`${m} minute${m > 1 ? 's' : ''}`);
+    return parts.join(' and ') || 'less than a minute';
+  };
+
+  const isAutoClosed = useMemo(() => {
+    if (!ticket || ticket.status !== 'Closed') return false;
+    if (ticket.auto_closed || ticket.autoClosed) return true;
+    if (ticket.closed_by === 'system' || ticket.actor_type === 'system') return true;
+    const timeline = ticket.timeline || [];
+    const hasAutoEvent = timeline.some((t) =>
+      /auto-close|closed automatically|system due to inactivity/i.test(t.text || '')
+    );
+    const audit = ticket.audit_logs || ticket.auditLogs || [];
+    const hasAutoAudit = audit.some((a) =>
+      a.actor_type === 'system' || /auto-close/i.test(a.details || '')
+    );
+    return hasAutoEvent || hasAutoAudit;
+  }, [ticket]);
+
   const timelineEvents = useMemo(() => {
     if (!ticket) return [];
     const events = [
@@ -149,6 +268,19 @@ export default function EmployeeHistoryDetail() {
         timestamp: ticket.lastUpdate ?? ticket.date,
       });
     }
+    if (ticket.status === 'Closed') {
+      const hasCloseEvent = (ticket.timeline || []).some((item) => /closed/i.test(item.text || ''));
+      if (!hasCloseEvent) {
+        events.push({
+          id: 'closure',
+          type: isAutoClosed ? 'system_autoclose' : 'status',
+          text: isAutoClosed
+            ? 'Closed automatically by system due to inactivity following resolution window.'
+            : `Ticket closed by ${ticket.closed_by || ticket.assigned_employee || ticket.customer || 'staff'}.`,
+          timestamp: ticket.closed_at || ticket.lastUpdate || ticket.updated_at || ticket.date,
+        });
+      }
+    }
     if (ticket.timeline && Array.isArray(ticket.timeline)) {
       ticket.timeline.forEach((item) => {
         if (!events.some((e) => e.id === item.id || (e.text === item.text && e.timestamp === item.timestamp))) {
@@ -157,7 +289,7 @@ export default function EmployeeHistoryDetail() {
       });
     }
     return events;
-  }, [ticket]);
+  }, [ticket, isAutoClosed]);
 
   const sortedTimelineEvents = useMemo(() => {
     const sorted = [...timelineEvents];
@@ -248,9 +380,16 @@ export default function EmployeeHistoryDetail() {
           <span className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-md">
             {ticket.id || (ticket.ticket_ID ? `TKT-${String(ticket.ticket_ID).padStart(4, '0')}` : 'Ticket')}
           </span>
-          <Badge variant={getStatusBadgeVariant(ticket.status)}>
-            {ticket.status}
-          </Badge>
+          {ticket.status === 'Closed' && isAutoClosed ? (
+            <Badge variant="outline" className="bg-slate-100 text-slate-800 border-slate-300 gap-1.5" title="Ticket was closed automatically due to inactivity following resolution window.">
+              <Clock className="h-3 w-3 text-slate-500" />
+              Closed automatically
+            </Badge>
+          ) : (
+            <Badge variant={getStatusBadgeVariant(ticket.status)}>
+              {ticket.status}
+            </Badge>
+          )}
           <Badge
             variant={
               ticket.priority?.toLowerCase() === 'critical'
@@ -278,6 +417,72 @@ export default function EmployeeHistoryDetail() {
             </Badge>
           )}
         </div>
+
+        {/* ─── Remaining-Time-to-Auto-Close Indicator (Resolved Internal Tickets) ─── */}
+        {isResolved && windowConfig.autoCloseEnabled && remainingSeconds !== null && (
+          <div
+            role="region"
+            aria-live="polite"
+            className={`mb-5 rounded-2xl border p-4 transition-all shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+              remainingSeconds <= 7200
+                ? 'bg-rose-50/90 border-rose-200 text-rose-900'
+                : remainingSeconds <= 86400
+                ? 'bg-amber-50/90 border-amber-200 text-amber-900'
+                : 'bg-blue-50/90 border-blue-200 text-[#252578]'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                  remainingSeconds <= 7200
+                    ? 'bg-rose-100 text-rose-700'
+                    : remainingSeconds <= 86400
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-blue-100 text-[#252578]'
+                }`}
+              >
+                <Clock size={18} className={remainingSeconds <= 7200 ? 'animate-pulse' : ''} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold">Auto-Close Window Active</h2>
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                      remainingSeconds <= 7200
+                        ? 'bg-rose-200/80 text-rose-900'
+                        : remainingSeconds <= 86400
+                        ? 'bg-amber-200/80 text-amber-900'
+                        : 'bg-blue-200/80 text-[#252578]'
+                    }`}
+                  >
+                    {remainingSeconds <= 7200 ? 'Closing Soon' : 'Pending Response'}
+                  </span>
+                </div>
+                <p className="text-xs mt-1 opacity-90 leading-relaxed">
+                  This resolved internal ticket will automatically close in{' '}
+                  <strong className="font-semibold underline decoration-dotted">
+                    {formatRemainingText(remainingSeconds)}
+                  </strong>{' '}
+                  if no further response is recorded.
+                </p>
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center gap-2">
+              <div
+                className={`px-4 py-2 rounded-xl text-center font-mono font-bold text-sm tracking-tight border ${
+                  remainingSeconds <= 7200
+                    ? 'bg-white text-rose-700 border-rose-300'
+                    : remainingSeconds <= 86400
+                    ? 'bg-white text-amber-800 border-amber-300'
+                    : 'bg-white text-[#252578] border-blue-200'
+                }`}
+              >
+                {formatCountdown(remainingSeconds)}
+              </div>
+            </div>
+          </div>
+        )}
 
         <h1 className="text-2xl font-bold text-foreground mb-1">{ticket.title}</h1>
         <p className="text-sm text-muted-foreground mb-4">
@@ -366,6 +571,29 @@ export default function EmployeeHistoryDetail() {
               const fileName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `File-${idx + 1}`);
               const fileUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
               const absUrl = getAbsoluteUrl(fileUrl);
+              const isQuarantined = Boolean(
+                typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+              );
+
+              if (isQuarantined) {
+                return (
+                  <div
+                    key={idx}
+                    className="border border-red-200 rounded-xl overflow-hidden shadow-xs bg-red-50/50 p-4 cursor-not-allowed"
+                    title="Attachment quarantined: Threat detected by antivirus scan"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                        <ShieldAlert className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-red-700 truncate line-through">{fileName}</p>
+                        <p className="text-[10px] text-red-500 font-bold uppercase mt-0.5">Quarantined / Blocked</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -417,6 +645,30 @@ export default function EmployeeHistoryDetail() {
               const fileName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
               const fileUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
               const absUrl = getAbsoluteUrl(fileUrl);
+              const isQuarantined = Boolean(
+                typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+              );
+
+              if (isQuarantined) {
+                return (
+                  <div
+                    key={idx}
+                    className="border border-red-200 rounded-xl overflow-hidden shadow-xs bg-red-50/50 p-4 cursor-not-allowed"
+                    title="Proof file quarantined: Threat detected by antivirus scan"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                        <ShieldAlert className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-red-700 truncate line-through">{fileName}</p>
+                        <p className="text-[10px] text-red-500 font-bold uppercase mt-0.5">Quarantined / Blocked</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={idx}
@@ -515,7 +767,9 @@ export default function EmployeeHistoryDetail() {
           <div className="relative pl-6 space-y-4 border-l border-border ml-3 py-1.5">
             {sortedTimelineEvents.map((evt, idx) => {
               const dotBg =
-                evt.type === 'system'
+                evt.type === 'system_autoclose'
+                  ? 'bg-slate-700'
+                  : evt.type === 'system'
                   ? 'bg-primary'
                   : evt.type === 'status'
                   ? 'bg-accent'
@@ -527,6 +781,8 @@ export default function EmployeeHistoryDetail() {
                   ? 'bg-amber-500'
                   : 'bg-muted-foreground';
 
+              const isAutoCloseEvt = evt.type === 'system_autoclose' || /closed automatically|auto-closed/i.test(evt.text || '');
+
               return (
                 <div key={evt.id || idx} className="relative text-sm">
                   <div
@@ -534,7 +790,9 @@ export default function EmployeeHistoryDetail() {
                   />
                   <div className="flex justify-between items-center text-xs text-muted-foreground mb-1">
                     <span className="font-bold text-primary uppercase text-[10px] tracking-wider">
-                      {evt.type === 'system'
+                      {isAutoCloseEvt
+                        ? 'Closed Automatically'
+                        : evt.type === 'system'
                         ? 'System'
                         : evt.type === 'status'
                         ? 'Status Update'

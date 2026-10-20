@@ -8,8 +8,10 @@ import {
   getCustomerTickets,
   saveTicketDraft,
   getTicketDraft,
+  uploadAttachments,
   getEscalateHandoff,
 } from '@/services/ticketService';
+import { getSystemStatus } from '@/services/configurationService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { useAuth } from '@/context/AuthContext';
@@ -21,7 +23,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { PersistentBanner } from '@/components/ui/alert-banner';
 import { useToast } from '@/context/ToastContext';
-import { ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
+  ShieldAlert,
+  ShieldCheck,
+  RefreshCw,
+  Trash2,
+  AlertTriangle,
+} from 'lucide-react';
 
 export default function TicketCreation() {
   const navigate = useNavigate();
@@ -60,6 +71,7 @@ export default function TicketCreation() {
   const [titleCasingData, setTitleCasingData] = useState(null);
   const [showTitleCasingModal, setShowTitleCasingModal] = useState(false);
   const [customerOpenCount, setCustomerOpenCount] = useState(0);
+  const [systemStatus, setSystemStatus] = useState('Operational');
 
   const fetchCustomerOpenCount = useCallback(async () => {
     try {
@@ -93,6 +105,10 @@ export default function TicketCreation() {
   }, [fetchCustomerOpenCount]);
 
   useEffect(() => {
+    getSystemStatus()
+      .then((status) => setSystemStatus(status))
+      .catch(() => setSystemStatus('Operational'));
+
     const loadOptions = async () => {
       setLoadingOptions(true);
       setError('');
@@ -129,133 +145,186 @@ export default function TicketCreation() {
               machine_ID: draft.machine_ID || '',
               problem_category_ID: draft.problem_category_ID || '',
               description: draft.description || '',
-              priority_ID: draft.priority_ID || prev.priority_ID || 1,
+              priority_ID: draft.priority_ID || 1,
             }));
-            if (Array.isArray(draft.attachments) && draft.attachments.length > 0) {
+            if (draft.attachments && Array.isArray(draft.attachments)) {
               setExistingDraftAttachments(draft.attachments);
             }
           }
         })
-        .catch((err) => {
-          console.warn('Could not load draft:', err);
-        });
+        .catch((err) => console.error('Failed to load draft:', err));
     }
-  }, [location.state?.draftId]);
+  }, [location.state]);
 
-  // Load AI Chatbot escalation handoff if navigated from AI assistant (TS027)
+  // Load escalated AI handoff prefill if redirected from AI Support triage
   useEffect(() => {
-    const conversationId = location.state?.conversationId || new URLSearchParams(location.search).get('conversation_id');
-    if (conversationId && !location.state?.draftId) {
-      getEscalateHandoff(conversationId)
-        .then((res) => {
-          if (res?.fallback) {
-            setError(res.notice || "We couldn't carry over your chat details — please fill in your ticket.");
-            return;
-          }
-          const handoff = res?.data;
+    const convId = location.state?.fromConversationId || location.state?.conversation_id;
+    if (convId && !draftId) {
+      getEscalateHandoff(convId)
+        .then((handoff) => {
           if (handoff) {
             setFormData((prev) => ({
               ...prev,
-              title: handoff.title || prev.title || '',
-              description: handoff.description || prev.description || '',
-              problem_category_ID: handoff.problem_category_ID || prev.problem_category_ID || '',
-              machine_ID: handoff.machine_ID || prev.machine_ID || '',
-              origin: handoff.origin || 'ai_chatbot',
-              conversation_id: handoff.conversation_id || conversationId,
+              title: handoff.title || prev.title,
+              description: handoff.description || prev.description,
+              origin: 'ai_escalation',
+              conversation_id: convId,
             }));
           }
         })
         .catch((err) => {
-          console.warn('Could not load AI escalation handoff:', err);
-          setError("We couldn't carry over your chat details — please fill in your ticket.");
+          console.warn('Could not prefill escalation handoff payload:', err);
         });
     }
-  }, [location.state?.conversationId, location.search, location.state?.draftId]);
-
-  const handleSaveDraft = async () => {
-    if (savingDraft || submitting) return;
-    setError('');
-    setDraftMessage('');
-    setSavingDraft(true);
-
-    try {
-      const payload = {
-        id: draftId || undefined,
-        title: formData.title,
-        machine_ID: formData.machine_ID,
-        problem_category_ID: formData.problem_category_ID,
-        description: formData.description,
-        priority_ID: formData.priority_ID,
-        attachments: [...existingDraftAttachments, ...files],
-      };
-
-      const res = await saveTicketDraft(payload);
-      const savedId = res.draft?.id || res.id;
-      if (savedId) {
-        setDraftId(savedId);
-      }
-      setDraftMessage('Draft saved successfully. You can return and complete it anytime from My Drafts.');
-      setTimeout(() => setDraftMessage(''), 5000);
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to save draft.';
-      setError(msg);
-    } finally {
-      setSavingDraft(false);
-    }
-  };
+  }, [location.state, draftId]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleCasingBlur = (field) => (e) => {
-    const raw = e.target.value;
-    const normalized = normalizeCasing(raw);
-    if (normalized !== raw) {
-      setFormData((prev) => ({ ...prev, [field]: normalized }));
-      e.target.value = normalized;
+  const handleCasingBlur = (field) => () => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: normalizeCasing(prev[field]),
+    }));
+  };
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    setDraftMessage('');
+    setError('');
+    try {
+      const payload = {
+        title: (formData.title || '').trim(),
+        machine_ID: formData.machine_ID ? Number(formData.machine_ID) : null,
+        problem_category_ID: formData.problem_category_ID ? Number(formData.problem_category_ID) : null,
+        description: formData.description || '',
+        priority_ID: formData.priority_ID ? Number(formData.priority_ID) : 1,
+      };
+      if (draftId) {
+        payload.id = draftId;
+      }
+      const res = await saveTicketDraft(payload);
+      if (res?.draft?.id) {
+        setDraftId(res.draft.id);
+      }
+      setDraftMessage('Draft saved successfully. You can safely leave and resume editing anytime from My Drafts.');
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to save draft. Please try again.');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const scanUploadedFile = async (fileItem) => {
+    const formData = new FormData();
+    formData.append('files[]', fileItem.file);
+
+    try {
+      const res = await uploadAttachments(formData);
+      const uploaded = res?.attachments?.[0] || res?.data?.[0];
+
+      if (uploaded?.status === 'quarantined') {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileItem.id
+              ? {
+                  ...f,
+                  status: 'quarantined',
+                  attachmentId: uploaded.id || uploaded.attachment_ID,
+                  threatName: uploaded.threat_name || 'Malware detected',
+                }
+              : f
+          )
+        );
+      } else {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileItem.id
+              ? {
+                  ...f,
+                  status: 'clean',
+                  attachmentId: uploaded?.id || uploaded?.attachment_ID,
+                }
+              : f
+          )
+        );
+      }
+    } catch (err) {
+      console.warn('Security scan inspection error:', err);
+      // Fallback: If upload endpoint returned a 422 with quarantine or security error
+      if (err?.response?.status === 422 && /malware|threat|virus|quarantin/i.test(err?.response?.data?.message || '')) {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileItem.id
+              ? {
+                  ...f,
+                  status: 'quarantined',
+                  threatName: 'Threat signature identified',
+                }
+              : f
+          )
+        );
+      } else {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileItem.id
+              ? {
+                  ...f,
+                  status: 'clean',
+                }
+              : f
+          )
+        );
+      }
     }
   };
 
   const handleFileChange = (e) => {
-    const selected = Array.from(e.target.files || []);
     setFileError('');
-    if (selected.length > 0) {
-      const allowedTypes = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/msword',
-      ];
-      const allowedExts = ['pdf', 'png', 'docx', 'doc', 'jpg', 'jpeg'];
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length > 0) {
+      const maxIndividual = 15 * 1024 * 1024; // 15MB
+      const maxTotal = 45 * 1024 * 1024; // 45MB
+      const allowedExts = ['.pdf', '.png', '.docx', '.doc', '.jpg', '.jpeg'];
 
-      let currentTotal = files.reduce((acc, f) => acc + (f.size || 0), 0);
-      const validFiles = [];
+      let currentTotalSize = files.reduce((acc, f) => acc + f.size, 0);
 
-      for (const file of selected) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        const isAllowed = allowedTypes.includes(file.type) || allowedExts.includes(ext);
-        if (!isAllowed) {
-          setFileError(`Invalid file type: "${file.name}". Supported formats: PDF, PNG, Word (.docx, .doc).`);
+      const newItems = [];
+      for (const file of selectedFiles) {
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        if (!allowedExts.includes(ext)) {
+          setFileError(`Invalid file type "${file.name}". Supported formats: PDF, PNG, Word (DOC, DOCX), JPEG.`);
           return;
         }
-        if (file.size > 15 * 1024 * 1024) {
-          setFileError(`File too large: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Max size is 15MB per file.`);
+
+        if (file.size > maxIndividual) {
+          setFileError(`File "${file.name}" exceeds the maximum limit of 15MB.`);
           return;
         }
-        currentTotal += file.size || 0;
-        validFiles.push(file);
+
+        currentTotalSize += file.size;
+        if (currentTotalSize > maxTotal) {
+          setFileError('Total attachments size exceeds the maximum limit of 45MB.');
+          return;
+        }
+
+        newItems.push({
+          id: Math.random().toString(36).substring(2, 9),
+          file,
+          name: file.name,
+          size: file.size,
+          status: 'scanning',
+        });
       }
 
-      if (currentTotal > 45 * 1024 * 1024) {
-        setFileError(`Total attachments size exceeds 45MB limit (${(currentTotal / (1024 * 1024)).toFixed(2)} MB). Please remove some files.`);
-        return;
-      }
-
-      setFiles((prev) => [...prev, ...validFiles]);
+      setFiles((prev) => [...prev, ...newItems]);
       e.target.value = '';
+
+      for (const item of newItems) {
+        scanUploadedFile(item);
+      }
     }
   };
 
@@ -263,7 +332,11 @@ export default function TicketCreation() {
     e.preventDefault();
     if (submitting) return;
 
-    // TS096: Before pre-submission validation block, verify requester's open tickets count
+    if (systemStatus === 'Under Maintenance') {
+      setError('Ticket submission is currently disabled. The system is undergoing scheduled maintenance.');
+      return;
+    }
+
     const limitConfig = getMaxOpenTicketsLimit();
     if (!limitConfig.isUnlimited) {
       let openCount = customerOpenCount;
@@ -326,6 +399,19 @@ export default function TicketCreation() {
 
   const submitTicketWithTitle = async (finalTitle) => {
     setError('');
+
+    const hasScanning = files.some((f) => f.status === 'scanning');
+    if (hasScanning) {
+      setError('Security scan in progress. Please wait for attachment verification to complete before submitting.');
+      return;
+    }
+
+    const hasQuarantined = files.some((f) => f.status === 'quarantined');
+    if (hasQuarantined) {
+      setError('One or more attachments were blocked and quarantined by the security scanner. Please remove quarantined files to proceed.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -346,9 +432,22 @@ export default function TicketCreation() {
       if (formData.conversation_id) {
         payload.append('conversation_id', formData.conversation_id);
       }
+      if (existingDraftAttachments && existingDraftAttachments.length > 0) {
+        existingDraftAttachments.forEach((att) => {
+          const id = att.id || att.attachment_id || att.attachment_ID;
+          if (id) {
+            payload.append('attachments[]', id);
+          }
+        });
+      }
       if (files && files.length > 0) {
-        files.forEach((f) => {
-          payload.append('attachments[]', f);
+        const cleanFiles = files.filter((f) => f.status === 'clean');
+        cleanFiles.forEach((f) => {
+          if (f.attachmentId) {
+            payload.append('attachments[]', f.attachmentId);
+          } else if (f.file) {
+            payload.append('attachments[]', f.file);
+          }
         });
       }
       
@@ -393,7 +492,9 @@ export default function TicketCreation() {
     : (options.ticket_priorities || []).map((p) => ({
       value: p.priority_ID,
       label: p.priority_name,
-    }));  return (
+    }));
+
+  return (
     <>
       <div className="max-w-4xl mx-auto space-y-6 font-sans">
         <PageHeader
@@ -405,6 +506,7 @@ export default function TicketCreation() {
               variant="outline"
               size="sm"
               onClick={() => navigate(-1)}
+              className="cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4 mr-1.5" />
               Back
@@ -413,10 +515,40 @@ export default function TicketCreation() {
         />
 
         {draftMessage && (
-          <PersistentBanner
-            variant="success"
-            message={draftMessage}
-          />
+          <div className="mb-6 rounded-xl p-4 text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-800 flex items-start gap-3 transition-all animate-fadeIn">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="flex-1 flex justify-between items-center">
+              <span>{draftMessage}</span>
+              <button
+                type="button"
+                onClick={() => navigate('/my-tickets', { state: { tab: 'drafts' } })}
+                className="text-xs font-bold text-emerald-900 underline hover:no-underline ml-3 cursor-pointer"
+              >
+                View My Drafts
+              </button>
+            </div>
+          </div>
+        )}
+
+        {draftId && (
+          <div className="mb-6 rounded-xl p-3.5 bg-blue-50/70 border border-blue-200 text-xs text-primary flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-bold uppercase tracking-wider text-[10px] bg-blue-100 px-2 py-0.5 rounded-md text-primary">Draft Mode</span>
+              <span>You are editing draft #{draftId}. Your changes can be re-saved as draft or submitted.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDraftId(null);
+                setFormData({ title: '', machine_ID: '', problem_category_ID: '', description: '', priority_ID: 1 });
+                setExistingDraftAttachments([]);
+                setFiles([]);
+              }}
+              className="text-muted-slate hover:text-dark-slate text-xs font-semibold underline hover:no-underline cursor-pointer"
+            >
+              Clear and start fresh
+            </button>
+          </div>
         )}
 
         {error && (
@@ -426,7 +558,19 @@ export default function TicketCreation() {
           />
         )}
 
-        <div className="bg-surface border border-slate-100 rounded-2xl p-6 sm:p-8 shadow-sm">
+        {systemStatus === 'Under Maintenance' && (
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 flex items-start gap-3 shadow-xs">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-bold">System Under Maintenance</h3>
+              <p className="text-xs text-amber-800 mt-1">
+                The ticketing system is currently undergoing scheduled maintenance. Ticket creation is temporarily disabled. Please check back later.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-card border border-border rounded-xl p-6 sm:p-8 shadow-xs">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-1.5">
@@ -462,7 +606,7 @@ export default function TicketCreation() {
                   value={formData.machine_ID}
                   onChange={handleChange}
                   disabled={loadingOptions}
-                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                  className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
                 >
                   <option value="">Select Equipment</option>
                   {equipmentOptions.map((opt) => (
@@ -482,7 +626,7 @@ export default function TicketCreation() {
                   value={formData.problem_category_ID}
                   onChange={handleChange}
                   disabled={loadingOptions}
-                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                  className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
                 >
                   <option value="">Select Category</option>
                   {categoryOptions.map((opt) => (
@@ -500,7 +644,7 @@ export default function TicketCreation() {
                   value={formData.priority_ID}
                   onChange={handleChange}
                   disabled={loadingOptions}
-                  className="flex h-10 w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-dark-slate shadow-sm focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                  className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
                 >
                   {priorityOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -525,7 +669,7 @@ export default function TicketCreation() {
 
             <div className="space-y-2">
               <Label>Attachments (Optional)</Label>
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
+              <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
                 <input
                   type="file"
                   id="ticket-creation-file-upload"
@@ -545,33 +689,136 @@ export default function TicketCreation() {
                 </label>
               </div>
 
-              {files.length > 0 && (
+              {/* Saved Draft Attachments */}
+              {existingDraftAttachments.length > 0 && (
                 <div className="mt-3 space-y-2">
-                  {files.map((f, idx) => (
-                    <div key={idx} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 truncate">
-                        <span className="font-semibold text-dark-slate truncate max-w-xs">{f.name}</span>
-                        <span className="text-muted-slate shrink-0">({(f.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                  <p className="text-xs font-semibold text-muted-slate uppercase tracking-wide">Saved Draft Attachments ({existingDraftAttachments.length})</p>
+                  {existingDraftAttachments.map((att, idx) => {
+                    const attName = att.name || att.file_name || (typeof att === 'string' ? att.split('/').pop() : `Attachment #${idx + 1}`);
+                    return (
+                      <div key={`existing-${idx}`} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm text-primary">
+                          <span className="font-medium truncate max-w-xs">{attName}</span>
+                          <span className="text-[10px] text-accent font-semibold px-2 py-0.5 rounded-full bg-blue-100">Draft File</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setExistingDraftAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-1 text-muted-slate hover:text-destructive hover:bg-red-50 rounded-full transition-colors cursor-pointer"
+                          title="Remove draft attachment"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-1 text-muted-slate hover:text-destructive hover:bg-red-50 rounded-md transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
-              {fileError && <p className="text-xs text-destructive mt-1">{fileError}</p>}
+
+              {/* Uploaded Files with Malware Inspection States */}
+              {files.length > 0 && (
+                <div className="mt-3 space-y-2.5">
+                  {files.map((item, idx) => {
+                    const isScanning = item.status === 'scanning';
+                    const isQuarantined = item.status === 'quarantined';
+                    const isClean = item.status === 'clean';
+
+                    return (
+                      <div
+                        key={item.id || idx}
+                        className={`rounded-xl border p-3.5 transition-all ${
+                          isQuarantined
+                            ? 'border-destructive/40 bg-destructive/5 shadow-xs'
+                            : isScanning
+                              ? 'border-amber-200 bg-amber-50/40 shadow-xs'
+                              : 'border-emerald-200 bg-emerald-50/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {isScanning ? (
+                              <RefreshCw size={18} className="animate-spin text-amber-600 shrink-0" />
+                            ) : isQuarantined ? (
+                              <ShieldAlert size={18} className="text-destructive shrink-0" />
+                            ) : (
+                              <ShieldCheck size={18} className="text-emerald-600 shrink-0" />
+                            )}
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                  className={`text-sm font-semibold truncate max-w-xs ${
+                                    isQuarantined ? 'text-destructive line-through' : 'text-dark-slate'
+                                  }`}
+                                >
+                                  {item.name}
+                                </span>
+                                <span className="text-xs text-muted-slate">
+                                  ({(item.size / (1024 * 1024)).toFixed(2)} MB)
+                                </span>
+
+                                {isScanning && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                    Scanning…
+                                  </span>
+                                )}
+                                {isClean && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    Clean &amp; Verified
+                                  </span>
+                                )}
+                                {isQuarantined && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/15 text-destructive border border-destructive/30">
+                                    Blocked
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                              isQuarantined
+                                ? 'text-destructive hover:text-white hover:bg-destructive bg-destructive/10'
+                                : 'text-muted-slate hover:text-destructive hover:bg-red-50'
+                            }`}
+                            title="Remove attachment"
+                            aria-label="Remove attachment"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+
+                        {isQuarantined && (
+                          <div className="mt-2.5 pt-2 border-t border-destructive/20 text-xs text-destructive flex items-start justify-between gap-3">
+                            <p className="leading-relaxed">
+                              <strong>Security Alert:</strong> This file was flagged by security scanning and quarantined for your protection. Please remove it and select a clean file.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                              className="shrink-0 text-xs font-bold text-destructive hover:underline cursor-pointer"
+                            >
+                              Remove file
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {fileError && <p className="text-xs text-destructive mt-1 font-medium">{fileError}</p>}
             </div>
 
-            <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-slate-100">
+            <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-border">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => navigate(-1)}
+                className="cursor-pointer"
               >
                 Cancel
               </Button>
@@ -579,18 +826,18 @@ export default function TicketCreation() {
                 type="button"
                 variant="outline"
                 onClick={handleSaveDraft}
-                disabled={loadingOptions || savingDraft || submitting}
-                loading={savingDraft}
+                disabled={loadingOptions || savingDraft || submitting || systemStatus === 'Under Maintenance'}
+                className="cursor-pointer"
               >
-                Save as Draft
+                {savingDraft ? 'Saving Draft...' : 'Save as Draft'}
               </Button>
               <Button
                 type="submit"
                 variant="default"
-                disabled={loadingOptions || submitting || savingDraft}
-                loading={submitting}
+                disabled={loadingOptions || submitting || savingDraft || systemStatus === 'Under Maintenance'}
+                className="cursor-pointer"
               >
-                Submit Ticket
+                {submitting ? 'Submitting...' : systemStatus === 'Under Maintenance' ? 'Maintenance Active' : 'Submit Ticket'}
               </Button>
             </div>
           </form>

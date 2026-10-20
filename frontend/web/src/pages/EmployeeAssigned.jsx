@@ -9,7 +9,7 @@ import {
 import TicketDetailModal from '@/components/employee/TicketDetailModal';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
-import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -21,6 +21,73 @@ import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-tab
 import { Button } from '@/components/ui/button';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
+
+const buildEmployeeTicketSearchString = (t) => {
+  if (!t) return '';
+  const id = String(t.id || t.ticket_ID || t.ticket_number || '');
+  const customer = String(
+    t.customer ||
+    t.customer_name ||
+    t.requestor ||
+    t.created_by_name ||
+    (typeof t.customer === 'object' ? t.customer?.name : '') ||
+    ''
+  );
+  const isInternal = Boolean(
+    t.title?.startsWith('[Internal]') ||
+    t.is_internal ||
+    t.ticket_type === 'Internal' ||
+    t.type === 'Internal'
+  );
+  const typeStr = isInternal ? 'internal' : 'external';
+  const title = String(t.title || '');
+  const category = String(t.category || '');
+  const rawStatus = String(t.status || '');
+  const reassignmentBadge = hasPendingReassignment(t)
+    ? 'pending reassignment'
+    : isReassignmentDenied(t)
+    ? 'reassignment failed reassignment disapproved'
+    : '';
+  const statusStr = `${rawStatus} ${reassignmentBadge}`;
+  const priorityStr = String(t.priority || '');
+  const facility = String(t.facility || '');
+  const dept = String(t.department || '');
+  const equip = String(t.equipment || t.machine_name || '');
+
+  const dateValue = t.updated_at || t.last_update || t.date || t.created_at || '';
+  const rawDate = String(dateValue);
+  const formattedDate = formatDisplayDate(dateValue);
+  let extraDates = '';
+  try {
+    const parsed = parseUTCDate(dateValue);
+    if (parsed && !isNaN(parsed.getTime())) {
+      extraDates = [
+        parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
+      ].join(' ');
+    }
+  } catch (e) {}
+
+  return [
+    id,
+    customer,
+    typeStr,
+    title,
+    category,
+    priorityStr,
+    statusStr,
+    facility,
+    dept,
+    equip,
+    rawDate,
+    formattedDate,
+    extraDates,
+  ]
+    .join(' ')
+    .toLowerCase();
+};
 
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
@@ -158,8 +225,14 @@ export default function EmployeeAssigned() {
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
-        const blob = `${t.id} ${t.title} ${t.customer} ${t.facility ?? ''}`.toLowerCase();
-        if (!blob.includes(q)) return false;
+        const cleanQ = q.trim().toLowerCase();
+        const searchBlob = buildEmployeeTicketSearchString(t);
+        if (!searchBlob.includes(cleanQ)) {
+          const tokens = cleanQ.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+          if (!(tokens.length > 0 && tokens.every((token) => searchBlob.includes(token)))) {
+            return false;
+          }
+        }
       }
       return true;
     });

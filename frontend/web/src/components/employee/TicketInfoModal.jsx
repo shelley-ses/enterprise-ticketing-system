@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -121,6 +122,24 @@ export default function TicketInfoModal({ ticket, onClose }) {
                 {ticket.attachments.map((file, idx) => {
                   const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Attachment-${idx + 1}`);
                   const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                  const isQuarantined = Boolean(
+                    typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                  );
+
+                  if (isQuarantined) {
+                    return (
+                      <span
+                        key={file.id || file.attachment_id || idx}
+                        className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-red-600 cursor-not-allowed"
+                        title="File quarantined: Threat detected by antivirus scan"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                        <span className="line-through">{fName}</span>
+                        <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                      </span>
+                    );
+                  }
+
                   return (
                     <a
                       key={file.id || file.attachment_id || idx}
@@ -149,6 +168,24 @@ export default function TicketInfoModal({ ticket, onClose }) {
                 {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                   const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
                   const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                  const isQuarantined = Boolean(
+                    typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                  );
+
+                  if (isQuarantined) {
+                    return (
+                      <span
+                        key={file.id || file.proof_ID || idx}
+                        className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-red-600 cursor-not-allowed"
+                        title="Proof file quarantined: Threat detected by antivirus scan"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                        <span className="line-through">{fName}</span>
+                        <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                      </span>
+                    );
+                  }
+
                   return (
                     <a
                       key={file.id || file.proof_ID || idx}

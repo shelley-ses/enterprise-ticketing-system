@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X, Plus, Search } from 'lucide-react';
+import { MoreVertical, Filter, RotateCcw, Trash2, Edit3, FileText, X, Plus, Search, Calendar, User, Tag, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
@@ -16,7 +16,7 @@ import {
 import TicketModal from '@/components/TicketModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import NotificationModal from '@/components/NotificationModal';
-import { statusColors } from '@/constants/employeeTickets';
+import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { normalizeCasing } from '@/utils/normalizeCasing';
@@ -30,6 +30,7 @@ import {
   saveCustomerTicketDetail,
   getTicketDetails,
   updateTicket,
+  reopenTicket,
   getTicketDrafts,
   deleteTicketDraft,
   getCustomerFilterOptions,
@@ -85,25 +86,28 @@ export default function MyTickets({ mode = 'all' }) {
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState('tickets'); // 'tickets' | 'drafts'
+  const [activeTab, setActiveTab] = useState(location.state?.tab === 'drafts' ? 'drafts' : 'tickets'); // 'tickets' | 'drafts'
   const [drafts, setDrafts] = useState([]);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [filterOptions, setFilterOptions] = useState({
     categories: [],
     statuses: [],
-    priorities: [],
     machines: [],
   });
 
   const [filters, setFilters] = useState({
+    keywords: '',
     status: '',
     category: '',
-    priority: '',
     machine: '',
-    dateFrom: '',
-    dateTo: '',
-    search: '',
+    date: '',
   });
+
+  useEffect(() => {
+    if (location.state?.tab) {
+      setActiveTab(location.state.tab);
+    }
+  }, [location.state?.tab]);
 
   const loadDrafts = useCallback(async () => {
     setLoadingDrafts(true);
@@ -121,12 +125,14 @@ export default function MyTickets({ mode = 'all' }) {
     try {
       const opts = await getCustomerFilterOptions(customerId);
       if (opts) {
-        setFilterOptions({
+        setFilterOptions((prev) => ({
+          ...prev,
           categories: opts.categories || [],
           statuses: opts.statuses || [],
           priorities: opts.priorities || [],
           machines: opts.machines || [],
-        });
+          employees: opts.employees || prev.employees || [],
+        }));
       }
     } catch (err) {
       console.warn('Failed to load customer filter options:', err);
@@ -191,20 +197,77 @@ export default function MyTickets({ mode = 'all' }) {
     intervalMs: 30000,
   });
 
-  const categories = useMemo(() => {
-    const unique = new Set(tickets.map((ticket) => ticket.category).filter(Boolean));
-    return Array.from(unique).sort();
-  }, [tickets]);
+  const availableEmployees = useMemo(() => {
+    const set = new Set();
+    if (Array.isArray(filterOptions.employees) && filterOptions.employees.length > 0) {
+      filterOptions.employees.forEach((e) => {
+        const name = typeof e === 'string' ? e : (e.name || `${e.first_name || ''} ${e.last_name || ''}`.trim());
+        if (name) set.add(name);
+      });
+    }
+    (tickets || []).forEach((t) => {
+      const emp = t.assigned_employee || t.assigned_employee_name || t.assigned_to_name || (typeof t.assigned_to === 'string' ? t.assigned_to : null);
+      if (emp && typeof emp === 'string' && emp.trim() && emp.trim().toLowerCase() !== 'unassigned') {
+        set.add(emp.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [filterOptions.employees, tickets]);
 
-  const [feedbackVersion, setFeedbackVersion] = useState(0);
+  const availablePriorities = useMemo(() => {
+    if (filterOptions.priorities && filterOptions.priorities.length > 0) {
+      return filterOptions.priorities.map((p) => (typeof p === 'string' ? p : (p.priority_name || p.name || p.label || String(p.priority_ID))));
+    }
+    const set = new Set();
+    (tickets || []).forEach((t) => {
+      if (t.priority) set.add(t.priority);
+    });
+    if (set.size > 0) return Array.from(set);
+    return ['Low', 'Medium', 'High', 'Critical'];
+  }, [filterOptions.priorities, tickets]);
 
-  useEffect(() => {
-    const handleFeedbackSubmitted = () => {
-      setFeedbackVersion((v) => v + 1);
-    };
-    window.addEventListener('customer_feedback_submitted', handleFeedbackSubmitted);
-    return () => window.removeEventListener('customer_feedback_submitted', handleFeedbackSubmitted);
-  }, []);
+  const availableMachines = useMemo(() => {
+    if (filterOptions.machines && filterOptions.machines.length > 0) {
+      return filterOptions.machines.map((m) => {
+        if (typeof m === 'string') return m;
+        return m.machine_name ? `${m.machine_name}${m.serial_number ? ` - ${m.serial_number}` : ''}` : (m.label || m.name || (m.machine_ID ? `Machine #${m.machine_ID}` : ''));
+      }).filter(Boolean);
+    }
+    const set = new Set();
+    (tickets || []).forEach((t) => {
+      const m = t.equipment || t.machine_name;
+      if (m && m.trim()) set.add(m.trim());
+    });
+    return Array.from(set).sort();
+  }, [filterOptions.machines, tickets]);
+
+  const availableCategories = useMemo(() => {
+    if (filterOptions.categories && filterOptions.categories.length > 0) {
+      return filterOptions.categories.map((c) => (typeof c === 'string' ? c : (c.category_name || c.name || c.label || String(c.problem_category_ID))));
+    }
+    const set = new Set();
+    (tickets || []).forEach((t) => {
+      if (t.category && t.category.trim()) set.add(t.category.trim());
+    });
+    return Array.from(set).sort();
+  }, [filterOptions.categories, tickets]);
+
+  const availableStatuses = useMemo(() => {
+    if (filterOptions.statuses && filterOptions.statuses.length > 0) {
+      return filterOptions.statuses.map((s) => (typeof s === 'string' ? s : (s.status_name || s.name || s.label || String(s.ticket_status_ID))));
+    }
+    return isHistory ? HISTORY_STATUSES : ACTIVE_STATUSES;
+  }, [filterOptions.statuses, isHistory]);
+
+  const activeFilterList = useMemo(() => {
+    const list = [];
+    if (filters.keywords) list.push({ key: 'keywords', label: `Keywords: "${filters.keywords}"` });
+    if (filters.machine) list.push({ key: 'machine', label: `Machine: ${filters.machine}` });
+    if (filters.status) list.push({ key: 'status', label: `Status: ${filters.status}` });
+    if (filters.category) list.push({ key: 'category', label: `Category: ${filters.category}` });
+    if (filters.date) list.push({ key: 'date', label: `Date: ${filters.date}` });
+    return list;
+  }, [filters]);
 
   const visibleTickets = useMemo(() => {
     return tickets.filter((ticket) => {
@@ -226,31 +289,61 @@ export default function MyTickets({ mode = 'all' }) {
         }
       }
 
-      if (filters.status && normalizedStatus !== filters.status) return false;
-      if (filters.category && (ticket.category || '').trim().toLowerCase() !== filters.category.trim().toLowerCase()) return false;
-      if (filters.priority && (ticket.priority || '').trim().toLowerCase() !== filters.priority.trim().toLowerCase()) return false;
-      if (filters.machine && (ticket.equipment || ticket.machine_name || '').trim().toLowerCase() !== filters.machine.trim().toLowerCase()) return false;
-
-      const ticketDate = ticket.date_created ? new Date(String(ticket.date_created).replace(' ', 'T')) : null;
-      const isValidTicketDate = ticketDate && !isNaN(ticketDate.getTime());
-      if (filters.dateFrom && isValidTicketDate) {
-        const from = new Date(`${filters.dateFrom}T00:00:00`);
-        if (ticketDate < from) return false;
+      // Keywords filter (matching Ticket ID, Title, Description, Machine/Equipment, Category)
+      if (filters.keywords) {
+        const kw = filters.keywords.trim().toLowerCase();
+        const tid = String(ticket.id || '').toLowerCase();
+        const numId = String(ticket.ticket_ID || ticket.id || '').replace(/\D/g, '');
+        const cleanKw = kw.replace(/\D/g, '');
+        const matches = (
+          tid.includes(kw) ||
+          (cleanKw && numId.includes(cleanKw)) ||
+          (ticket.title && ticket.title.toLowerCase().includes(kw)) ||
+          (ticket.description && ticket.description.toLowerCase().includes(kw)) ||
+          (ticket.equipment && ticket.equipment.toLowerCase().includes(kw)) ||
+          (ticket.machine_name && ticket.machine_name.toLowerCase().includes(kw)) ||
+          (ticket.category && ticket.category.toLowerCase().includes(kw))
+        );
+        if (!matches) return false;
       }
-      if (filters.dateTo && isValidTicketDate) {
-        const to = new Date(`${filters.dateTo}T23:59:59`);
-        if (ticketDate > to) return false;
+
+      // Status filter
+      if (filters.status && normalizedStatus.toLowerCase() !== filters.status.toLowerCase()) {
+        return false;
       }
 
-      const search = filters.search.trim().toLowerCase();
-      if (!search) return true;
-      return (
-        ticket.id.toLowerCase().includes(search) ||
-        (ticket.title && ticket.title.toLowerCase().includes(search)) ||
-        (ticket.equipment && ticket.equipment.toLowerCase().includes(search))
-      );
+      // Category filter
+      if (filters.category && (ticket.category || '').trim().toLowerCase() !== filters.category.trim().toLowerCase()) {
+        return false;
+      }
+
+      // Machine filter
+      if (filters.machine) {
+        const machineFilter = filters.machine.trim().toLowerCase();
+        const ticketMachine = (ticket.equipment || ticket.machine_name || '').trim().toLowerCase();
+        if (!ticketMachine.includes(machineFilter)) {
+          return false;
+        }
+      }
+
+      // Date filter
+      if (filters.date) {
+        const ticketDate = ticket.date_created ? new Date(String(ticket.date_created).replace(' ', 'T')) : null;
+        if (ticketDate && !isNaN(ticketDate.getTime())) {
+          const filterDateStr = filters.date; // "YYYY-MM-DD"
+          const year = ticketDate.getFullYear();
+          const month = String(ticketDate.getMonth() + 1).padStart(2, '0');
+          const day = String(ticketDate.getDate()).padStart(2, '0');
+          const ticketDateStr = `${year}-${month}-${day}`;
+          if (ticketDateStr !== filterDateStr) {
+            return false;
+          }
+        }
+      }
+
+      return true;
     });
-  }, [filters, isHistory, tickets, feedbackVersion]);
+  }, [filters, isHistory, tickets]);
 
   const closeNotif = () => setNotification(null);
   const showSuccess = (title, message) => setNotification({ type: 'success', title, message });
@@ -261,15 +354,17 @@ export default function MyTickets({ mode = 'all' }) {
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
+  const clearFilter = (key) => {
+    setFilters((current) => ({ ...current, [key]: '' }));
+  };
+
   const resetFilters = () => {
     setFilters({
+      keywords: '',
       status: '',
       category: '',
-      priority: '',
       machine: '',
-      dateFrom: '',
-      dateTo: '',
-      search: '',
+      date: '',
     });
   };
 
@@ -744,9 +839,9 @@ export default function MyTickets({ mode = 'all' }) {
     const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const timestamp = new Date().toISOString();
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
-          const timestamp = new Date().toISOString();
           const timeline = t.timeline || [
             { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
           ];
@@ -769,27 +864,21 @@ export default function MyTickets({ mode = 'all' }) {
       });
       localStorage.setItem('customer_created_tickets', JSON.stringify(updatedList));
       setTickets(updatedList);
-      setSelectedTicket(null);
       showSuccess('Ticket reopened', 'Ticket reopened successfully.');
-      return;
+      return { success: true };
     }
 
-    setLoadingText('Reopening ticket...');
-    setModalLoading(true);
     try {
       const numericId = Number(String(ticketId).replace(/\D/g, ''));
-      await updateTicket({
-        ticketId: numericId,
-        statusId: 8, // Reopened
-      });
-      setSelectedTicket(null);
+      const res = await reopenTicket(numericId, reason);
       showSuccess('Ticket reopened', 'Ticket reopened successfully.');
       loadTickets({ forceRefresh: true });
+      return res;
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
-      showError('Error', err?.response?.data?.message || 'Failed to reopen ticket.');
-    } finally {
-      setModalLoading(false);
+      const msg = err?.response?.data?.message || 'Failed to reopen ticket.';
+      showError('Error', msg);
+      throw err;
     }
   };
 
@@ -847,116 +936,232 @@ export default function MyTickets({ mode = 'all' }) {
         </div>
       )}
 
-      {activeTab === 'tickets' ? (
+      {activeTab !== 'drafts' ? (
         <>
-          <div className="w-full flex flex-col gap-3.5 shrink-0">
-            <div className="relative w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search by Ticket ID or title..."
-                value={filters.search}
-                onChange={(event) => updateFilter('search', event.target.value)}
-                className="w-full rounded-xl border border-gray-200 bg-surface pl-10 pr-4 py-2.5 text-sm text-dark-slate placeholder:text-muted-slate/60 outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent transition-colors"
-              />
+          {/* ─── Search & Filter Bar ─── */}
+          <div className="rounded-2xl border border-gray-150 bg-white p-4 shadow-sm space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+              {/* 1. Keywords Search */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Keywords</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    aria-label="Search by keywords"
+                    placeholder="Search keywords, ID, title..."
+                    value={filters.keywords}
+                    onChange={(e) => updateFilter('keywords', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 pl-8 pr-7 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition"
+                  />
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  {filters.keywords && (
+                    <button
+                      type="button"
+                      aria-label="Clear keywords filter"
+                      onClick={() => clearFilter('keywords')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Machine Dropdown */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Machine</label>
+                <div className="relative">
+                  <select
+                    aria-label="Filter by machine"
+                    value={filters.machine}
+                    onChange={(e) => updateFilter('machine', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white appearance-none pr-7"
+                  >
+                    <option value="">All Machines</option>
+                    {availableMachines.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                  {filters.machine ? (
+                    <button
+                      type="button"
+                      aria-label="Clear machine filter"
+                      onClick={() => clearFilter('machine')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]">▼</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Status Dropdown */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Status</label>
+                <div className="relative">
+                  <select
+                    aria-label="Filter by status"
+                    value={filters.status}
+                    onChange={(e) => updateFilter('status', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white appearance-none pr-7"
+                  >
+                    <option value="">All Statuses</option>
+                    {availableStatuses.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  {filters.status ? (
+                    <button
+                      type="button"
+                      aria-label="Clear status filter"
+                      onClick={() => clearFilter('status')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]">▼</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Category Dropdown */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Category</label>
+                <div className="relative">
+                  <select
+                    aria-label="Filter by category"
+                    value={filters.category}
+                    onChange={(e) => updateFilter('category', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white appearance-none pr-7"
+                  >
+                    <option value="">All Categories</option>
+                    {availableCategories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  {filters.category ? (
+                    <button
+                      type="button"
+                      aria-label="Clear category filter"
+                      onClick={() => clearFilter('category')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]">▼</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 5. Date Picker */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Date</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    aria-label="Filter by date"
+                    value={filters.date}
+                    onChange={(e) => updateFilter('date', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white"
+                  />
+                  {filters.date && (
+                    <button
+                      type="button"
+                      aria-label="Clear date filter"
+                      onClick={() => clearFilter('date')}
+                      className="absolute right-7 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
-              <select
-                value={filters.status}
-                onChange={(event) => updateFilter('status', event.target.value)}
-                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
-              >
-                <option value="">All statuses</option>
-                {(filterOptions.statuses.length > 0
-                  ? filterOptions.statuses.map((s) => s.status_name || s.name || s)
-                  : (isHistory ? HISTORY_STATUSES : ACTIVE_STATUSES)
-                ).map((status) => (
-                  <option key={status} value={status}>{status}</option>
+
+            {/* Active Filter Badges + Reset Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-gray-100 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[240px]">
+                {activeFilterList.map((item) => (
+                  <span
+                    key={item.key}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-[#252578] border border-blue-200/60 animate-in fade-in duration-150"
+                  >
+                    <span>{item.label}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove filter ${item.label}`}
+                      onClick={() => clearFilter(item.key)}
+                      className="hover:bg-blue-200/60 rounded-full p-0.5 transition cursor-pointer"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
                 ))}
-              </select>
+                {activeFilterList.length === 0 && (
+                  <span className="text-gray-400 text-xs">No active filters</span>
+                )}
+              </div>
 
-              <select
-                value={filters.category}
-                onChange={(event) => updateFilter('category', event.target.value)}
-                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
-              >
-                <option value="">All categories</option>
-                {(filterOptions.categories.length > 0
-                  ? filterOptions.categories.map((c) => c.category_name || c.name || c)
-                  : categories
-                ).map((category) => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
-
-              {filterOptions.machines.length > 0 && (
-                <select
-                  value={filters.machine}
-                  onChange={(event) => updateFilter('machine', event.target.value)}
-                  className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
-                >
-                  <option value="">All machines</option>
-                  {filterOptions.machines.map((m) => {
-                    const label = typeof m === 'string'
-                      ? m
-                      : m.label || (m.machine_name ? `${m.machine_name}${m.serial_number ? ` - ${m.serial_number}` : ''}` : (m.name || `Machine #${m.machine_ID || ''}`));
-                    const key = typeof m === 'object' && m ? (m.machine_ID || m.value || label) : label;
-                    return <option key={key} value={label}>{label}</option>;
-                  })}
-                </select>
-              )}
-
-              <input
-                type="date"
-                title="Filter by creation date"
-                value={filters.dateFrom}
-                onChange={(event) => {
-                  const v = event.target.value;
-                  setFilters((c) => ({ ...c, dateFrom: v, dateTo: v }));
-                }}
-                className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
-              />
-
-              {(filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={resetFilters}
-                  icon={<RotateCcw className="h-3.5 w-3.5" />}
-                  className="shrink-0"
-                >
-                  Reset
-                </Button>
-              )}
+              <div className="flex items-center gap-2 ml-auto shrink-0">
+                <span className="text-gray-400 text-[11px]">
+                  Showing <strong className="text-gray-700">{visibleTickets.length}</strong> of {tickets.length}
+                </span>
+                {activeFilterList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer"
+                  >
+                    <RotateCcw size={12} /> Reset all filters
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-semibold flex items-center justify-between">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => loadTickets({ forceRefresh: true })}
+                className="underline hover:no-underline text-xs"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[120px]">ID</TableHead>
-                  <TableHead className="min-w-[240px]">Title</TableHead>
-                  <TableHead className="min-w-[160px]">Equipment</TableHead>
-                  <TableHead className="w-[140px]">Status</TableHead>
-                  <TableHead className="w-[140px]">Date Created</TableHead>
-                  <TableHead className="w-[140px]">Last Updated</TableHead>
-                  <TableHead className="w-[80px] text-center">Action</TableHead>
+                  <TableHead className="w-[110px]">Ticket ID</TableHead>
+                  <TableHead className="min-w-[220px]">Title & Summary</TableHead>
+                  <TableHead className="min-w-[140px]">Equipment</TableHead>
+                  <TableHead className="w-[100px]">Priority</TableHead>
+                  <TableHead className="w-[130px]">Status</TableHead>
+                  <TableHead className="min-w-[140px]">Assigned Employee</TableHead>
+                  <TableHead className="w-[130px]">Date Created</TableHead>
+                  <TableHead className="w-[130px]">Last Updated</TableHead>
+                  <TableHead className="w-[70px] text-center">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visibleTickets.length === 0 && loading && (
-                  <DataTableSkeleton columns={7} rows={5} />
+                  <DataTableSkeleton columns={9} rows={5} />
                 )}
                 {visibleTickets.length === 0 && !loading && (
                   <DataTableEmptyState
-                    colSpan={7}
+                    colSpan={9}
                     title="No tickets match your criteria"
-                    description="Try adjusting your keyword search or removing filters."
+                    description="Try adjusting your search keywords or clearing active filters."
                     action={
-                      (filters.search || filters.status || filters.category || filters.machine || filters.priority || filters.dateFrom) && (
+                      activeFilterList.length > 0 && (
                         <Button variant="outline" size="sm" onClick={resetFilters} icon={<RotateCcw className="h-3.5 w-3.5" />}>
                           Clear all filters
                         </Button>
@@ -964,98 +1169,152 @@ export default function MyTickets({ mode = 'all' }) {
                     }
                   />
                 )}
-                {visibleTickets.map((ticket) => (
-                  <TableRow
-                    key={ticket.id}
-                    className="cursor-pointer"
-                    onClick={() => handleViewTicket(ticket)}
-                  >
-                    <TableCell className="font-semibold text-brand-primary whitespace-nowrap">
-                      {ticket.id}
-                    </TableCell>
-                    <TableCell className="max-w-[280px]">
-                      <div className="truncate font-medium text-dark-slate" title={ticket.title}>{ticket.title}</div>
-                      <div className="truncate max-w-[260px] text-xs text-muted-slate md:hidden" title={ticket.description}>{ticket.description}</div>
-                    </TableCell>
-                    <TableCell className="text-muted-slate max-w-[160px] truncate" title={ticket.equipment || ticket.category}>
-                      {ticket.equipment || ticket.category || '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
-                        {ticket.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-slate text-xs whitespace-nowrap">
-                      {formatDisplayDate(ticket.date_created)}
-                    </TableCell>
-                    <TableCell className="text-muted-slate text-xs whitespace-nowrap">
-                      {formatDisplayDate(ticket.last_updated)}
-                    </TableCell>
-                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="rounded-full p-2 text-muted-slate hover:bg-page hover:text-dark-slate transition-colors cursor-pointer"
-                            aria-label="Actions"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {isHistory ? (
-                            <>
-                              <DropdownMenuItem
-                                onClick={() => handleViewTicket(ticket)}
-                                disabled={ticket.status !== 'Closed'}
-                              >
-                                Reopen
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                destructive
-                                onClick={() => handleDeleteTicket(ticket)}
-                              >
-                                Delete
-                              </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <>
-                              {canEditTicket(ticket) && (
-                                <DropdownMenuItem onClick={() => handleEditTicket(ticket)}>
-                                  Edit
+                {visibleTickets.map((ticket) => {
+                  const assignedEmpDisplay =
+                    ticket.assigned_employee ||
+                    ticket.assigned_employee_name ||
+                    ticket.assigned_to_name ||
+                    (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null) ||
+                    'Unassigned';
+
+                  return (
+                    <TableRow
+                      key={ticket.id}
+                      className="cursor-pointer"
+                      onClick={() => handleViewTicket(ticket)}
+                    >
+                      <TableCell className="font-semibold text-brand-primary whitespace-nowrap">
+                        {ticket.id}
+                      </TableCell>
+                      <TableCell className="max-w-[260px]">
+                        <div className="truncate font-medium text-dark-slate" title={ticket.title}>{ticket.title}</div>
+                        <div className="truncate max-w-[240px] text-xs text-muted-slate md:hidden" title={ticket.description}>{ticket.description}</div>
+                      </TableCell>
+                      <TableCell className="text-muted-slate max-w-[160px] truncate" title={ticket.equipment || ticket.category}>
+                        {ticket.equipment || ticket.category || '—'}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>
+                          {ticket.priority || 'Low'}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
+                          {ticket.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-slate max-w-[150px] truncate" title={assignedEmpDisplay}>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <User size={13} className="text-muted-slate shrink-0" />
+                          <span className="truncate">{assignedEmpDisplay}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                        {formatDisplayDate(ticket.date_created)}
+                      </TableCell>
+                      <TableCell className="text-muted-slate text-xs whitespace-nowrap">
+                        {formatDisplayDate(ticket.last_updated)}
+                      </TableCell>
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="rounded-full p-2 text-muted-slate hover:bg-page hover:text-dark-slate transition-colors cursor-pointer"
+                              aria-label="Actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {isHistory ? (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleViewTicket(ticket)}
+                                  disabled={ticket.status !== 'Closed'}
+                                >
+                                  Reopen
                                 </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem
-                                destructive
-                                onClick={() => handleDeleteTicket(ticket)}
-                              >
-                                Discard
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                                <DropdownMenuItem
+                                  destructive
+                                  onClick={() => handleDeleteTicket(ticket)}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <>
+                                {canEditTicket(ticket) && (
+                                  <DropdownMenuItem onClick={() => handleEditTicket(ticket)}>
+                                    Edit
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  destructive
+                                  onClick={() => handleDeleteTicket(ticket)}
+                                >
+                                  Discard
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         </>
       ) : (
         /* ─── My Drafts Tab (TS020) ─── */
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Draft Title / Summary</TableHead>
-                <TableHead>Equipment</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Last Saved</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-150 shadow-xs">
+            <div>
+              <h2 className="text-sm font-bold text-gray-800">Your Saved Drafts</h2>
+              <p className="text-xs text-gray-500">Finish and submit in-progress tickets at your convenience.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                drafts.length >= 10
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : drafts.length >= 7
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-blue-50 text-[#252578] border-blue-200'
+              }`}>
+                {drafts.length} / 10 Drafts
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate('/create-ticket')}
+                disabled={drafts.length >= 10}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#252578] hover:bg-[#1f1f66] disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition cursor-pointer"
+              >
+                + New Ticket
+              </button>
+            </div>
+          </div>
+
+          {drafts.length >= 10 && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs font-semibold text-amber-800 flex items-center gap-2.5">
+              <AlertCircle size={16} className="text-amber-600 shrink-0" />
+              <span>You have reached the maximum allowed limit of 10 drafts. Please submit or delete an existing draft to create new ones.</span>
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-surface shadow-xs">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Draft Title / Summary</TableHead>
+                  <TableHead>Equipment</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Last Saved</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
               {drafts.length === 0 && loadingDrafts && (
                 <DataTableSkeleton columns={5} rows={3} />
               )}
@@ -1118,6 +1377,7 @@ export default function MyTickets({ mode = 'all' }) {
             </TableBody>
           </Table>
         </div>
+      </div>
       )}
 
       <TicketModal

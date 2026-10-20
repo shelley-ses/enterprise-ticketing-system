@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Mail, Briefcase } from 'lucide-react';
+import { CalendarDays, Mail, Briefcase, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export default function ProfileHero({ profile }) {
@@ -34,9 +34,14 @@ export default function ProfileHero({ profile }) {
             <CalendarDays size={14} className="text-muted-slate" />
             Member since {profile.dateJoined}
           </span>
+          {profile.lastSynced && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full bg-accent/10 text-primary border border-accent/20">
+              <RefreshCw size={11} className="text-accent" />
+              Auth Synced: {profile.lastSynced}
+            </span>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

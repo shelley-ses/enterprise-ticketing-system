@@ -54,6 +54,7 @@ const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard.jsx'));
 const AdminEmployees = React.lazy(() => import('./pages/AdminEmployees.jsx'));
 const AdminReports = React.lazy(() => import('./pages/AdminReports.jsx'));
 const AdminSettings = React.lazy(() => import('./pages/AdminSettings.jsx'));
+const ExternalFeedbackPage = React.lazy(() => import('./pages/ExternalFeedbackPage.jsx'));
 
 // ─── Role helpers (mirrors GuestRoute / PrivateRoute) ─────────────────────────
 const checkIsCS = (user) => {
@@ -214,6 +215,10 @@ function App() {
                   </GuestRoute>
                 }
               />
+
+              {/* External Customer Feedback (accessible directly via email links or portal) */}
+              <Route path="/feedback/:ticketId" element={<ExternalFeedbackPage />} />
+              <Route path="/feedback" element={<ExternalFeedbackPage />} />
 
               {/* Protected Customer Routes */}
               <Route element={<CustomerLayout />}>

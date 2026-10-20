@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CustomerFeedback;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class FeedbackController extends Controller
@@ -14,9 +15,19 @@ class FeedbackController extends Controller
      */
     public function store(Request $request)
     {
-        // Enforce the master feedback collection toggle
-        $isFeedbackEnabled = DB::table('feedback_form_settings')->where('key', 'master_toggle')->value('is_enabled');
-        if ($isFeedbackEnabled !== null && !$isFeedbackEnabled) {
+        // Enforce the master feedback collection toggle via configuration-service API
+        $isFeedbackEnabled = true;
+        try {
+            $configRes = Http::timeout(3)->get('http://configuration-service:8000/api/feedback-form/status');
+            if ($configRes->successful()) {
+                $statusData = $configRes->json();
+                $isFeedbackEnabled = (bool) ($statusData['is_enabled'] ?? $statusData['isEnabled'] ?? true);
+            }
+        } catch (\Throwable $e) {
+            Log::info('Configuration service status check bypassed in FeedbackController: ' . $e->getMessage());
+        }
+
+        if (!$isFeedbackEnabled) {
             return response()->json([
                 'status'  => 'error',
                 'message' => 'Customer feedback submissions and analytics collection are currently disabled by the system administrator.',

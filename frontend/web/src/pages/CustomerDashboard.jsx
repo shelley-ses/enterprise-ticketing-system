@@ -11,6 +11,7 @@ import {
   prefetchTicketFormOptions,
   getTicketDetails,
   updateTicket,
+  reopenTicket,
 } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import { parseUTCDate } from '@/utils/dateUtils';
@@ -248,9 +249,9 @@ export default function CustomerDashboard() {
     const isMock = selectedTicket ? !!selectedTicket.isMock : false;
     if (isMock) {
       const stored = JSON.parse(localStorage.getItem('customer_created_tickets') || '[]');
+      const timestamp = new Date().toISOString();
       const updatedList = stored.map(t => {
         if (t.id === ticketId || t.ticket_ID === ticketId) {
-          const timestamp = new Date().toISOString();
           const timeline = t.timeline || [
             { id: 'creation', type: 'system', text: 'Ticket created.', timestamp: t.date_created }
           ];
@@ -275,25 +276,20 @@ export default function CustomerDashboard() {
       setSelectedTicket(null);
       toast.success('Ticket reopened successfully.');
       loadDashboardData();
-      return;
+      return { success: true };
     }
 
-    setLoadingText('Reopening ticket...');
-    setModalLoading(true);
     try {
       const numericId = Number(String(ticketId).replace(/\D/g, ''));
-      await updateTicket({
-        ticketId: numericId,
-        statusId: 8, // Reopened
-      });
+      const res = await reopenTicket(numericId, reason);
       setSelectedTicket(null);
       toast.success('Ticket reopened successfully.');
       loadDashboardData();
+      return res;
     } catch (err) {
       console.error('Failed to reopen ticket:', err);
       toast.error(err?.response?.data?.message || 'Failed to reopen ticket.');
-    } finally {
-      setModalLoading(false);
+      throw err;
     }
   };
 

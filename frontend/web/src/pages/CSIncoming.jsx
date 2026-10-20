@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Search, RotateCcw, SlidersHorizontal, Loader2 } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
-import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { PageHeader } from '@/components/ui/page-header';
@@ -49,6 +49,70 @@ const buildEmployeeSignature = (list = []) => list
 
 const getDisplayStatus = (ticket) => ticket.status;
 
+const buildTicketSearchString = (t) => {
+  if (!t) return '';
+  const id = String(t.id || t.ticket_ID || t.ticket_number || '');
+  const customer = String(
+    t.customer ||
+    t.customer_name ||
+    t.requestor ||
+    t.created_by_name ||
+    (typeof t.customer === 'object' ? t.customer?.name : '') ||
+    ''
+  );
+  const isInternal = Boolean(
+    t.title?.startsWith('[Internal]') ||
+    t.is_internal ||
+    t.ticket_type === 'Internal' ||
+    t.type === 'Internal'
+  );
+  const typeStr = isInternal ? 'internal' : 'external';
+  const title = String(t.title || '');
+  const category = String(t.category || '');
+  const rawStatus = String(t.status || '');
+  const displayStatus = String(
+    getDisplayStatus(t) === 'Reopen' ? 'Reopened' : (getDisplayStatus(t) || '')
+  );
+  const reassignmentBadge = t.reassignmentRequested ? 'pending reassignment' : '';
+  const statusStr = `${rawStatus} ${displayStatus} ${reassignmentBadge}`;
+  const dept = String(t.department || '');
+  const equip = String(t.equipment || t.machine_name || '');
+  const facility = String(t.facility || '');
+
+  const dateValue = t.date || t.created_at || t.submitted_at || '';
+  const rawDate = String(dateValue);
+  const formattedDate = formatDisplayDate(dateValue);
+  let extraDates = '';
+  try {
+    const parsed = parseUTCDate(dateValue);
+    if (parsed && !isNaN(parsed.getTime())) {
+      extraDates = [
+        parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
+      ].join(' ');
+    }
+  } catch (e) {}
+
+  return [
+    id,
+    customer,
+    typeStr,
+    title,
+    category,
+    statusStr,
+    dept,
+    equip,
+    facility,
+    rawDate,
+    formattedDate,
+    extraDates,
+  ]
+    .join(' ')
+    .toLowerCase();
+};
+
 /* Modals are imported from @/components/CSModals */
 
 /* ─────────────────────────────────────────────
@@ -65,6 +129,7 @@ export default function CSIncoming() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('All Customers');
   const [category, setCategory] = useState('All Categories');
   // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
@@ -87,12 +152,46 @@ export default function CSIncoming() {
 
   const resetFilters = useCallback(() => {
     setSearch('');
+    setCustomerFilter('All Customers');
     setCategory('All Categories');
     setMachineFilter('All Machines');
     setDepartmentFilter('All Departments');
     setStatusFilter('All Statuses');
     setAssignmentFilter('All');
     setTypeFilter('all');
+    setPage(1);
+  }, []);
+
+  const clearFilter = useCallback((key) => {
+    switch (key) {
+      case 'search':
+        setSearch('');
+        break;
+      case 'customer':
+        setCustomerFilter('All Customers');
+        break;
+      case 'machine':
+        setMachineFilter('All Machines');
+        break;
+      case 'department':
+        setDepartmentFilter('All Departments');
+        break;
+      case 'status':
+        setStatusFilter('All Statuses');
+        break;
+      case 'category':
+        setCategory('All Categories');
+        break;
+      case 'assignment':
+        setAssignmentFilter('All');
+        break;
+      case 'type':
+        setTypeFilter('all');
+        break;
+      default:
+        break;
+    }
+    setPage(1);
   }, []);
 
   const loadStaticData = useCallback(async () => {
@@ -258,14 +357,43 @@ export default function CSIncoming() {
     deferRefresh: false,
   });
 
+  const customers = useMemo(() => {
+    const list = Array.from(new Set(tickets.map((t) => t.customer || t.requestor || t.created_by_name).filter(Boolean)));
+    return ['All Customers', ...list.sort()];
+  }, [tickets]);
+
   const categories = useMemo(
-    () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category)))],
+    () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category).filter(Boolean)))],
     [tickets]
   );
 
-  const machines = useMemo(
-    () => ['All Machines', ...Array.from(new Set(tickets.map((t) => t.equipment).filter(Boolean)))],
-    [tickets]
+  const machines = useMemo(() => {
+    const fromTickets = tickets.map((t) => t.equipment || t.machine_name).filter(Boolean);
+    const fromBackend = (csFilterOptions.machines || []).map((m) => m.machine_name || m.label || m.name || m);
+    return ['All Machines', ...Array.from(new Set([...fromTickets, ...fromBackend])).sort()];
+  }, [tickets, csFilterOptions.machines]);
+
+  const statuses = useMemo(() => {
+    const defaultStatuses = ['Open', 'In Progress', 'Pending Assignment', 'On Hold', 'Pending Evaluation', 'Resolved', 'Closed', 'Reopened'];
+    const fromBackend = (csFilterOptions.statuses || []).map((s) => s.status_name || s.name || s);
+    return ['All Statuses', ...Array.from(new Set([...defaultStatuses, ...fromBackend]))];
+  }, [csFilterOptions.statuses]);
+
+  const departmentOptions = useMemo(() => {
+    const fromDeps = departments.map((d) => d.name || d);
+    const fromTickets = tickets.map((t) => t.department).filter(Boolean);
+    return ['All Departments', ...Array.from(new Set([...fromDeps, ...fromTickets])).sort()];
+  }, [departments, tickets]);
+
+  const hasActiveFilters = Boolean(
+    search.trim() ||
+    customerFilter !== 'All Customers' ||
+    machineFilter !== 'All Machines' ||
+    statusFilter !== 'All Statuses' ||
+    departmentFilter !== 'All Departments' ||
+    category !== 'All Categories' ||
+    assignmentFilter !== 'All' ||
+    typeFilter !== 'all'
   );
 
   // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached'];
@@ -301,8 +429,8 @@ export default function CSIncoming() {
     return tickets.filter((t) => {
       if (t.reassignmentRequested === true) return false;
       if (category !== 'All Categories' && t.category !== category) return false;
-      // if (slaFilter !== 'All SLA' && t.sla !== slaFilter) return false;
-      if (machineFilter !== 'All Machines' && t.equipment !== machineFilter) return false;
+      if (customerFilter !== 'All Customers' && (t.customer || t.requestor || t.created_by_name || '') !== customerFilter) return false;
+      if (machineFilter !== 'All Machines' && (t.equipment || t.machine_name || '') !== machineFilter) return false;
       if (departmentFilter !== 'All Departments' && (t.department || '').trim().toLowerCase() !== departmentFilter.trim().toLowerCase()) return false;
       if (statusFilter !== 'All Statuses' && (t.status || '').trim().toLowerCase() !== statusFilter.trim().toLowerCase()) return false;
 
@@ -342,16 +470,13 @@ export default function CSIncoming() {
       }
 
       if (!q) return true;
-      return (
-        (t.id && t.id.toLowerCase().includes(q)) ||
-        (t.customer && t.customer.toLowerCase().includes(q)) ||
-        (t.title && t.title.toLowerCase().includes(q)) ||
-        (t.department && t.department.toLowerCase().includes(q)) ||
-        (t.equipment && t.equipment.toLowerCase().includes(q)) ||
-        (t.category && t.category.toLowerCase().includes(q))
-      );
+      const cleanQ = q.trim().toLowerCase();
+      const searchBlob = buildTicketSearchString(t);
+      if (searchBlob.includes(cleanQ)) return true;
+      const tokens = cleanQ.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+      return tokens.length > 0 && tokens.every((token) => searchBlob.includes(token));
     });
-  }, [tickets, search, category, machineFilter, departmentFilter, statusFilter, assignmentFilter, typeFilter, incomingTab]);
+  }, [tickets, search, customerFilter, category, machineFilter, departmentFilter, statusFilter, assignmentFilter, typeFilter, incomingTab]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -793,8 +918,14 @@ export default function CSIncoming() {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
 
             setTickets((prev) => prev.map((t) => (
-              t.id === (updatedFields.id || modal.ticket.id) ? { ...t, ...updatedFields } : t
+              (t.id === (updatedFields.id || modal.ticket.id) || t.ticket_ID === (updatedFields.ticket_ID || modal.ticket.ticket_ID)) ? { ...t, ...updatedFields } : t
             )));
+
+            // If the status is 'On Hold' or if classification was updated,
+            // the dedicated endpoint (POST /hold or PATCH /classification) was already executed directly in TicketSummary.
+            if (updatedFields.status === 'On Hold' || updatedFields.category || updatedFields.priority) {
+              return;
+            }
 
             try {
               const numericId = modal.ticket.ticket_ID || Number(String(updatedFields.id || modal.ticket.id).replace(/\D/g, ''));
@@ -817,7 +948,6 @@ export default function CSIncoming() {
                   'Reopened': 8,
                   'Reopen': 8,
                   'Pending Assignment': 9,
-                  'On Hold': 11,
                 };
                 
                 await updateTicket({

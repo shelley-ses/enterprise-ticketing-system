@@ -7,15 +7,75 @@ import {
   getCSIncomingTickets,
   getDepartments,
 } from '@/services/ticketService';
-import { formatDisplayDate } from '@/utils/dateUtils';
+import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
-
 const HISTORY_STATUSES = ['Closed', 'Resolved'];
 
 const getDisplayStatus = (ticket) => ticket.status;
+
+const buildTicketSearchString = (t) => {
+  if (!t) return '';
+  const id = String(t.id || t.ticket_ID || t.ticket_number || '');
+  const customer = String(
+    t.customer ||
+    t.customer_name ||
+    t.requestor ||
+    t.created_by_name ||
+    (typeof t.customer === 'object' ? t.customer?.name : '') ||
+    ''
+  );
+  const isInternal = Boolean(
+    t.title?.startsWith('[Internal]') ||
+    t.is_internal ||
+    t.ticket_type === 'Internal' ||
+    t.type === 'Internal'
+  );
+  const typeStr = isInternal ? 'internal' : 'external';
+  const title = String(t.title || '');
+  const category = String(t.category || '');
+  const rawStatus = String(t.status || '');
+  const displayStatus = String(
+    getDisplayStatus(t) === 'Reopen' ? 'Reopened' : (getDisplayStatus(t) || '')
+  );
+  const statusStr = `${rawStatus} ${displayStatus}`;
+  const dept = String(t.department || '');
+  const equip = String(t.equipment || t.machine_name || '');
+
+  const dateValue = t.date || t.created_at || t.submitted_at || t.updated_at || '';
+  const rawDate = String(dateValue);
+  const formattedDate = formatDisplayDate(dateValue);
+  let extraDates = '';
+  try {
+    const parsed = parseUTCDate(dateValue);
+    if (parsed && !isNaN(parsed.getTime())) {
+      extraDates = [
+        parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
+      ].join(' ');
+    }
+  } catch (e) {}
+
+  return [
+    id,
+    customer,
+    typeStr,
+    title,
+    category,
+    statusStr,
+    dept,
+    equip,
+    rawDate,
+    formattedDate,
+    extraDates,
+  ]
+    .join(' ')
+    .toLowerCase();
+};
 
 export default function CSHistory() {
   const navigate = useNavigate();
@@ -135,12 +195,11 @@ export default function CSHistory() {
       }
 
       if (!q) return true;
-      return (
-        t.id.toLowerCase().includes(q) ||
-        t.customer.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
-        (t.equipment && t.equipment.toLowerCase().includes(q))
-      );
+      const cleanQ = q.trim().toLowerCase();
+      const searchBlob = buildTicketSearchString(t);
+      if (searchBlob.includes(cleanQ)) return true;
+      const tokens = cleanQ.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+      return tokens.length > 0 && tokens.every((token) => searchBlob.includes(token));
     });
   }, [tickets, search, category, statusFilter, typeFilter]);
 

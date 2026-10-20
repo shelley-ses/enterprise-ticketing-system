@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Search } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Search, ShieldAlert } from 'lucide-react';
 import { getSuperAdminAuditLogs } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { PageHeader } from '@/components/ui/page-header';
@@ -7,13 +8,27 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@
 import { DataTableSkeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
 
 export default function SuperAdminAuditLogs() {
+  const location = useLocation();
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterModule, setFilterModule] = useState('');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedIncident, setSelectedIncident] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const incidentId = params.get('incidentId');
+    const query = params.get('q');
+    if (incidentId) {
+      setSearch(incidentId);
+    } else if (query) {
+      setSearch(query);
+    }
+  }, [location.search]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -148,27 +163,96 @@ export default function SuperAdminAuditLogs() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono">{log.timestamp}</TableCell>
-                      <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.user}</TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        <Badge variant={log.role === 'Super Admin' ? 'secondary' : 'neutral'}>
-                          {log.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-slate-dark whitespace-nowrap font-medium">{log.action}</TableCell>
-                      <TableCell className="text-slate-muted whitespace-nowrap">{log.module}</TableCell>
-                      <TableCell className="text-slate-dark whitespace-nowrap">{log.target}</TableCell>
-                      <TableCell className="text-slate-muted max-w-xs truncate">{log.details}</TableCell>
-                    </TableRow>
-                  ))
+                  filtered.map((log) => {
+                    const isSecurity = Boolean(
+                      log.module === 'Security' ||
+                      /malware|quarantine|threat|infected/i.test(log.action + ' ' + log.details)
+                    );
+
+                    return (
+                      <TableRow
+                        key={log.id}
+                        onClick={() => {
+                          if (isSecurity) {
+                            setSelectedIncident({
+                              id: log.target || log.id,
+                              user: log.user,
+                              data: {
+                                incident_id: log.target || log.id,
+                                timestamp: log.timestamp,
+                                uploader: { email: log.user, role: log.role },
+                                file: {
+                                  original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
+                                  threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
+                                },
+                              },
+                            });
+                          }
+                        }}
+                        className={`transition-colors ${
+                          isSecurity
+                            ? 'bg-destructive/5 hover:bg-destructive/10 cursor-pointer'
+                            : ''
+                        }`}
+                      >
+                        <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono">{log.timestamp}</TableCell>
+                        <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.user}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <Badge variant={log.role === 'Super Admin' ? 'secondary' : isSecurity ? 'destructive' : 'neutral'}>
+                            {log.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-dark whitespace-nowrap font-medium">
+                          {isSecurity ? (
+                            <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
+                              <ShieldAlert size={14} className="text-destructive shrink-0" />
+                              {log.action}
+                            </span>
+                          ) : (
+                            log.action
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {isSecurity ? (
+                            <Badge variant="destructive" className="text-[10px] uppercase font-bold">
+                              Security
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-muted">{log.module}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-dark whitespace-nowrap font-mono text-xs">{log.target}</TableCell>
+                        <TableCell className="text-slate-muted max-w-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`truncate ${isSecurity ? 'text-destructive font-medium' : ''}`}>
+                              {log.details}
+                            </span>
+                            {isSecurity && (
+                              <button
+                                type="button"
+                                className="shrink-0 text-xs font-bold text-destructive hover:underline ml-2 cursor-pointer"
+                              >
+                                View Details
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
           </div>
         )}
       </div>
+
+      {selectedIncident && (
+        <SecurityIncidentModal
+          incident={selectedIncident}
+          onClose={() => setSelectedIncident(null)}
+        />
+      )}
     </div>
   );
 }

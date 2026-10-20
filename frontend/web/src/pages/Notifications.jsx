@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +17,7 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
 import { respondReassignment } from '@/services/ticketService';
+import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -30,8 +31,7 @@ export default function Notifications() {
   const [activeNotificationId, setActiveNotificationId] = useState(null);
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [activeTicketLoading, setActiveTicketLoading] = useState(false);
-
-
+  const [activeSecurityIncident, setActiveSecurityIncident] = useState(null);
 
   const loadData = useCallback(async ({ source = 'manual' } = {}) => {
     if (source !== 'websocket' && source !== 'poll') {
@@ -39,7 +39,6 @@ export default function Notifications() {
     }
     setError('');
     try {
-
       const data = await getNotifications();
       setNotifications(data.notifications || []);
     } catch (err) {
@@ -61,7 +60,6 @@ export default function Notifications() {
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
   });
-
 
   const handleMarkAllRead = async () => {
     try {
@@ -116,8 +114,9 @@ export default function Notifications() {
       const userStr = localStorage.getItem('user');
       let role = '';
       try { role = JSON.parse(userStr)?.role || ''; } catch {}
+      const isAutoClose = /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
       if (role === 'customer') return '/my-tickets';
-      if (role === 'employee') return '/employee/machine';
+      if (role === 'employee') return isAutoClose ? `/employee/history/${n.ticket_id}` : '/employee/machine';
       if (role === 'cs') return '/cs/incoming';
       return '/notifications';
     }
@@ -142,6 +141,25 @@ export default function Notifications() {
   }, [activeNotificationId, loadData]);
 
   const handleNotificationClick = async (n) => {
+    const parsedData = (() => {
+      try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; }
+    })();
+
+    const isSecurityAlert = Boolean(
+      parsedData.alert_type === 'security_alert' ||
+      parsedData.event === 'malware_detected' ||
+      /security alert|malware/i.test(n.title || '') ||
+      /malware|quarantine/i.test(n.message || '')
+    );
+
+    if (isSecurityAlert) {
+      if (!n.is_read) {
+        handleMarkOneRead(n.id);
+      }
+      setActiveSecurityIncident({ ...n, data: parsedData });
+      return;
+    }
+
     const ticketId = n.ticket_id;
     if (!ticketId) {
       const path = getNotificationPath(n);
@@ -151,7 +169,7 @@ export default function Notifications() {
     setActiveTicketLoading(true);
     setActiveNotificationId(n.id);
     try {
-      const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
+      const parsed = parsedData;
       const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
       const full = await getTicketDetails(ticketNum).catch(() => null);
       const base = full || { id: `TKT-${String(ticketId).padStart(4, '0')}`, ticket_ID: ticketId, title: n.title, description: n.message, status: 'Open', priority: 'Medium', customer: '—', timeline: [{ id: 'creation', type: 'system', text: n.message, timestamp: n.created_at }] };
@@ -206,7 +224,7 @@ export default function Notifications() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto font-sans">
       <div className="mb-6">
         <PageHeader
           pattern="B"
@@ -218,7 +236,7 @@ export default function Notifications() {
                 variant="ghost"
                 size="sm"
                 onClick={handleMarkAllRead}
-                className="text-xs font-semibold text-accent hover:text-accent"
+                className="text-xs font-semibold text-accent hover:text-accent cursor-pointer"
               >
                 Mark all as read
               </Button>
@@ -228,7 +246,7 @@ export default function Notifications() {
       </div>
 
       {success && (
-        <div className="mb-6 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="mb-6 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 text-sm font-semibold flex items-center gap-3 animate-fadeIn">
           <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
             <CheckCircle2 size={18} />
           </div>
@@ -237,7 +255,7 @@ export default function Notifications() {
       )}
 
       {error && (
-        <div className="mb-6 rounded-xl bg-rose-50 border border-rose-100 text-rose-800 p-4 text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="mb-6 rounded-xl bg-rose-50 border border-rose-100 text-rose-800 p-4 text-sm font-semibold flex items-center gap-3 animate-fadeIn">
           <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
             <AlertCircle size={18} />
           </div>
@@ -255,41 +273,90 @@ export default function Notifications() {
         <div className="space-y-8">
           {/* Unified General Notification Feed */}
           <div className="space-y-4">
-            <h2 className="text-lg font-bold text-slate-dark border-b border-border pb-2">Recent Notifications</h2>
+            <h2 className="text-lg font-bold text-dark-slate border-b border-border pb-2">Recent Notifications</h2>
             {notifications.length === 0 ? (
               <div className="bg-card rounded-xl border border-border p-12 text-center shadow-xs">
                 <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-border text-slate-400">
                   <Bell size={28} className="text-slate-300" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-dark">All caught up!</h3>
-                <p className="text-sm text-slate-muted mt-1">There are no recent notifications.</p>
+                <h3 className="text-lg font-bold text-dark-slate">All caught up!</h3>
+                <p className="text-sm text-muted-slate mt-1">There are no recent notifications.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    onClick={() => handleNotificationClick(n)}
-                    className={`bg-card rounded-xl border border-border p-5 shadow-xs flex items-start gap-4 hover:border-slate-300 transition-all duration-200 cursor-pointer ${!n.is_read ? 'border-l-4 border-l-accent' : ''}`}
-                  >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${!n.is_read ? 'bg-accent/10 text-accent' : 'bg-slate-100 text-slate-muted'}`}>
-                      <Bell size={18} />
-                    </div>
+                {notifications.map((n) => {
+                  const parsedData = (() => {
+                    try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; }
+                  })();
+                  const isSecurityAlert = Boolean(
+                    parsedData.alert_type === 'security_alert' ||
+                    parsedData.event === 'malware_detected' ||
+                    /security alert|malware/i.test(n.title || '') ||
+                    /malware|quarantine/i.test(n.message || '')
+                  );
+                  const isAutoClose = !isSecurityAlert && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start mb-1 gap-4">
-                        <h3 className="text-sm font-bold text-slate-dark leading-snug">{n.title}</h3>
-                        <span className="text-[10px] text-slate-muted font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
+                  return (
+                    <div
+                      key={n.id}
+                      onClick={() => handleNotificationClick(n)}
+                      className={`bg-card rounded-xl border p-5 shadow-xs flex items-start gap-4 transition-all duration-200 cursor-pointer animate-fadeIn ${
+                        isSecurityAlert
+                          ? 'border-destructive/30 bg-destructive/5 hover:border-destructive/40 ' + (!n.is_read ? 'border-l-4 border-l-destructive pl-4' : '')
+                          : isAutoClose
+                            ? 'border-amber-200 bg-amber-50/20 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                            : 'border-border hover:border-slate-300 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        isSecurityAlert
+                          ? 'bg-destructive/15 text-destructive'
+                          : isAutoClose
+                            ? 'bg-amber-100 text-amber-700'
+                            : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
+                      }`}>
+                        {isSecurityAlert ? (
+                          <ShieldAlert size={20} className="text-destructive" />
+                        ) : isAutoClose ? (
+                          <Clock size={18} />
+                        ) : (
+                          <Bell size={18} />
+                        )}
                       </div>
-                      <p className="text-xs text-slate-muted leading-relaxed font-medium">{n.message}</p>
-                      {n.ticket_id && (
-                        <span className="inline-block text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md mt-2">
-                          TKT-{String(n.ticket_id).padStart(4, '0')}
-                        </span>
-                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-1 gap-4">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert ? 'text-destructive font-black' : 'text-dark-slate'}`}>{n.title}</h3>
+                            {isSecurityAlert && (
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-ping inline-block" />
+                                Security Alert
+                              </span>
+                            )}
+                            {isAutoClose && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Auto-Close Notice
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-slate font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
+                        </div>
+                        <p className={`text-xs leading-relaxed font-medium ${isSecurityAlert ? 'text-destructive font-semibold' : 'text-muted-slate'}`}>{n.message}</p>
+                        {n.ticket_id && (
+                          <span className="inline-block text-[9px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-md mt-2">
+                            TKT-{String(n.ticket_id).padStart(4, '0')}
+                          </span>
+                        )}
+                        {isSecurityAlert && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-destructive hover:underline mt-2">
+                            Inspect Incident Details →
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -302,11 +369,22 @@ export default function Notifications() {
         <CustomerTicketDetailModal ticket={activeTicket} onClose={handleCloseActiveTicket} onDiscard={null} onReopen={null} onResolve={null} allowReopen={false} customerName={activeTicket.customer} />
       );})()}
 
+      {activeSecurityIncident && (
+        <SecurityIncidentModal
+          incident={activeSecurityIncident}
+          onClose={() => setActiveSecurityIncident(null)}
+          onNavigateAuditLogs={() => {
+            setActiveSecurityIncident(null);
+            navigate('/superadmin/audit-logs');
+          }}
+        />
+      )}
+
       {activeTicketLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[1.5px]">
           <div className="bg-card rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-border">
             <Loader2 size={28} className="animate-spin text-primary" />
-            <p className="text-sm font-semibold text-slate-dark">Loading ticket...</p>
+            <p className="text-sm font-semibold text-dark-slate">Loading ticket...</p>
           </div>
         </div>
       )}

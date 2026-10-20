@@ -15,19 +15,31 @@ import {
   Building2,
   Tag,
   Shield,
+  ShieldAlert,
   Check,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import FilePreviewModal from './FilePreviewModal';
 import { useAuth } from '@/context/AuthContext';
-import { updateEmployeeTicketOverride } from '@/services/ticketService';
+import {
+  updateEmployeeTicketOverride,
+  holdTicket,
+  resumeTicket,
+  reclassifyTicket,
+  getTicketFormOptions,
+} from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 /* Helper functions for robust file attachment handling */
+const isQuarantinedFile = (file) => {
+  if (!file || typeof file !== 'object') return false;
+  return Boolean(file.is_quarantined || file.quarantined || file.status === 'quarantined' || file.virus_detected);
+};
+
 const getFileUrl = (file) => {
   if (!file) return '';
   if (typeof file === 'string') return file;
@@ -94,6 +106,332 @@ export function ConfirmDialog({ onConfirm, onCancel, isSaving = false, title = "
 }
 
 /* ─────────────────────────────────────────────
+   HOLD TICKET DIALOG
+───────────────────────────────────────────── */
+export function HoldTicketDialog({ isOpen, onClose, onConfirm, isSaving = false }) {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  useLockBodyScroll(isOpen);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const trimmed = reason.trim();
+    if (trimmed.length < 3) {
+      setError('A reason of at least 3 characters is required to place a ticket on hold.');
+      return;
+    }
+    setError('');
+    onConfirm(trimmed);
+  };
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl w-120 max-w-full shadow-2xl p-6 sm:p-7 relative flex flex-col">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <h4 className="text-base sm:text-lg font-bold text-gray-800">Place Ticket On Hold</h4>
+            <p className="text-xs text-gray-500">Temporarily pause progress while awaiting external information</p>
+          </div>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-800 leading-relaxed">
+          Placing this ticket on hold will pause its SLA clock and alert relevant stakeholders. You can resume this ticket at any time once external info is received.
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+              Reason for Hold <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value);
+                if (error && e.target.value.trim().length >= 3) setError('');
+              }}
+              rows={4}
+              maxLength={1000}
+              placeholder="Explain why this ticket is being placed on hold (e.g., Awaiting customer network diagnostic logs or vendor replacement parts)..."
+              className="w-full text-xs sm:text-sm border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 resize-none"
+              required
+            />
+            <div className="flex justify-between items-center text-[11px] text-gray-400 mt-1">
+              <span>Minimum 3 characters</span>
+              <span>{reason.length}/1000</span>
+            </div>
+            {error && <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>}
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving || reason.trim().length < 3}
+              className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors shadow-lg shadow-amber-600/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isSaving ? 'Placing on Hold...' : 'Confirm Place on Hold'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   RECLASSIFY EDIT MODAL
+───────────────────────────────────────────── */
+export function ReclassifyEditModal({
+  isOpen,
+  onClose,
+  currentCategory,
+  currentPriority,
+  categories = [],
+  priorities = ['Low', 'Medium', 'High', 'Critical'],
+  onReviewChanges,
+}) {
+  const [selectedCategory, setSelectedCategory] = useState(currentCategory || '');
+  const [selectedPriority, setSelectedPriority] = useState(currentPriority || 'Low');
+  const [error, setError] = useState('');
+  useLockBodyScroll(isOpen);
+
+  useEffect(() => {
+    setSelectedCategory(currentCategory || '');
+    setSelectedPriority(currentPriority || 'Low');
+    setError('');
+  }, [currentCategory, currentPriority, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleNext = () => {
+    if (selectedCategory === currentCategory && selectedPriority === currentPriority) {
+      setError('Please change at least one value (Category or Priority) to proceed.');
+      return;
+    }
+    setError('');
+    onReviewChanges({
+      newCategory: selectedCategory,
+      newPriority: selectedPriority,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl w-115 max-w-full shadow-2xl p-6 sm:p-7 relative flex flex-col">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-[#252578]/10 text-[#252578] flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </div>
+          <div>
+            <h4 className="text-base sm:text-lg font-bold text-gray-800">Edit Category & Priority</h4>
+            <p className="text-xs text-gray-500">Correct classification after initial assignment</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+              Problem Category
+            </label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => {
+                setSelectedCategory(e.target.value);
+                setError('');
+              }}
+              className="w-full text-xs sm:text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/30"
+            >
+              {categories.map((c) => {
+                const name = typeof c === 'string' ? c : (c.category_name || c.label || c.name);
+                return (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+              Priority Level
+            </label>
+            <select
+              value={selectedPriority}
+              onChange={(e) => {
+                setSelectedPriority(e.target.value);
+                setError('');
+              }}
+              className="w-full text-xs sm:text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/30"
+            >
+              {priorities.map((p) => {
+                const name = typeof p === 'string' ? p : (p.priority_name || p.label || p.name);
+                return (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition-colors shadow-lg shadow-[#252578]/30 cursor-pointer"
+            >
+              Review Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   RECLASSIFY CONFIRMATION MODAL (OLD VS NEW)
+───────────────────────────────────────────── */
+export function ReclassifyConfirmModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  oldCategory,
+  newCategory,
+  oldPriority,
+  newPriority,
+  isSaving = false,
+  error = '',
+}) {
+  useLockBodyScroll(isOpen);
+  if (!isOpen) return null;
+
+  const categoryChanged = oldCategory !== newCategory;
+  const priorityChanged = oldPriority !== newPriority;
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl w-120 max-w-full shadow-2xl p-6 sm:p-7 relative flex flex-col">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </div>
+          <div>
+            <h4 className="text-base sm:text-lg font-bold text-gray-800">Confirm Ticket Reclassification</h4>
+            <p className="text-xs text-gray-500">Review Old vs. New values before applying</p>
+          </div>
+        </div>
+
+        {/* Comparison card */}
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 space-y-3">
+          <div className="flex items-center justify-between pb-2.5 border-b border-gray-200 text-xs">
+            <span className="font-semibold text-gray-500">Field</span>
+            <div className="flex items-center gap-4">
+              <span className="font-semibold text-gray-500">Current</span>
+              <span className="text-gray-400">➔</span>
+              <span className="font-semibold text-gray-800">Proposed</span>
+            </div>
+          </div>
+
+          {/* Category comparison */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-gray-600">Category</span>
+            <div className="flex items-center gap-3">
+              <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{oldCategory || '—'}</span>
+              <span className="text-gray-400">➔</span>
+              <span className={`px-2 py-0.5 rounded font-semibold ${categoryChanged ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'text-gray-500'}`}>
+                {newCategory || '—'}
+              </span>
+            </div>
+          </div>
+
+          {/* Priority comparison */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-gray-600">Priority</span>
+            <div className="flex items-center gap-3">
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${priorityColors[oldPriority] ?? 'bg-gray-100 text-gray-700'}`}>
+                {oldPriority || '—'}
+              </span>
+              <span className="text-gray-400">➔</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${priorityChanged ? (priorityColors[newPriority] ?? 'bg-blue-100 text-blue-800') + ' ring-2 ring-blue-400' : (priorityColors[newPriority] ?? 'bg-gray-100 text-gray-700')}`}>
+                {newPriority || '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Notices */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-800 space-y-1 leading-relaxed">
+          <p className="font-semibold text-amber-900 flex items-center gap-1.5">
+            <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Important Reclassification Impacts:
+          </p>
+          <ul className="list-disc list-inside space-y-0.5 text-amber-800 pl-1">
+            <li>SLA response and resolution target deadlines will automatically recalculate.</li>
+            <li>If this ticket is already assigned, manual technician reassignment may be needed to align with the new category.</li>
+          </ul>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
+          >
+            Go Back
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isSaving}
+            className="flex-1 py-2.5 text-xs sm:text-sm font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition-colors shadow-lg shadow-[#252578]/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {isSaving ? 'Updating...' : 'Confirm & Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
 export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpdate, readOnly = false }) {
@@ -108,9 +446,221 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const { user } = useAuth();
   const [internalNotesList, setInternalNotesList] = useState(ticket?.internalNotes || []);
 
+  // Dynamic ticket classification & status states for instant in-place reflection
+  const [currentCategory, setCurrentCategory] = useState(ticket?.category || '');
+  const [currentPriority, setCurrentPriority] = useState(ticket?.priority || 'Low');
+  const [currentStatus, setCurrentStatus] = useState(ticket?.status || 'Pending');
+  const [currentHoldReason, setCurrentHoldReason] = useState(ticket?.hold_reason || '');
+
+  // Hold action state
+  const [showHoldModal, setShowHoldModal] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
+
+  // Reclassification state
+  const [formOptions, setFormOptions] = useState({ categories: [], priorities: [] });
+  const [showReclassifyEdit, setShowReclassifyEdit] = useState(false);
+  const [reclassifyPendingValues, setReclassifyPendingValues] = useState(null);
+  const [showReclassifyConfirm, setShowReclassifyConfirm] = useState(false);
+  const [isReclassifying, setIsReclassifying] = useState(false);
+  const [reclassifyError, setReclassifyError] = useState('');
+  const [reassignmentNotice, setReassignmentNotice] = useState('');
+  const [actionSuccessNotice, setActionSuccessNotice] = useState('');
+
   useEffect(() => {
     setInternalNotesList(ticket?.internalNotes || []);
-  }, [ticket?.internalNotes]);
+    setCurrentCategory(ticket?.category || '');
+    setCurrentPriority(ticket?.priority || 'Low');
+    setCurrentStatus(ticket?.status || 'Pending');
+    setCurrentHoldReason(ticket?.hold_reason || '');
+  }, [ticket]);
+
+  // Load available category and priority options dynamically
+  useEffect(() => {
+    let active = true;
+    getTicketFormOptions().then((opts) => {
+      if (active && opts) {
+        setFormOptions({
+          categories: (opts.problem_categories || []).map((c) => c.category_name || c.name || c),
+          rawCategories: opts.problem_categories || [],
+          priorities: (opts.ticket_priorities || []).map((p) => p.priority_name || p.name || p),
+          rawPriorities: opts.ticket_priorities || [],
+        });
+      }
+    }).catch((err) => {
+      console.warn('Failed to load form options in TicketSummary:', err);
+    });
+    return () => { active = false; };
+  }, []);
+
+  // Handle placing ticket on hold
+  const handleConfirmHold = async (reason) => {
+    setIsHolding(true);
+    try {
+      const ticketId = ticket.ticket_ID || ticket.id;
+      await holdTicket(ticketId, reason);
+      const timestamp = new Date().toISOString();
+      const holdTimelineEvent = {
+        id: `hold-${Date.now()}`,
+        type: 'status',
+        text: `Ticket placed on hold by CS. Reason: "${reason}". SLA clock paused.`,
+        timestamp,
+      };
+
+      setCurrentStatus('On Hold');
+      setCurrentHoldReason(reason);
+      ticket.status = 'On Hold';
+      ticket.hold_reason = reason;
+      if (!ticket.timeline) ticket.timeline = [];
+      ticket.timeline.push(holdTimelineEvent);
+
+      const updated = {
+        ...ticket,
+        status: 'On Hold',
+        hold_reason: reason,
+        timeline: [...ticket.timeline],
+      };
+
+      if (typeof onStatusUpdate === 'function') {
+        await onStatusUpdate(updated);
+      }
+
+      setShowHoldModal(false);
+      setActionSuccessNotice('Ticket successfully placed on hold. The SLA clock is paused.');
+      setTimeout(() => setActionSuccessNotice(''), 6000);
+    } catch (err) {
+      console.error('Failed to place ticket on hold:', err);
+      const msg = err.response?.data?.message || 'Failed to place ticket on hold. Please check your network and try again.';
+      window.alert(msg);
+    } finally {
+      setIsHolding(false);
+    }
+  };
+
+  // Handle resuming ticket from on hold
+  const handleResumeTicket = async () => {
+    setIsProcessing(true);
+    try {
+      const ticketId = ticket.ticket_ID || ticket.id;
+      await resumeTicket(ticketId);
+      const timestamp = new Date().toISOString();
+      const nextStatus = (ticket.assigned && ticket.assigned.length > 0) ? 'In Progress' : 'Pending Assignment';
+      const resumeTimelineEvent = {
+        id: `resume-${Date.now()}`,
+        type: 'status',
+        text: `Ticket resumed from On Hold by CS. Status changed to ${nextStatus}. SLA clock resumed.`,
+        timestamp,
+      };
+
+      setCurrentStatus(nextStatus);
+      setCurrentHoldReason('');
+      ticket.status = nextStatus;
+      ticket.hold_reason = null;
+      if (!ticket.timeline) ticket.timeline = [];
+      ticket.timeline.push(resumeTimelineEvent);
+
+      const updated = {
+        ...ticket,
+        status: nextStatus,
+        hold_reason: null,
+        timeline: [...ticket.timeline],
+      };
+
+      if (typeof onStatusUpdate === 'function') {
+        await onStatusUpdate(updated);
+      }
+
+      setActionSuccessNotice(`Ticket successfully resumed. Current status is now ${nextStatus}.`);
+      setTimeout(() => setActionSuccessNotice(''), 6000);
+    } catch (err) {
+      console.error('Failed to resume ticket:', err);
+      window.alert(err.response?.data?.message || 'Failed to resume ticket from on hold.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle reclassification
+  const handleReviewReclassify = ({ newCategory, newPriority }) => {
+    setReclassifyPendingValues({ newCategory, newPriority });
+    setShowReclassifyEdit(false);
+    setShowReclassifyConfirm(true);
+    setReclassifyError('');
+  };
+
+  const handleConfirmReclassify = async () => {
+    if (!reclassifyPendingValues) return;
+    setIsReclassifying(true);
+    setReclassifyError('');
+
+    try {
+      const ticketId = ticket.ticket_ID || ticket.id;
+      const rawCats = formOptions.rawCategories || [];
+      const rawPriorities = formOptions.rawPriorities || [];
+
+      const matchedCat = rawCats.find(c => (c.category_name || c.name) === reclassifyPendingValues.newCategory);
+      const matchedPriority = rawPriorities.find(p => (p.priority_name || p.name) === reclassifyPendingValues.newPriority);
+
+      const priorityMap = { 'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4 };
+
+      const payload = {
+        ticketId,
+        problem_category_ID: matchedCat ? (matchedCat.problem_category_ID || matchedCat.id) : undefined,
+        priority_ID: matchedPriority ? (matchedPriority.priority_ID || matchedPriority.id) : priorityMap[reclassifyPendingValues.newPriority],
+      };
+
+      const res = await reclassifyTicket(payload);
+      const timestamp = new Date().toISOString();
+
+      const oldCat = currentCategory;
+      const oldPri = currentPriority;
+
+      setCurrentCategory(reclassifyPendingValues.newCategory);
+      setCurrentPriority(reclassifyPendingValues.newPriority);
+      ticket.category = reclassifyPendingValues.newCategory;
+      ticket.priority = reclassifyPendingValues.newPriority;
+
+      if (res?.data?.sla?.target_resolution) {
+        ticket.sla = res.data.sla.target_resolution;
+      }
+
+      const timelineText = `Ticket classification updated: Category changed from "${oldCat}" to "${reclassifyPendingValues.newCategory}", Priority changed from "${oldPri}" to "${reclassifyPendingValues.newPriority}".`;
+      const reclassifyTimelineEvent = {
+        id: `reclassify-${Date.now()}`,
+        type: 'status',
+        text: timelineText,
+        timestamp,
+      };
+
+      if (!ticket.timeline) ticket.timeline = [];
+      ticket.timeline.push(reclassifyTimelineEvent);
+
+      const updated = {
+        ...ticket,
+        category: reclassifyPendingValues.newCategory,
+        priority: reclassifyPendingValues.newPriority,
+        timeline: [...ticket.timeline],
+      };
+
+      if (typeof onStatusUpdate === 'function') {
+        await onStatusUpdate(updated);
+      }
+
+      setShowReclassifyConfirm(false);
+      setReclassifyPendingValues(null);
+
+      if (res?.data?.reassignment_needed) {
+        setReassignmentNotice('Notice: Ticket classification updated. As this ticket is already assigned, manual reassignment may be needed to align with the new category or priority.');
+      } else {
+        setActionSuccessNotice('Ticket category and priority updated successfully. SLA targets recalculated.');
+        setTimeout(() => setActionSuccessNotice(''), 6000);
+      }
+    } catch (err) {
+      console.error('Failed to reclassify ticket:', err);
+      setReclassifyError(err.response?.data?.message || 'Failed to update ticket classification. Please try again.');
+    } finally {
+      setIsReclassifying(false);
+    }
+  };
 
   const handleAddInternalNote = (noteText) => {
     const trimmed = (noteText || '').trim();
@@ -299,6 +849,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         {ticket.attachments.map((file, idx) => {
                           const fileName = getFileName(file);
                           const fileUrl = getFileUrl(file);
+                          const isQuarantined = isQuarantinedFile(file);
+
+                          if (isQuarantined) {
+                            return (
+                              <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                                  <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Malware threat detected">
+                                    {fileName}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                                  Blocked
+                                </span>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -328,6 +896,24 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                         {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                           const fileName = getFileName(file);
                           const fileUrl = getFileUrl(file);
+                          const isQuarantined = isQuarantinedFile(file);
+
+                          if (isQuarantined) {
+                            return (
+                              <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                                  <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Malware threat detected">
+                                    {fileName}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                                  Blocked
+                                </span>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -375,10 +961,58 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               <>
                 {/* Header badge */}
                 <div className="flex items-center gap-2 mb-4">
-                  <Badge variant={ticket.reassignmentRequested ? 'amber' : (ticket.status === 'Pending Evaluation' ? 'sky' : 'emerald')}>
-                    {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned')}
+                  <Badge variant={ticket.reassignmentRequested ? 'amber' : (currentStatus === 'On Hold' ? 'amber' : (ticket.status === 'Pending Evaluation' ? 'sky' : 'emerald'))}>
+                    {ticket.reassignmentRequested ? 'Pending Reassignment' : (currentStatus === 'On Hold' ? 'Ticket On Hold' : (ticket.status === 'Pending Evaluation' ? 'Proof Submitted' : 'Ticket Assigned'))}
                   </Badge>
                 </div>
+
+                {/* Success feedback alert */}
+                {actionSuccessNotice && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3 rounded-xl mb-4 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{actionSuccessNotice}</span>
+                  </div>
+                )}
+
+                {/* Reassignment needed alert notice */}
+                {reassignmentNotice && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 mb-4 text-xs text-amber-900 flex items-start justify-between gap-3 shadow-xs">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-amber-900 mb-0.5">Classification Updated</p>
+                        <p className="text-amber-800 leading-relaxed">{reassignmentNotice}</p>
+                      </div>
+                    </div>
+                    {onEdit && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={onEdit}
+                        className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 h-8"
+                      >
+                        Reassign
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {/* On Hold banner */}
+                {currentStatus === 'On Hold' && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 mb-4 text-xs text-amber-900 flex items-start gap-2.5 shadow-xs">
+                    <div className="w-6 h-6 rounded-full bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <Clock className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-amber-900 mb-0.5">Ticket is Currently On Hold</p>
+                      <p className="text-amber-800 leading-relaxed">
+                        The SLA timer is temporarily paused while awaiting external information.
+                        {currentHoldReason ? ` Reason: "${currentHoldReason}"` : ''}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <h3 className="text-xl font-bold text-slate-dark mb-4">
                   Ticket Summary
@@ -391,11 +1025,9 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       <span className="text-xs font-bold uppercase tracking-wider text-white/90">TKT No.</span>
                       <p className="text-xs font-normal font-mono text-white/80 mt-0.5">{ticket.id}</p>
                     </div>
-                    {ticket.sla && (
-                      <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
-                        {ticket.sla}
-                      </Badge>
-                    )}
+                    <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
+                      {currentStatus === 'On Hold' ? 'SLA Paused' : (ticket.sla || 'Standard')}
+                    </Badge>
                   </div>
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-white/90">Ticket Title</span>
@@ -415,8 +1047,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Status</span>
-                    <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
-                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
+                    <Badge variant={ticket.reassignmentRequested ? 'amber' : (currentStatus === 'On Hold' ? 'amber' : (currentStatus === 'Open' ? 'sky' : currentStatus === 'In Progress' ? 'amber' : (currentStatus === 'Resolved' || currentStatus === 'Closed') ? 'emerald' : 'default'))}>
+                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (currentStatus || 'Pending')}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
@@ -425,13 +1057,35 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Priority</span>
-                    <Badge variant={ticket.priority === 'Critical' ? 'destructive' : ticket.priority === 'High' ? 'amber' : 'outline'}>
-                      {ticket.priority || '—'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={currentPriority === 'Critical' ? 'destructive' : currentPriority === 'High' ? 'amber' : 'outline'}>
+                        {currentPriority || '—'}
+                      </Badge>
+                      {currentStatus !== 'Closed' && currentStatus !== 'Resolved' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowReclassifyEdit(true)}
+                          className="text-[11px] font-semibold text-primary hover:text-accent underline cursor-pointer px-1 py-0.5 transition-colors"
+                        >
+                          Edit Priority
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Category</span>
-                    <span className="text-xs font-normal text-slate-600">{ticket.category || '—'}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-normal text-slate-600">{currentCategory || ticket.category || '—'}</span>
+                      {currentStatus !== 'Closed' && currentStatus !== 'Resolved' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowReclassifyEdit(true)}
+                          className="text-[11px] font-semibold text-primary hover:text-accent underline cursor-pointer px-1 py-0.5 transition-colors"
+                        >
+                          Edit Category
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
@@ -611,6 +1265,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   {ticket.attachments.map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -656,6 +1331,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -903,6 +1599,37 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               return null;
             })()}
 
+            {/* Place on Hold button */}
+            {currentStatus !== 'Closed' && currentStatus !== 'Resolved' && currentStatus !== 'On Hold' && typeof onStatusUpdate === 'function' && (
+              <button
+                type="button"
+                onClick={() => setShowHoldModal(true)}
+                disabled={isProcessing || isHolding}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Place on Hold
+              </button>
+            )}
+
+            {/* Resume Ticket button */}
+            {currentStatus === 'On Hold' && typeof onStatusUpdate === 'function' && (
+              <button
+                type="button"
+                onClick={handleResumeTicket}
+                disabled={isProcessing}
+                className="px-5 py-2.5 bg-[#252578] hover:bg-[#1e1e60] text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-[#252578]/30 cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Resume Ticket
+              </button>
+            )}
+
             {!ticket.reassignmentRequested && ticket.status !== 'Closed' && ticket.status !== 'Resolved' && onEdit && (
               <Button
                 variant="outline"
@@ -916,6 +1643,44 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           </div>
         </div>
       </div>
+
+      {showHoldModal && (
+        <HoldTicketDialog
+          isOpen={showHoldModal}
+          onClose={() => setShowHoldModal(false)}
+          onConfirm={handleConfirmHold}
+          isSaving={isHolding}
+        />
+      )}
+
+      {showReclassifyEdit && (
+        <ReclassifyEditModal
+          isOpen={showReclassifyEdit}
+          onClose={() => setShowReclassifyEdit(false)}
+          currentCategory={currentCategory}
+          currentPriority={currentPriority}
+          categories={formOptions.categories}
+          priorities={formOptions.priorities}
+          onReviewChanges={handleReviewReclassify}
+        />
+      )}
+
+      {showReclassifyConfirm && reclassifyPendingValues && (
+        <ReclassifyConfirmModal
+          isOpen={showReclassifyConfirm}
+          onClose={() => {
+            setShowReclassifyConfirm(false);
+            setShowReclassifyEdit(true);
+          }}
+          onConfirm={handleConfirmReclassify}
+          oldCategory={currentCategory}
+          newCategory={reclassifyPendingValues.newCategory}
+          oldPriority={currentPriority}
+          newPriority={reclassifyPendingValues.newPriority}
+          isSaving={isReclassifying}
+          error={reclassifyError}
+        />
+      )}
 
       {showReassignApprove && (
         <ConfirmDialog
@@ -1208,6 +1973,27 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   {ticket.attachments.map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Attachment quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-card border border-border rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1253,6 +2039,27 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                     const fileName = getFileName(file);
                     const fileUrl = getFileUrl(file);
+                    const isQuarantined = isQuarantinedFile(file);
+
+                    if (isQuarantined) {
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-red-50/50 border border-red-200 rounded-lg p-2.5 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-red-700 truncate line-through" title="Proof quarantined: Threat detected">
+                                {fileName}
+                              </p>
+                              <span className="text-[10px] text-red-500 font-bold uppercase">Blocked &amp; Quarantined</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase">
+                            Blocked
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={idx} className="flex items-center justify-between bg-card border border-border rounded-lg p-2.5 shadow-xs">
                         <div className="flex items-center gap-2 min-w-0 flex-1">

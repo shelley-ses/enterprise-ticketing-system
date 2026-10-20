@@ -8,9 +8,26 @@ import {
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL, KB_API_URL } from '@/config/api.config';
+import tokenStore from '@/auth/tokenStore';
 import echo from '@/services/echo';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
+
+const aiKbClient = axios.create({
+  baseURL: AI_API_URL,
+  headers: {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json',
+  },
+});
+
+aiKbClient.interceptors.request.use((config) => {
+  const token = tokenStore.getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 function formatTimestamp(ts) {
   if (!ts) return '—';
@@ -1802,7 +1819,7 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
   );
 }
 
-function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
+function EditMetadataModal({ isOpen, doc, onClose, onSave, onReplaceFile }) {
   const [form, setForm] = useState({ title: '', category: '', machine: '', version: '', description: '', tags: '' });
   const [errors, setErrors] = useState({});
   const [showDiscardModal, setShowDiscardModal] = useState(false);
@@ -1931,6 +1948,30 @@ function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
               <textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none" />
             </div>
+
+            {/* Replace Existing File section */}
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/70 p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-[#252578] font-bold text-xs shadow-xs">
+                  {doc.fileType || 'PDF'}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">{doc.title}.{(doc.fileType || 'pdf').toLowerCase()}</p>
+                  <p className="text-[11px] text-gray-400">{doc.size || '1.0 MB'} · Uploaded by {doc.uploadedBy || 'Super Admin'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onReplaceFile) onReplaceFile(doc);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#252578]/20 bg-white text-xs font-semibold text-[#252578] hover:bg-[#252578]/5 transition cursor-pointer shadow-xs"
+              >
+                <RefreshCw size={12} />
+                Replace File
+              </button>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
             <button onClick={handleAttemptClose} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer">Cancel</button>
@@ -2040,53 +2081,55 @@ function AIKnowledgeBase() {
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get(`${AI_API_URL}/articles`);
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped = res.data.data.map((item) => {
-          const publishState = item.status;
-          return {
-            id: item.id,
-            title: item.title,
-            category: item.category,
-            machine: item.machine || 'No Machine',
-            version: item.version || '1.0',
-            fileType: item.file_type || 'PDF',
-            size: item.size || item.file_size || '1.0 MB',
-            uploadedBy: item.uploaded_by || 'Super Admin',
-            uploadDate: item.created_at ? item.created_at.split('T')[0] : '2026-06-15',
-            status: publishState === 'Published' ? 'Ready' : publishState,
-            publishState,
-            processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
-            tags: Array.isArray(item.tags) ? item.tags : [],
-            description: item.description || '',
-            history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
-              {
-                id: item.id * 100 + 1,
-                type: 'created',
-                timestamp: item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '2026-06-15 09:00',
-                actor: item.uploaded_by || 'Super Admin',
-              },
-            ],
-          };
-        });
-        setDocuments(mapped);
-        try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
-        return;
+      try {
+        const res = await aiKbClient.get('/articles');
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          const mapped = res.data.data.map((item) => {
+            const publishState = item.status;
+            return {
+              id: item.id,
+              title: item.title,
+              category: item.category,
+              machine: item.machine || 'No Machine',
+              version: item.version || '1.0',
+              fileType: item.file_type || 'PDF',
+              size: item.size || item.file_size || '1.0 MB',
+              uploadedBy: item.uploaded_by || 'Super Admin',
+              uploadDate: item.created_at ? item.created_at.split('T')[0] : '2026-06-15',
+              status: publishState === 'Published' ? 'Ready' : publishState,
+              publishState,
+              processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
+              tags: Array.isArray(item.tags) ? item.tags : [],
+              description: item.description || '',
+              history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
+                {
+                  id: item.id * 100 + 1,
+                  type: 'created',
+                  timestamp: item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '2026-06-15 09:00',
+                  actor: item.uploaded_by || 'Super Admin',
+                },
+              ],
+            };
+          });
+          setDocuments(mapped);
+          try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
       }
-    } catch (err) {
-      console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
-    }
 
-    try {
-      const stored = localStorage.getItem('ai_kb_documents');
-      if (stored) {
-        setDocuments(normalizeDocs(JSON.parse(stored)));
-      } else {
+      try {
+        const stored = localStorage.getItem('ai_kb_documents');
+        if (stored) {
+          setDocuments(normalizeDocs(JSON.parse(stored)));
+        } else {
+          setDocuments(MOCK_DOCUMENTS);
+          localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
+        }
+      } catch {
         setDocuments(MOCK_DOCUMENTS);
-        localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
       }
-    } catch {
-      setDocuments(MOCK_DOCUMENTS);
     } finally {
       setLoading(false);
     }
@@ -2164,7 +2207,7 @@ function AIKnowledgeBase() {
     });
 
     // Synchronize document creation and RAG indexing with AI-service backend
-    axiosInstance.post(`${AI_API_URL}/articles`, {
+    aiKbClient.post('/articles', {
       title: newDoc.title,
       category: newDoc.category,
       machine: newDoc.machine,
@@ -2242,7 +2285,7 @@ function AIKnowledgeBase() {
 
     // Synchronize publish state immediately to AI-service backend
     try {
-      const res = await axiosInstance.post(`${AI_API_URL}/articles/${doc.id}/publish`, {
+      const res = await aiKbClient.post(`/articles/${doc.id}/publish`, {
         actor: 'Super Admin',
       });
       if (res.data?.success && res.data?.data) {
@@ -2315,7 +2358,7 @@ function AIKnowledgeBase() {
 
     // Synchronize archive state immediately to AI-service backend
     try {
-      const res = await axiosInstance.post(`${AI_API_URL}/articles/${docToArchive.id}/archive`, {
+      const res = await aiKbClient.post(`/articles/${docToArchive.id}/archive`, {
         actor: 'Super Admin',
       });
       if (res.data?.success && res.data?.data) {
@@ -2385,7 +2428,7 @@ function AIKnowledgeBase() {
     setShowEditModal(false);
 
     // Sync metadata updates to AI-service backend
-    axiosInstance.put(`${AI_API_URL}/articles/${selectedDoc.id}`, {
+    aiKbClient.put(`/articles/${selectedDoc.id}`, {
       title: form.title.trim(),
       category: form.category,
       machine: form.machine,
@@ -2400,6 +2443,11 @@ function AIKnowledgeBase() {
   // File replacement completion handler:
   // Updates file details, upload date, processing status, and appends { type: 'file_replacement', ... } to history.
   const handleReplaceComplete = (docId, newFile) => {
+    // Notify AI-service to reindex updated article
+    aiKbClient.post(`/articles/${docId}/reindex`, { actor: 'Super Admin' }).catch(err => {
+      console.warn('Article reindex notice:', err);
+    });
+
     const now = new Date().toISOString();
     const historyEntry = {
       id: Date.now(),
@@ -2467,7 +2515,7 @@ function AIKnowledgeBase() {
     setDeleteModalError('');
 
     try {
-      await axiosInstance.delete(`${AI_API_URL}/articles/${docToDelete.id}`, {
+      await aiKbClient.delete(`/articles/${docToDelete.id}`, {
         data: { actor: 'Super Admin' },
       });
 
@@ -2756,7 +2804,16 @@ function AIKnowledgeBase() {
         onPublish={handlePublish}
         onArchivePrompt={handleArchivePrompt}
       />
-      <EditMetadataModal isOpen={showEditModal} doc={selectedDoc} onClose={() => setShowEditModal(false)} onSave={handleSaveEdit} />
+      <EditMetadataModal
+        isOpen={showEditModal}
+        doc={selectedDoc}
+        onClose={() => setShowEditModal(false)}
+        onSave={handleSaveEdit}
+        onReplaceFile={() => {
+          setShowEditModal(false);
+          setShowReplaceModal(true);
+        }}
+      />
       <DeleteConfirmModal
         isOpen={showDeleteModal}
         doc={selectedDoc}

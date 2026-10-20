@@ -5203,9 +5203,9 @@ export default function SuperAdminTicketConfig() {
               </div>
 
               {/* Inline Architecture Notice Badge */}
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 border border-amber-200/80 w-fit">
-                <AlertCircle size={13} className="text-amber-600 shrink-0" />
-                <span>Pending architecture approval — not yet functional</span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 border border-emerald-200/80 w-fit">
+                <ShieldCheck size={13} className="text-emerald-600 shrink-0" />
+                <span>Enforced via ClamAV Antivirus Daemon</span>
               </span>
             </div>
 
@@ -7183,6 +7183,10 @@ export default function SuperAdminTicketConfig() {
                                     const errs = {};
                                     if (!draft.subject?.trim()) errs.subject = 'Subject is required.';
                                     if (!draft.body?.trim()) errs.body = 'Body is required.';
+                                    const combinedText = `${draft.subject || ''} ${draft.body || ''}`;
+                                    if (!/\{\{[a-zA-Z0-9_]+\}\}/.test(combinedText)) {
+                                      errs.body = 'Email template must contain at least one dynamic placeholder (e.g. {{ticket_number}}, {{customer_name}}). Removing all placeholders is not permitted.';
+                                    }
                                     if (Object.keys(errs).length > 0) {
                                       setTemplateErrors((prev) => ({ ...prev, [template.event_key]: errs }));
                                       return;

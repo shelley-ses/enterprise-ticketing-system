@@ -134,10 +134,44 @@ const normalizeUser = (userData) => {
   };
 };
 
+const persistStoredUser = (userData) => {
+  try {
+    if (!userData) {
+      sessionStorage.removeItem('user');
+      localStorage.removeItem('user');
+      return;
+    }
+    sessionStorage.setItem('user', JSON.stringify(userData));
+    if (checkIsSuperAdmin(userData) || checkIsEmployee(userData) || checkIsAdmin(userData)) {
+      localStorage.removeItem('user');
+    } else {
+      localStorage.setItem('user', JSON.stringify(userData));
+    }
+  } catch {}
+};
+
+const clearStoredUser = () => {
+  try {
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('user');
+  } catch {}
+};
+
 const readStoredUser = () => {
   try {
-    const stored = JSON.parse(localStorage.getItem('user'));
-    if (!stored) return null;
+    let raw = sessionStorage.getItem('user');
+    if (!raw) {
+      raw = localStorage.getItem('user');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (checkIsSuperAdmin(parsed) || checkIsEmployee(parsed) || checkIsAdmin(parsed)) {
+          sessionStorage.setItem('user', raw);
+          localStorage.removeItem('user');
+        }
+      }
+    }
+    if (!raw) return null;
+    const stored = JSON.parse(raw);
 
     const isCS = checkIsCS(stored);
     const isEmployee = checkIsEmployee(stored);
@@ -177,7 +211,7 @@ const ensureCsrfCookie = async () => {
 //logout cleanup 
 const applyUnauthenticated = (setUser, setIsAuthenticated) => {
   tokenStore.clearToken();
-  localStorage.removeItem('user');
+  clearStoredUser();
   setUser(null);
   setIsAuthenticated(false);
 };
@@ -231,7 +265,7 @@ export function AuthProvider({ children }) {
       if (userData) {
         const normalized = normalizeUser(userData);
         setUser(normalized);
-        localStorage.setItem('user', JSON.stringify(normalized));
+        persistStoredUser(normalized);
       }
       setIsAuthenticated(true);
       setIsFirstLogin(firstLogin);
@@ -267,7 +301,7 @@ export function AuthProvider({ children }) {
             } else {
               sessionStorage.removeItem('first_login_pending');
             }
-            if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
+            if (normalized) persistStoredUser(normalized);
             return true;
           }
         } catch {
@@ -344,7 +378,7 @@ export function AuthProvider({ children }) {
         const userData = getMockUser(email, mode);
 
         tokenStore.setToken(MOCK_TOKEN);
-        localStorage.setItem('user', JSON.stringify(userData));
+        persistStoredUser(userData);
         setUser(userData);
         setIsAuthenticated(true);
         setIsFirstLogin(false);
@@ -373,7 +407,7 @@ export function AuthProvider({ children }) {
       // Store auth data in memory and set user
       const normalized = normalizeUser(userData);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
       setUser(normalized);
       setIsAuthenticated(true);
       setIsFirstLogin(Boolean(firstLogin));
@@ -440,7 +474,7 @@ export function AuthProvider({ children }) {
 
       const normalized = normalizeUser(newUser);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
 
       setUser(normalized);
       setIsAuthenticated(true);
@@ -484,7 +518,7 @@ export function AuthProvider({ children }) {
     } catch {
       // Background logout cleanup failed silently
     } finally {
-      localStorage.removeItem('user');
+      clearStoredUser();
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
       sessionStorage.removeItem('first_login_pending');
       tokenStore.clearToken();
@@ -521,7 +555,7 @@ export function AuthProvider({ children }) {
           ...userData,
         };
 
-        localStorage.setItem('user', JSON.stringify(updatedUser));
+        persistStoredUser(updatedUser);
         setUser(updatedUser);
 
         return { success: true, user: updatedUser };
@@ -531,7 +565,7 @@ export function AuthProvider({ children }) {
 
       const updatedUser = response.data.user;
       const normalized = normalizeUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
       setUser(normalized);
 
       return { success: true, user: normalized };

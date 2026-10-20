@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -28,6 +29,7 @@ import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmationModal } from '@/components/ui/confirmation-modal';
 import { Skeleton } from '@/components/ui/skeleton';
+import CustomerInfoPanel from '@/components/employee/CustomerInfoPanel';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
 
@@ -244,15 +246,37 @@ export default function EmployeeTicketUpdate() {
     setSuccessMessage('');
     setIsAddingNote(true);
 
+    const optimisticNote = {
+      id: `temp-${Date.now()}`,
+      text: trimmed,
+      author: `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.name || 'Staff Member',
+      role: user?.role || 'Technician',
+      timestamp: new Date().toISOString(),
+      isOptimistic: true,
+    };
+
+    setTicket((prev) => prev ? {
+      ...prev,
+      internalNotes: [...(prev.internalNotes || []), optimisticNote],
+    } : prev);
+
     const formData = new FormData();
     formData.append('internal_note', trimmed);
 
     try {
       await updateEmployeeTicket(numericId, formData);
-      setSuccessMessage('Internal note added!');
+      setSuccessMessage('Internal note added successfully!');
+      setTimeout(() => setSuccessMessage(''), 4000);
       await loadTicketData();
-    } catch {
-      setErrorMessage('Failed to add internal note.');
+    } catch (err) {
+      // Revert optimistic note
+      setTicket((prev) => prev ? {
+        ...prev,
+        internalNotes: (prev.internalNotes || []).filter((n) => n.id !== optimisticNote.id),
+      } : prev);
+      const msg = err?.response?.data?.message || err?.message || 'Failed to add internal note.';
+      setErrorMessage(msg);
+      throw err; // Re-throw so InternalNotesSection preserves input text
     } finally {
       setIsAddingNote(false);
     }
@@ -396,6 +420,16 @@ export default function EmployeeTicketUpdate() {
             {/* Reassignment disapproved banner */}
             <ReassignmentDisapprovalBanner ticket={ticket} />
 
+            {/* Customer & Machine Context Panel (TS029) */}
+            <CustomerInfoPanel
+              ticketId={numericId}
+              ticket={ticket}
+              user={user}
+              onViewRelatedTicket={(machineId) => {
+                navigate('/employee/progress', { state: { machineFilter: machineId } });
+              }}
+            />
+
             {/* Reassignment pending banner */}
             {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
               <div className="bg-warning/10 rounded-xl p-5 flex items-center gap-3 border border-warning/30 text-warning-foreground">
@@ -464,14 +498,25 @@ export default function EmployeeTicketUpdate() {
                     </p>
                     <div className="flex flex-col gap-2">
                       {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
-                        const fName =
-                          typeof file === 'string'
-                            ? file.split('/').pop()
-                            : file.name || file.file_name || `Proof-${idx + 1}`;
-                        const fUrl =
-                          typeof file === 'string'
-                            ? file
-                            : file.url || file.file_path || file.path || '';
+                        const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
+                        const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                        const isQuarantined = Boolean(
+                          typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                        );
+
+                        if (isQuarantined) {
+                          return (
+                            <div
+                              key={file.id || file.proof_ID || idx}
+                              className="flex items-center gap-2 text-xs font-semibold text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 w-fit cursor-not-allowed"
+                              title="Proof file quarantined: Threat detected by antivirus scan"
+                            >
+                              <ShieldAlert className="w-4 h-4 shrink-0 text-destructive" />
+                              <span className="line-through">{fName}</span>
+                              <span className="text-[9px] bg-destructive/20 text-destructive px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                            </div>
+                          );
+                        }
                         return (
                           <a
                             key={file.id || file.proof_ID || idx}
@@ -662,14 +707,25 @@ export default function EmployeeTicketUpdate() {
                 </h3>
                 <div className="flex flex-wrap gap-3">
                   {ticket.attachments.map((file, idx) => {
-                    const fName =
-                      typeof file === 'string'
-                        ? file.split('/').pop()
-                        : file.name || file.file_name || `Attachment-${idx + 1}`;
-                    const fUrl =
-                      typeof file === 'string'
-                        ? file
-                        : file.url || file.file_path || file.path || '';
+                    const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Attachment-${idx + 1}`);
+                    const fUrl = typeof file === 'string' ? file : (file.url || file.file_path || file.path || '');
+                    const isQuarantined = Boolean(
+                      typeof file === 'object' && (file?.is_quarantined || file?.quarantined || file?.status === 'quarantined' || file?.virus_detected)
+                    );
+
+                    if (isQuarantined) {
+                      return (
+                        <div
+                          key={file.id || file.attachment_id || idx}
+                          className="flex items-center gap-2 text-xs font-semibold text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20 cursor-not-allowed"
+                          title="Attachment quarantined: Threat detected by antivirus scan"
+                        >
+                          <ShieldAlert className="w-4 h-4 text-destructive shrink-0" />
+                          <span className="line-through">{fName}</span>
+                          <span className="text-[9px] bg-destructive/20 text-destructive px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                        </div>
+                      );
+                    }
                     return (
                       <a
                         key={file.id || file.attachment_id || idx}
@@ -694,6 +750,7 @@ export default function EmployeeTicketUpdate() {
               notes={ticket.internalNotes}
               onAddNote={handleAddInternalNote}
               isAdding={isAddingNote}
+              userRole={user?.role}
               disabledReason={
                 ticket.reassignmentRequested
                   ? 'Internal notes cannot be added while a reassignment request is pending.'

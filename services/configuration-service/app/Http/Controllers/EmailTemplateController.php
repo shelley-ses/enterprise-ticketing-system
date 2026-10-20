@@ -81,6 +81,16 @@ class EmailTemplateController extends Controller
             'body.required'    => 'Email body is required.',
         ]);
 
+        $combined = ($validated['subject'] ?? '') . ' ' . ($validated['body'] ?? '');
+        if (!preg_match('/\{\{[a-zA-Z0-9_]+\}\}/', $combined)) {
+            return response()->json([
+                'message' => 'Email template must contain at least one dynamic placeholder (e.g. {{ticket_number}}, {{customer_name}}). Removing all placeholders is not permitted.',
+                'errors' => [
+                    'body' => ['At least one dynamic placeholder is required.'],
+                ],
+            ], 422);
+        }
+
         $template = EmailTemplate::where('event_key', $eventKey)->firstOrFail();
 
         $template->update([
