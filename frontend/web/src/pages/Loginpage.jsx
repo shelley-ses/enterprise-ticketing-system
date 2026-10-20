@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getSystemStatus } from '@/services/configurationService';
+import ForgotPasswordModal from '@/components/ForgotPasswordModal';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 60;
@@ -70,6 +71,9 @@ export function Loginpage({ mode = 'customer' }) {
   const [lockTimer, setLockTimer] = useState(LOCKOUT_SECONDS);
   const [loginError, setLoginError] = useState('');
   const [lockedEmail, setLockedEmail] = useState('');
+
+  // Forgot password modal
+  const [showForgot, setShowForgot] = useState(false);
 
   // System maintenance status
   const [isMaintenance, setIsMaintenance] = useState(false);
@@ -247,16 +251,16 @@ export function Loginpage({ mode = 'customer' }) {
   };
 
   return (
-    <div className="min-h-screen flex w-full font-sans bg-[#F8F9FA]">
+    <div className="h-screen w-full flex font-sans bg-[#F8F9FA] overflow-hidden">
       {/* LEFT SIDE BRAND IMAGE */}
-      <div className="relative hidden lg:block lg:w-1/2 overflow-hidden bg-primary">
+      <div className="relative hidden lg:block lg:w-1/2 h-full overflow-hidden bg-primary">
         <img
           src={loginImage}
           alt="Scientific Biotech Specialties"
-          className="w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover"
         />
         <div className="absolute inset-0 bg-[#252578]/70 backdrop-blur-[1px]" />
-        <div className="absolute bottom-16 left-12 text-white max-w-lg space-y-3">
+        <div className="absolute bottom-28 lg:bottom-36 left-8 lg:left-12 right-8 lg:right-12 text-white max-w-lg space-y-3 z-10">
           <div className="inline-block px-3 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-semibold tracking-wider uppercase mb-2">
             Ticketing System
           </div>
@@ -270,7 +274,7 @@ export function Loginpage({ mode = 'customer' }) {
       </div>
 
       {/* RIGHT SIDE AUTH FORM */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
+      <div className="w-full lg:w-1/2 h-full flex items-center justify-center p-6 sm:p-12 overflow-y-auto">
         <div className="w-full max-w-md space-y-6">
           <div>
             <h2 className="text-3xl font-bold text-primary tracking-tight">
@@ -380,17 +384,25 @@ export function Loginpage({ mode = 'customer' }) {
             </div>
           ) : (
             <div className="text-center pt-2">
-              <span className="text-xs text-muted-slate">Need technical assistance? </span>
-              <a
-                href="/login/employee"
-                className="text-xs text-accent hover:underline font-semibold"
+              <button
+                type="button"
+                onClick={() => setShowForgot(true)}
+                className="text-xs text-accent hover:underline font-semibold cursor-pointer"
               >
-                Employee Sign In
-              </a>
+                Forgot Password?
+              </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* FORGOT PASSWORD MODAL */}
+      {showForgot && (
+        <ForgotPasswordModal
+          onClose={() => setShowForgot(false)}
+          defaultEmail={email}
+        />
+      )}
     </div>
   );
 }
