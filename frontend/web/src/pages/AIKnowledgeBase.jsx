@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
   Book, Search, Filter, ChevronDown, X, Upload, FileText, Download,
   Trash2, Edit3, Eye, RefreshCw, Plus, FolderOpen, CheckCircle,
@@ -613,6 +613,7 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
   const [uploadError, setUploadError] = useState('');
   const [isMalwareError, setIsMalwareError] = useState(false);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const fileInputRef = useRef(null);
 
   const reset = () => {
     setStep('form');
@@ -664,12 +665,12 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
   const handleFileValidateAndSet = (file) => {
     if (!file) return;
 
-    // Check extension: PDF, DOCX only
+    // Check extension: PDF, DOCX, DOC, TXT supported
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'docx'].includes(ext)) {
+    if (!['pdf', 'docx', 'doc', 'txt'].includes(ext)) {
       setErrors((prev) => ({
         ...prev,
-        file: 'Invalid file type. Only PDF and DOCX files are supported.',
+        file: 'Invalid file type. Supported formats: PDF, DOCX, DOC, TXT.',
       }));
       setSelectedFile(null);
       return;
@@ -847,17 +848,24 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={handleFileDrop}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${dragOver
+                    onClick={() => {
+                      if (!selectedFile) {
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${
+                      !selectedFile ? 'cursor-pointer' : ''
+                    } ${dragOver
                         ? 'border-[#252578] bg-[#252578]/5'
                         : errors.file
                           ? 'border-red-400 bg-red-50/30'
                           : selectedFile
                             ? 'border-green-400 bg-green-50/20'
-                            : 'border-gray-200 hover:border-gray-300'
+                            : 'border-gray-200 hover:border-[#252578]/40 hover:bg-gray-50/50'
                       }`}
                   >
                     {selectedFile ? (
-                      <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-green-200 shadow-xs">
+                      <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-green-200 shadow-xs" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-2.5 min-w-0">
                           <FileText size={20} className="text-[#252578] shrink-0" />
                           <div className="text-left truncate">
@@ -867,7 +875,10 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                         </div>
                         <button
                           type="button"
-                          onClick={() => setSelectedFile(null)}
+                          onClick={() => {
+                            setSelectedFile(null);
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
                           className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer"
                         >
                           <X size={16} />
@@ -877,19 +888,28 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                       <>
                         <Upload size={24} className="mx-auto text-gray-400 mb-1.5" />
                         <p className="text-xs font-medium text-gray-700">Drag & drop new file here, or click to browse</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF and DOCX up to 10 MB</p>
-                        <label className="mt-2.5 inline-block px-3 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-[#1f1f66] transition-all cursor-pointer">
+                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF, DOCX, DOC, and TXT up to 10 MB</p>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".pdf,.docx,.doc,.txt"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFileValidateAndSet(file);
+                            e.target.value = '';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fileInputRef.current?.click();
+                          }}
+                          className="mt-2.5 inline-block px-3 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-[#1f1f66] transition-all cursor-pointer shadow-xs"
+                        >
                           Browse File
-                          <input
-                            type="file"
-                            accept=".pdf,.docx"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileValidateAndSet(file);
-                            }}
-                          />
-                        </label>
+                        </button>
                       </>
                     )}
                   </div>
@@ -2479,6 +2499,15 @@ function AIKnowledgeBase() {
       processingStatus: 'Ready for AI Search',
       history: [historyEntry, ...(prev.history || [])],
     } : prev);
+
+    // Sync file replacement metadata to AI-service backend
+    aiKbClient.put(`/articles/${docId}`, {
+      file_type: newFile.name.split('.').pop()?.toUpperCase() || 'PDF',
+      size: `${(newFile.size / (1024 * 1024)).toFixed(1)} MB`,
+      processing_status: 'Ready for AI Search',
+    }).catch((err) => {
+      console.warn('Failed to sync replaced file metadata with AI service:', err);
+    });
   };
 
   // Dynamic processing status updater while replacement is mid-pipeline:
@@ -2809,7 +2838,8 @@ function AIKnowledgeBase() {
         doc={selectedDoc}
         onClose={() => setShowEditModal(false)}
         onSave={handleSaveEdit}
-        onReplaceFile={() => {
+        onReplaceFile={(docToReplace) => {
+          if (docToReplace) setSelectedDoc(docToReplace);
           setShowEditModal(false);
           setShowReplaceModal(true);
         }}

@@ -100,7 +100,7 @@ export function Loginpage({ mode = 'customer' }) {
       const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
       if (isSuperAdmin) {
-        navigate('/superadmin/ticket-config', { replace: true });
+        navigate('/superadmin/config', { replace: true });
       } else if (isAdmin) {
         navigate('/admin/dashboard', { replace: true });
       } else if (isCustomerSite) {
@@ -188,7 +188,7 @@ export function Loginpage({ mode = 'customer' }) {
         const isCustomerSite = import.meta.env.VITE_APP_MODE === 'customer';
 
         if (isSuperAdmin) {
-          navigate('/superadmin/ticket-config', { replace: true });
+          navigate('/superadmin/config', { replace: true });
         } else if (isAdmin) {
           navigate('/admin/dashboard', { replace: true });
         } else if (isCustomerSite) {

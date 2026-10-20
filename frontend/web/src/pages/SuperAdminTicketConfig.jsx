@@ -204,6 +204,91 @@ export const GROUPS_CONFIG = [
   },
 ];
 
+export const SUBTAB_METADATA = {
+  // Classification
+  [TAB_TICKET_CATEGORIES]: {
+    icon: Tag,
+    subtitle: 'Problem categories & default classifications',
+  },
+  [TAB_EQUIPMENT]: {
+    icon: HardDrive,
+    subtitle: 'Hardware, equipment, and device categories',
+  },
+  [TAB_PRIORITY]: {
+    icon: AlertCircle,
+    subtitle: 'Urgency tiers, response targets & colors',
+  },
+  [TAB_BRANCH_CONFIG]: {
+    icon: Building2,
+    subtitle: 'Branch-level categories & SLA overrides',
+  },
+  [TAB_DEFAULTS]: {
+    icon: Sliders,
+    subtitle: 'Default status, priority, and dynamic SLA',
+  },
+  [TAB_NUMBER_FORMAT]: {
+    icon: Hash,
+    subtitle: 'Ticket ID prefix, date format & sequence padding',
+  },
+  [TAB_LIMITS]: {
+    icon: Users,
+    subtitle: 'Concurrency thresholds & max open ticket limits',
+  },
+
+  // Lifecycle & Workflow
+  [TAB_WORKFLOW]: {
+    icon: GitBranch,
+    subtitle: 'Progression stages from submission to closure',
+  },
+  [TAB_TRANSITIONS]: {
+    icon: ArrowRight,
+    subtitle: 'Allowed state transitions & workflow matrix',
+  },
+  [TAB_WINDOWS]: {
+    icon: Clock,
+    subtitle: 'Reopening grace periods & auto-closure timers',
+  },
+  [TAB_FEEDBACK]: {
+    icon: Star,
+    subtitle: 'CSAT rating questions & feedback triggers',
+  },
+
+  // SLA & Escalations
+  [TAB_SLA]: {
+    icon: ShieldCheck,
+    subtitle: 'Department SLA response & resolution hours',
+  },
+  [TAB_ESCALATION]: {
+    icon: ShieldAlert,
+    subtitle: 'Automated breach escalation & alert stages',
+  },
+
+  // Notifications
+  [NOTIF_SUBTAB_RECIPIENTS]: {
+    icon: Users,
+    subtitle: 'Alert recipient groups, managers & technicians',
+  },
+  [NOTIF_SUBTAB_CHANNELS]: {
+    icon: Bell,
+    subtitle: 'In-app, browser notification & sound channels',
+  },
+  [NOTIF_SUBTAB_EMAIL_DELIVERY]: {
+    icon: Send,
+    subtitle: 'SMTP / Resend API delivery configuration',
+  },
+  [NOTIF_SUBTAB_EMAIL_TEMPLATES]: {
+    icon: Mail,
+    subtitle: 'Transactional email notification templates',
+  },
+
+  // Storage & Security
+  [TAB_FILES]: {
+    icon: FileUp,
+    subtitle: 'File size limits, allowed extensions & ClamAV',
+  },
+};
+
+
 // ==========================================
 // TS094: Ticket Number Format Configuration Constants
 // ==========================================
@@ -663,6 +748,109 @@ const formatWindowDays = (days, type) => {
   }
 };
 
+function TicketConfigTabSkeleton({ currentSubTab }) {
+  const isTableLayout = [
+    TAB_TICKET_CATEGORIES,
+    TAB_EQUIPMENT,
+    TAB_PRIORITY,
+  ].includes(currentSubTab);
+
+  const isGridLayout = [
+    TAB_WORKFLOW,
+    TAB_SLA,
+    TAB_ESCALATION,
+    TAB_TRANSITIONS,
+  ].includes(currentSubTab);
+
+  return (
+    <div className="flex flex-col gap-6 animate-pulse" aria-busy="true" aria-label="Loading configuration">
+      {/* Header Skeleton */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1 space-y-2">
+          <div className="h-7 w-60 bg-gray-200 rounded-lg" />
+          <div className="h-4 w-96 max-w-full bg-gray-200 rounded-md" />
+        </div>
+        <div className="flex items-center gap-2.5">
+          <div className="h-10 w-24 bg-gray-200 rounded-xl" />
+          <div className="h-10 w-32 bg-gray-200 rounded-xl" />
+        </div>
+      </div>
+
+      {isTableLayout ? (
+        <div className="flex flex-col gap-4">
+          <div className="h-11 w-full bg-gray-200 rounded-xl" />
+          <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="h-12 bg-gray-50 border-b border-gray-100 px-5 flex items-center gap-6">
+              <div className="h-4 w-12 bg-gray-200 rounded" />
+              <div className="h-4 w-36 bg-gray-200 rounded" />
+              <div className="h-4 w-48 bg-gray-200 rounded" />
+              <div className="h-4 w-24 bg-gray-200 rounded ml-auto" />
+            </div>
+            <div className="divide-y divide-gray-100">
+              {[1, 2, 3, 4, 5].map((idx) => (
+                <div key={idx} className="px-5 py-4 flex items-center gap-6">
+                  <div className="h-4 w-10 bg-gray-200 rounded" />
+                  <div className="h-4 w-32 bg-gray-200 rounded" />
+                  <div className="h-4 w-64 bg-gray-200 rounded" />
+                  <div className="h-6 w-20 bg-gray-200 rounded-full ml-auto" />
+                  <div className="h-7 w-7 bg-gray-200 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : isGridLayout ? (
+        <div className="flex flex-col gap-6">
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm flex justify-between gap-4">
+            {[1, 2, 3, 4].map((step) => (
+              <div key={step} className="flex flex-col items-center flex-1 gap-2">
+                <div className="h-12 w-12 rounded-full bg-gray-200" />
+                <div className="h-4 w-20 bg-gray-200 rounded" />
+                <div className="h-3 w-28 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6].map((idx) => (
+              <div key={idx} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-5 w-28 bg-gray-200 rounded" />
+                  <div className="h-5 w-16 bg-gray-200 rounded-full" />
+                </div>
+                <div className="h-3.5 w-full bg-gray-100 rounded" />
+                <div className="h-3.5 w-3/4 bg-gray-100 rounded" />
+                <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                  <div className="h-4 w-20 bg-gray-200 rounded" />
+                  <div className="h-6 w-6 bg-gray-200 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm space-y-6">
+          <div className="space-y-2">
+            <div className="h-5 w-48 bg-gray-200 rounded" />
+            <div className="h-3.5 w-80 bg-gray-100 rounded" />
+          </div>
+          <div className="space-y-4">
+            <div className="h-10 w-full bg-gray-200 rounded-xl" />
+            <div className="h-36 w-full bg-gray-100 rounded-xl" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="h-12 bg-gray-50 rounded-xl" />
+              <div className="h-12 bg-gray-50 rounded-xl" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="h-10 w-24 bg-gray-200 rounded-xl" />
+            <div className="h-10 w-32 bg-gray-200 rounded-xl" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SuperAdminTicketConfig() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -717,6 +905,25 @@ export default function SuperAdminTicketConfig() {
     return groupDef.subTabs.find((st) => st.id.toLowerCase() === s)?.id || null;
   }, []);
 
+  const findGroupBySubTabId = useCallback((rawSubTab) => {
+    if (!rawSubTab) return null;
+    const s = rawSubTab.toLowerCase();
+    if (
+      s === 'ticket-categories' || s === 'ticket_categories' || s === 'ticket-category' || s === 'ticketcategories' ||
+      s === 'branch-config' || s === 'branch-configuration' || s === 'branch' || s === 'branch_config' ||
+      s === 'branch-priority' || s === 'branch_priority' || s === 'branch-categories' || s === 'branch_categories' ||
+      s === 'equipment' || s === 'priority' || s === 'defaults' || s === 'number-format' || s === 'limits'
+    ) {
+      return GROUP_CLASSIFICATION;
+    }
+    for (const group of GROUPS_CONFIG) {
+      if (group.subTabs.some((st) => st.id.toLowerCase() === s)) {
+        return group.id;
+      }
+    }
+    return null;
+  }, []);
+
   // The URL is the sole source of truth for what is rendered. Local storage only
   // remembers each group's last valid sub-tab for the next group navigation.
   const [activeSubTabs, setActiveSubTabs] = useState(() => ({
@@ -728,21 +935,39 @@ export default function SuperAdminTicketConfig() {
     ...(initialSavedState?.activeSubTabs || {}),
   }));
 
-  const normalizedRouteGroup = normalizeGroupId(params.group);
+  // Resolve active group and subtab from clean short routes (/superadmin/config/:subtab) or legacy routes
+  const rawParam = params.subtab || params.group;
+  const isDirectSubTab = findGroupBySubTabId(rawParam);
+  const isDirectGroup = normalizeGroupId(rawParam);
+
+  let routeGroup = null;
+  let routeSubTab = null;
+
+  if (params.group && params.subtab) {
+    // Legacy dual-param route: /superadmin/ticket-config/:group/:subtab
+    routeGroup = normalizeGroupId(params.group);
+    if (routeGroup) {
+      routeSubTab = normalizeSubTabId(routeGroup, params.subtab);
+    }
+  } else if (isDirectSubTab) {
+    // Clean shortened 4-segment route: /superadmin/config/:subtab (e.g. email-templates, sla, workflow)
+    routeGroup = isDirectSubTab;
+    routeSubTab = normalizeSubTabId(routeGroup, rawParam);
+  } else if (isDirectGroup) {
+    // Shortened group route: /superadmin/config/:group (e.g. notifications)
+    routeGroup = isDirectGroup;
+    routeSubTab = normalizeSubTabId(routeGroup, activeSubTabs[routeGroup]);
+  }
+
   const savedGroup = normalizeGroupId(initialSavedState?.activeGroup);
-  const activeGroup = params.group
-    ? (normalizedRouteGroup || GROUP_CLASSIFICATION)
-    : (savedGroup || GROUP_CLASSIFICATION);
+  const activeGroup = routeGroup || savedGroup || GROUP_CLASSIFICATION;
 
   const currentGroup = useMemo(() => {
     return GROUPS_CONFIG.find((g) => g.id === activeGroup) || GROUPS_CONFIG[0];
   }, [activeGroup]);
 
-  const normalizedRouteSubTab = normalizeSubTabId(activeGroup, params.subtab);
   const rememberedSubTab = normalizeSubTabId(activeGroup, activeSubTabs[activeGroup]);
-  const currentSubTab = params.subtab
-    ? (normalizedRouteSubTab || currentGroup.defaultSubTab)
-    : (rememberedSubTab || currentGroup.defaultSubTab);
+  const currentSubTab = routeSubTab || rememberedSubTab || currentGroup.defaultSubTab;
 
   const tab = currentSubTab;
   const notifSubtab = currentSubTab;
@@ -756,32 +981,34 @@ export default function SuperAdminTicketConfig() {
   }, [storageKey, activeGroup, activeSubTabs]);
 
   useEffect(() => {
-    if (params.group !== activeGroup || params.subtab !== currentSubTab) {
-      navigate(`/superadmin/ticket-config/${activeGroup}/${currentSubTab}`, { replace: true });
+    const isLegacyRoute = window.location.pathname.includes('/ticket-config');
+    const currentParam = params.subtab || params.group;
+    if (isLegacyRoute || currentParam !== currentSubTab) {
+      navigate(`/superadmin/config/${currentSubTab}`, { replace: true });
     }
-  }, [params.group, params.subtab, activeGroup, currentSubTab, navigate]);
+  }, [params.group, params.subtab, currentSubTab, navigate]);
 
   useEffect(() => {
-    if (!normalizedRouteGroup || !normalizedRouteSubTab) return;
+    if (!activeGroup || !currentSubTab) return;
     setActiveSubTabs((prev) => (
-      prev[normalizedRouteGroup] === normalizedRouteSubTab
+      prev[activeGroup] === currentSubTab
         ? prev
-        : { ...prev, [normalizedRouteGroup]: normalizedRouteSubTab }
+        : { ...prev, [activeGroup]: currentSubTab }
     ));
-  }, [normalizedRouteGroup, normalizedRouteSubTab]);
+  }, [activeGroup, currentSubTab]);
 
   const handleSelectGroup = useCallback((groupId) => {
     const validGroup = normalizeGroupId(groupId) || GROUP_CLASSIFICATION;
     const groupDef = GROUPS_CONFIG.find((g) => g.id === validGroup) || GROUPS_CONFIG[0];
     const targetSubTab = normalizeSubTabId(validGroup, activeSubTabs[validGroup]) || groupDef.defaultSubTab;
     setSelectedDeptId(null);
-    navigate(`/superadmin/ticket-config/${validGroup}/${targetSubTab}`);
+    navigate(`/superadmin/config/${targetSubTab}`);
   }, [activeSubTabs, normalizeGroupId, normalizeSubTabId, navigate]);
 
   const handleSelectSubTab = useCallback((subTabId) => {
     const validSubTab = normalizeSubTabId(activeGroup, subTabId) || currentGroup.defaultSubTab;
     setSelectedDeptId(null);
-    navigate(`/superadmin/ticket-config/${activeGroup}/${validSubTab}`);
+    navigate(`/superadmin/config/${validSubTab}`);
   }, [activeGroup, currentGroup.defaultSubTab, normalizeSubTabId, navigate]);
 
   const setNotifSubtab = handleSelectSubTab;
@@ -1603,7 +1830,18 @@ export default function SuperAdminTicketConfig() {
         showSuccess('Saved', 'Priority has been saved.');
       }
       setEditingItem(null);
-      loadConfig();
+      try {
+        const fresh = await getSuperAdminConfig();
+        if (fresh) {
+          setItems((prev) => ({
+            ...prev,
+            ticketCategories: fresh.ticket_categories || prev.ticketCategories,
+            equipment: fresh.equipment || prev.equipment,
+            priorities: fresh.priorities || prev.priorities,
+          }));
+        }
+      } catch {}
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to save configuration settings.');
@@ -1655,10 +1893,26 @@ export default function SuperAdminTicketConfig() {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
       }
-      loadConfig();
+
+      // Optimistically remove from state immediately so UI updates in 0ms without requiring page refresh
+      setItems((prev) => ({
+        ...prev,
+        ticketCategories: tab === TAB_TICKET_CATEGORIES
+          ? (prev.ticketCategories || []).filter((c) => c.id !== item.id)
+          : prev.ticketCategories,
+        equipment: tab === TAB_EQUIPMENT
+          ? (prev.equipment || []).filter((e) => e.id !== item.id)
+          : prev.equipment,
+        priorities: tab === TAB_PRIORITY
+          ? (prev.priorities || []).filter((p) => p.id !== item.id)
+          : prev.priorities,
+      }));
+
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to delete item.');
+      await loadConfig({ source: 'background' });
     }
   };
 
@@ -1729,11 +1983,13 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteWorkflowStatus(status.id);
         showSuccess('Deleted', `${status.name} has been deleted.`);
-        await loadConfig();
+        setWorkflowStatuses((prev) => prev.filter((s) => s.id !== status.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
         const errMsg = err?.response?.data?.message || 'Failed to delete workflow status.';
         showError('Error', errMsg);
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1805,10 +2061,12 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteEscalationRule(rule.id);
         showSuccess('Deleted', `${rule.name} has been deleted.`);
-        await loadConfig();
+        setEscalationRules((prev) => prev.filter((r) => r.id !== rule.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete escalation rule:', err);
         showError('Error', 'Failed to delete escalation rule.');
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -4001,6 +4259,7 @@ export default function SuperAdminTicketConfig() {
         try {
           const res = await deleteBranchCategory(selectedBranch.id, cat.id);
           showSuccess('Category Removed', res.message || `Category "${cat.name}" removed.`);
+          setBranchCategories((prev) => prev.filter((c) => c.id !== cat.id));
           await loadBranchCategoriesAndSla();
         } catch (err) {
           const body = err.response?.data;
@@ -4161,7 +4420,7 @@ export default function SuperAdminTicketConfig() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-[1440px] mx-auto w-full">
       {/* Interactive Hierarchical Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-muted">
         <button
@@ -4191,8 +4450,8 @@ export default function SuperAdminTicketConfig() {
         subtitle="Configure ticket classification, lifecycle state machines, service level agreements, and system policies."
       />
 
-      {/* Level 1: 5 Group Pills */}
-      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit flex-wrap shadow-xs">
+      {/* Level 1: 5 Group Pills (Centered) */}
+      <div className="flex gap-1.5 rounded-2xl bg-gray-100 p-1.5 w-fit flex-wrap shadow-xs">
         {GROUPS_CONFIG.map((group) => {
           const isActive = activeGroup === group.id;
           return (
@@ -4200,9 +4459,9 @@ export default function SuperAdminTicketConfig() {
               key={group.id}
               type="button"
               onClick={() => handleSelectGroup(group.id)}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${isActive
-                  ? 'bg-card text-primary shadow-xs'
-                  : 'text-slate-muted hover:text-slate-dark'
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${isActive
+                  ? 'bg-white text-[#252578] shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
                 }`}
             >
               {group.label}
@@ -4211,42 +4470,85 @@ export default function SuperAdminTicketConfig() {
         })}
       </div>
 
-      {/* Level 2: Secondary Sub-Tab Strip (consistently rendered for all groups to prevent layout shifts) */}
-      <div className="flex items-center border-b border-border overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
-        <div className="flex items-center gap-2 ml-3 min-w-max">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-muted mr-2 select-none">
-            <span>{currentGroup.label}</span>
-            <ChevronRight size={13} className="text-slate-300" />
-          </div>
+      {/* Level 2 & 3: Centered Master-Detail Workspace (Facebook Settings style) */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+        {/* Left: Facebook Settings Vertical Sub-Category List */}
+        <aside className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24" aria-label={`${currentGroup.label} Subcategories`}>
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-3 shadow-xs">
+            <div className="px-3 py-2.5 mb-2 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Settings Menu
+                </span>
+                <h2 className="text-sm font-bold text-gray-800">
+                  {currentGroup.label}
+                </h2>
+              </div>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-[#252578] border border-blue-100">
+                {currentGroup.subTabs.length} items
+              </span>
+            </div>
 
-          <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
-            {currentGroup.subTabs.map((sub) => {
-              const isSubActive = currentSubTab === sub.id;
-              return (
-                <button
-                  key={sub.id}
-                  type="button"
-                  onClick={() => handleSelectSubTab(sub.id)}
-                  className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
-                      ? 'border-accent text-primary'
-                      : 'border-transparent text-slate-muted hover:text-slate-dark hover:border-slate-300'
+            <nav className="flex flex-col gap-1.5 max-h-64 sm:max-h-80 lg:max-h-[calc(100vh-170px)] overflow-y-auto [scrollbar-width:thin]" aria-label={`${currentGroup.label} Subcategories`}>
+              {currentGroup.subTabs.map((sub) => {
+                const isSubActive = currentSubTab === sub.id;
+                const meta = SUBTAB_METADATA[sub.id] || { icon: Settings, subtitle: '' };
+                const IconComponent = meta.icon || Settings;
+
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => handleSelectSubTab(sub.id)}
+                    className={`group flex items-center gap-3 w-full p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                      isSubActive
+                        ? 'bg-[#252578]/5 border-l-4 border-[#252578] shadow-xs text-[#252578]'
+                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
                     }`}
-                >
-                  {sub.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      </div>
+                  >
+                    <div
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                        isSubActive
+                          ? 'bg-[#252578] text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700'
+                      }`}
+                    >
+                      <IconComponent size={18} />
+                    </div>
 
-      {/* Level 3: Tab Content Area with Smooth Entry Transition */}
-      <div
-        ref={tabContentRef}
-        key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
-        className="animate-fade-slide-in min-h-[400px] flex flex-col gap-6 scroll-mt-36"
-      >
-        {tab === TAB_WORKFLOW ? (
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-semibold truncate ${isSubActive ? 'text-[#252578]' : 'text-gray-800'}`}>
+                        {sub.label}
+                      </div>
+                      {meta.subtitle && (
+                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {meta.subtitle}
+                        </div>
+                      )}
+                    </div>
+
+                    <ChevronRight
+                      size={15}
+                      className={`shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                        isSubActive ? 'text-[#252578]' : 'text-gray-300 group-hover:text-gray-400'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        {/* Right: Tab Content Area */}
+        <div
+          ref={tabContentRef}
+          key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
+          className="flex-1 min-w-0 w-full animate-fade-slide-in flex flex-col gap-6 scroll-mt-36"
+        >
+        {loading ? (
+          <TicketConfigTabSkeleton currentSubTab={currentSubTab} />
+        ) : tab === TAB_WORKFLOW ? (
           <div className="flex flex-col gap-6">
           {/* Page Header */}
           <div className="flex items-center justify-between">
@@ -6942,6 +7244,9 @@ export default function SuperAdminTicketConfig() {
                     const isTestingThis = Boolean(testingTemplate[template.event_key]);
                     const errors = templateErrors[template.event_key] || {};
                     const isDirty = draft.subject !== template.subject || draft.body !== template.body;
+                    const combinedText = `${draft.subject || ''} ${draft.body || ''}`;
+                    const hasPlaceholders = /\{{1,2}[a-zA-Z0-9_]+\}{1,2}/.test(combinedText);
+                    const isMissingPlaceholders = !hasPlaceholders;
 
                     return (
                       <div
@@ -7105,6 +7410,18 @@ export default function SuperAdminTicketConfig() {
                                   superAdminEmail={user?.email}
                                 />
                               </div>
+
+                              {isMissingPlaceholders && (
+                                <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-3.5 text-xs text-amber-900 shadow-xs animate-in fade-in">
+                                  <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <span className="font-bold text-amber-950">You are not allowed to remove all placeholders.</span>
+                                    <p className="mt-0.5 text-amber-800 leading-relaxed">
+                                      Every email notification template must contain at least one dynamic placeholder (e.g. <code className="bg-amber-100/90 px-1.5 py-0.5 rounded font-mono font-semibold text-[11px]">{'{ticket_number}'}</code> or <code className="bg-amber-100/90 px-1.5 py-0.5 rounded font-mono font-semibold text-[11px]">{'{customer_name}'}</code>) so recipients receive essential context. Saving is disabled until at least one placeholder token is present.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Action Footer */}
@@ -7175,17 +7492,31 @@ export default function SuperAdminTicketConfig() {
                                   )}
                                 </button>
 
+                                {isMissingPlaceholders && (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-100/80 text-amber-900 border border-amber-300">
+                                    <AlertCircle size={13} className="text-amber-600 shrink-0" />
+                                    Placeholders required to save
+                                  </span>
+                                )}
+
                                 {/* Save */}
                                 <button
                                   type="button"
-                                  disabled={isSaving || !isDirty}
+                                  disabled={isSaving || !isDirty || isMissingPlaceholders}
+                                  title={
+                                    isMissingPlaceholders
+                                      ? 'You are not allowed to remove all placeholders. Insert at least one dynamic placeholder before saving.'
+                                      : !isDirty
+                                      ? 'No changes to save'
+                                      : 'Save template'
+                                  }
                                   onClick={async () => {
                                     const errs = {};
                                     if (!draft.subject?.trim()) errs.subject = 'Subject is required.';
                                     if (!draft.body?.trim()) errs.body = 'Body is required.';
                                     const combinedText = `${draft.subject || ''} ${draft.body || ''}`;
-                                    if (!/\{\{[a-zA-Z0-9_]+\}\}/.test(combinedText)) {
-                                      errs.body = 'Email template must contain at least one dynamic placeholder (e.g. {{ticket_number}}, {{customer_name}}). Removing all placeholders is not permitted.';
+                                    if (!/\{{1,2}[a-zA-Z0-9_]+\}{1,2}/.test(combinedText)) {
+                                      errs.body = 'Email template must contain at least one dynamic placeholder (e.g. {{ticket_number}} or {ticket_number}). Removing all placeholders is not permitted.';
                                     }
                                     if (Object.keys(errs).length > 0) {
                                       setTemplateErrors((prev) => ({ ...prev, [template.event_key]: errs }));
@@ -7219,10 +7550,10 @@ export default function SuperAdminTicketConfig() {
                                       setTemplateSaving((prev) => ({ ...prev, [template.event_key]: false }));
                                     }
                                   }}
-                                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white transition-all cursor-pointer shadow-xs ${
-                                    isDirty && !isSaving
-                                      ? 'bg-[#252578] hover:bg-[#1a1a5e] hover:shadow-md'
-                                      : 'bg-gray-300 cursor-not-allowed'
+                                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white transition-all shadow-xs ${
+                                    isDirty && !isSaving && !isMissingPlaceholders
+                                      ? 'bg-[#252578] hover:bg-[#1a1a5e] hover:shadow-md cursor-pointer'
+                                      : 'bg-gray-300 cursor-not-allowed opacity-75'
                                   }`}
                                 >
                                   {isSaving ? (
@@ -9353,6 +9684,7 @@ export default function SuperAdminTicketConfig() {
           </div>
         </>
       )}
+        </div>
       </div>
 
       {openMenuId && menuPos && createPortal(

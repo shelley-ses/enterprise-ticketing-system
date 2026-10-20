@@ -407,6 +407,7 @@ export default function SuperAdminSettings() {
             if (selectedBranch.id === 'main') {
               await updateSystemStatus('Under Maintenance');
             }
+            window.dispatchEvent(new CustomEvent('system:status-changed', { detail: { status: 'Under Maintenance' } }));
             setBranchSystemStatus((prev) => ({
               ...prev,
               [selectedBranch.id]: 'Under Maintenance',
@@ -432,6 +433,7 @@ export default function SuperAdminSettings() {
         if (selectedBranch.id === 'main') {
           await updateSystemStatus('Operational');
         }
+        window.dispatchEvent(new CustomEvent('system:status-changed', { detail: { status: 'Operational' } }));
         setBranchSystemStatus((prev) => ({
           ...prev,
           [selectedBranch.id]: newStatus,

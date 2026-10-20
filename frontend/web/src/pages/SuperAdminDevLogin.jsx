@@ -28,7 +28,7 @@ export default function SuperAdminDevLogin() {
     localStorage.removeItem('user');
     setUser(mockSuperAdmin);
     setIsAuthenticated(true);
-    navigate('/superadmin/ticket-config', { replace: true });
+    navigate('/superadmin/config', { replace: true });
   };
 
   return (
