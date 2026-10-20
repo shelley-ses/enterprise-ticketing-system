@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter, RotateCcw, X } from 'lucide-react';
-import actionIcon from '@/assets/action.png';
+import { Search, SlidersHorizontal, Loader2, Filter, RotateCcw, X } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -20,7 +19,11 @@ import {
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
-import SkeletonLoader from '@/components/SkeletonLoader';
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
 
 const getDisplayStatus = (ticket) => ticket.status;
 
@@ -445,458 +448,343 @@ export default function CSAssigned() {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-3xl font-bold text-[#252578]">Assigned Tickets</h1>
-          <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
+    <div className="space-y-6">
+      <PageHeader
+        title="Assigned Tickets"
+        subtitle="Manage and track ongoing assigned support tickets"
+        actions={
+          <div className="flex border border-border rounded-lg overflow-hidden bg-card shrink-0">
             {['all', 'external', 'internal'].map((type) => (
               <button
                 key={type}
                 type="button"
                 onClick={() => setTypeFilter(type)}
-                className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
                   typeFilter === type
-                    ? 'bg-[#252578] text-white'
-                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card hover:bg-muted text-muted-foreground'
                 }`}
               >
                 {type}
               </button>
             ))}
           </div>
-        </div>
-        <p className="text-gray-500 mt-1">Manage and track ongoing assigned support tickets</p>
-      </div>
+        }
+      />
 
       {error && (
-        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div className="rounded-lg bg-destructive/10 text-destructive border border-destructive/20 px-4 py-3 text-sm font-medium">
+          {error}
+        </div>
       )}
 
       {notificationBanner && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#252578] text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-white/20 animate-bounce">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground px-6 py-3 rounded-full shadow-xl flex items-center gap-3 border border-primary-foreground/20">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span className="text-sm font-semibold tracking-wide">{notificationBanner}</span>
         </div>
       )}
 
-      {loading ? (
-        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
-          <table className="w-full">
-            <tbody>
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-            </tbody>
-          </table>
+      {/* Filter toolbar */}
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tickets, customers..."
+            className="w-full rounded-lg border border-border bg-card pl-9 pr-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          />
         </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm w-full shrink-0">
-            <div className="flex flex-wrap items-center gap-3 w-full">
-              {/* Ticket ID & Keyword Search Field */}
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  value={search}
-                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  placeholder="Search by ticket ID, customer, type, title, category, status, date..."
-                  className="w-full pl-10 pr-9 py-2.5 text-xs sm:text-sm rounded-xl border border-gray-200 bg-gray-50/50 outline-none focus:ring-2 focus:ring-[#252578] focus:bg-white transition-all"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => { setSearch(''); setPage(1); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Customer Dropdown */}
-              <select
-                value={customerFilter}
-                onChange={(e) => { setCustomerFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {customers.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-
-              {/* Machine Dropdown */}
-              <select
-                value={machineFilter}
-                onChange={(e) => { setMachineFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {machines.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-
-              {/* Status Dropdown */}
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {statuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-
-              {/* Department Dropdown */}
-              <select
-                value={departmentFilter}
-                onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {departmentOptions.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-
-              {/* Category Dropdown */}
-              <select
-                value={category}
-                onChange={(e) => { setCategory(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Active Filter Chips & Reset All Action */}
-            {hasActiveFilters && (
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 mr-1 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5 text-[#252578]" /> Active Filters:
-                </span>
-
-                {search && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Search: &quot;{search}&quot;
-                    <button type="button" onClick={() => clearFilter('search')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {customerFilter !== 'All Customers' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Customer: {customerFilter}
-                    <button type="button" onClick={() => clearFilter('customer')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {machineFilter !== 'All Machines' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Machine: {machineFilter}
-                    <button type="button" onClick={() => clearFilter('machine')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {statusFilter !== 'All Statuses' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Status: {statusFilter}
-                    <button type="button" onClick={() => clearFilter('status')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {departmentFilter !== 'All Departments' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Dept: {departmentFilter}
-                    <button type="button" onClick={() => clearFilter('department')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {category !== 'All Categories' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Category: {category}
-                    <button type="button" onClick={() => clearFilter('category')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="inline-flex items-center gap-1.5 ml-auto px-3 py-1 text-xs font-semibold text-gray-600 hover:text-red-700 bg-gray-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3" /> Reset all filters
-                </button>
-              </div>
-            )}
-          </div>
-
-      {/* Table */}
-      <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
-
-        {/* Assigned Tabs */}
-        <div className="flex border-b border-gray-100 mb-6 gap-2 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('all'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'all'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
+          <select
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            All Assigned
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.all}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('in_progress'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'in_progress'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            {customers.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            In Progress
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'in_progress' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.inProgress}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('pending_evaluation'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'pending_evaluation'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            {machines.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            Pending Evaluation
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'pending_evaluation' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.pendingEval}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('on_hold'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'on_hold'
-                ? 'border-amber-600 text-amber-700'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            {statuses.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <select
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            On Hold
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'on_hold' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.onHold}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('reassigned'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'reassigned'
-                ? 'border-amber-600 text-amber-700'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            {departmentOptions.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            Reassigned Tickets
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'reassigned' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.reassigned}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAssignedTab('resolved_closed'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer shrink-0 ${
-              assignedTab === 'resolved_closed'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            Resolved / Closed
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              assignedTab === 'resolved_closed' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.resolvedClosed}
-            </span>
-          </button>
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={resetFilters}
+              className="gap-1.5 text-xs text-muted-foreground hover:text-destructive shrink-0"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </Button>
+          )}
         </div>
+      </div>
 
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-semibold text-[#252578]">
-            {assignedTab === 'reassigned' ? 'Reassigned Tickets' : assignedTab === 'pending_evaluation' ? 'Pending Evaluation' : assignedTab === 'on_hold' ? 'On Hold Tickets' : assignedTab === 'in_progress' ? 'In Progress Tickets' : assignedTab === 'resolved_closed' ? 'Resolved / Closed Tickets' : 'Assigned Tickets'}
-          </h2>
-          <div className="text-sm text-gray-500">{filtered.length} tickets</div>
-        </div>
+      {/* Assigned Tabs */}
+      <div className="flex border-b border-border gap-2 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => { setAssignedTab('all'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+            assignedTab === 'all'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>All Assigned</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'all' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.all}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setAssignedTab('in_progress'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+            assignedTab === 'in_progress'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>In Progress</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'in_progress' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.inProgress}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setAssignedTab('pending_evaluation'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+            assignedTab === 'pending_evaluation'
+              ? 'border-accent text-accent'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Pending Evaluation</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'pending_evaluation' ? 'bg-accent/15 text-accent' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.pendingEval}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setAssignedTab('reassigned'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+            assignedTab === 'reassigned'
+              ? 'border-warning text-warning'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Reassigned Tickets</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'reassigned' ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.reassigned}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setAssignedTab('resolved_closed'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+            assignedTab === 'resolved_closed'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Resolved / Closed</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'resolved_closed' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.resolvedClosed}
+          </span>
+        </button>
+      </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-left">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-5 py-4">Ticket ID</th>
-                <th className="px-5 py-4">Customer</th>
-                <th className="px-5 py-4">Type</th>
-                <th className="px-5 py-4">Title</th>
-                <th className="px-5 py-4">Category</th>
-                <th className="px-5 py-4">Status</th>
-                <th className="px-5 py-4">Date Submitted</th>
-                <th className="px-5 py-4 text-center">Action</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-gray-100 text-gray-700">
-              {paginated.map((t, idx) => {
+      {/* Table Card */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[140px]">Ticket ID</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-[150px]">Date Submitted</TableHead>
+              <TableHead className="w-[80px] text-center">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <DataTableSkeleton columns={8} rows={6} />
+            ) : filtered.length === 0 ? (
+              <DataTableEmptyState
+                colSpan={8}
+                message="No tickets found in this assigned queue."
+              />
+            ) : (
+              paginated.map((t, idx) => {
                 const isReassignmentReq = t.reassignmentRequested;
-                
+                const isInternalTicket =
+                  t.title?.startsWith('[Internal]') ||
+                  t.is_internal ||
+                  t.ticket_type === 'Internal' ||
+                  t.type === 'Internal';
+
                 return (
-                  <tr
+                  <TableRow
                     key={t.id}
                     onClick={() => handleRowAction(t)}
-                    className={`cursor-pointer transition-all border-b border-gray-50 ${
-                      isReassignmentReq 
-                        ? 'bg-amber-50/70 hover:bg-amber-100/70' 
-                        : (idx === 0 && page === 1 ? 'bg-blue-50/50 hover:bg-gray-50' : 'hover:bg-gray-50')
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                      isReassignmentReq
+                        ? 'bg-warning/5'
+                        : idx === 0 && page === 1
+                        ? 'bg-muted/20'
+                        : ''
                     }`}
                   >
-                    <td className="py-4 px-4 font-medium">
-                      <div className="flex flex-col gap-0.5">
-                        <span className={isReassignmentReq ? 'text-amber-800 font-bold' : ''}>{t.id}</span>
+                    <TableCell className="font-semibold text-primary whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <span className={isReassignmentReq ? 'text-warning font-bold' : ''}>
+                          {t.id}
+                        </span>
                         {isReassignmentReq && (
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-600 text-white shrink-0 w-max mt-1 animate-pulse shadow-sm">
+                          <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-warning/15 text-warning w-fit">
                             Reassignment Requested
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td className="py-4 px-4 text-gray-600">{t.customer}</td>
-                    <td className="py-4 px-4">
-                      <span
-                        className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}
-                      >
-                        {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-gray-700">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold break-words whitespace-normal">{t.title}</span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground truncate max-w-[12rem]">
+                      {t.customer}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={isInternalTicket ? 'secondary' : 'outline'}>
+                        {isInternalTicket ? 'Internal' : 'External'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium text-foreground max-w-[18rem]">
+                      <div className="flex flex-col gap-1">
+                        <span className="truncate">{t.title}</span>
                         {isReassignmentReq && (
-                          <div className="text-[11px] text-amber-900 mt-1 bg-white/80 p-1.5 rounded border border-amber-200">
+                          <div className="text-xs text-warning bg-warning/10 p-1.5 rounded border border-warning/20">
                             <p className="font-semibold">
                               Req: {t.reassignmentRequestedBy || 'Employee'} {t.reassignmentDepartment ? `• ${t.reassignmentDepartment}` : ''}
                             </p>
                             {t.reassignmentReason && (
-                              <p className="text-gray-600 italic truncate max-w-xs">&quot;{formatProperSentenceCase(t.reassignmentReason)}&quot;</p>
+                              <p className="text-muted-foreground italic truncate max-w-xs">
+                                &quot;{formatProperSentenceCase(t.reassignmentReason)}&quot;
+                              </p>
                             )}
                           </div>
                         )}
                         {t.status === 'Pending Evaluation' && !isReassignmentReq && (
-                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 shrink-0 w-max mt-0.5 animate-pulse">
+                          <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-accent/15 text-accent w-fit">
                             Pending Evaluation
                           </span>
                         )}
                       </div>
-                    </td>
-                     <td className="py-4 px-4">
-                      <span className="inline-flex whitespace-nowrap px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                        isReassignmentReq ? 'bg-amber-100 text-amber-800 border border-amber-200 font-bold' :
-                        t.status === 'On Hold' ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold' :
-                        t.status === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
-                        t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                        t.status === 'In Progress' ? 'bg-blue-100 text-blue-700' :
-                        t.status === 'Pending Assignment' ? 'bg-amber-100 text-amber-700' :
-                        t.status === 'Resolved' ? 'bg-green-100 text-green-700' :
-                        t.status === 'Closed' ? 'bg-gray-100 text-gray-700' :
-                        t.status === 'Escalated' ? 'bg-red-100 text-red-700' :
-                        (t.status === 'Reopened' || t.status === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>{isReassignmentReq ? 'Pending Reassignment' : (t.status === 'Reopen' ? 'Reopened' : t.status)}</span>
-                    </td>
-                    {/* <td className="py-4 px-4">
-                      <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                        t.sla === 'Breached' ? 'bg-red-100 text-red-700' :
-                        t.sla === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-green-100 text-green-700'
-                      }`}>{t.sla}</span>
-                    </td> */}
-                    <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date || t.created_at)}</td>
-                    <td className="py-4 px-4 text-center">
-                      <button
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {t.category}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(isReassignmentReq ? 'Pending Reassignment' : t.status)}>
+                        {isReassignmentReq ? 'Pending Reassignment' : (t.status === 'Reopen' ? 'Reopened' : t.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDisplayDate(t.date || t.created_at)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRowAction(t);
                         }}
-                        className={`p-2 rounded-xl transition-all ${
-                          isReassignmentReq ? 'bg-amber-100 hover:bg-amber-200' : 'hover:bg-gray-200 bg-gray-50'
-                        }`}
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        aria-label="Manage ticket"
                       >
-                        <img src={actionIcon} alt="action" className="w-5 h-5 opacity-70" />
-                      </button>
-                    </td>
-                  </tr>
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              })
+            )}
+          </TableBody>
+        </Table>
 
-        {/* Pagination */}
-        <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Showing{' '}
-            {filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1}
-            {' '}-{' '}
-            {Math.min(page * ITEMS_PER_PAGE, filtered.length)}
-            {' '}of {filtered.length}
+        {!loading && filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              Showing {(page - 1) * ITEMS_PER_PAGE + 1} -{' '}
+              {Math.min(page * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} tickets
+            </div>
+            <Pagination
+              totalItems={filtered.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              currentPage={page}
+              onPageChange={(p) => setPage(p)}
+            />
           </div>
-          <Pagination
-            totalItems={filtered.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            currentPage={page}
-            onPageChange={(p) => setPage(p)}
-          />
-        </div>
+        )}
       </div>
-        </>
-      )}
 
       {/* Modals */}
       {modalLoading && (
-        <SkeletonLoader variant="modal" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 max-w-xs w-full mx-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-semibold text-foreground">Loading ticket details...</p>
+          </div>
+        </div>
       )}
 
       {!modalLoading && modal?.mode === 'summary' && (

@@ -4,6 +4,10 @@ import {
   TrendingUp, Users, Smile, Clock, Activity, Cpu, Search, ShieldAlert,
 } from 'lucide-react';
 import { exportMasterReportToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
+import { PageHeader } from '@/components/ui/page-header';
+import { MetricCard } from '@/components/ui/metric-card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 export default function AdminReports() {
   const [csatData, setCsatData] = useState(null);
@@ -42,101 +46,109 @@ export default function AdminReports() {
   };
 
   return (
-    <div className="space-y-6 animate-fadeSlideIn">
-      {/* Header Export Action Control Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm print:hidden">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Master Operational & Predictive Analytics Report</h1>
-          <p className="text-xs text-gray-500 mt-1">Full operational metrics, SLA compliance, employee performance, CSAT scores, and predictive risk models.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => downloadPdfFromElement('master-analytics-report', 'Enterprise_Master_Analytics_Report.pdf')}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm"
-            title="Download Master PDF Report"
-          >
-            <FileText className="w-4 h-4 text-white" />
-            Export to PDF
-          </button>
-          <button
-            onClick={() => exportMasterReportToCsv(masterPayload)}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-colors"
-            title="Download Master CSV Spreadsheet for Excel"
-          >
-            <Download className="w-4 h-4 text-emerald-600" />
-            Export to Excel / CSV
-          </button>
-          <button
-            onClick={triggerPdfPrint}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#252578] hover:bg-[#1e1e60] rounded-xl transition-colors"
-            title="Print Printable Document"
-          >
-            <Printer className="w-4 h-4 text-white" />
-            Print Master Report
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Header Export Action Control Bar (Pattern B) */}
+      <PageHeader
+        pattern="B"
+        title="Master Operational & Predictive Analytics Report"
+        subtitle="Full operational metrics, SLA compliance, employee performance, CSAT scores, and predictive risk models."
+        actions={
+          <div className="flex items-center gap-2 print:hidden">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadPdfFromElement('master-analytics-report', 'Enterprise_Master_Analytics_Report.pdf')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent"
+              title="Download Master PDF Report"
+            >
+              <FileText className="w-4 h-4 mr-1 text-white" />
+              Export to PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportMasterReportToCsv(masterPayload)}
+              className="bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800"
+              title="Download Master CSV Spreadsheet for Excel"
+            >
+              <Download className="w-4 h-4 mr-1 text-emerald-600" />
+              Export to Excel / CSV
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={triggerPdfPrint}
+              title="Print Printable Document"
+            >
+              <Printer className="w-4 h-4 mr-1" />
+              Print Master Report
+            </Button>
+          </div>
+        }
+      />
 
       {/* Master Report Canvas Container */}
-      <div id="master-analytics-report" className="space-y-6 bg-[#f4f7fb] p-4 rounded-2xl">
+      <div id="master-analytics-report" className="space-y-6 bg-page p-4 rounded-xl border border-border">
 
         {/* Executive KPI Summary Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-[#252578]">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Ticket Volume</p>
-              <p className="text-xl font-bold text-gray-800">2,450</p>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center gap-3">
-            <div className="w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">SLA Compliance</p>
-              <p className="text-xl font-bold text-gray-800">92.5%</p>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center gap-3">
-            <div className="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600">
-              <Smile className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">CSAT Score</p>
-              <p className="text-xl font-bold text-gray-800">{csatData?.average_score || 4.67} / 5.0</p>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center gap-3">
-            <div className="w-12 h-12 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Active Staff</p>
-              <p className="text-xl font-bold text-gray-800">18</p>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center gap-3">
-            <div className="w-12 h-12 bg-rose-50 rounded-lg flex items-center justify-center text-rose-600">
-              <ShieldAlert className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Escalation Risk</p>
-              <p className="text-xl font-bold text-gray-800">Low (7% Crit)</p>
-            </div>
-          </div>
+          <MetricCard
+            title="Ticket Volume"
+            value="2,450"
+            trend="+12.4%"
+            trendPositive={true}
+            subtitle="vs last period"
+            icon={<TrendingUp className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
+          />
+          <MetricCard
+            title="SLA Compliance"
+            value="92.5%"
+            trend="+1.8%"
+            trendPositive={true}
+            subtitle="above target"
+            icon={<ShieldCheck className="w-5 h-5 text-emerald-600" />}
+            iconBg="bg-emerald-50 text-emerald-600"
+          />
+          <MetricCard
+            title="CSAT Score"
+            value={`${csatData?.average_score || 4.67} / 5.0`}
+            trend="+4.2%"
+            trendPositive={true}
+            subtitle="satisfaction"
+            icon={<Smile className="w-5 h-5 text-amber-600" />}
+            iconBg="bg-amber-50 text-amber-600"
+            variant="amber"
+          />
+          <MetricCard
+            title="Active Staff"
+            value="18"
+            trend="100%"
+            trendPositive={true}
+            subtitle="active on duty"
+            icon={<Users className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
+          />
+          <MetricCard
+            title="Escalation Risk"
+            value="Low (7% Crit)"
+            trend="-2.1%"
+            trendPositive={true}
+            subtitle="risk trajectory"
+            icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+            iconBg="bg-rose-50 text-rose-600"
+            variant="crimson"
+          />
         </div>
 
         {/* --- SECTION I: OPERATIONAL ANALYTICS --- */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-6">
-          <div className="border-b border-gray-100 pb-3">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-[#252578]" />
-              Section I: Operational Analytics & Performance
+        <div className="bg-card rounded-xl p-6 shadow-xs border border-border space-y-6">
+          <div className="border-b border-border pb-3">
+            <h2 className="text-lg font-bold text-slate-dark flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              Section I: Operational Analytics &amp; Performance
             </h2>
-            <p className="text-xs text-gray-500">Real-time status breakdown, SLA performance, employee metrics, CSAT scores, and workloads.</p>
+            <p className="text-xs text-slate-muted mt-1">Real-time status breakdown, SLA performance, employee metrics, CSAT scores, and workloads.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

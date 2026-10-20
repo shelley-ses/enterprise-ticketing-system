@@ -20,7 +20,7 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 
 /**
  * Customer & Equipment Context Panel (TS029)
- * 
+ *
  * Displays read-only customer contact info, machine hardware specifications,
  * and related ticket history summary for assigned technicians and CS staff.
  */

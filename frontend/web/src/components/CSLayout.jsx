@@ -24,7 +24,7 @@ export default function CSLayout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
+    <div className="min-h-screen bg-page font-sans flex flex-col text-dark-slate">
       <Header sidebarHovered={sidebarHovered} />
       <SidebarCS collapsed={true} onHoverChange={setSidebarHovered} />
 

@@ -3,6 +3,7 @@ import { getCachedTicketFormOptions, getTicketFormOptions } from '@/services/tic
 import TitleCasingModal from '@/components/TitleCasingModal';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
 import { getMaxOpenTicketsLimit } from '@/data/ticketLimitConfig';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const initialFormData = {
   title: '',
@@ -26,6 +27,7 @@ const MIN_TITLE_CHARS = 5;
 const MIN_DESCRIPTION_CHARS = 20;
 
 export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCount = null }) {
+  useLockBodyScroll(isOpen);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -279,26 +281,26 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6 shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface shadow-level-4">
+        <div className="flex items-center justify-between border-b border-gray-150 bg-surface px-8 py-6 shrink-0">
           <div>
-            <h2 className="text-2xl font-bold text-[#252578]">Create New Ticket</h2>
-            <p className="mt-1 text-sm text-gray-500">Submit a new support request for your equipment</p>
+            <h2 className="text-xl font-bold text-dark-slate">Create New Ticket</h2>
+            <p className="mt-1 text-xs text-muted-slate">Submit a new support request for your equipment</p>
           </div>
           <button
             type="button"
             onClick={handleClose}
             disabled={isSubmitting}
-            className="p-2 text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full p-2 text-muted-slate transition-colors hover:bg-page hover:text-dark-slate disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
           >
-            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-8">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-8 text-dark-slate">
           {optionsError && <p className="text-sm text-red-500">{optionsError}</p>}
           {submitError && <p className="text-sm text-red-500">{submitError}</p>}
 
@@ -452,14 +454,22 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
             {fileError && <p className="mt-2 text-sm text-red-500">{fileError}</p>}
           </div>
 
-          <div className="mt-4 flex justify-end gap-4 border-t border-gray-100 pt-6">
+          <div className="mt-4 flex justify-end gap-3 border-t border-gray-150 pt-5">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={isSubmitting}
+              className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-dark-slate hover:bg-page transition cursor-pointer"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
               disabled={loadingOptions || isSubmitting || !isFormValid}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-[#252578] to-[#3b82f6] px-8 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-primary px-6 py-2.5 text-sm font-semibold text-white transition-all hover:bg-brand-deep active:scale-98 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shadow-level-1"
             >
               {isSubmitting && (
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <svg className="h-4 w-4 animate-spin text-white" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>

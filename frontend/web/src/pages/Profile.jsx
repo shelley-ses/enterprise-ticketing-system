@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, AlertTriangle, AlertCircle, WifiOff, CheckCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, AlertCircle, WifiOff } from 'lucide-react';
 import axiosInstance from '@/api/axiosInstance';
 import { useAuth } from '@/context/AuthContext';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
 import ProfileHero from '@/components/profile/ProfileHero';
 import PersonalInfoCard from '@/components/profile/PersonalInfoCard';
 import PreferencesCard from '@/components/profile/PreferencesCard';
@@ -97,22 +99,22 @@ export default function Profile() {
   // Full-page error state when no profile data can be loaded
   if (error && !effectiveUser) {
     return (
-      <div className="p-8 max-w-xl mx-auto my-12 text-center bg-white rounded-3xl border border-red-100 shadow-sm p-8">
-        <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 border border-red-100">
+      <div className="p-8 max-w-xl mx-auto my-12 text-center bg-card rounded-2xl border border-destructive/20 shadow-xs font-sans">
+        <div className="w-16 h-16 rounded-xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4 border border-destructive/20">
           <AlertCircle size={32} />
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Profile Synchronization Failed</h2>
-        <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+        <h2 className="text-xl font-bold text-dark-slate mb-2">Profile Synchronization Failed</h2>
+        <p className="text-sm text-muted-slate mb-6 leading-relaxed">
           {error}
         </p>
-        <button
+        <Button
           type="button"
           onClick={() => fetchFresh(true)}
-          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-[#252578] hover:bg-[#1f1f66] rounded-xl transition shadow-sm cursor-pointer"
+          className="inline-flex items-center gap-2 cursor-pointer"
         >
           <RefreshCw size={16} />
           Retry Synchronization
-        </button>
+        </Button>
       </div>
     );
   }
@@ -120,51 +122,52 @@ export default function Profile() {
   // Initial loading skeleton if no cached profile exists
   if (loading && !effectiveUser) {
     return (
-      <div className="p-8 space-y-6 max-w-5xl mx-auto">
+      <div className="p-8 space-y-6 max-w-5xl mx-auto font-sans">
         <SkeletonLoader className="h-8 w-40" />
-        <SkeletonLoader className="h-44 w-full rounded-2xl" />
+        <SkeletonLoader className="h-44 w-full rounded-xl" />
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <SkeletonLoader className="h-96 w-full rounded-2xl" />
-          <SkeletonLoader className="h-96 w-full rounded-2xl" />
+          <SkeletonLoader className="h-96 w-full rounded-xl" />
+          <SkeletonLoader className="h-96 w-full rounded-xl" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
-      <button
-        onClick={() => navigate(dashboardUrl)}
-        className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-[#252578] transition-colors -mb-4 cursor-pointer"
-      >
-        <ArrowLeft size={16} />
-        Back to Dashboard
-      </button>
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Identity and account information synced from central corporate authentication.
-          </p>
-        </div>
-
-        {/* Sync Status Badge / Manual Refresh */}
-        <button
-          type="button"
-          onClick={() => fetchFresh(true)}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#252578] bg-white border border-gray-200 hover:bg-gray-50 rounded-xl transition cursor-pointer self-start sm:self-auto disabled:opacity-50"
-          title="Refresh profile data from Auth system"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin text-blue-600' : ''} />
-          {loading ? 'Syncing...' : 'Sync with Auth'}
-        </button>
-      </div>
+    <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto font-sans">
+      <PageHeader
+        title="My Profile"
+        subtitle="Identity and account information synced from central corporate authentication."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fetchFresh(true)}
+              disabled={loading}
+              className="cursor-pointer gap-1.5"
+              title="Refresh profile data from Auth system"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin text-accent' : ''} />
+              {loading ? 'Syncing...' : 'Sync with Auth'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(dashboardUrl)}
+              className="cursor-pointer gap-1.5 text-muted-slate hover:text-dark-slate"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </Button>
+          </div>
+        }
+      />
 
       {/* Graceful Degradation / Stale Data State Banner */}
       {isStale && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-start justify-between gap-3 text-xs text-amber-900 animate-in fade-in duration-200">
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start justify-between gap-3 text-xs text-amber-900 animate-fadeIn">
           <div className="flex items-start gap-2.5">
             <WifiOff size={16} className="text-amber-600 shrink-0 mt-0.5" />
             <div>
@@ -174,13 +177,15 @@ export default function Profile() {
               </p>
             </div>
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => fetchFresh(true)}
-            className="shrink-0 px-3 py-1 font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg transition cursor-pointer"
+            className="shrink-0 text-amber-900 border-amber-300 hover:bg-amber-100 cursor-pointer"
           >
             Retry
-          </button>
+          </Button>
         </div>
       )}
 

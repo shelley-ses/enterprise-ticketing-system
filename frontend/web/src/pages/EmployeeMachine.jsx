@@ -1,21 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter } from 'lucide-react';
-import {
-  statusColors,
-  priorityColors,
-  slaStatusColors,
-  sortTicketsByPriority,
-} from '@/constants/employeeTickets';
+import { Search } from 'lucide-react';
+import { sortTicketsByPriority } from '@/constants/employeeTickets';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { getEmployeeAssignedTickets } from '@/services/ticketService';
-import SkeletonLoader from '@/components/SkeletonLoader';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
-import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
+import { hasPendingReassignment } from '@/utils/reassignmentUtils';
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
 
 const CLOSED_STATUSES = ['Closed', 'Resolved'];
 
@@ -212,11 +210,12 @@ export default function EmployeeMachine() {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-3xl font-bold text-[#252578]">Assigned Ticket</h1>
-          <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-xs">
+    <div className="space-y-6">
+      <PageHeader
+        title="Assigned Ticket"
+        subtitle="Tickets assigned to you — work, update, and resolve."
+        actions={
+          <div className="flex border border-border rounded-lg overflow-hidden bg-card shrink-0">
             {['all', 'external', 'internal'].map((type) => (
               <button
                 key={type}
@@ -224,191 +223,217 @@ export default function EmployeeMachine() {
                 onClick={() => setTypeFilter(type)}
                 className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
                   typeFilter === type
-                    ? 'bg-[#252578] text-white'
-                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card hover:bg-muted text-muted-foreground'
                 }`}
               >
                 {type}
               </button>
             ))}
           </div>
-        </div>
-        <p className="text-sm text-gray-500 mt-1">
-          Tickets assigned to you — work, update, and resolve.
-        </p>
-      </div>
+        }
+      />
 
       {loadError && (
-        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">
+        <div className="rounded-lg bg-destructive/10 text-destructive border border-destructive/20 px-4 py-3 text-sm">
           {loadError}
         </div>
       )}
 
-      {loading ? (
-        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
-          <div className="space-y-4">
-            <SkeletonLoader variant="ticket-card" />
-            <SkeletonLoader variant="ticket-card" />
-            <SkeletonLoader variant="ticket-card" />
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Assigned Tabs */}
-          <div className="flex border-b border-gray-200 gap-1 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => setAssignedTab('in_progress')}
-              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-                assignedTab === 'in_progress'
-                  ? 'border-[#252578] text-[#252578]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <span>In Progress</span>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                assignedTab === 'in_progress' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {inProgressCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssignedTab('pending_evaluation')}
-              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-                assignedTab === 'pending_evaluation'
-                  ? 'border-purple-600 text-purple-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <span>Pending Evaluation</span>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                assignedTab === 'pending_evaluation' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {pendingEvaluationCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssignedTab('all')}
-              className={`pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-                assignedTab === 'all'
-                  ? 'border-[#252578] text-[#252578]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <span>All Assigned</span>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                assignedTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {totalAssignedCount}
-              </span>
-            </button>
-          </div>
+      {/* Assigned Tabs */}
+      <div className="flex border-b border-border gap-2">
+        <button
+          type="button"
+          onClick={() => setAssignedTab('in_progress')}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            assignedTab === 'in_progress'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>In Progress</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'in_progress' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {inProgressCount}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setAssignedTab('pending_evaluation')}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            assignedTab === 'pending_evaluation'
+              ? 'border-accent text-accent'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Pending Evaluation</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'pending_evaluation' ? 'bg-accent/15 text-accent' : 'bg-muted text-muted-foreground'
+          }`}>
+            {pendingEvaluationCount}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setAssignedTab('all')}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            assignedTab === 'all'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>All Assigned</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            assignedTab === 'all' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {totalAssignedCount}
+          </span>
+        </button>
+      </div>
 
-          <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm w-full shrink-0">
-              <input type="search" placeholder="Search ID, title, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-[260px] max-w-[630px] w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578] shrink" />
-              <div className="flex flex-wrap lg:flex-nowrap items-center gap-3 shrink-0 lg:ml-auto">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-                <option value="All Status">All Status</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Pending">Pending</option>
-                <option value="Pending Evaluation">Pending Evaluation</option>
-                <option value="Pending Reassign">Pending Reassign</option>
-                <option value="Resolved">Resolved</option>
-                <option value="Closed">Closed</option>
-                <option value="Reopened">Reopened</option>
-              </select>
-              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-                <option value="All Category">All Category</option>
-                <option value="MRI">MRI</option>
-                <option value="CT Scan">CT Scan</option>
-                <option value="Ultrasound">Ultrasound</option>
-                <option value="X-Ray">X-Ray</option>
-                <option value="Ventilator">Ventilator</option>
-              </select>
-              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-[132px] xl:w-[150px] shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#252578]">
-                <option value="All Priority">All Priority</option>
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-              </select>
-              </div>
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left" style={{ minWidth: '900px' }}>
-                <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="px-5 py-4">Ticket ID</th>
-                    <th className="px-5 py-4">Customer</th>
-                    <th className="px-5 py-4">Type</th>
-                    <th className="px-5 py-4">Title</th>
-                    <th className="px-5 py-4">Category</th>
-                    <th className="px-5 py-4">Priority</th>
-                    <th className="px-5 py-4">Status</th>
-                    <th className="px-5 py-4">Last Updated</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-12 text-gray-400 italic">
-                        No active accepted tickets found in your progress queue.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((t) => (
-                      <tr
-                        key={t.id}
-                        onClick={() => openTicketFlow(t)}
-                        className="hover:bg-gray-55/60 cursor-pointer transition-colors"
+      {/* Filter toolbar */}
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
+          <input
+            type="search"
+            placeholder="Search ID, title, customer..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-surface pl-10 pr-4 py-2.5 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent placeholder:text-muted-slate/60"
+          />
+        </div>
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
+            <option value="All Status">All Status</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Pending">Pending</option>
+            <option value="Pending Evaluation">Pending Evaluation</option>
+            <option value="Pending Reassign">Pending Reassign</option>
+            <option value="Resolved">Resolved</option>
+            <option value="Closed">Closed</option>
+            <option value="Reopened">Reopened</option>
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
+            <option value="All Category">All Category</option>
+            <option value="MRI">MRI</option>
+            <option value="CT Scan">CT Scan</option>
+            <option value="Ultrasound">Ultrasound</option>
+            <option value="X-Ray">X-Ray</option>
+            <option value="Ventilator">Ventilator</option>
+          </select>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
+            <option value="All Priority">All Priority</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table Card */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[120px]">Ticket ID</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Priority</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-[150px]">Last Updated</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <DataTableSkeleton columns={8} rows={5} />
+            ) : filtered.length === 0 ? (
+              <DataTableEmptyState
+                colSpan={8}
+                message="No active accepted tickets found in your progress queue."
+              />
+            ) : (
+              filtered.map((t) => {
+                const displayStatus = hasPendingReassignment(t)
+                  ? 'Pending Reassignment'
+                  : isPendingEvaluationTicket(t)
+                  ? 'Pending Evaluation'
+                  : getDisplayStatus(t);
+
+                return (
+                  <TableRow
+                    key={t.id}
+                    onClick={() => openTicketFlow(t)}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  >
+                    <TableCell className="font-semibold text-primary whitespace-nowrap">
+                      {t.id}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground truncate max-w-[12rem]">
+                      {t.customer}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={isInternalTicket(t) ? 'secondary' : 'outline'}>
+                        {getTicketTypeLabel(t)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium text-foreground truncate max-w-[16rem]">
+                      {t.title}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {t.category}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          t.priority?.toLowerCase() === 'critical'
+                            ? 'destructive'
+                            : t.priority?.toLowerCase() === 'high'
+                            ? 'warning'
+                            : 'secondary'
+                        }
                       >
-                        <td className="px-5 py-4 text-sm font-semibold text-[#252578] whitespace-nowrap">{t.id}</td>
-                        <td className="px-5 py-4 text-sm text-gray-600 truncate max-w-[12rem]">{t.customer}</td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${isInternalTicket(t) ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{getTicketTypeLabel(t)}</span>
-                        </td>
-                        <td className="px-5 py-4 text-sm font-medium text-gray-800 truncate max-w-[16rem]">{t.title}</td>
-                        <td className="px-5 py-4 text-sm text-gray-600">{t.category}</td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${priorityColors[t.priority]}`}>{t.priority}</span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                            getDisplayStatus(t) === 'Proof Rejected'
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : hasPendingReassignment(t)
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : isPendingEvaluationTicket(t)
-                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                  : t.status === 'Pending'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : 'bg-blue-50 text-blue-700 border-blue-100'
-                          }`}>
-                            {hasPendingReassignment(t)
-                              ? 'Pending Reassignment'
-                              : isPendingEvaluationTicket(t)
-                              ? 'Pending Evaluation'
-                              : getDisplayStatus(t)}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-sm text-gray-600">{formatDisplayDate(t.lastUpdate)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-                </table>
-              </div>
-              <div className="px-4 py-3 border-t border-gray-100">
-                <p className="text-sm text-gray-500">
-                  Showing {filtered.length} of {totalAssignedCount} assigned tickets
-                </p>
-              </div>
-            </div>
-          </>
+                        {t.priority}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(displayStatus)}>
+                        {displayStatus}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                      {formatDisplayDate(t.lastUpdate)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+        {!loading && filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-border bg-card">
+            <p className="text-xs text-muted-foreground">
+              Showing {filtered.length} of {totalAssignedCount} assigned tickets
+            </p>
+          </div>
         )}
+      </div>
 
       {/* Detail management modal */}
       {infoTicket && (infoTicket.status === 'Closed' || infoTicket.status === 'Resolved' || infoTicket.status === 'Reopened') ? (

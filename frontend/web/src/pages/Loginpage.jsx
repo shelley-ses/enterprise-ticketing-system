@@ -1,32 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, resolveUserRole, resolveUserDepartment } from '@/context/AuthContext';
 import loginImage from '@/assets/login.png';
-import emailIcon from '@/assets/email.png';
-import lockIcon from '@/assets/lock.png';
-import eyeIcon from '@/assets/eyetoggle.png';
-import otpEmailIcon from '@/assets/otp-email.png';
-import otpLockIcon from '@/assets/otp-lock.png';
-import {
-  requestPasswordReset,
-  verifyPasswordResetOtp,
-  resetPassword,
-} from '@/services/authService';
+import { Mail, Lock, Eye, EyeOff, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { getSystemStatus } from '@/services/configurationService';
-// import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
-import './Loginpage.css';
+import ForgotPasswordModal from '@/components/ForgotPasswordModal';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 60;
-const OTP_SECONDS = 210; // 3:30
 const LOCKOUT_STORAGE_KEY_PREFIX = 'login_lockout_until_';
 
 const lockKeyFor = (email) => `${LOCKOUT_STORAGE_KEY_PREFIX}${email}`;
 
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') {
     return true;
@@ -36,15 +28,15 @@ const checkIsCS = (user) => {
 
 const checkIsSuperAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
 const checkIsAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
@@ -54,8 +46,8 @@ const checkIsEmployee = (user) => {
   if (checkIsAdmin(user)) return false;
   if (checkIsSuperAdmin(user)) return false;
   
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   
   if (dept === 'service' || dept.includes('engineer')) {
     return true;
@@ -63,350 +55,7 @@ const checkIsEmployee = (user) => {
   return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
 
-// ─── Forgot Password Modal ────────────────────────────────────────────────────
-/* function ForgotPasswordModal({ onClose }) {
-  const [step, setStep] = useState(1);
-  const [fpEmail, setFpEmail] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const [otpTimer, setOtpTimer] = useState(OTP_SECONDS);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const otpRefs = useRef([...Array(6)].map(() => React.createRef()));
-  const [busy, setBusy] = useState(false);
-  const [modalError, setModalError] = useState('');
-  const [modalMessage, setModalMessage] = useState('');
-
-  useEffect(() => {
-    if (step !== 2) return;
-    if (otpTimer <= 0) return;
-    const timer = setTimeout(() => setOtpTimer((seconds) => seconds - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [step, otpTimer]);
-
-  const formatTime = (seconds) => {
-    const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const remaining = (seconds % 60).toString().padStart(2, '0');
-    return `${minutes}:${remaining}`;
-  };
-
-  const hasMinLength = newPassword.length >= 12;
-  const hasUppercase = /[A-Z]/.test(newPassword);
-  const hasNumber = /\d/.test(newPassword);
-  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
-  const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSymbol;
-
-  const handleOtpChange = (value, index) => {
-    if (!/^\d?$/.test(value)) return;
-    const next = [...otp];
-    next[index] = value;
-    setOtp(next);
-
-    if (value && index < 5) {
-      otpRefs.current[index + 1]?.current?.focus();
-    }
-  };
-
-  const handleOtpKeyDown = (event, index) => {
-    if (event.key === 'Backspace' && !otp[index] && index > 0) {
-      otpRefs.current[index - 1]?.current?.focus();
-    }
-  };
-
-  const handleOtpPaste = (event) => {
-    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pasted) return;
-
-    event.preventDefault();
-    const next = [...Array(6)].map((_, index) => pasted[index] || '');
-    setOtp(next);
-    otpRefs.current[Math.min(pasted.length, 5)]?.current?.focus();
-  };
-
-  const extractError = (err) => {
-    if (typeof err === 'string') return err;
-    if (err?.errors) {
-      const firstKey = Object.keys(err.errors)[0];
-      return err.errors[firstKey][0];
-    }
-    return err?.message || 'An error occurred. Please try again.';
-  };
-
-  const handleSendCode = async () => {
-    if (!fpEmail || busy) return;
-
-    setBusy(true);
-    setModalError('');
-    setModalMessage('');
-
-    try {
-      await requestPasswordReset(fpEmail.trim());
-      setStep(2);
-      setOtp(['', '', '', '', '', '']);
-      setOtpTimer(OTP_SECONDS);
-      otpRefs.current[0]?.current?.focus();
-      setModalMessage('We sent a 6-digit code to your email.');
-    } catch (error) {
-      setModalError(extractError(error) || 'Unable to send the code.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    if (busy) return;
-
-    const code = otp.join('');
-    if (code.length !== 6) {
-      setModalError('Enter the full 6-digit code.');
-      return;
-    }
-
-    setBusy(true);
-    setModalError('');
-    setModalMessage('');
-
-    try {
-      await verifyPasswordResetOtp(fpEmail.trim(), code);
-      setStep(3);
-    } catch (error) {
-      setModalError(extractError(error) || 'Invalid or expired verification code.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    if (busy) return;
-
-    if (!isPasswordValid) {
-      setModalError('Password must meet all format requirements.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setModalError('Passwords do not match.');
-      return;
-    }
-
-    setBusy(true);
-    setModalError('');
-    setModalMessage('');
-
-    try {
-      await resetPassword(fpEmail.trim(), otp.join(''), newPassword, confirmPassword);
-      setStep(4);
-    } catch (error) {
-      setModalError(extractError(error) || 'Unable to reset password.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleResend = async () => {
-    if (busy) return;
-
-    setBusy(true);
-    setModalError('');
-    setModalMessage('');
-
-    try {
-      await requestPasswordReset(fpEmail.trim());
-      setOtp(['', '', '', '', '', '']);
-      setOtpTimer(OTP_SECONDS);
-      otpRefs.current[0]?.current?.focus();
-      setModalMessage('A new code has been sent to your email.');
-    } catch (error) {
-      setModalError(error?.message || 'Unable to resend the code.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const stepTitle = {
-    1: 'Forgot Password?',
-    2: 'Password Recovery',
-    3: 'Reset your password',
-    4: 'Password changed successfully!',
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal-box" role="dialog" aria-modal="true" aria-label={stepTitle[step]}>
-        <button className="modal-close" onClick={onClose} aria-label="Close modal">✕</button>
-
-        {step === 1 && (
-          <div className="modal-content">
-            <h2 className="modal-title">{stepTitle[1]}</h2>
-            <p className="modal-subtitle">Enter your registered email address and we&apos;ll send you a 6-digit code.</p>
-            <input
-              id="fp-email"
-              type="email"
-              className="modal-input"
-              placeholder="Email address"
-              value={fpEmail}
-              onChange={(event) => setFpEmail(event.target.value)}
-            />
-            <button id="fp-send-code" className="modal-btn" onClick={handleSendCode} disabled={busy}>
-              {busy ? 'Sending...' : 'Send Code'}
-            </button>
-            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
-            {modalMessage && <p className="otp-note">{modalMessage}</p>}
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="modal-content">
-            <h2 className="modal-title">{stepTitle[2]}</h2>
-            <p className="modal-subtitle">
-              A 6-digit verification code has been sent to<br />
-              <strong>{fpEmail}</strong>.<br />
-              <em>Enter the code below to continue.</em>
-            </p>
-
-            <div className="otp-icon-wrap">
-              <img src={otpEmailIcon} alt="Email OTP" className="otp-icon-img" />
-            </div>
-
-            <div className="otp-boxes">
-              {otp.map((digit, index) => (
-                <input
-                  key={index}
-                  id={`otp-box-${index}`}
-                  ref={otpRefs.current[index]}
-                  className="otp-box"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(event) => handleOtpChange(event.target.value, index)}
-                  onKeyDown={(event) => handleOtpKeyDown(event, index)}
-                  onPaste={handleOtpPaste}
-                />
-              ))}
-            </div>
-
-            <p className="otp-timer">
-              {otpTimer > 0 ? `Code expires in ${formatTime(otpTimer)}` : 'Code expired. Please resend.'}
-            </p>
-
-            <button id="fp-verify" className="modal-btn" onClick={handleVerifyCode} disabled={busy}>
-              {busy ? 'Verifying...' : 'Verify'}
-            </button>
-
-            <button className="modal-btn-outline" onClick={handleResend} disabled={busy}>
-              Resend Code
-            </button>
-
-            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
-            {modalMessage && <p className="otp-note">{modalMessage}</p>}
-
-            <p className="otp-note">
-              Didn&apos;t receive the email?<br />
-              Check your spam folder or resend the code.
-            </p>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="modal-content">
-            <h2 className="modal-title">{stepTitle[3]}</h2>
-            <p className="modal-subtitle">Please enter your new password</p>
-
-            <div className="otp-icon-wrap">
-              <img src={otpLockIcon} alt="Lock" className="otp-icon-img" />
-            </div>
-
-            <label className="modal-label">New Password</label>
-            <div className="modal-input-wrap">
-              <input
-                id="fp-new-password"
-                type={showNew ? 'text' : 'password'}
-                className="modal-input"
-                placeholder=""
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-              />
-              <button
-                type="button"
-                className="modal-eye"
-                onClick={() => setShowNew((previous) => !previous)}
-                aria-label="Toggle new password visibility"
-              >
-                <img src={eyeIcon} alt="" />
-              </button>
-            </div>
-
-            <label className="modal-label">Confirm password</label>
-            <div className="modal-input-wrap">
-              <input
-                id="fp-confirm-password"
-                type={showConfirm ? 'text' : 'password'}
-                className="modal-input"
-                placeholder=""
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-              />
-              <button
-                type="button"
-                className="modal-eye"
-                onClick={() => setShowConfirm((previous) => !previous)}
-                aria-label="Toggle confirm password visibility"
-              >
-                <img src={eyeIcon} alt="" />
-              </button>
-            </div>
-
-            <button id="fp-done" className="modal-btn" onClick={handleResetPassword} disabled={busy}>
-              {busy ? 'Saving...' : 'Done'}
-            </button>
-
-            {modalError && <p className="otp-note text-red-600">{modalError}</p>}
-            {modalMessage && <p className="otp-note">{modalMessage}</p>}
-
-            <div className="pw-hints">
-              <div className="pw-hint">
-                <span className={`pw-dot ${hasMinLength ? 'valid' : 'invalid'}`} />
-                Minimum of 12 characters
-              </div>
-              <div className="pw-hint">
-                <span className={`pw-dot ${hasUppercase ? 'valid' : 'invalid'}`} />
-                Uppercase letter
-              </div>
-              <div className="pw-hint">
-                <span className={`pw-dot ${hasNumber ? 'valid' : 'invalid'}`} />
-                Number
-              </div>
-              <div className="pw-hint">
-                <span className={`pw-dot ${hasSymbol ? 'valid' : 'invalid'}`} />
-                Symbol
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="modal-content modal-content--success">
-            <h2 className="modal-title">{stepTitle[4]}</h2>
-            <p className="modal-subtitle">
-              You can now go back to the login page and sign in with your new password.
-            </p>
-            <div className="success-actions">
-              <button id="fp-login" className="modal-btn modal-btn--right" onClick={onClose}>
-                Log In
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-*/
-// ─── Main Login Page ─────────────────────────────────────────────────────────
-function Loginpage({ mode = 'customer' }) {
+export function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
   const { login, clearError, isAuthenticated, user } = useAuth();
   const isEmployeeLogin = mode === 'employee';
@@ -421,11 +70,10 @@ function Loginpage({ mode = 'customer' }) {
   const [lockedOut, setLockedOut] = useState(false);
   const [lockTimer, setLockTimer] = useState(LOCKOUT_SECONDS);
   const [loginError, setLoginError] = useState('');
+  const [lockedEmail, setLockedEmail] = useState('');
 
+  // Forgot password modal
   const [showForgot, setShowForgot] = useState(false);
-
-  // First-login: force the user to change their password before entering the app
-  const [showForceChangePassword, setShowForceChangePassword] = useState(false);
 
   // System maintenance status
   const [isMaintenance, setIsMaintenance] = useState(false);
@@ -444,7 +92,7 @@ function Loginpage({ mode = 'customer' }) {
 
   // Prevent browsing back to login if already authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       const isCS = checkIsCS(user);
       const isEmployee = checkIsEmployee(user);
       const isSuperAdmin = checkIsSuperAdmin(user);
@@ -475,18 +123,7 @@ function Loginpage({ mode = 'customer' }) {
     }
   }, [isAuthenticated, user, navigate]);
 
-  // When the ForceChangePasswordModal calls logout() on success, isAuthenticated
-  // flips to false — use that as the signal to hide the modal so the login
-  // form is visible again for the user to sign in with their new password.
-  useEffect(() => {
-    if (!isAuthenticated && showForceChangePassword) {
-      setShowForceChangePassword(false);
-    }
-  }, [isAuthenticated, showForceChangePassword]);
-
   // Lockout per-email handling
-  const [lockedEmail, setLockedEmail] = useState('');
-
   useEffect(() => {
     const checkLockForEmail = () => {
       if (!email) return;
@@ -520,7 +157,7 @@ function Loginpage({ mode = 'customer' }) {
     }
     const t = setTimeout(() => setLockTimer((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [email, lockedOut, lockTimer]);
+  }, [email, lockedOut, lockTimer, lockedEmail]);
 
   const formatLock = (s) => {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
@@ -528,7 +165,6 @@ function Loginpage({ mode = 'customer' }) {
     return `${m}:${sec}`;
   };
 
-  //Login Function
   const handleLogin = async (e) => {
     e.preventDefault();
 
@@ -544,12 +180,6 @@ function Loginpage({ mode = 'customer' }) {
       if (result.success) {
         setLoginError('');
         setAttempts(0);
-
-        // SKIPPED: force-change-password modal disabled for now
-        // if (result.isFirstLogin) {
-        //   setShowForceChangePassword(true);
-        //   return;
-        // }
 
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
@@ -579,13 +209,12 @@ function Loginpage({ mode = 'customer' }) {
           }
         }
       } else {
-        // Rate Limit
         if (result.retryAfter) {
           const seconds = Number(result.retryAfter);
           if (!Number.isNaN(seconds) && seconds > 0) {
             setLockedOut(true);
             const lockUntilMs = Date.now() + seconds * 1000;
-            localStorage.setItem(LOCKOUT_STORAGE_KEY, String(lockUntilMs));
+            localStorage.setItem(lockKeyFor(email), String(lockUntilMs));
             setLockTimer(seconds);
             setLoginError(`${result.error} Try again in ${formatLock(seconds)}`);
           } else {
@@ -594,26 +223,24 @@ function Loginpage({ mode = 'customer' }) {
           setIsSubmitting(false);
           return;
         }
+
         const remainingAttempts = result.remainingAttempts ?? Math.max(0, MAX_ATTEMPTS - (attempts + 1));
         setAttempts(MAX_ATTEMPTS - remainingAttempts);
 
         if (result.lockedUntil || remainingAttempts === 0) {
           setLockedOut(true);
-          const lockUntilMs = result.lockedUntil ? new Date(result.lockedUntil).getTime() : Date.now() + LOCKOUT_SECONDS * 1000;
-          // store lockout keyed to the email/account
+          const lockUntilMs = Date.now() + LOCKOUT_SECONDS * 1000;
           localStorage.setItem(lockKeyFor(email), String(lockUntilMs));
           setLockedEmail(email);
-          setLockTimer(Math.max(1, Math.ceil((lockUntilMs - Date.now()) / 1000)));
+          setLockTimer(LOCKOUT_SECONDS);
+          setLoginError(`Account temporarily locked. Please wait ${LOCKOUT_SECONDS} seconds.`);
         } else {
-          setLockedOut(false);
-          localStorage.removeItem(lockKeyFor(email));
+          setLoginError(
+            result.lockedUntil
+              ? `${result.error} Account is locked temporarily.`
+              : `${result.error} ${remainingAttempts} attempt(s) remaining.`
+          );
         }
-
-        setLoginError(
-          result.lockedUntil
-            ? `${result.error} Account is locked temporarily.`
-            : `${result.error} ${remainingAttempts} attempt(s) remaining.`
-        );
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -624,159 +251,159 @@ function Loginpage({ mode = 'customer' }) {
   };
 
   return (
-    <>
-      <div className="login-container">
-
-        {/* LEFT SIDE IMAGE */}
-        <div className="left-panel">
-          <img className="bg-image" src={loginImage} alt="Login background" />
-          <div className="overlay" />
-          <div className="left-text">
-            <h1>25 Years of Innovating Diagnostics Solutions</h1>
-            <p>ISO 9001:2015 Certified</p>
+    <div className="h-screen w-full flex font-sans bg-[#F8F9FA] overflow-hidden">
+      {/* LEFT SIDE BRAND IMAGE */}
+      <div className="relative hidden lg:block lg:w-1/2 h-full overflow-hidden bg-primary">
+        <img
+          src={loginImage}
+          alt="Scientific Biotech Specialties"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-[#252578]/70 backdrop-blur-[1px]" />
+        <div className="absolute bottom-28 lg:bottom-36 left-8 lg:left-12 right-8 lg:right-12 text-white max-w-lg space-y-3 z-10">
+          <div className="inline-block px-3 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-semibold tracking-wider uppercase mb-2">
+            Ticketing System
           </div>
+          <h1 className="text-3xl lg:text-4xl font-extrabold leading-tight">
+            25 Years of Innovating Diagnostics Solutions
+          </h1>
+          <p className="text-sm text-white/80 font-normal">
+            Scientific Biotech Specialties, Inc. — ISO 9001:2015 Certified
+          </p>
         </div>
+      </div>
 
-        {/* RIGHT SIDE FORM */}
-        <div className="right-panel">
-          <form className="form-box" onSubmit={handleLogin}>
-
-            <h2 className="title">{isEmployeeLogin ? 'Employee Login' : 'Welcome Back!'}</h2>
-            <p className="subtitle">
-              {isEmployeeLogin ? 'Sign in to the employee portal' : 'Sign in to the Ticketing Management System'}
+      {/* RIGHT SIDE AUTH FORM */}
+      <div className="w-full lg:w-1/2 h-full flex items-center justify-center p-6 sm:p-12 overflow-y-auto">
+        <div className="w-full max-w-md space-y-6">
+          <div>
+            <h2 className="text-3xl font-bold text-primary tracking-tight">
+              {isEmployeeLogin ? 'Employee Portal' : 'Welcome Back'}
+            </h2>
+            <p className="text-sm text-muted-slate mt-1">
+              {isEmployeeLogin
+                ? 'Sign in to access your technical queues and tickets'
+                : 'Sign in to the Ticketing System to manage support requests'}
             </p>
+          </div>
 
-            {/* Maintenance advisory banner */}
-            {isMaintenance && (
-              <div
-                style={{
-                  backgroundColor: '#fffbeb',
-                  border: '1px solid #fde68a',
-                  color: '#92400e',
-                  borderRadius: '10px',
-                  padding: '10px 14px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  lineHeight: '1.4',
-                }}
-                role="alert"
-              >
-                <span>⚠ System is currently Under Maintenance. Customer logins are restricted to administrative personnel.</span>
+          {/* Maintenance advisory */}
+          {isMaintenance && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 font-medium flex items-center gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>System Notice: Platform is currently in Maintenance Mode. Non-admin logins may be restricted.</span>
+            </div>
+          )}
+
+          {/* Lockout banner */}
+          {lockedOut && (
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-300 text-xs text-destructive font-medium flex items-center gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Too many failed attempts. Try again in {formatLock(lockTimer)}.</span>
+            </div>
+          )}
+
+          {/* Inline error */}
+          {loginError && !lockedOut && (
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-destructive font-medium flex items-center gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="login-email">Email Address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
+                <Input
+                  id="login-email"
+                  type="email"
+                  placeholder="name@company.com"
+                  className="pl-10 h-11"
+                  value={email}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEmail(v);
+                    if (lockedOut && lockedEmail && v !== lockedEmail) {
+                      setLockedOut(false);
+                      setLockedEmail('');
+                      setLoginError('');
+                    }
+                  }}
+                  required
+                />
               </div>
-            )}
-
-            {/* Lockout banner */}
-            {lockedOut && (
-              <div className="lockout-banner" role="alert">
-                ⚠ Too many failed attempts. Account temporarily locked.
-              </div>
-            )}
-
-            {/* Inline error */}
-            {loginError && !lockedOut && (
-              <div className="login-error" role="alert">{loginError}</div>
-            )}
-
-            {/* EMAIL */}
-            <div className="input-wrapper">
-              <img src={emailIcon} alt="Email" className="input-icon" />
-              <input
-                id="login-email"
-                type="email"
-                placeholder="Email"
-                className="input-field"
-                value={email}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setEmail(v);
-                  // if user types a different email, clear the lock UI for this input
-                  if (lockedOut && lockedEmail && v !== lockedEmail) {
-                    setLockedOut(false);
-                    setLockedEmail('');
-                    setLoginError('');
-                  }
-                }}
-                disabled={false}
-                required
-              />
             </div>
 
-            {/* PASSWORD */}
-            <div className="input-wrapper">
-              <img src={lockIcon} alt="Lock" className="input-icon" />
-              <input
-                id="login-password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Password"
-                className="input-field"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={false}
-                required
-              />
-              <button
-                type="button"
-                className="eye-toggle"
-                onClick={() => setShowPassword((prev) => !prev)}
-                aria-label="Toggle password visibility"
-              >
-                <img src={eyeIcon} alt="Toggle visibility" />
-              </button>
-            </div>
-
-            {/* SUBMIT */}
-            <button
-              id="login-submit"
-              type="submit"
-              className={`login-btn ${(lockedOut && lockedEmail === email) || isSubmitting ? 'login-btn--disabled' : ''}`}
-              disabled={(lockedOut && lockedEmail === email) || isSubmitting}
-            >
-              {isSubmitting ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Signing In...
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </button>
-
-            {/* Lockout countdown */}
-            {lockedOut && (
-              <p className="lockout-timer">
-                Too many failed attempts. Please try again in {formatLock(lockTimer)}
-              </p>
-            )}
-
-            {/* FORGOT PASSWORD */}
-            {!isEmployeeLogin && (
-              <div className="forgot-row">
+            <div className="space-y-1.5">
+              <Label htmlFor="login-password">Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-slate" />
+                <Input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••••••"
+                  className="pl-10 pr-10 h-11"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
                 <button
                   type="button"
-                  className="forgot-link"
-                  onClick={() => setShowForgot(true)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-slate hover:text-dark-slate transition-colors"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label="Toggle password visibility"
+                  tabIndex={-1}
                 >
-                  Forgot Password?
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-            )}
+            </div>
 
+            <Button
+              id="login-submit"
+              type="submit"
+              variant="default"
+              className="w-full h-11 text-base font-semibold mt-2"
+              disabled={(lockedOut && lockedEmail === email) || isSubmitting}
+              loading={isSubmitting}
+            >
+              Sign In
+            </Button>
           </form>
-        </div>
 
+          {isEmployeeLogin ? (
+            <div className="text-center pt-2">
+              <a
+                href="/"
+                className="text-xs text-accent hover:underline font-medium"
+              >
+                Back to Central Portal
+              </a>
+            </div>
+          ) : (
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => setShowForgot(true)}
+                className="text-xs text-accent hover:underline font-semibold cursor-pointer"
+              >
+                Forgot Password?
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* FORGOT PASSWORD MODAL */}
-      {/* {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />} */}
-
-      {/* FORCE CHANGE PASSWORD MODAL — shown immediately after first-time login,
-          before the user navigates to the dashboard, to avoid the lazy-load race */}
-      {/* {showForceChangePassword && <ForceChangePasswordModal />} */}
-    </>
+      {showForgot && (
+        <ForgotPasswordModal
+          onClose={() => setShowForgot(false)}
+          defaultEmail={email}
+        />
+      )}
+    </div>
   );
 }
 

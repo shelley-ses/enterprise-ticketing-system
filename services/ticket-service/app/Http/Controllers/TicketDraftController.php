@@ -29,6 +29,34 @@ class TicketDraftController extends Controller
             return (int) $request->input('created_by');
         }
 
+        // Try auth('api') guard
+        try {
+            $apiUser = auth('api')->user();
+            if ($apiUser) {
+                return (int) ($apiUser->id ?? $apiUser->client_id ?? $apiUser->emp_id);
+            }
+        } catch (\Throwable $e) {}
+
+        // Fallback: decode JWT bearer payload if present
+        $bearer = $request->bearerToken();
+        if ($bearer) {
+            $parts = explode('.', $bearer);
+            if (count($parts) === 3) {
+                $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $parts[1])), true);
+                if (is_array($payload)) {
+                    if (!empty($payload['sub'])) {
+                        return (int) $payload['sub'];
+                    }
+                    if (!empty($payload['client_id'])) {
+                        return (int) $payload['client_id'];
+                    }
+                    if (!empty($payload['user_id'])) {
+                        return (int) $payload['user_id'];
+                    }
+                }
+            }
+        }
+
         return null;
     }
 

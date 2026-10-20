@@ -15,6 +15,11 @@ import { Line, Bar } from 'react-chartjs-2';
 import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer, Calendar } from 'lucide-react';
 import { exportAnalyticsToCsv, exportPredictiveToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
 import PredictiveAnalytics from './PredictiveAnalytics';
+import { PageHeader } from '@/components/ui/page-header';
+import { MetricCard } from '@/components/ui/metric-card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 // Custom plugin to show data labels at bar ends (no external dependency)
 const barLabelsPlugin = {
@@ -282,20 +287,20 @@ function ChartViewDropdown({ value, onChange, options }) {
 
 function SectionCard({ icon, title, instruction, subInstruction, children, viewOptions, currentView, onViewChange }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 transition-all duration-200 hover:shadow-md">
+    <div className="bg-card rounded-xl shadow-xs border border-border p-4 transition-all duration-200 hover:shadow-card">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#252578] to-[#3b82f6] flex items-center justify-center flex-shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
             {icon}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800 leading-tight truncate">{title}</h3>
+            <h3 className="text-sm font-bold text-slate-dark leading-tight truncate">{title}</h3>
             {instruction && (
-              <p className="text-[10px] text-gray-400 leading-tight">{instruction}</p>
+              <p className="text-[11px] text-slate-muted leading-tight">{instruction}</p>
             )}
             {subInstruction && (
-              <p className="text-[10px] text-gray-400 leading-tight">{subInstruction}</p>
+              <p className="text-[11px] text-slate-muted leading-tight">{subInstruction}</p>
             )}
           </div>
         </div>
@@ -325,14 +330,15 @@ class AnalyticsErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="bg-white rounded-2xl border border-rose-100 p-6 text-center space-y-3">
-          <p className="text-sm font-semibold text-rose-600">Unable to load Predictive Analytics view.</p>
-          <button
+        <div className="bg-card rounded-xl border border-destructive/20 p-6 text-center space-y-3">
+          <p className="text-sm font-semibold text-destructive">Unable to load Predictive Analytics view.</p>
+          <Button
+            variant="default"
+            size="sm"
             onClick={() => this.setState({ hasError: false })}
-            className="px-3.5 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-blue-900 transition-all"
           >
             Retry Analytics View
-          </button>
+          </Button>
         </div>
       );
     }
@@ -871,123 +877,125 @@ export default function AdminDashboard() {
   }).format(new Date());
 
   return (
-    <div id="admin-analytics-report" className="space-y-4">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Admin Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">{dateStr}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {syncStatusMsg && (
-            <span className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 font-medium rounded-lg animate-pulse">
-              {syncStatusMsg}
-            </span>
-          )}
-          <button
-            onClick={() => downloadPdfFromElement(activeTab === 'predictive' ? 'predictive-analytics-report' : 'admin-analytics-report', activeTab === 'predictive' ? 'Predictive_Analytics_Report.pdf' : 'Analytics_Operational_Report.pdf')}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-xs font-semibold text-white shadow-sm transition-all print:hidden"
-            title="Download PDF report file directly"
-          >
-            <FileText className="w-3.5 h-3.5 text-white" />
-            Export to PDF
-          </button>
-          <button
-            onClick={() => activeTab === 'predictive' ? exportPredictiveToCsv(analyticsData?.predictive || {}) : exportAnalyticsToCsv(analyticsData)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-semibold text-emerald-800 transition-colors print:hidden"
-            title="Export metrics to Excel / CSV"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-600" />
-            Export Excel / CSV
-          </button>
-          <button
-            onClick={triggerPdfPrint}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors print:hidden"
-            title="Print report"
-          >
-            <Printer className="w-3.5 h-3.5 text-gray-600" />
-            Print
-          </button>
-          <button
-            onClick={() => handleRunEtl(false)}
-            disabled={isSyncing}
-            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50 print:hidden"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
-            Run Incremental ETL
-          </button>
-          <button
-            onClick={() => handleRunEtl(true)}
-            disabled={isSyncing}
-            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white rounded-xl text-xs font-semibold shadow-sm hover:opacity-95 active:scale-95 transition-all disabled:opacity-50 print:hidden"
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            Full ETL Sync (--full-sync)
-          </button>
-        </div>
-      </div>
+    <div id="admin-analytics-report" className="space-y-6">
+      {/* Page Header (Pattern A) */}
+      <PageHeader
+        pattern="A"
+        title="Admin Dashboard"
+        subtitle={dateStr}
+        actions={
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {syncStatusMsg && (
+              <span className="text-xs px-3 py-1.5 bg-blue-50 text-accent font-medium rounded-lg animate-pulse border border-blue-200">
+                {syncStatusMsg}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadPdfFromElement(activeTab === 'predictive' ? 'predictive-analytics-report' : 'admin-analytics-report', activeTab === 'predictive' ? 'Predictive_Analytics_Report.pdf' : 'Analytics_Operational_Report.pdf')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent"
+              title="Download PDF report file directly"
+            >
+              <FileText className="w-3.5 h-3.5 mr-1 text-white" />
+              Export to PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => activeTab === 'predictive' ? exportPredictiveToCsv(analyticsData?.predictive || {}) : exportAnalyticsToCsv(analyticsData)}
+              className="bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800"
+              title="Export metrics to Excel / CSV"
+            >
+              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              Export Excel / CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={triggerPdfPrint}
+              title="Print report"
+            >
+              <Printer className="w-3.5 h-3.5 mr-1 text-slate-muted" />
+              Print
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleRunEtl(false)}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 mr-1 text-accent", isSyncing && "animate-spin")} />
+              Run Incremental ETL
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleRunEtl(true)}
+              disabled={isSyncing}
+            >
+              <Cpu className="w-3.5 h-3.5 mr-1" />
+              Full ETL Sync
+            </Button>
+          </div>
+        }
+      />
 
       {/* Single-Line Toolbar: Tab Navigation & Global Date Range Filters */}
-      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 p-2 print:hidden">
+      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-card rounded-xl shadow-xs border border-border p-2 print:hidden">
         {/* Left: Tab Switcher */}
-        <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 shrink-0">
-          <button
+        <div className="flex items-center gap-1 bg-page rounded-lg p-1 shrink-0 border border-border">
+          <Button
+            variant={activeTab === 'overview' ? 'default' : 'ghost'}
+            size="sm"
             onClick={() => setActiveTab('overview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-              activeTab === 'overview'
-                ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
-            }`}
+            className="text-xs"
           >
-            <BarChart3 className="w-4 h-4" />
+            <BarChart3 className="w-4 h-4 mr-1.5" />
             Overview
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={activeTab === 'predictive' ? 'default' : 'ghost'}
+            size="sm"
             onClick={() => setActiveTab('predictive')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-              activeTab === 'predictive'
-                ? 'bg-gradient-to-r from-[#252578] to-[#3b82f6] text-white shadow-md'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
-            }`}
+            className="text-xs"
           >
-            <LineChart className="w-4 h-4" />
+            <LineChart className="w-4 h-4 mr-1.5" />
             Predictive Analytics
-          </button>
+          </Button>
         </div>
 
         {/* Right: Date Range Preset Filters */}
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 border border-gray-100">
+          <div className="flex items-center gap-1 bg-page rounded-lg p-1 border border-border">
             {FILTER_OPTIONS.map((opt) => (
-              <button
+              <Button
                 key={opt}
+                variant={selectedPreset === opt ? 'default' : 'ghost'}
+                size="sm"
                 onClick={() => setSelectedPreset(opt)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
-                  selectedPreset === opt
-                    ? 'bg-[#252578] text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
-                }`}
+                className="text-xs h-7 px-2.5"
               >
                 {opt}
-              </button>
+              </Button>
             ))}
           </div>
 
           {selectedPreset === 'Custom Range' && (
-            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs animate-fadeSlideIn">
-              <Calendar className="w-3.5 h-3.5 text-gray-500" />
+            <div className="flex items-center gap-2 bg-page border border-border rounded-lg px-3 py-1 text-xs">
+              <Calendar className="w-3.5 h-3.5 text-slate-muted" />
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="bg-white border border-gray-200 rounded px-2 py-0.5 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#252578]"
+                className="bg-card border border-border rounded px-2 py-0.5 text-xs text-slate-dark focus:outline-none focus:ring-1 focus:ring-accent"
               />
-              <span className="text-gray-400 font-medium">to</span>
+              <span className="text-slate-muted font-medium">to</span>
               <input
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="bg-white border border-gray-200 rounded px-2 py-0.5 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#252578]"
+                className="bg-card border border-border rounded px-2 py-0.5 text-xs text-slate-dark focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           )}
@@ -996,25 +1004,21 @@ export default function AdminDashboard() {
 
       {/* Tab Content */}
       {activeTab === 'overview' ? (
-        <div className="space-y-4 animate-fadeSlideIn">
-          {/* Sticky KPI Strip */}
-          <div className="sticky top-0 z-20 py-2 bg-[#f4f7fb] -mx-4 lg:-mx-12 px-4 lg:px-12">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {kpis.map((k) => {
-                const Icon = k.icon;
-                return (
-                  <div key={k.label} className="bg-white rounded-xl shadow-md p-4 flex items-center gap-4 hover:shadow-lg transition-all">
-                    <div className="w-14 h-14 bg-[#f1f5f9] rounded-lg flex items-center justify-center shrink-0 text-[#252578]">
-                      <Icon className="w-7 h-7" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gray-500 truncate">{k.label}</p>
-                      <p className="text-2xl font-semibold text-gray-800">{k.value}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        <div className="space-y-6">
+          {/* KPI Cards Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {kpis.map((k) => {
+              const Icon = k.icon;
+              return (
+                <MetricCard
+                  key={k.label}
+                  title={k.label}
+                  value={k.value}
+                  icon={<Icon className="w-5 h-5" />}
+                  iconBg="bg-primary/10 text-primary"
+                />
+              );
+            })}
           </div>
 
           {/* 2-Column Grid */}
