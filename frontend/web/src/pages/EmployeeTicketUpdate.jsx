@@ -15,7 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/ticketService';
+import { getTicketDetails, updateEmployeeTicket, saveWorkLog, acceptTicket } from '@/services/ticketService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
@@ -52,6 +52,7 @@ export default function EmployeeTicketUpdate() {
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingNote, setIsAddingNote] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
 
   // Work Log state
@@ -129,6 +130,31 @@ export default function EmployeeTicketUpdate() {
   const isProofRejected =
     ticket?.proofRejected === true && ticket?.status === 'In Progress';
 
+  const isAccepted = Boolean(
+    ticket?.accepted ||
+    ticket?.assignment_status === 'accepted' ||
+    ticket?.status === 'In Progress' ||
+    ticket?.status === 'Pending Evaluation' ||
+    ticket?.status === 'Resolved' ||
+    ticket?.status === 'Closed'
+  );
+
+  const handleAcceptTicket = async () => {
+    if (!numericId) return;
+    setIsAccepting(true);
+    try {
+      await acceptTicket({ ticketId: numericId });
+      setTicket((prev) => ({ ...prev, accepted: true, status: 'In Progress' }));
+      setStatusDraft('In Progress');
+      setSuccessMessage('Ticket accepted successfully! You may now update ticket status and log work.');
+      window.dispatchEvent(new Event('notifications:updated'));
+    } catch (err) {
+      setErrorMessage(err?.response?.data?.message || 'Failed to accept ticket.');
+    } finally {
+      setIsAccepting(false);
+    }
+  };
+
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
 
   const timelineEvents = useMemo(() => {
@@ -141,11 +167,15 @@ export default function EmployeeTicketUpdate() {
         timestamp: ticket.date,
       },
     ];
-    if (ticket.accepted) {
+    const hasAcceptanceInTimeline = (ticket.timeline || []).some(
+      (e) => typeof e.text === 'string' && e.text.toLowerCase().includes('accepted')
+    );
+    if (ticket.accepted && !hasAcceptanceInTimeline) {
+      const actorName = ticket.assigned_to_name || ticket.accepted_by_name || (user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.name) || 'Employee';
       events.push({
         id: 'acceptance',
         type: 'system',
-        text: 'Assignment accepted by employee.',
+        text: `Assignment accepted by ${actorName}.`,
         timestamp: ticket.date,
       });
     }
@@ -420,6 +450,28 @@ export default function EmployeeTicketUpdate() {
             {/* Reassignment disapproved banner */}
             <ReassignmentDisapprovalBanner ticket={ticket} />
 
+            {/* Acceptance requirement banner */}
+            {!isAccepted && (
+              <div className="bg-amber-50 rounded-xl p-5 border border-amber-200 text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-950">Ticket Pending Acceptance</h4>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      You must accept this assignment before you can update ticket status, upload proof, or log work.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleAcceptTicket}
+                  disabled={isAccepting}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 font-semibold cursor-pointer"
+                >
+                  {isAccepting ? 'Accepting...' : 'Accept Ticket'}
+                </Button>
+              </div>
+            )}
+
             {/* Customer & Machine Context Panel (TS029) */}
             <CustomerInfoPanel
               ticketId={numericId}
@@ -554,7 +606,7 @@ export default function EmployeeTicketUpdate() {
                       </label>
                       <select
                         value={statusDraft}
-                        disabled={isSaving}
+                        disabled={isSaving || !isAccepted}
                         onChange={(e) => setStatusDraft(e.target.value)}
                         className="w-full text-sm border border-border rounded-lg px-3 py-2.5 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent font-semibold cursor-pointer disabled:opacity-50"
                       >

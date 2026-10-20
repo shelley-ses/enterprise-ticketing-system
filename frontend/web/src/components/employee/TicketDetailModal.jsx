@@ -79,11 +79,15 @@ export default function TicketDetailModal({
       }
     ];
 
-    if (ticket.accepted) {
+    const hasAcceptanceInTimeline = (ticket.timeline || []).some(
+      (e) => typeof e.text === 'string' && e.text.toLowerCase().includes('accepted')
+    );
+    if (ticket.accepted && !hasAcceptanceInTimeline) {
+      const actorName = ticket.assigned_to_name || ticket.accepted_by_name || 'Employee';
       events.push({
         id: 'acceptance',
         type: 'system',
-        text: 'Assignment accepted by employee.',
+        text: `Assignment accepted by ${actorName}.`,
         timestamp: ticket.date,
       });
     }
@@ -224,7 +228,7 @@ export default function TicketDetailModal({
             <div className="flex flex-wrap items-center gap-2 mt-2 pr-8">
               <span className="text-badge text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
               <span className={`text-badge px-3 py-1 rounded-full ${statusColors[ticket.status]}`}>
-                {ticket.status}
+                {(ticket.status === 'Pending Assignment' || (!ticket.accepted && (ticket.assigned_to || ticket.assigned))) ? 'Assigned' : ticket.status}
               </span>
               <span className={`text-badge px-3 py-1 rounded-full ${priorityColors[ticket.priority]}`}>
                 {ticket.priority}
@@ -235,7 +239,19 @@ export default function TicketDetailModal({
                 </span>
               )}
             </div>
-            <p className="text-sm text-gray-500 mt-1">{ticket.equipment} · {ticket.category}</p>
+            {(() => {
+              const isItCat = Boolean(
+                ticket?.category &&
+                (ticket.category.trim().toLowerCase() === 'it' ||
+                 ticket.category.trim().toLowerCase().startsWith('it') ||
+                 ticket.category === 'IT Support')
+              );
+              return (
+                <p className="text-sm text-gray-500 mt-1">
+                  {!isItCat && ticket.equipment ? `${ticket.equipment} · ` : ''}{ticket.category}
+                </p>
+              );
+            })()}
           </div>
 
           {/* Content Body - Scrollable */}

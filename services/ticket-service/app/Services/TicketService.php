@@ -170,7 +170,7 @@ class TicketService
     {
         return \Illuminate\Support\Facades\Cache::remember('ticket_form_options_cache', 3600, function () {
             $machines = DB::table('machines')
-                ->select('machine_ID', 'machine_name', 'serial_number')
+                ->select('machine_ID', 'machine_name', 'serial_number', 'category_ID', 'model', 'brand')
                 ->orderBy('machine_name')
                 ->get();
 
@@ -340,7 +340,7 @@ class TicketService
         $this->cacheService->clearTicketCaches();
 
         $dashboardTicket = DB::table('tickets as t')
-            ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+            ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
             ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
             ->select('t.ticket_ID', 't.title', 'm.machine_name', 'm.serial_number', 'ts.status_name')
             ->where('t.ticket_ID', $ticketId)
@@ -728,7 +728,7 @@ class TicketService
                 $actorName = 'System';
             } else {
                 $emp = trim($log->employee_name ?? '');
-                $actorName = $emp ?: 'CS Representative';
+                $actorName = $emp ?: ($details['employee_name'] ?? $details['actor_name'] ?? ($log->actor_type === 'employee' ? 'Employee' : 'CS Representative'));
             }
 
             $timelineText = '';

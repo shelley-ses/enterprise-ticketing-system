@@ -491,13 +491,20 @@ export default function SuperAdminSettings() {
         subtitle="Configure global corporate information, system operational state, and diagnostic logging."
         actions={
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+            <span
+              title="Settings synchronization status"
+              className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200"
+            >
               <CheckCircle2 size={13} className="shrink-0" />
               <span>Persisted & Synchronized</span>
             </span>
-            <div className="flex items-center gap-2 self-start sm:self-auto rounded-xl border border-border bg-card px-3.5 py-2 shadow-2xs">
+            <div
+              title={`Platform operational condition for ${selectedBranch.name}`}
+              className="flex items-center gap-2 self-start sm:self-auto rounded-xl border border-border bg-card px-3.5 py-2 shadow-2xs"
+            >
               <span className="text-xs text-slate-muted font-medium">Platform:</span>
               <span
+                title={`Current operational status: ${currentBranchStatus}`}
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${
                   currentBranchStatus === 'Operational'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -525,6 +532,7 @@ export default function SuperAdminSettings() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
+              title={`Filter view to ${tab.label}`}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 isActive ? 'bg-card text-primary shadow-xs' : 'text-slate-muted hover:text-slate-dark'
               }`}
@@ -558,7 +566,10 @@ export default function SuperAdminSettings() {
                     <h2 id="section-company-heading" className="text-base sm:text-lg font-bold text-gray-900">
                       Company Information
                     </h2>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200">
+                    <span
+                      title={`Company settings are scoped to ${selectedBranch.name}`}
+                      className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200"
+                    >
                       <MapPin size={11} className="shrink-0" />
                       Branch-Scoped ({selectedBranch.name})
                     </span>
@@ -568,7 +579,10 @@ export default function SuperAdminSettings() {
                   </p>
                 </div>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto">
+              <span
+                title="This section saves independently of other settings"
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto"
+              >
                 Independent Save
               </span>
             </div>
@@ -597,6 +611,7 @@ export default function SuperAdminSettings() {
                   rows={3}
                   value={currentCompanyInfo.address}
                   onChange={(e) => handleCompanyFieldChange('address', e.target.value)}
+                  title="Enter physical facility address"
                   placeholder={
                     selectedBranch.id === 'main'
                       ? 'e.g. SBSI Building, 28 East Capitol Drive, Pasig City...'
@@ -632,6 +647,7 @@ export default function SuperAdminSettings() {
                       type="text"
                       value={currentCompanyInfo.contactNumber}
                       onChange={(e) => handleCompanyFieldChange('contactNumber', e.target.value)}
+                      title="Enter primary contact phone number"
                       placeholder="e.g. +63 2 8635 9999"
                       className={`w-full rounded-xl border pl-10 pr-4 py-3 text-sm font-semibold outline-none transition-all ${
                         companyErrors.contactNumber
@@ -662,6 +678,7 @@ export default function SuperAdminSettings() {
                       type="email"
                       value={currentCompanyInfo.contactEmail}
                       onChange={(e) => handleCompanyFieldChange('contactEmail', e.target.value)}
+                      title="Enter primary contact email address"
                       placeholder="e.g. support@sbsi.com.ph"
                       className={`w-full rounded-xl border pl-10 pr-4 py-3 text-sm font-semibold outline-none transition-all ${
                         companyErrors.contactEmail
@@ -689,6 +706,7 @@ export default function SuperAdminSettings() {
                   <button
                     type="button"
                     onClick={handleAddSocialLink}
+                    title="Add a new official social media link"
                     className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#252578] hover:bg-gray-50 transition-all shadow-2xs cursor-pointer"
                   >
                     <Plus size={14} />
@@ -711,6 +729,7 @@ export default function SuperAdminSettings() {
                             <select
                               value={link.platform}
                               onChange={(e) => handleSocialLinkChange(link.id, 'platform', e.target.value)}
+                              title="Select social media platform"
                               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:ring-1 focus:ring-[#252578] cursor-pointer"
                             >
                               {SOCIAL_PLATFORMS.map((plat) => (
@@ -732,6 +751,7 @@ export default function SuperAdminSettings() {
                                 value={link.url}
                                 onChange={(e) => handleSocialLinkChange(link.id, 'url', e.target.value)}
                                 placeholder="https://..."
+                                title="Enter official profile URL"
                                 className={`w-full rounded-lg border pl-9 pr-3 py-2 text-xs font-medium outline-none transition-all ${
                                   linkError
                                     ? 'border-red-300 bg-red-50/40 text-red-900 focus:ring-1 focus:ring-red-400'
@@ -783,6 +803,7 @@ export default function SuperAdminSettings() {
                   variant="ghost"
                   size="sm"
                   onClick={handleResetCompanyInfo}
+                  title={`Restore default company information for ${selectedBranch.name}`}
                   className="text-xs text-slate-muted hover:text-slate-dark"
                 >
                   <RotateCcw size={13} />
@@ -792,6 +813,7 @@ export default function SuperAdminSettings() {
                 <Button
                   type="submit"
                   disabled={isSavingCompany}
+                  title={`Save company information for ${selectedBranch.name}`}
                   className="ml-auto"
                 >
                   <Save size={16} />
@@ -817,7 +839,10 @@ export default function SuperAdminSettings() {
                     <h2 id="section-status-heading" className="text-base sm:text-lg font-bold text-gray-900">
                       System Status
                     </h2>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200">
+                    <span
+                      title={`Operational status applies to ${selectedBranch.name}`}
+                      className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200"
+                    >
                       <MapPin size={11} className="shrink-0" />
                       Branch-Scoped ({selectedBranch.name})
                     </span>
@@ -827,7 +852,10 @@ export default function SuperAdminSettings() {
                   </p>
                 </div>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto">
+              <span
+                title="This section saves independently of other settings"
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto"
+              >
                 Independent Save
               </span>
             </div>
@@ -837,6 +865,7 @@ export default function SuperAdminSettings() {
               {/* Option 1: Operational */}
               <div
                 onClick={() => handleSelectSystemStatus('Operational')}
+                title={`Set operational status to Operational for ${selectedBranch.name}`}
                 className={`rounded-2xl border p-5 transition-all cursor-pointer select-none flex flex-col justify-between ${
                   currentBranchStatus === 'Operational'
                     ? 'border-[#252578] bg-[#252578]/5 shadow-sm ring-1 ring-[#252578]'
@@ -845,12 +874,18 @@ export default function SuperAdminSettings() {
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    <span
+                      title="All systems operational and accessible"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200"
+                    >
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                       Live Status
                     </span>
                     {currentBranchStatus === 'Operational' && (
-                      <span className="inline-flex items-center gap-1 text-xs font-bold text-[#252578]">
+                      <span
+                        title="Operational status is currently active"
+                        className="inline-flex items-center gap-1 text-xs font-bold text-[#252578]"
+                      >
                         <CheckCircle2 size={16} className="text-[#252578]" />
                         Active
                       </span>
@@ -873,6 +908,7 @@ export default function SuperAdminSettings() {
               {/* Option 2: Under Maintenance */}
               <div
                 onClick={() => handleSelectSystemStatus('Under Maintenance')}
+                title={`Set operational status to Under Maintenance for ${selectedBranch.name}`}
                 className={`rounded-2xl border p-5 transition-all cursor-pointer select-none flex flex-col justify-between ${
                   currentBranchStatus === 'Under Maintenance'
                     ? 'border-amber-400 bg-amber-50/30 shadow-sm ring-1 ring-amber-400'
@@ -881,7 +917,10 @@ export default function SuperAdminSettings() {
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+                    <span
+                      title="Maintenance mode restricts non-admin actions"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200"
+                    >
                       <span className="h-2 w-2 rounded-full bg-amber-500" />
                       Restricted Mode
                     </span>
@@ -891,6 +930,7 @@ export default function SuperAdminSettings() {
                         <button
                           type="button"
                           aria-label="Under Maintenance warning information"
+                          title="Under Maintenance warning information"
                           onClick={(e) => e.stopPropagation()}
                           className="text-amber-600 hover:text-amber-800 cursor-help p-1 rounded-full hover:bg-amber-100/50 transition-colors"
                         >
@@ -903,7 +943,10 @@ export default function SuperAdminSettings() {
                       </div>
 
                       {currentBranchStatus === 'Under Maintenance' && (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700">
+                        <span
+                          title="Under Maintenance mode is currently active"
+                          className="inline-flex items-center gap-1 text-xs font-bold text-amber-700"
+                        >
                           <CheckCircle2 size={16} className="text-amber-600" />
                           Active
                         </span>
@@ -929,6 +972,7 @@ export default function SuperAdminSettings() {
 
             {/* Status Information Box */}
             <div
+              title={`Current operating condition for ${selectedBranch.name}`}
               className={`mt-5 rounded-xl border p-4 flex items-start gap-3 transition-colors ${
                 currentBranchStatus === 'Operational'
                   ? 'border-emerald-200 bg-emerald-50/40 text-emerald-900'
@@ -971,7 +1015,10 @@ export default function SuperAdminSettings() {
                     <h2 id="section-logs-heading" className="text-base sm:text-lg font-bold text-gray-900">
                       Log Level Configuration
                     </h2>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-700 border border-purple-200">
+                    <span
+                      title="Setting applies system-wide across all services and branches"
+                      className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-700 border border-purple-200"
+                    >
                       <Globe size={11} className="shrink-0" />
                       System-Wide / Infrastructure
                     </span>
@@ -979,6 +1026,7 @@ export default function SuperAdminSettings() {
                       <button
                         type="button"
                         aria-label="Log Level verbosity information"
+                        title="Log level diagnostic information"
                         className="text-gray-400 hover:text-[#252578] cursor-help p-0.5"
                       >
                         <Info size={15} />
@@ -994,14 +1042,20 @@ export default function SuperAdminSettings() {
                   </p>
                 </div>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto">
+              <span
+                title="This section saves independently of other settings"
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200 self-start sm:self-auto"
+              >
                 Independent Save
               </span>
             </div>
 
             <div className="mt-6 space-y-6">
               {/* Infrastructure-Wide Scope Callout */}
-              <div className="rounded-xl border border-purple-100 bg-purple-50/70 p-3.5 text-xs text-purple-900 flex items-start gap-2.5">
+              <div
+                title="Global infrastructure setting"
+                className="rounded-xl border border-purple-100 bg-purple-50/70 p-3.5 text-xs text-purple-900 flex items-start gap-2.5"
+              >
                 <Info size={16} className="text-purple-600 shrink-0 mt-0.5" />
                 <div className="leading-relaxed">
                   <span className="font-bold">System-Wide Infrastructure Setting:</span>{' '}
@@ -1019,6 +1073,7 @@ export default function SuperAdminSettings() {
                       id="log-level-select"
                       value={logLevel}
                       onChange={(e) => setLogLevel(e.target.value)}
+                      title="Select diagnostic logging threshold"
                       className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-[#252578] cursor-pointer appearance-none pr-10 shadow-2xs"
                     >
                       {LOG_LEVELS.map((lvl) => (
@@ -1032,12 +1087,16 @@ export default function SuperAdminSettings() {
                 </div>
 
                 {/* Current Active Badge Box */}
-                <div className="rounded-xl border border-gray-200/80 bg-gray-50/50 p-4 shadow-2xs flex items-center justify-between">
+                <div
+                  title={`Current active diagnostic logging threshold: ${logLevel}`}
+                  className="rounded-xl border border-gray-200/80 bg-gray-50/50 p-4 shadow-2xs flex items-center justify-between"
+                >
                   <div>
                     <span className="text-xs text-gray-400 font-medium block">Active Verbosity</span>
                     <span className="text-sm font-bold text-gray-900 mt-0.5 block">{logLevel} Mode</span>
                   </div>
                   <span
+                    title={`Log level: ${logLevel}`}
                     className={`inline-block rounded-full px-3 py-1 text-xs font-semibold border ${
                       LOG_LEVELS.find((l) => l.level === logLevel)?.badgeClass || 'bg-gray-100 text-gray-700'
                     }`}
@@ -1055,6 +1114,7 @@ export default function SuperAdminSettings() {
                     <div
                       key={item.level}
                       onClick={() => setLogLevel(item.level)}
+                      title={`Select ${item.level} logging threshold: ${item.description}`}
                       className={`rounded-xl border p-4 transition-all cursor-pointer select-none flex flex-col justify-between ${
                         isSelected
                           ? 'border-primary bg-primary/5 shadow-xs ring-1 ring-primary'
@@ -1063,7 +1123,10 @@ export default function SuperAdminSettings() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold border ${item.badgeClass}`}>
+                          <span
+                            title={`Log level badge: ${item.level}`}
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold border ${item.badgeClass}`}
+                          >
                             {item.level}
                           </span>
                           {isSelected && <CheckCircle2 size={14} className="text-primary" />}
@@ -1081,6 +1144,7 @@ export default function SuperAdminSettings() {
                   type="button"
                   disabled={isSavingLogLevel}
                   onClick={() => handleSaveLogLevel(logLevel)}
+                  title="Save diagnostic log level threshold globally"
                 >
                   <Save size={16} />
                   Save Log Level

@@ -58,8 +58,21 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
     : titleChars > MAX_TITLE_CHARS
     ? `Title exceeds ${MAX_TITLE_CHARS} characters (${titleChars}).`
     : '';
+  const selectedCategoryObj = (options.problem_categories || []).find(
+    (c) => String(c.problem_category_ID) === String(formData.problem_category_ID)
+  ) || (options.category_options || []).find(
+    (c) => String(c.value) === String(formData.problem_category_ID)
+  );
+  const selectedCategoryName = selectedCategoryObj?.category_name || selectedCategoryObj?.label || '';
+  const isItCategory = Boolean(
+    selectedCategoryName &&
+    (selectedCategoryName.trim().toLowerCase() === 'it' ||
+     selectedCategoryName.trim().toLowerCase().startsWith('it') ||
+     selectedCategoryName === 'IT Support')
+  );
+
   const categoryError = !formData.problem_category_ID ? 'Category is required.' : '';
-  const equipmentError = !formData.machine_ID ? 'Equipment is required.' : '';
+  const equipmentError = (!isItCategory && !formData.machine_ID) ? 'Equipment is required.' : '';
   const descriptionError = !descTrimmed
     ? 'Description is required.'
     : descTrimmed.length < MIN_DESCRIPTION_CHARS
@@ -112,6 +125,18 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
 
   const handleChange = (event) => {
     const { name, value } = event.target;
+    if (name === 'problem_category_ID') {
+      const catObj = (options.problem_categories || []).find(c => String(c.problem_category_ID) === String(value))
+        || (options.category_options || []).find(c => String(c.value) === String(value));
+      const catName = catObj?.category_name || catObj?.label || '';
+      const isIt = Boolean(catName && (catName.trim().toLowerCase() === 'it' || catName.trim().toLowerCase().startsWith('it') || catName === 'IT Support'));
+      setFormData((prev) => ({
+        ...prev,
+        problem_category_ID: value,
+        machine_ID: isIt ? '' : prev.machine_ID,
+      }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -183,7 +208,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
       setTouched((p) => ({ ...p, description: true }));
       return;
     }
-    if (!formData.problem_category_ID || !formData.machine_ID) {
+    if (!formData.problem_category_ID || (!isItCategory && !formData.machine_ID)) {
       setSubmitError('Please complete all required fields.');
       return;
     }
@@ -204,6 +229,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
     try {
       await onSubmit?.({
         ...formData,
+        machine_ID: isItCategory ? null : formData.machine_ID,
         title: titleTrim,
         attachments,
       });
@@ -235,6 +261,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
     try {
       await onSubmit?.({
         ...formData,
+        machine_ID: isItCategory ? null : formData.machine_ID,
         title: formatted,
         attachments,
       });
@@ -336,7 +363,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
             {touched.title && titleError && <p className="mt-1.5 text-xs text-red-500">{titleError}</p>}
           </div>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className={`grid grid-cols-1 gap-6 ${isItCategory ? '' : 'md:grid-cols-2'}`}>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Category</label>
               <select
@@ -358,26 +385,28 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
               {touched.category && categoryError && <p className="mt-1.5 text-xs text-red-500">{categoryError}</p>}
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Equipment Name / ID</label>
-              <select
-                name="machine_ID"
-                required
-                value={formData.machine_ID}
-                onChange={handleChange}
-                onBlur={() => touch('equipment')}
-                disabled={loadingOptions || isSubmitting}
-                className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.equipment && equipmentError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-              >
-                <option value="">Select Equipment</option>
-                {equipmentOptions.map((machine) => (
-                  <option key={machine.value} value={machine.value}>
-                    {machine.label}
-                  </option>
-                ))}
-              </select>
-              {touched.equipment && equipmentError && <p className="mt-1.5 text-xs text-red-500">{equipmentError}</p>}
-            </div>
+            {!isItCategory && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Equipment Name / ID</label>
+                <select
+                  name="machine_ID"
+                  required={!isItCategory}
+                  value={formData.machine_ID}
+                  onChange={handleChange}
+                  onBlur={() => touch('equipment')}
+                  disabled={loadingOptions || isSubmitting}
+                  className={`w-full rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.equipment && equipmentError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                >
+                  <option value="">Select Equipment</option>
+                  {equipmentOptions.map((machine) => (
+                    <option key={machine.value} value={machine.value}>
+                      {machine.label}
+                    </option>
+                  ))}
+                </select>
+                {touched.equipment && equipmentError && <p className="mt-1.5 text-xs text-red-500">{equipmentError}</p>}
+              </div>
+            )}
           </div>
 
           <div>

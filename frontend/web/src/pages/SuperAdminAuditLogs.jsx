@@ -113,6 +113,7 @@ export default function SuperAdminAuditLogs() {
           <Input
             type="text"
             placeholder="Search audit logs..."
+            title="Search audit logs by user, action, module, target, or details"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10 h-10"
@@ -121,7 +122,8 @@ export default function SuperAdminAuditLogs() {
         <select
           value={filterAction}
           onChange={(e) => setFilterAction(e.target.value)}
-          className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-slate-dark outline-none focus:ring-2 focus:ring-accent"
+          title="Filter audit logs by action"
+          className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-slate-dark outline-none focus:ring-2 focus:ring-accent cursor-pointer"
         >
           <option value="">All actions</option>
           {actionOptions.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -129,7 +131,8 @@ export default function SuperAdminAuditLogs() {
         <select
           value={filterModule}
           onChange={(e) => setFilterModule(e.target.value)}
-          className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-slate-dark outline-none focus:ring-2 focus:ring-accent"
+          title="Filter audit logs by system module"
+          className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-slate-dark outline-none focus:ring-2 focus:ring-accent cursor-pointer"
         >
           <option value="">All modules</option>
           {moduleOptions.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -146,13 +149,13 @@ export default function SuperAdminAuditLogs() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="whitespace-nowrap">Timestamp</TableHead>
-                  <TableHead className="whitespace-nowrap">User</TableHead>
-                  <TableHead className="whitespace-nowrap">Role</TableHead>
-                  <TableHead className="whitespace-nowrap">Action</TableHead>
-                  <TableHead className="whitespace-nowrap">Module</TableHead>
-                  <TableHead className="whitespace-nowrap">Target</TableHead>
-                  <TableHead className="whitespace-nowrap">Details</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Event timestamp in ISO/local format">Timestamp</TableHead>
+                  <TableHead className="whitespace-nowrap" title="User account who performed this action">User</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Role assigned to the actor">Role</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Audited action event">Action</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Microservice or subsystem module">Module</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Target entity or record identifier">Target</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Payload details and event parameters">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -172,6 +175,7 @@ export default function SuperAdminAuditLogs() {
                     return (
                       <TableRow
                         key={log.id}
+                        title={isSecurity ? 'Click to inspect security incident' : `Log #${log.id}`}
                         onClick={() => {
                           if (isSecurity) {
                             setSelectedIncident({
@@ -195,14 +199,14 @@ export default function SuperAdminAuditLogs() {
                             : ''
                         }`}
                       >
-                        <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono">{log.timestamp}</TableCell>
-                        <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.user}</TableCell>
-                        <TableCell className="whitespace-nowrap">
+                        <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono" title={log.timestamp}>{log.timestamp}</TableCell>
+                        <TableCell className="font-medium text-slate-dark whitespace-nowrap" title={log.user}>{log.user}</TableCell>
+                        <TableCell className="whitespace-nowrap" title={`Role: ${log.role}`}>
                           <Badge variant={log.role === 'Super Admin' ? 'secondary' : isSecurity ? 'destructive' : 'neutral'}>
                             {log.role}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-slate-dark whitespace-nowrap font-medium">
+                        <TableCell className="text-slate-dark whitespace-nowrap font-medium" title={log.action}>
                           {isSecurity ? (
                             <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
                               <ShieldAlert size={14} className="text-destructive shrink-0" />
@@ -212,7 +216,7 @@ export default function SuperAdminAuditLogs() {
                             log.action
                           )}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">
+                        <TableCell className="whitespace-nowrap" title={`Module: ${log.module}`}>
                           {isSecurity ? (
                             <Badge variant="destructive" className="text-[10px] uppercase font-bold">
                               Security
@@ -221,15 +225,16 @@ export default function SuperAdminAuditLogs() {
                             <span className="text-slate-muted">{log.module}</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-slate-dark whitespace-nowrap font-mono text-xs">{log.target}</TableCell>
-                        <TableCell className="text-slate-muted max-w-xs">
+                        <TableCell className="text-slate-dark whitespace-nowrap font-mono text-xs" title={`Target: ${log.target}`}>{log.target}</TableCell>
+                        <TableCell className="text-slate-muted max-w-xs" title={log.details}>
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`truncate ${isSecurity ? 'text-destructive font-medium' : ''}`}>
+                            <span className={`truncate ${isSecurity ? 'text-destructive font-medium' : ''}`} title={log.details}>
                               {log.details}
                             </span>
                             {isSecurity && (
                               <button
                                 type="button"
+                                title="View complete security incident report"
                                 className="shrink-0 text-xs font-bold text-destructive hover:underline ml-2 cursor-pointer"
                               >
                                 View Details

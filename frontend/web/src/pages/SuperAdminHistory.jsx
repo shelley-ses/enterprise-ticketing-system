@@ -61,6 +61,7 @@ export default function SuperAdminHistory() {
         <Input
           type="text"
           placeholder="Search history..."
+          title="Search configuration history by user, action, module, target, or details"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10 h-10"
@@ -77,12 +78,12 @@ export default function SuperAdminHistory() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="whitespace-nowrap">Timestamp</TableHead>
-                  <TableHead className="whitespace-nowrap">User</TableHead>
-                  <TableHead className="whitespace-nowrap">Action</TableHead>
-                  <TableHead className="whitespace-nowrap">Module</TableHead>
-                  <TableHead className="whitespace-nowrap">Target</TableHead>
-                  <TableHead className="whitespace-nowrap">Details</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Event timestamp in ISO/local format">Timestamp</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Superadmin or system user account">User</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Action type (Created, Updated, Deleted)">Action</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Configuration module">Module</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Target item or category identifier">Target</TableHead>
+                  <TableHead className="whitespace-nowrap" title="Configuration change details">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -94,10 +95,10 @@ export default function SuperAdminHistory() {
                   </TableRow>
                 ) : (
                   filtered.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono">{log.timestamp}</TableCell>
-                      <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.user}</TableCell>
-                      <TableCell className="whitespace-nowrap">
+                    <TableRow key={log.id} title={`History #${log.id}`}>
+                      <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono" title={log.timestamp}>{log.timestamp}</TableCell>
+                      <TableCell className="font-medium text-slate-dark whitespace-nowrap" title={log.user}>{log.user}</TableCell>
+                      <TableCell className="whitespace-nowrap" title={`Action: ${log.action}`}>
                         <Badge
                           variant={
                             log.action === 'Created'
@@ -110,9 +111,9 @@ export default function SuperAdminHistory() {
                           {log.action}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-slate-muted whitespace-nowrap">{log.module}</TableCell>
-                      <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.target}</TableCell>
-                      <TableCell className="text-slate-muted">{log.details}</TableCell>
+                      <TableCell className="text-slate-muted whitespace-nowrap" title={`Module: ${log.module}`}>{log.module}</TableCell>
+                      <TableCell className="font-medium text-slate-dark whitespace-nowrap" title={`Target: ${log.target}`}>{log.target}</TableCell>
+                      <TableCell className="text-slate-muted" title={log.details}>{log.details}</TableCell>
                     </TableRow>
                   ))
                 )}

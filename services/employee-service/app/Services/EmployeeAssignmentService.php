@@ -352,12 +352,20 @@ class EmployeeAssignmentService
                     Log::warning("Failed to record first response in acceptTicket: " . $e->getMessage());
                 }
 
+                $emp = DB::table('employees')->where('emp_id', $empId)->first();
+                $empName = $emp ? ($emp->first_name . ' ' . $emp->last_name) : 'Engineer';
+
                 DB::table('ticket_audit_logs')->insert([
                     'ticket_ID' => $ticketId,
                     'action_type' => 'accept',
                     'action_by_ID' => $empId,
                     'actor_type' => 'employee',
-                    'details' => json_encode(['message' => 'Assignment accepted by employee.']),
+                    'details' => json_encode([
+                        'message' => "Assignment accepted by {$empName}.",
+                        'employee_id' => $empId,
+                        'employee_name' => $empName,
+                        'actor_name' => $empName,
+                    ]),
                     'created_at' => now(),
                 ]);
             });
@@ -633,6 +641,16 @@ class EmployeeAssignmentService
             return ['status' => 403, 'data' => ['message' => 'You are not assigned to this ticket.']];
         }
 
+        if ($assignment->assignment_status !== 'accepted') {
+            return [
+                'status' => 422,
+                'data' => [
+                    'message' => 'You must accept the ticket assignment before making updates.',
+                    'code' => 'TICKET_NOT_ACCEPTED',
+                ],
+            ];
+        }
+
         $pendingReassign = DB::table('reassignment_requests')
             ->where('ticket_id', $ticketId)
             ->where('status', 'pending')
@@ -755,6 +773,9 @@ class EmployeeAssignmentService
                             'status' => $newStatusName,
                             'remarks' => $remarksText,
                             'files' => $attachmentNames,
+                            'employee_id' => $empId,
+                            'employee_name' => $empName,
+                            'actor_name' => $empName,
                         ]),
                         'created_at' => now(),
                     ]);

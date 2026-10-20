@@ -364,7 +364,7 @@ export default function Notifications() {
       )}
 
       {activeTicket && (() => { const role = (()=>{ try{ return JSON.parse(localStorage.getItem('user')||'{}')?.role||'';}catch{return ''}})(); const isCSReassign = activeTicket.reassignmentRequested && role==='cs'; return isCSReassign ? (
-        <TicketSummary ticket={activeTicket} employees={activeEmployees} onClose={handleCloseActiveTicket} onEdit={()=>{}} onStatusUpdate={async (upd)=>{ try{ if(upd.reassignmentStatus){ const nid=Number(String(activeTicket.ticket_ID||activeTicket.id).replace(/\D/g,'')); const act=upd.reassignmentStatus==='Approved'?'approve':'deny'; await respondReassignment({ticketId:nid, action:act}); } }catch(e){ console.warn(e);} }} />
+        <TicketSummary ticket={activeTicket} employees={activeEmployees} onClose={handleCloseActiveTicket} onEdit={()=>{}} onStatusUpdate={async (upd)=>{ try{ if(upd.reassignmentStatus){ const nid=Number(String(activeTicket.ticket_ID||activeTicket.id).replace(/\D/g,'')); const act=upd.reassignmentStatus==='Approved'?'approve':'deny'; await respondReassignment({ticketId:nid, action:act, reason: upd.reassignmentDenyReason || ''}); } }catch(e){ console.warn(e);} }} />
       ) : (
         <CustomerTicketDetailModal ticket={activeTicket} onClose={handleCloseActiveTicket} onDiscard={null} onReopen={null} onResolve={null} allowReopen={false} customerName={activeTicket.customer} />
       );})()}

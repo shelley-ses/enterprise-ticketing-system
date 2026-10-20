@@ -62,7 +62,7 @@ class TicketDashboardService
 
         $fetchQuery = function () use ($createdBy, $limit, $filters) {
             $query = DB::table('tickets as t')
-                ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
                 ->leftJoin('machine_categories as mc', 'mc.category_ID', '=', 'm.category_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
@@ -239,7 +239,7 @@ class TicketDashboardService
 
         $recentTickets = Cache::remember("cs_dashboard_recent_{$limit}", 60, function () use ($limit) {
             return DB::table('tickets as t')
-                ->join('machines as m', 'm.machine_ID', '=', 't.machine_ID')
+                ->leftJoin('machines as m', 'm.machine_ID', '=', 't.machine_ID')
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
                 ->leftJoin('clients as c', 'c.id', '=', 't.created_by')

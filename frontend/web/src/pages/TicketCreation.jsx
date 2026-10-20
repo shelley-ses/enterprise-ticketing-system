@@ -14,6 +14,7 @@ import {
 import { getSystemStatus } from '@/services/configurationService';
 import { normalizeCasing } from '@/utils/normalizeCasing';
 import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
+import { cleanAndSanitizeSummary } from '@/pages/AISupportPage';
 import { useAuth } from '@/context/AuthContext';
 import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfig';
 import { PageHeader } from '@/components/ui/page-header';
@@ -165,8 +166,8 @@ export default function TicketCreation() {
           if (handoff) {
             setFormData((prev) => ({
               ...prev,
-              title: handoff.title || prev.title,
-              description: handoff.description || prev.description,
+              title: cleanAndSanitizeSummary(handoff.title || prev.title),
+              description: cleanAndSanitizeSummary(handoff.description || prev.description),
               origin: 'ai_escalation',
               conversation_id: convId,
             }));
@@ -180,6 +181,18 @@ export default function TicketCreation() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'problem_category_ID') {
+      const catObj = (options.problem_categories || []).find(c => String(c.problem_category_ID) === String(value))
+        || (options.category_options || []).find(c => String(c.value) === String(value));
+      const catName = catObj?.category_name || catObj?.label || '';
+      const isIt = Boolean(catName && (catName.trim().toLowerCase() === 'it' || catName.trim().toLowerCase().startsWith('it') || catName === 'IT Support'));
+      setFormData((prev) => ({
+        ...prev,
+        problem_category_ID: value,
+        machine_ID: isIt ? '' : prev.machine_ID,
+      }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -197,7 +210,7 @@ export default function TicketCreation() {
     try {
       const payload = {
         title: (formData.title || '').trim(),
-        machine_ID: formData.machine_ID ? Number(formData.machine_ID) : null,
+        machine_ID: (!isItCategory && formData.machine_ID) ? Number(formData.machine_ID) : null,
         problem_category_ID: formData.problem_category_ID ? Number(formData.problem_category_ID) : null,
         description: formData.description || '',
         priority_ID: formData.priority_ID ? Number(formData.priority_ID) : 1,
@@ -357,7 +370,7 @@ export default function TicketCreation() {
 
     const titleTrim = (formData.title || '').trim();
     const descTrim = (formData.description || '').trim();
-    if (!titleTrim || !formData.machine_ID || !formData.problem_category_ID || !descTrim) {
+    if (!titleTrim || (!isItCategory && !formData.machine_ID) || !formData.problem_category_ID || !descTrim) {
       setError('Please complete all required fields.');
       return;
     }
@@ -419,7 +432,9 @@ export default function TicketCreation() {
       setFormData((prev) => ({ ...prev, title: finalTitle, description: normalizedDesc }));
       const payload = new FormData();
       payload.append('title', finalTitle);
-      payload.append('machine_ID', formData.machine_ID);
+      if (!isItCategory && formData.machine_ID) {
+        payload.append('machine_ID', formData.machine_ID);
+      }
       payload.append('problem_category_ID', formData.problem_category_ID);
       payload.append('description', normalizedDesc);
       payload.append('priority_ID', formData.priority_ID);
@@ -493,6 +508,19 @@ export default function TicketCreation() {
       value: p.priority_ID,
       label: p.priority_name,
     }));
+
+  const selectedCategoryObj = (options.problem_categories || []).find(
+    (c) => String(c.problem_category_ID) === String(formData.problem_category_ID)
+  ) || (options.category_options || []).find(
+    (c) => String(c.value) === String(formData.problem_category_ID)
+  );
+  const selectedCategoryName = selectedCategoryObj?.category_name || selectedCategoryObj?.label || '';
+  const isItCategory = Boolean(
+    selectedCategoryName &&
+    (selectedCategoryName.trim().toLowerCase() === 'it' ||
+     selectedCategoryName.trim().toLowerCase().startsWith('it') ||
+     selectedCategoryName === 'IT Support')
+  );
 
   return (
     <>
@@ -573,7 +601,7 @@ export default function TicketCreation() {
         <div className="bg-card border border-border rounded-xl p-6 sm:p-8 shadow-xs">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-1.5">
+              <div className={`space-y-1.5 ${isItCategory ? 'md:col-span-2' : ''}`}>
                 <Label htmlFor="ticket-title">Ticket Title <span className="text-destructive">*</span></Label>
                 <Input
                   id="ticket-title"
@@ -597,23 +625,25 @@ export default function TicketCreation() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="ticket-machine">Equipment Name / ID <span className="text-destructive">*</span></Label>
-                <select
-                  id="ticket-machine"
-                  name="machine_ID"
-                  required
-                  value={formData.machine_ID}
-                  onChange={handleChange}
-                  disabled={loadingOptions}
-                  className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
-                >
-                  <option value="">Select Equipment</option>
-                  {equipmentOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+              {!isItCategory && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ticket-machine">Equipment Name / ID <span className="text-destructive">*</span></Label>
+                  <select
+                    id="ticket-machine"
+                    name="machine_ID"
+                    required={!isItCategory}
+                    value={formData.machine_ID}
+                    onChange={handleChange}
+                    disabled={loadingOptions}
+                    className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
+                  >
+                    <option value="">Select Equipment</option>
+                    {equipmentOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

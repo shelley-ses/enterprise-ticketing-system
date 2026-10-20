@@ -7,13 +7,14 @@ import FilePreviewModal from '@/components/FilePreviewModal';
 import InternalNotesSection from '@/components/InternalNotesSection';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
 import { isReassignmentDenied } from '@/utils/reassignmentUtils';
-import { getTicketDetails } from '@/services/ticketService';
+import { getTicketDetails, acceptTicket } from '@/services/ticketService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function TicketInfoModal({ ticket, onClose }) {
   const navigate = useNavigate();
   const [previewFile, setPreviewFile] = useState(null);
   const [ticketDetails, setTicketDetails] = useState(ticket);
+  const [isAccepting, setIsAccepting] = useState(false);
 
   useLockBodyScroll(!!ticket);
 
@@ -43,6 +44,37 @@ export default function TicketInfoModal({ ticket, onClose }) {
 
   const currentTicket = ticketDetails || ticket;
 
+  const isTicketAccepted = Boolean(
+    currentTicket.accepted ||
+    currentTicket.assignment_status === 'accepted' ||
+    currentTicket.status === 'In Progress' ||
+    currentTicket.status === 'Pending Evaluation' ||
+    currentTicket.status === 'Resolved' ||
+    currentTicket.status === 'Closed'
+  );
+
+  const isItCategory = Boolean(
+    currentTicket.category &&
+    (currentTicket.category.trim().toLowerCase() === 'it' ||
+     currentTicket.category.trim().toLowerCase().startsWith('it') ||
+     currentTicket.category === 'IT Support')
+  );
+
+  const handleAccept = async () => {
+    const numericId = Number(String(currentTicket?.ticket_ID || currentTicket?.id || '').replace(/\D/g, ''));
+    if (!numericId) return;
+    setIsAccepting(true);
+    try {
+      await acceptTicket({ ticketId: numericId });
+      setTicketDetails((prev) => ({ ...prev, accepted: true, status: 'In Progress' }));
+      window.dispatchEvent(new Event('notifications:updated'));
+    } catch (err) {
+      window.alert(err?.response?.data?.message || 'Failed to accept ticket.');
+    } finally {
+      setIsAccepting(false);
+    }
+  };
+
   const handleUpdate = () => {
     onClose();
     navigate('/employee/ticket-update', { state: { ticket: currentTicket } });
@@ -62,20 +94,24 @@ export default function TicketInfoModal({ ticket, onClose }) {
           <button type="button" onClick={onClose} className="absolute top-5 right-5 p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-400">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-          <h2 className="text-xl font-bold text-gray-900 leading-snug pr-8">{ticket.title}</h2>
+          <h2 className="text-xl font-bold text-gray-900 leading-snug pr-8">{currentTicket.title}</h2>
           <div className="flex flex-wrap items-center gap-2 mt-2 pr-8">
-            <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{ticket.id}</span>
-            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.status}</span>
-            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{ticket.priority}</span>
-            {ticket.escalated && (
+            <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">{currentTicket.id}</span>
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColors[currentTicket.status] ?? 'bg-gray-100 text-gray-700'}`}>
+              {(currentTicket.status === 'Pending Assignment' || (!isTicketAccepted && (currentTicket.assigned_to || currentTicket.assigned))) ? 'Assigned' : currentTicket.status}
+            </span>
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${priorityColors[currentTicket.priority] ?? 'bg-gray-100 text-gray-700'}`}>{currentTicket.priority}</span>
+            {currentTicket.escalated && (
               <span className="text-xs font-bold px-3 py-1 bg-orange-100 text-orange-800 rounded-full border border-orange-200">
                 Escalated
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-500 mt-1">
-            {ticket.equipment && `${ticket.equipment}`}
-          </p>
+          {!isItCategory && currentTicket.equipment && (
+            <p className="text-sm text-gray-500 mt-1">
+              {currentTicket.equipment}
+            </p>
+          )}
         </div>
 
         {/* Scrollable body */}
@@ -229,14 +265,32 @@ export default function TicketInfoModal({ ticket, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-150 flex-shrink-0 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={handleUpdate}
-            className="px-7 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/25"
-          >
-            Update
-          </button>
+        <div className="p-6 border-t border-gray-150 flex-shrink-0 flex items-center justify-between gap-3">
+          {!isTicketAccepted ? (
+            <>
+              <span className="text-xs font-semibold text-amber-800">
+                Ticket must be accepted before you can update status or log work.
+              </span>
+              <button
+                type="button"
+                disabled={isAccepting}
+                onClick={handleAccept}
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                {isAccepting ? 'Accepting...' : 'Accept Ticket'}
+              </button>
+            </>
+          ) : (
+            <div className="w-full flex justify-end">
+              <button
+                type="button"
+                onClick={handleUpdate}
+                className="px-7 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/25 cursor-pointer"
+              >
+                Update
+              </button>
+            </div>
+          )}
         </div>
       </div>
       {previewFile && (

@@ -220,7 +220,7 @@ class EmployeeReassignmentService
                     ->where('ticket_ID', $ticketId)
                     ->where('employee_ID', $targetEmpId)
                     ->update([
-                        'assignment_status' => 'assigned',
+                        'assignment_status' => 'accepted',
                         'updated_at' => now(),
                     ]);
 

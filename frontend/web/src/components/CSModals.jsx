@@ -786,7 +786,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Status</span>
                     <Badge variant={ticket.status === 'Open' ? 'sky' : ticket.status === 'In Progress' ? 'amber' : (ticket.status === 'Resolved' || ticket.status === 'Closed') ? 'emerald' : 'default'}>
-                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (ticket.status || 'Pending')}
+                      {ticket.reassignmentRequested ? 'Pending Reassignment' : ((ticket.status === 'Pending Assignment' || (!ticket.accepted && (ticket.assigned?.length > 0 || ticket.assigned_to))) ? 'Assigned' : (ticket.status || 'Pending'))}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
@@ -803,14 +803,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     <span className="text-xs font-bold text-slate-dark">Category</span>
                     <span className="text-xs font-normal text-slate-600">{ticket.category || '—'}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
-                    <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-bold text-slate-dark">Equiment Type</span>
-                    <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
-                  </div>
+                  {(() => {
+                    const isIt = Boolean(
+                      ticket.category &&
+                      (ticket.category.trim().toLowerCase() === 'it' ||
+                       ticket.category.trim().toLowerCase().startsWith('it') ||
+                       ticket.category === 'IT Support')
+                    );
+                    if (isIt) return null;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                          <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
+                          <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                        </div>
+                        <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                          <span className="text-xs font-bold text-slate-dark">Equipment Type</span>
+                          <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                   <div className="bg-page border border-border rounded-xl px-4 py-3">
                     <div className="text-xs font-bold text-slate-dark mb-2">Assigned Employee</div>
                     {assignedEmployeesList.length === 0 ? (
@@ -1048,7 +1061,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Status</span>
                     <Badge variant={ticket.reassignmentRequested ? 'amber' : (currentStatus === 'On Hold' ? 'amber' : (currentStatus === 'Open' ? 'sky' : currentStatus === 'In Progress' ? 'amber' : (currentStatus === 'Resolved' || currentStatus === 'Closed') ? 'emerald' : 'default'))}>
-                      {ticket.reassignmentRequested ? 'Pending Reassignment' : (currentStatus || 'Pending')}
+                      {ticket.reassignmentRequested ? 'Pending Reassignment' : ((currentStatus === 'Pending Assignment' || (!ticket.accepted && (ticket.assigned?.length > 0 || ticket.assigned_to))) ? 'Assigned' : (currentStatus || 'Pending'))}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
@@ -1087,14 +1100,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
-                    <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
-                    <span className="text-xs font-bold text-slate-dark">Equiment Type</span>
-                    <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
-                  </div>
+                  {(() => {
+                    const isIt = Boolean(
+                      (currentCategory || ticket.category) &&
+                      ((currentCategory || ticket.category).trim().toLowerCase() === 'it' ||
+                       (currentCategory || ticket.category).trim().toLowerCase().startsWith('it') ||
+                       (currentCategory || ticket.category) === 'IT Support')
+                    );
+                    if (isIt) return null;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                          <span className="text-xs font-bold text-slate-dark">Equipment/Machine</span>
+                          <span className="text-xs font-normal text-slate-600">{ticket.equipment || ticket.machine_name || (ticket.serial_number ? `Serial: ${ticket.serial_number}` : '—')}</span>
+                        </div>
+                        <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                          <span className="text-xs font-bold text-slate-dark">Equipment Type</span>
+                          <span className="text-xs font-normal text-slate-600">{equipmentTypeDisplay}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                   <div className="bg-page border border-border rounded-xl px-4 py-3">
                     <div className="text-xs font-bold text-slate-dark mb-2">Assigned Employee</div>
                     {assignedEmployeesList.length === 0 ? (
@@ -1157,11 +1183,28 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                             onClick={async () => {
                               if (!reassignDenyReason.trim()) return;
                               const timestamp = new Date().toISOString();
-                              const updated = { id: ticket.id, reassignmentRequested: false, reassignmentStatus: 'Denied', reassignmentDenyReason: reassignDenyReason.trim(), status: 'In Progress', accepted: false, timeline: [{ id: `reassign-deny-${Date.now()}`, type: 'reassign', text: `Reassignment request denied by CS. Reason: "${reassignDenyReason.trim()}". Ticket status returned to In Progress.`, timestamp }] };
+                              const updated = {
+                                id: ticket.id,
+                                ticket_ID: ticket.ticket_ID || ticket.id,
+                                reassignmentRequested: false,
+                                reassignmentStatus: 'Denied',
+                                reassignmentDenyReason: reassignDenyReason.trim(),
+                                status: 'In Progress',
+                                accepted: true,
+                                in_progress_owner: 'employee',
+                                timeline: [
+                                  {
+                                    id: `reassign-deny-${Date.now()}`,
+                                    type: 'reassign',
+                                    text: `Reassignment request disapproved by CS. Reason: "${reassignDenyReason.trim()}". Ticket returned to In Progress under original assignee.`,
+                                    timestamp,
+                                  },
+                                ],
+                              };
                               await onStatusUpdate(updated);
                               onClose();
                             }}
-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors"
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
                           >
                             Confirm Disapproval
                           </button>

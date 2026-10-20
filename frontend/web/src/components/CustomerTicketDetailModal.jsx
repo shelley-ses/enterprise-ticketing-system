@@ -15,12 +15,14 @@ import {
   Check,
   Clock,
   ShieldAlert,
+  Trash2,
 } from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { formatDisplayDate } from '@/utils/dateUtils';
+import { discardCustomerTicket } from '@/services/ticketService';
 import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import { getFeedbackFormStatus, getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
@@ -64,6 +66,8 @@ export default function CustomerTicketDetailModal({
   const [reopenSuccessNotice, setReopenSuccessNotice] = useState('');
   const [previewFile, setPreviewFile] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackEnabled, setFeedbackEnabled] = useState(() => isFeedbackFormEnabled());
 
@@ -434,7 +438,7 @@ export default function CustomerTicketDetailModal({
                 )
               ) : (
                 <Badge variant={effectiveTicket.status === 'Open' ? 'sky' : effectiveTicket.status === 'In Progress' ? 'amber' : (effectiveTicket.status === 'Resolved' || effectiveTicket.status === 'Closed') ? 'emerald' : 'default'}>
-                  {effectiveTicket.status}
+                  {(effectiveTicket.status === 'Pending Assignment' || (!effectiveTicket.accepted && (effectiveTicket.assigned_employee || effectiveTicket.assigned_to))) ? 'Assigned' : effectiveTicket.status}
                 </Badge>
               )}
               <Badge variant={effectiveTicket.priority === 'Critical' ? 'destructive' : effectiveTicket.priority === 'High' ? 'amber' : 'outline'}>
@@ -553,16 +557,29 @@ export default function CustomerTicketDetailModal({
               <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Requestor</p>
               <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.customer || effectiveTicket.requestor || effectiveTicket.created_by_name || customerName || '—'}</p>
             </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment / Machine</p>
-              <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.equipment || effectiveTicket.machine_name || effectiveTicket.machine?.machine_name || '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment Type</p>
-              <p className="mt-1 text-sm font-normal text-slate-600">
-                {effectiveTicket.equipment_type || effectiveTicket.equipmentType || effectiveTicket.machine_category || effectiveTicket.machine?.category_name || (effectiveTicket.category ? `${effectiveTicket.category} Equipment` : 'Medical Equipment')}
-              </p>
-            </div>
+            {(() => {
+              const isItCat = Boolean(
+                effectiveTicket.category &&
+                (effectiveTicket.category.trim().toLowerCase() === 'it' ||
+                 effectiveTicket.category.trim().toLowerCase().startsWith('it') ||
+                 effectiveTicket.category === 'IT Support')
+              );
+              if (isItCat) return null;
+              return (
+                <>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment / Machine</p>
+                    <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.equipment || effectiveTicket.machine_name || effectiveTicket.machine?.machine_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment Type</p>
+                    <p className="mt-1 text-sm font-normal text-slate-600">
+                      {effectiveTicket.equipment_type || effectiveTicket.equipmentType || effectiveTicket.machine_category || effectiveTicket.machine?.category_name || (effectiveTicket.category ? `${effectiveTicket.category} Equipment` : 'Medical Equipment')}
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Assigned Employee</p>
               <p className="mt-1 text-sm font-normal text-slate-600">
@@ -884,7 +901,8 @@ export default function CustomerTicketDetailModal({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={() => onDiscard?.(effectiveTicket)}
+                onClick={() => setShowDiscardConfirm(true)}
+                className="cursor-pointer"
               >
                 Discard Ticket
               </Button>
@@ -892,6 +910,71 @@ export default function CustomerTicketDetailModal({
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Discarding Open Ticket */}
+      {showDiscardConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-modal border border-border animate-in zoom-in-95 duration-200 text-left">
+            <div className="flex items-center gap-3 pb-3 border-b border-border">
+              <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-dark">Discard Open Ticket?</h3>
+                <p className="text-xs text-slate-muted font-mono">{effectiveTicket.id}</p>
+              </div>
+            </div>
+
+            <div className="py-4 space-y-2">
+              <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                Are you sure you want to discard this ticket?
+              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                This will permanently mark ticket <strong className="font-semibold text-slate-800">{effectiveTicket.id}</strong> as Discarded. Discarded tickets will be moved to history and will not be processed by support.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isDiscarding}
+                onClick={() => setShowDiscardConfirm(false)}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={isDiscarding}
+                onClick={async () => {
+                  setIsDiscarding(true);
+                  try {
+                    if (typeof onDiscard === 'function') {
+                      await onDiscard(effectiveTicket);
+                    } else {
+                      const ticketId = effectiveTicket.ticket_ID || parseInt(String(effectiveTicket.id || '').replace(/\D/g, ''), 10);
+                      await discardCustomerTicket(ticketId);
+                      onClose();
+                    }
+                    setShowDiscardConfirm(false);
+                  } catch (err) {
+                    console.error('Failed to discard ticket:', err);
+                  } finally {
+                    setIsDiscarding(false);
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                {isDiscarding ? 'Discarding...' : 'Confirm Discard'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showFeedbackModal && (
         <FeedbackModal

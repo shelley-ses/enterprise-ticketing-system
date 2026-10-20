@@ -89,8 +89,12 @@ class TicketController extends Controller
             $request->merge(['attachments' => $mergedAtts]);
         }
 
+        $problemCatId = $request->input('problem_category_ID');
+        $catName = $problemCatId ? \Illuminate\Support\Facades\DB::table('problem_categories')->where('problem_category_ID', $problemCatId)->value('category_name') : null;
+        $isItCategory = $catName && preg_match('/^\s*it\b/i', $catName);
+
         $validated = $request->validate([
-            'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
+            'machine_ID' => $isItCategory ? ['nullable', 'integer', 'exists:machines,machine_ID'] : ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
             'branch_id' => ['nullable', 'string', 'max:64', 'exists:branches,slug'],

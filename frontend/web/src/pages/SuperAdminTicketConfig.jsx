@@ -4167,6 +4167,7 @@ export default function SuperAdminTicketConfig() {
         <button
           type="button"
           onClick={() => handleSelectGroup(GROUP_CLASSIFICATION)}
+          title="Navigate to Ticket Configuration"
           className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           Ticket Configuration
@@ -4175,12 +4176,17 @@ export default function SuperAdminTicketConfig() {
         <button
           type="button"
           onClick={() => handleSelectGroup(currentGroup.id)}
+          title={`Navigate to ${currentGroup.label}`}
           className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           {currentGroup.label}
         </button>
         <ChevronRight size={13} className="text-slate-300 shrink-0" />
-        <span className="text-slate-dark font-semibold cursor-default select-none" aria-current="page">
+        <span
+          className="text-slate-dark font-semibold cursor-default select-none"
+          aria-current="page"
+          title={`Active Configuration Section: ${currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}`}
+        >
           {currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}
         </span>
       </nav>
@@ -4200,6 +4206,7 @@ export default function SuperAdminTicketConfig() {
               key={group.id}
               type="button"
               onClick={() => handleSelectGroup(group.id)}
+              title={`Switch configuration group to ${group.label}`}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${isActive
                   ? 'bg-card text-primary shadow-xs'
                   : 'text-slate-muted hover:text-slate-dark'
@@ -4227,6 +4234,7 @@ export default function SuperAdminTicketConfig() {
                   key={sub.id}
                   type="button"
                   onClick={() => handleSelectSubTab(sub.id)}
+                  title={`View ${sub.label} settings`}
                   className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
                       ? 'border-accent text-primary'
                       : 'border-transparent text-slate-muted hover:text-slate-dark hover:border-slate-300'
@@ -4258,12 +4266,17 @@ export default function SuperAdminTicketConfig() {
               <button
                 type="button"
                 onClick={handleResetDefaultWorkflow}
+                title="Reset workflow status sequence to system defaults"
                 className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
                 <RotateCcw size={14} />
                 Reset to Defaults
               </button>
-              <button onClick={handleAddWorkflow} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer">
+              <button
+                onClick={handleAddWorkflow}
+                title="Add a new workflow status stage"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+              >
                 <Plus size={18} />
                 Add Status
               </button>
@@ -4444,6 +4457,7 @@ export default function SuperAdminTicketConfig() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleResetTransitions}
+                title="Reset transition rules to system defaults"
                 className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
                 <RotateCcw size={14} />
@@ -4452,6 +4466,7 @@ export default function SuperAdminTicketConfig() {
               <button
                 onClick={handleSaveTransitions}
                 disabled={savingTransitions || !hasTransitionChanges}
+                title="Save transition matrix rules"
                 className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
                   savingTransitions || !hasTransitionChanges
                     ? 'bg-[#252578]/60 cursor-not-allowed'
@@ -4491,6 +4506,7 @@ export default function SuperAdminTicketConfig() {
             <button
               type="button"
               onClick={() => handleSelectSubTab(TAB_WORKFLOW)}
+              title="Navigate to Statuses & Sequence configuration"
               className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all cursor-pointer shadow-xs shrink-0"
             >
               <Settings size={13} />
@@ -4510,6 +4526,7 @@ export default function SuperAdminTicketConfig() {
                   <select
                     value={selectedTransitionStatus}
                     onChange={(e) => setSelectedTransitionStatus(e.target.value)}
+                    title="Select source status for transition mapping"
                     className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-gray-800 outline-none focus:bg-white focus:ring-2 focus:ring-[#252578] cursor-pointer appearance-none pr-10"
                   >
                     {activeWorkflowStatuses.map((st, idx) => (
@@ -4867,11 +4884,18 @@ export default function SuperAdminTicketConfig() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="p-3 font-bold text-gray-700 min-w-[170px] sticky left-0 bg-gray-50 z-10 border-r border-gray-200 shadow-2xs">
+                    <th
+                      className="p-3 font-bold text-gray-700 min-w-[170px] sticky left-0 bg-gray-50 z-10 border-r border-gray-200 shadow-2xs"
+                      title="Transition source status (row) to target status (column)"
+                    >
                       From \ To Target
                     </th>
                     {activeWorkflowStatuses.map((colStatus, cIdx) => (
-                      <th key={colStatus.id || colStatus.name} className="p-3 text-center min-w-[120px] font-semibold text-gray-700">
+                      <th
+                        key={colStatus.id || colStatus.name}
+                        className="p-3 text-center min-w-[120px] font-semibold text-gray-700"
+                        title={`Target destination stage: ${colStatus.name}`}
+                      >
                         <div className="flex flex-col items-center gap-1">
                           <span
                             className="inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-bold"
@@ -4999,6 +5023,7 @@ export default function SuperAdminTicketConfig() {
               <button
                 onClick={handleResetFileConfig}
                 disabled={fileConfigSaving}
+                title="Reset file upload limits to system defaults"
                 className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
               >
                 <RotateCcw size={14} />
@@ -5007,6 +5032,7 @@ export default function SuperAdminTicketConfig() {
               <button
                 onClick={handleSaveFileConfig}
                 disabled={fileConfigSaving}
+                title="Save file upload limits and security settings"
                 className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer disabled:opacity-50"
               >
                 <Save size={14} />
@@ -5277,6 +5303,7 @@ export default function SuperAdminTicketConfig() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleResetWindowConfig}
+                title="Reset window configuration to system defaults"
                 className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
                 <RotateCcw size={14} />
@@ -5284,6 +5311,7 @@ export default function SuperAdminTicketConfig() {
               </button>
               <button
                 onClick={handleSaveWindowConfig}
+                title="Save window configuration settings"
                 className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
               >
                 <Save size={14} />
@@ -9005,7 +9033,11 @@ export default function SuperAdminTicketConfig() {
               <h2 className="text-xl font-bold text-gray-900">Escalation Rules</h2>
               <p className="text-sm text-gray-500 mt-0.5">Define when and how tickets are automatically escalated</p>
             </div>
-            <button onClick={handleAddEscalation} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0">
+            <button
+              onClick={handleAddEscalation}
+              title="Add a new automated escalation rule"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+            >
               <Plus size={18} />
               Add Rule
             </button>
@@ -9028,8 +9060,11 @@ export default function SuperAdminTicketConfig() {
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center gap-3">
                     <h3 className="text-base font-semibold text-gray-900">{rule.name}</h3>
-                    <span className={`inline-block rounded-full px-3 py-0.5 text-xs font-semibold ${rule.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}>
+                    <span
+                      title={`Rule is currently ${rule.isActive ? 'active' : 'inactive'}`}
+                      className={`inline-block rounded-full px-3 py-0.5 text-xs font-semibold ${rule.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
                       {rule.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
@@ -9110,6 +9145,7 @@ export default function SuperAdminTicketConfig() {
                       <div
                         key={dept.id}
                         onClick={() => setSelectedDeptId(String(dept.id))}
+                        title={`Configure SLA priority rules for ${dept.name}`}
                         className="group relative cursor-pointer rounded-2xl border border-gray-200 bg-white p-6 transition-all duration-200 hover:border-[#252578] hover:shadow-lg flex flex-col justify-between gap-5"
                       >
                         <div className="flex items-start justify-between gap-4">
@@ -9272,6 +9308,7 @@ export default function SuperAdminTicketConfig() {
                 <input
                   type="text"
                   placeholder={`Search ${tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : 'categories'}...`}
+                  title={`Search ${tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : 'categories'}`}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-[#252578]"
@@ -9279,7 +9316,11 @@ export default function SuperAdminTicketConfig() {
               </div>
             )}
             {tab === TAB_PRIORITY && <div className="flex-1" />}
-            <button onClick={handleAdd} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0">
+            <button
+              onClick={handleAdd}
+              title={`Add ${tab === TAB_TICKET_CATEGORIES ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}`}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+            >
               <Plus size={18} />
               Add {tab === TAB_TICKET_CATEGORIES ? 'Ticket Category' : tab === TAB_EQUIPMENT ? 'Category' : 'Priority'}
             </button>
@@ -9289,11 +9330,11 @@ export default function SuperAdminTicketConfig() {
             <table className="w-full text-left">
               <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-5 py-4">ID</th>
-                  <th className="px-5 py-4">Name</th>
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Description</th>}
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Type</th>}
-                  <th className="px-5 py-4 text-center w-20"></th>
+                  <th className="px-5 py-4" title="Identifier">ID</th>
+                  <th className="px-5 py-4" title="Classification Name">Name</th>
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4" title="Category Scope & Description">Description</th>}
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4" title="System or Custom Classification">Type</th>}
+                  <th className="px-5 py-4 text-center w-20" title="Actions"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -9306,27 +9347,38 @@ export default function SuperAdminTicketConfig() {
                 )}
                 {filtered.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{item.id}</td>
-                    <td className="px-5 py-4 text-sm text-gray-800 font-medium">
+                    <td className="px-5 py-4 text-sm font-semibold text-[#252578]" title={`ID: ${item.id}`}>{item.id}</td>
+                    <td className="px-5 py-4 text-sm text-gray-800 font-medium" title={item.name}>
                       {tab === TAB_PRIORITY && item.color ? (
-                        <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${item.color}`}>{item.name}</span>
+                        <span
+                          title={`Priority: ${item.name}`}
+                          className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${item.color}`}
+                        >
+                          {item.name}
+                        </span>
                       ) : (
                         item.name
                       )}
                     </td>
                     {tab === TAB_TICKET_CATEGORIES && (
-                      <td className="px-5 py-4 text-xs text-gray-500 max-w-xs truncate">
+                      <td className="px-5 py-4 text-xs text-gray-500 max-w-xs truncate" title={item.description || 'No description provided'}>
                         {item.description || '—'}
                       </td>
                     )}
                     {tab === TAB_TICKET_CATEGORIES && (
                       <td className="px-5 py-4 text-xs">
                         {item.is_system_default ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                          <span
+                            title="Core default system classification"
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200"
+                          >
                             Core Default
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200">
+                          <span
+                            title="Custom administrator-defined classification"
+                            className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 border border-gray-200"
+                          >
                             Custom
                           </span>
                         )}
@@ -9340,8 +9392,9 @@ export default function SuperAdminTicketConfig() {
                           setMenuPos({ x: rect.right - 132, y: rect.bottom + 4 });
                           setOpenMenuId(item.id);
                         }}
-                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger cursor-pointer"
                         aria-label="Actions"
+                        title="Actions"
                       >
                         <MoreVertical size={18} />
                       </button>
