@@ -277,14 +277,6 @@ export function AuthProvider({ children }) {
       return true;
     } catch (err) {
       if (err.response?.status === 401) {
-        const isEmployeeMode = import.meta.env.VITE_APP_MODE === 'employee';
-        const storedUser = readStoredUser();
-        if (isEmployeeMode && storedUser) {
-          setUser(storedUser);
-          setIsAuthenticated(true);
-          return true;
-        }
-
         try {
           const resp = await axiosInstance.post(AUTH_ENDPOINTS.REFRESH_TOKEN, {}, { withCredentials: true });
           const newToken = resp.data?.token;
@@ -311,12 +303,8 @@ export function AuthProvider({ children }) {
         return false;
       }
 
-      const storedUser = readStoredUser();
-      if (storedUser) {
-        setUser(normalizeUser(storedUser));
-        setIsAuthenticated(true);
-        return true;
-      }
+      // Fail-closed principle: Any error during revalidation MUST deny access
+      applyUnauthenticated(setUser, setIsAuthenticated);
       return false;
     }
   }, []);

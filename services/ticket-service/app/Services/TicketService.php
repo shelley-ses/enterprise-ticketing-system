@@ -735,24 +735,53 @@ class TicketService
             if ($log->action_type === 'create') {
                 $timelineText = "Ticket created by {$actorName}.";
             } elseif ($log->action_type === 'reopen') {
-                $timelineText = "Ticket reopened by {$actorName}.";
+                $reason = $details['reason'] ?? '';
+                $timelineText = "Ticket reopened by {$actorName}." . ($reason !== '' ? " Reason: \"{$reason}\"." : '');
             } elseif ($log->action_type === 'accept') {
                 $timelineText = "Assignment accepted by {$actorName}.";
+            } elseif ($log->action_type === 'assign') {
+                $assignedTo = $details['assigned_to'] ?? '';
+                $empName = $employeeNamesMap[$assignedTo] ?? ($details['employee_name'] ?? ($assignedTo ? "Employee #{$assignedTo}" : 'an engineer'));
+                $timelineText = "Ticket assigned to {$empName} by {$actorName}.";
+            } elseif ($log->action_type === 'reassign') {
+                $assignedTo = $details['assigned_to'] ?? '';
+                $empName = $employeeNamesMap[$assignedTo] ?? ($details['employee_name'] ?? ($assignedTo ? "Employee #{$assignedTo}" : 'an engineer'));
+                $timelineText = "Ticket reassigned to {$empName} by {$actorName}.";
             } elseif ($log->action_type === 'reassign_request') {
                 $reason = $details['reason'] ?? '';
                 $timelineText = "Reassignment request submitted by {$actorName}. Reason: \"{$reason}\"";
             } elseif ($log->action_type === 'reassign_approve') {
                 $timelineText = "Reassignment request approved by {$actorName}. Ticket status reset to Open.";
-            } elseif ($log->action_type === 'reassign_deny') {
+            } elseif ($log->action_type === 'reassign_deny' || $log->action_type === 'reassign_reject') {
                 $reason = $details['reason'] ?? '';
                 $timelineText = "Reassignment request denied by {$actorName}." . ($reason !== '' ? " Reason: \"{$reason}\"." : '') . " Ticket status returned to In Progress.";
+            } elseif ($log->action_type === 'hold') {
+                $reason = $details['reason'] ?? '';
+                $timelineText = "Ticket placed on hold by {$actorName}." . ($reason !== '' ? " Reason: \"{$reason}\"." : '');
+            } elseif ($log->action_type === 'resume') {
+                $timelineText = "Ticket resumed from hold by {$actorName}.";
+            } elseif ($log->action_type === 'resolve') {
+                $notes = $details['resolution_notes'] ?? ($details['remarks'] ?? '');
+                $timelineText = "Ticket resolved by {$actorName}." . ($notes !== '' ? " Notes: \"{$notes}\"." : '');
+            } elseif ($log->action_type === 'close') {
+                $timelineText = "Ticket closed by {$actorName}.";
+            } elseif ($log->action_type === 'cancel') {
+                $reason = $details['reason'] ?? '';
+                $timelineText = "Ticket cancelled by {$actorName}." . ($reason !== '' ? " Reason: \"{$reason}\"." : '');
+            } elseif ($log->action_type === 'in_progress') {
+                $timelineText = "Ticket marked in progress by {$actorName}.";
             } elseif ($log->action_type === 'status_change') {
                 $newStatus = $details['status'] ?? '';
                 $remarks = $details['remarks'] ?? '';
                 $filesText = !empty($details['files']) ? ' (Attached: ' . implode(', ', $details['files']) . ')' : '';
-                $timelineText = "Status updated to \"{$newStatus}\" by {$actorName}. Remarks: \"{$remarks}\"{$filesText}";
+                $timelineText = "Status updated to \"{$newStatus}\" by {$actorName}." . ($remarks !== '' ? " Remarks: \"{$remarks}\"" : '') . $filesText;
             } elseif ($log->action_type === 'proof_uploaded') {
                 $timelineText = "Proof of completion uploaded by {$actorName}.";
+            } elseif ($log->action_type === 'internal_note_added') {
+                $timelineText = "Internal note added by {$actorName}.";
+            } elseif ($log->action_type === 'reclassification') {
+                $newCat = $categoriesMap[$details['new_category_id'] ?? 0] ?? ($details['new_category'] ?? 'updated category');
+                $timelineText = "Ticket reclassified to \"{$newCat}\" by {$actorName}.";
             } elseif ($log->action_type === 'update') {
                 $field = $details['field'] ?? '';
                 $newVal = $details['new'] ?? '';
@@ -795,49 +824,109 @@ class TicketService
         }
 
         $statusHistory = [];
-        $statusHistory[] = [
-            'status' => 'Open',
-            'timestamp' => $ticket->created_at ? Carbon::parse($ticket->created_at)->toIso8601String() : '',
-            'actor' => 'System',
-        ];
+        $hasCreateLog = false;
         foreach ($auditLogs as $log) {
-            if ($log->action_type === 'status_change') {
-                $details = json_decode($log->details, true);
-                $actor = $log->employee_name ?: 'Employee';
-                if ($log->actor_type === 'customer') {
-                    $actor = $log->customer_name ?: 'Customer';
-                } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
-                    $actor = 'System';
-                }
+            $actor = $log->employee_name ?: 'Employee';
+            if ($log->actor_type === 'customer') {
+                $actor = $log->customer_name ?: 'Customer';
+            } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
+                $actor = 'System';
+            }
+
+            $details = json_decode($log->details, true) ?? [];
+            $logTime = $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '';
+
+            if ($log->action_type === 'create') {
+                $hasCreateLog = true;
+                $statusHistory[] = [
+                    'status' => 'Open',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'status_change') {
                 $statusHistory[] = [
                     'status' => $details['status'] ?? '',
-                    'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'assign' || $log->action_type === 'reassign') {
+                $statusHistory[] = [
+                    'status' => 'Pending Assignment',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'accept' || $log->action_type === 'in_progress') {
+                $statusHistory[] = [
+                    'status' => 'In Progress',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'hold') {
+                $statusHistory[] = [
+                    'status' => 'On Hold',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'resume') {
+                $statusHistory[] = [
+                    'status' => 'In Progress',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'resolve') {
+                $statusHistory[] = [
+                    'status' => 'Resolved',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'close') {
+                $statusHistory[] = [
+                    'status' => 'Closed',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'reopen') {
+                $statusHistory[] = [
+                    'status' => 'In Progress',
+                    'timestamp' => $logTime,
+                    'actor' => $actor,
+                ];
+            } elseif ($log->action_type === 'cancel') {
+                $statusHistory[] = [
+                    'status' => 'Cancelled',
+                    'timestamp' => $logTime,
                     'actor' => $actor,
                 ];
             } elseif ($log->action_type === 'update') {
-                $details = json_decode($log->details, true);
                 if (($details['field'] ?? '') === 'ticket_status_ID') {
                     $statusName = $statusesMap[$details['new'] ?? 0] ?? 'Unknown';
-                    $actor = $log->employee_name ?: 'CS Representative';
-                    if ($log->actor_type === 'customer') {
-                        $actor = $log->customer_name ?: 'Customer';
-                    } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
-                        $actor = 'System';
-                    }
                     $statusHistory[] = [
                         'status' => $statusName,
-                        'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
+                        'timestamp' => $logTime,
                         'actor' => $actor,
                     ];
                 }
-            } elseif ($log->action_type === 'create') {
-                $statusHistory[] = [
-                    'status' => 'Open',
-                    'timestamp' => $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : '',
-                    'actor' => $log->customer_name ?: 'Customer',
-                ];
             }
         }
+
+        if (!$hasCreateLog) {
+            array_unshift($statusHistory, [
+                'status' => 'Open',
+                'timestamp' => $ticket->created_at ? Carbon::parse($ticket->created_at)->toIso8601String() : '',
+                'actor' => 'System',
+            ]);
+        }
+
+        // Deduplicate consecutive identical statuses in status history
+        $dedupedStatusHistory = [];
+        $lastStatus = null;
+        foreach ($statusHistory as $sh) {
+            if ($sh['status'] && $sh['status'] !== $lastStatus) {
+                $dedupedStatusHistory[] = $sh;
+                $lastStatus = $sh['status'];
+            }
+        }
+        $statusHistory = $dedupedStatusHistory;
 
         $dbNotes = [];
         if (!$isCustomer) {
@@ -905,18 +994,42 @@ class TicketService
             }
         }
 
-        $allRemarks = array_merge($dbRemarks, $auditRemarks);
-        usort($allRemarks, function($a, $b) {
+        $rawMergedRemarks = array_merge($dbRemarks, $auditRemarks);
+        usort($rawMergedRemarks, function($a, $b) {
             return strcmp($a['timestamp'], $b['timestamp']);
         });
 
-        foreach ($dbRemarks as $rem) {
-            $timeline[] = [
-                'id' => 'timeline-remark-' . $rem['id'],
-                'type' => 'remark',
-                'text' => "Remark added by " . $rem['author'] . ": \"" . $rem['remark'] . "\"",
-                'timestamp' => $rem['timestamp'],
-            ];
+        $allRemarks = [];
+        $seenRemarkKeys = [];
+        foreach ($rawMergedRemarks as $rem) {
+            $norm = strtolower(trim((string)($rem['remark'] ?? '')));
+            if ($norm === '') continue;
+            $authorKey = strtolower(trim((string)($rem['author'] ?? '')));
+            $dedupKey = $norm . '|' . $authorKey;
+            if (!isset($seenRemarkKeys[$dedupKey])) {
+                $seenRemarkKeys[$dedupKey] = true;
+                $allRemarks[] = $rem;
+            }
+        }
+
+        foreach ($allRemarks as $rem) {
+            // Check if remark text is already covered in a timeline status event
+            $normRem = strtolower(trim((string)$rem['remark']));
+            $alreadyInTimeline = false;
+            foreach ($timeline as $tEvt) {
+                if (str_contains(strtolower($tEvt['text'] ?? ''), $normRem)) {
+                    $alreadyInTimeline = true;
+                    break;
+                }
+            }
+            if (!$alreadyInTimeline) {
+                $timeline[] = [
+                    'id' => 'timeline-remark-' . $rem['id'],
+                    'type' => 'remark',
+                    'text' => "Remark added by " . $rem['author'] . ": \"" . $rem['remark'] . "\"",
+                    'timestamp' => $rem['timestamp'],
+                ];
+            }
         }
 
         if (!$isCustomer) {

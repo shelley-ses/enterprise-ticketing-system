@@ -1,10 +1,29 @@
 export const parseUTCDate = (dateStr) => {
   if (!dateStr) return null;
-  const str = String(dateStr);
-  if (!str.includes('T') && !str.includes('Z') && str.includes(' ')) {
-    return new Date(str.replace(' ', 'T') + 'Z');
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  const str = String(dateStr).trim();
+  if (!str) return null;
+
+  // Standard ISO with Z or timezone offset: let Date parse directly
+  if (str.includes('T') || str.includes('Z')) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d;
   }
-  return new Date(str);
+
+  // Direct parse first (handles "10/20/2026, 1:20:00 PM", "Oct 20, 2026 1:20 PM", etc.)
+  const direct = new Date(str);
+  if (!isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  // Handle standard SQL datetime "YYYY-MM-DD HH:mm:ss"
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(str)) {
+    const isoStr = str.replace(/\s+/, 'T') + 'Z';
+    const d = new Date(isoStr);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  return null;
 };
 
 export const formatDisplayDate = (dateStr) => {

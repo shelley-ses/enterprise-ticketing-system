@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw, X } from 'lucide-react';
+import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw, X, Info, History, Sparkles, Bot, Clock } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import {
   getTicketMessages,
@@ -14,8 +14,11 @@ import {
   getCustomerTickets,
   getCSIncomingTickets,
   getEmployeeInternalTickets,
+  getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
+import axiosInstance from '@/api/axiosInstance';
+import { AI_API_URL } from '@/config/api.config';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { isMessageArchivalOnClosureEnabled } from '@/data/messageArchivalConfig';
 
@@ -138,18 +141,31 @@ export default function MessagingPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [lastMessageIdOnLoad, setLastMessageIdOnLoad] = useState(null);
+  const [sidebarTab, setSidebarTab] = useState('info'); // 'info' | 'history' | 'ai'
+  const [ticketHistory, setTicketHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [aiConversations, setAiConversations] = useState([]);
+  const [selectedAiConvId, setSelectedAiConvId] = useState(null);
+  const [activeAiMessages, setActiveAiMessages] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const messagesEndRef = useRef(null);
 
+  const currentTicketMessages = useMemo(() => {
+    if (!selectedContactId) return [];
+    const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
+    return messages.filter(m => !m.ticket_id || Number(m.ticket_id) === numericTargetId);
+  }, [messages, selectedContactId]);
+
   const lastLoadIndex = useMemo(() => {
     if (!lastMessageIdOnLoad) return -1;
-    return messages.findIndex(m => (m.id === lastMessageIdOnLoad || m._id === lastMessageIdOnLoad));
-  }, [messages, lastMessageIdOnLoad]);
+    return currentTicketMessages.findIndex(m => (m.id === lastMessageIdOnLoad || m._id === lastMessageIdOnLoad));
+  }, [currentTicketMessages, lastMessageIdOnLoad]);
 
   const firstNewMessageIndex = useMemo(() => {
     if (lastLoadIndex === -1) return -1;
-    for (let i = lastLoadIndex + 1; i < messages.length; i++) {
-      const msg = messages[i];
+    for (let i = lastLoadIndex + 1; i < currentTicketMessages.length; i++) {
+      const msg = currentTicketMessages[i];
       const isMine = (msg.sender_type === userType && Number(msg.sender_id) === Number(userId)) ||
                      (msg.sender_type === 'cs' && userType === 'cs');
       if (!isMine) {
@@ -157,7 +173,7 @@ export default function MessagingPage() {
       }
     }
     return -1;
-  }, [messages, lastLoadIndex, userType, userId]);
+  }, [currentTicketMessages, lastLoadIndex, userType, userId]);
 
   // 1. Fetch tickets for chat list
   useEffect(() => {
@@ -231,6 +247,8 @@ export default function MessagingPage() {
 
       return {
         id: ticketId,
+        ticket_ID: t.ticket_ID || Number(String(ticketId).replace(/\D/g, '')),
+        created_by: t.created_by || t.client_id || t.user_id || (isCS ? null : user?.id),
         name: `${contactName} (${t.title})`,
         displayTitle: t.title,
         subtitle: contactName,
@@ -247,7 +265,7 @@ export default function MessagingPage() {
         priority: t.priority || t.priority_name || 'Low',
       };
     });
-  }, [tickets, isCS, isEmployee, archiveOnClosureEnabled]);
+  }, [tickets, isCS, isEmployee, archiveOnClosureEnabled, user?.id]);
 
   // 3. Separate Active and Archived contact lists
   const activeContacts = useMemo(() => {
@@ -283,14 +301,19 @@ export default function MessagingPage() {
 
     let active = true;
     setMessagesLoading(true);
+    setMessages([]);
+    setLastMessageIdOnLoad(null);
+
+    const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
 
     getTicketMessages(selectedContactId)
       .then(msgs => {
         if (active) {
-          setMessages(msgs);
+          const filtered = (msgs || []).filter(m => !m.ticket_id || Number(m.ticket_id) === numericTargetId);
+          setMessages(filtered);
           setMessagesLoading(false);
-          if (msgs.length > 0) {
-            const lastMsg = msgs[msgs.length - 1];
+          if (filtered.length > 0) {
+            const lastMsg = filtered[filtered.length - 1];
             setLastMessageIdOnLoad(lastMsg.id || lastMsg._id);
           } else {
             setLastMessageIdOnLoad(null);
@@ -309,6 +332,9 @@ export default function MessagingPage() {
 
     channel.listen('.App\\Events\\MessageSent', (e) => {
       if (active) {
+        if (e.ticket_id && Number(e.ticket_id) !== numericTargetId) {
+          return;
+        }
         setMessages(prev => {
           const msgId = e.id || e._id;
           if (prev.some(m => m.id === msgId || m._id === msgId)) {
@@ -359,6 +385,112 @@ export default function MessagingPage() {
       echo.leave(channelName);
     };
   }, [selectedContactId, currentUserKey]);
+
+  // Load ticket history for details sidebar
+  useEffect(() => {
+    if (!selectedContactId || !showDetailsSidebar) return;
+    if (sidebarTab !== 'history') return;
+
+    let active = true;
+    setHistoryLoading(true);
+    const numericId = Number(String(selectedContactId).replace(/\D/g, ''));
+
+    getTicketDetails(numericId)
+      .then((data) => {
+        if (active) {
+          setTicketHistory(data?.timeline || []);
+          setHistoryLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load ticket history in messaging page:', err);
+        if (active) {
+          setTicketHistory([]);
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => { active = false; };
+  }, [selectedContactId, showDetailsSidebar, sidebarTab]);
+
+  // Load AI conversations list
+  useEffect(() => {
+    if (!selectedContactId || !showDetailsSidebar) return;
+    if (sidebarTab !== 'ai') return;
+
+    let active = true;
+    setAiLoading(true);
+
+    const targetUserId = selectedContact?.created_by || (isCS ? null : user?.id);
+
+    axiosInstance
+      .get(`${AI_API_URL}/conversations`, {
+        baseURL: '',
+        params: targetUserId ? { user_id: targetUserId } : {},
+      })
+      .then((res) => {
+        if (active && res.data?.success && Array.isArray(res.data.conversations)) {
+          const convList = res.data.conversations;
+          setAiConversations(convList);
+          if (convList.length > 0) {
+            const matched = convList.find(c =>
+              c.title && selectedContact?.displayTitle &&
+              (c.title.toLowerCase().includes(selectedContact.displayTitle.toLowerCase()) ||
+               selectedContact.displayTitle.toLowerCase().includes(c.title.toLowerCase()))
+            ) || convList[0];
+            setSelectedAiConvId(matched.id);
+          } else {
+            setSelectedAiConvId(null);
+            setActiveAiMessages([]);
+            setAiLoading(false);
+          }
+        } else if (active) {
+          setAiConversations([]);
+          setSelectedAiConvId(null);
+          setActiveAiMessages([]);
+          setAiLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load AI conversations:', err);
+        if (active) {
+          setAiConversations([]);
+          setSelectedAiConvId(null);
+          setActiveAiMessages([]);
+          setAiLoading(false);
+        }
+      });
+
+    return () => { active = false; };
+  }, [selectedContactId, showDetailsSidebar, sidebarTab, selectedContact?.created_by, selectedContact?.displayTitle, isCS, user?.id]);
+
+  // Load selected AI conversation messages
+  useEffect(() => {
+    if (!selectedAiConvId || sidebarTab !== 'ai') return;
+
+    let active = true;
+    setAiLoading(true);
+
+    axiosInstance
+      .get(`${AI_API_URL}/conversations/${selectedAiConvId}`, { baseURL: '' })
+      .then((res) => {
+        if (active && res.data?.success && res.data.conversation) {
+          const msgs = res.data.conversation.messages || [];
+          setActiveAiMessages(msgs);
+        } else if (active) {
+          setActiveAiMessages([]);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load AI conversation details:', err);
+        if (active) setActiveAiMessages([]);
+      })
+      .finally(() => {
+        if (active) setAiLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [selectedAiConvId, sidebarTab]);
 
   // 5. Listen to ticket status/updates channel globally for real-time archive/restore shifts
   useEffect(() => {
@@ -429,7 +561,11 @@ export default function MessagingPage() {
 
     try {
       const newMsg = await sendTicketMessage(selectedContactId, text);
+      const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
       setMessages(prev => {
+        if (newMsg.ticket_id && Number(newMsg.ticket_id) !== numericTargetId) {
+          return prev;
+        }
         if (prev.some(m => m.id === newMsg.id || m._id === newMsg._id)) {
           return prev;
         }
@@ -697,13 +833,13 @@ export default function MessagingPage() {
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-page">
                 {messagesLoading ? (
                   <div className="text-center py-8 text-slate-muted">Loading chat history...</div>
-                ) : messages.length === 0 ? (
+                ) : currentTicketMessages.length === 0 ? (
                   <div className="text-center py-8 text-slate-muted">
                     <MessageCircle size={28} className="mx-auto text-slate-300 mb-1" />
                     <p className="text-xs">No messages yet. Send a message to start the conversation.</p>
                   </div>
                 ) : (
-                  messages.map((msg, idx) => {
+                  currentTicketMessages.map((msg, idx) => {
                     const msgId = msg.id || msg._id;
                     const isMine = (msg.sender_type === userType && Number(msg.sender_id) === Number(userId)) ||
                                    (msg.sender_type === 'cs' && userType === 'cs');
@@ -910,94 +1046,245 @@ export default function MessagingPage() {
 
             {/* Collapsible details sidebar */}
             {showDetailsSidebar && (
-              <div className="w-[300px] xl:w-[320px] bg-card flex flex-col shrink-0 overflow-y-auto border-l border-border select-none">
-                <div className="p-4 border-b border-border flex items-center justify-between">
-                  <h3 className="font-bold text-slate-dark text-sm">Ticket Information</h3>
+              <div className="w-[320px] xl:w-[360px] bg-card flex flex-col shrink-0 overflow-hidden border-l border-border select-none">
+                <div className="p-3 border-b border-border flex items-center justify-between">
+                  <h3 className="font-bold text-slate-dark text-sm">Ticket Details</h3>
                   <button onClick={() => setShowDetailsSidebar(false)} className="text-slate-muted hover:text-slate-dark p-1 rounded-lg hover:bg-slate-100 cursor-pointer">
                     <X size={16} />
                   </button>
                 </div>
-                <div className="p-4 space-y-4">
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Ticket ID</p>
-                    <p className="text-sm font-bold text-gray-800 mt-0.5">
-                      {typeof selectedContact.id === 'number'
-                        ? `TKT-${String(selectedContact.id).padStart(4, '0')}`
-                        : selectedContact.id}
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Title</p>
-                    <p className="text-xs font-semibold text-gray-700 mt-0.5 whitespace-normal break-words leading-relaxed">
-                      {selectedContact.displayTitle}
-                    </p>
-                  </div>
 
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status</p>
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          statusBadges[selectedContact.status] || 'bg-gray-50 text-gray-700 border-gray-100'
-                        }`}>
-                          {selectedContact.status}
+                {/* Tab Navigation */}
+                <div className="flex border-b border-border bg-gray-50/70 p-1 gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSidebarTab('info')}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      sidebarTab === 'info'
+                        ? 'bg-white text-[#252578] shadow-xs border border-gray-200'
+                        : 'text-slate-muted hover:text-slate-dark hover:bg-white/50'
+                    }`}
+                  >
+                    <Info size={13} />
+                    <span>Info</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarTab('history')}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      sidebarTab === 'history'
+                        ? 'bg-white text-[#252578] shadow-xs border border-gray-200'
+                        : 'text-slate-muted hover:text-slate-dark hover:bg-white/50'
+                    }`}
+                  >
+                    <History size={13} />
+                    <span>History</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarTab('ai')}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      sidebarTab === 'ai'
+                        ? 'bg-white text-[#252578] shadow-xs border border-gray-200'
+                        : 'text-slate-muted hover:text-slate-dark hover:bg-white/50'
+                    }`}
+                  >
+                    <Sparkles size={13} className="text-[#2E85D8]" />
+                    <span>AI Chat</span>
+                  </button>
+                </div>
+
+                {/* Tab Content */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {sidebarTab === 'info' && (
+                    <>
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Ticket ID</p>
+                        <p className="text-sm font-bold text-gray-800 mt-0.5">
+                          {typeof selectedContact.id === 'number'
+                            ? `TKT-${String(selectedContact.id).padStart(4, '0')}`
+                            : selectedContact.id}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Title</p>
+                        <p className="text-xs font-semibold text-gray-700 mt-0.5 whitespace-normal break-words leading-relaxed">
+                          {selectedContact.displayTitle}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status</p>
+                          <div className="mt-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              statusBadges[selectedContact.status] || 'bg-gray-50 text-gray-700 border-gray-100'
+                            }`}>
+                              {selectedContact.status}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Priority</p>
+                          <div className="mt-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              priorityBadges[selectedContact.priority] || 'bg-gray-50 text-gray-700 border-gray-100'
+                            }`}>
+                              {selectedContact.priority}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {selectedContact.isArchived && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-col gap-2">
+                          <div className="flex items-center gap-1.5 text-xs text-amber-900 font-bold">
+                            <Archive size={14} className="text-amber-700" />
+                            <span>Archived Conversation</span>
+                          </div>
+                          <p className="text-[11px] text-amber-800 leading-normal">
+                            This conversation is stored in Archive because the ticket is Closed. The message thread is locked and read-only.
+                          </p>
+                        </div>
+                      )}
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Category</p>
+                        <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.category}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Equipment</p>
+                        <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.equipment}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Date Created</p>
+                        <p className="text-xs font-medium text-gray-700 mt-0.5">
+                          {selectedContact.date ? formatDisplayDate(selectedContact.date) : 'N/A'}
+                        </p>
+                      </div>
+
+                      <div className="border-t border-gray-100 pt-3">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Description</p>
+                        <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                          {selectedContact.description}
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  {sidebarTab === 'history' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between pb-1">
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Ticket Timeline</span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          {ticketHistory ? `${ticketHistory.length} events` : ''}
                         </span>
                       </div>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Priority</p>
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          priorityBadges[selectedContact.priority] || 'bg-gray-50 text-gray-700 border-gray-100'
-                        }`}>
-                          {selectedContact.priority}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
 
-                  {selectedContact.isArchived && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-col gap-2">
-                      <div className="flex items-center gap-1.5 text-xs text-amber-900 font-bold">
-                        <Archive size={14} className="text-amber-700" />
-                        <span>Archived Conversation</span>
-                      </div>
-                      <p className="text-[11px] text-amber-800 leading-normal">
-                        This conversation is stored in Archive because the ticket is Closed. The message thread is locked and read-only.
-                      </p>
+                      {historyLoading ? (
+                        <div className="text-center py-8 text-xs text-slate-muted animate-pulse">
+                          Loading ticket history...
+                        </div>
+                      ) : !ticketHistory || ticketHistory.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-slate-muted bg-gray-50 rounded-xl p-4 border border-dashed border-gray-200">
+                          No history events recorded for this ticket.
+                        </div>
+                      ) : (
+                        <div className="relative pl-4 space-y-4 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
+                          {ticketHistory.map((evt, idx) => (
+                            <div key={evt.id || idx} className="relative text-left">
+                              <span className="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-[#252578] ring-4 ring-white" />
+                              <p className="text-xs font-semibold text-gray-800 leading-snug">
+                                {evt.text || evt.details || evt.action || 'Ticket updated'}
+                              </p>
+                              {evt.author && (
+                                <p className="text-[11px] text-gray-500 mt-0.5 font-medium">
+                                  By: {evt.author}
+                                </p>
+                              )}
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {formatDisplayDate(evt.timestamp || evt.created_at)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Category</p>
-                    <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.category}</p>
-                  </div>
+                  {sidebarTab === 'ai' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between pb-1">
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">AI Conversation History</span>
+                        {aiConversations.length > 1 && (
+                          <span className="text-[10px] text-gray-400 font-mono">{aiConversations.length} sessions</span>
+                        )}
+                      </div>
 
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Equipment</p>
-                    <p className="text-xs font-medium text-gray-700 mt-0.5">{selectedContact.equipment}</p>
-                  </div>
+                      {aiConversations.length > 1 && (
+                        <div>
+                          <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Select Session</label>
+                          <select
+                            value={selectedAiConvId || ''}
+                            onChange={(e) => setSelectedAiConvId(e.target.value)}
+                            className="w-full text-xs rounded-xl border border-gray-200 bg-white p-2 font-medium text-gray-700 outline-none focus:ring-1 focus:ring-[#252578]"
+                          >
+                            {aiConversations.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.title || 'Support Session'} ({c.message_count || (c.messages ? c.messages.length : 0)} msgs)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Date Created</p>
-                    <p className="text-xs font-medium text-gray-700 mt-0.5">
-                      {selectedContact.date ? new Date(selectedContact.date).toLocaleDateString(undefined, {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      }) : 'N/A'}
-                    </p>
-                  </div>
-
-                  <div className="border-t border-gray-100 pt-3">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Description</p>
-                    <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-                      {selectedContact.description}
-                    </p>
-                  </div>
+                      {aiLoading ? (
+                        <div className="text-center py-8 text-xs text-slate-muted animate-pulse">
+                          Loading AI conversation...
+                        </div>
+                      ) : activeAiMessages.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-slate-muted bg-gray-50 rounded-xl p-4 border border-dashed border-gray-200">
+                          <Bot size={24} className="mx-auto text-gray-300 mb-2" />
+                          <p className="font-semibold text-gray-600">No AI Conversations Found</p>
+                          <p className="text-[11px] text-gray-400 mt-1">This ticket did not originate from an AI triage conversation or no sessions were logged.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                          {activeAiMessages.map((msg, idx) => {
+                            const isUser = msg.role === 'user';
+                            return (
+                              <div
+                                key={msg.id || idx}
+                                className={`p-3 rounded-xl text-xs leading-relaxed ${
+                                  isUser
+                                    ? 'bg-blue-50 text-blue-950 border border-blue-100 ml-3'
+                                    : 'bg-white text-gray-800 border border-gray-200 mr-3 shadow-xs'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                                    isUser ? 'text-[#252578]' : 'text-emerald-700'
+                                  }`}>
+                                    {isUser ? <User size={11} /> : <Bot size={11} />}
+                                    {isUser ? 'Customer' : 'Gemini AI Assistant'}
+                                  </span>
+                                  {msg.timestamp && (
+                                    <span className="text-[9px] text-gray-400 font-mono">
+                                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -28,6 +28,8 @@ import {
   resumeTicket,
   reclassifyTicket,
   getTicketFormOptions,
+  addInternalNote,
+  getInternalNotes,
 } from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
@@ -472,6 +474,17 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     setCurrentPriority(ticket?.priority || 'Low');
     setCurrentStatus(ticket?.status || 'Pending');
     setCurrentHoldReason(ticket?.hold_reason || '');
+
+    const ticketId = ticket?.ticket_ID || ticket?.id;
+    if (ticketId) {
+      getInternalNotes(ticketId).then((notes) => {
+        if (Array.isArray(notes) && notes.length > 0) {
+          setInternalNotesList(notes);
+        }
+      }).catch((err) => {
+        console.warn('Failed to load internal notes from DB:', err);
+      });
+    }
   }, [ticket]);
 
   // Load available category and priority options dynamically
@@ -662,36 +675,58 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     }
   };
 
-  const handleAddInternalNote = (noteText) => {
+  const handleAddInternalNote = async (noteText) => {
     const trimmed = (noteText || '').trim();
-    if (!trimmed || !ticket?.id) return;
+    const ticketId = ticket?.ticket_ID || ticket?.id;
+    if (!trimmed || !ticketId) return;
 
     const timestamp = new Date().toISOString();
     const authorName = user?.name || (user?.first_name ? `${user.first_name}${user.last_name ? ' ' + user.last_name : ''}` : 'CSR');
-    const newNote = {
-      id: `note-${Date.now()}`,
-      text: trimmed,
-      author: authorName,
-      timestamp,
-    };
+    const authorRole = user?.role || 'CS';
 
-    const update = {
-      internalNotes: [newNote],
-      timeline: [
-        {
-          id: `note-timeline-${Date.now()}`,
-          type: 'internal_note',
-          text: `Added staff internal note: "${trimmed}"`,
-          timestamp,
-        }
-      ]
-    };
+    try {
+      const res = await addInternalNote(ticketId, trimmed);
+      const savedNote = res?.note || {
+        id: `note-${Date.now()}`,
+        text: trimmed,
+        note: trimmed,
+        author: authorName,
+        author_name: authorName,
+        author_role: authorRole,
+        timestamp,
+        created_at: timestamp,
+      };
 
-    updateEmployeeTicketOverride(ticket.id, update);
+      setInternalNotesList((prev) => [...prev, savedNote]);
 
-    if (!ticket.internalNotes) ticket.internalNotes = [];
-    ticket.internalNotes.push(newNote);
-    setInternalNotesList([...ticket.internalNotes]);
+      const update = {
+        internalNotes: [savedNote],
+        timeline: [
+          {
+            id: `note-timeline-${Date.now()}`,
+            type: 'internal_note',
+            text: `Added staff internal note: "${trimmed}"`,
+            timestamp,
+          }
+        ]
+      };
+      updateEmployeeTicketOverride(ticketId, update);
+      if (!ticket.internalNotes) ticket.internalNotes = [];
+      ticket.internalNotes.push(savedNote);
+    } catch (err) {
+      console.warn('Failed to save internal note to DB via API:', err);
+      const fallbackNote = {
+        id: `note-${Date.now()}`,
+        text: trimmed,
+        note: trimmed,
+        author: authorName,
+        author_name: authorName,
+        author_role: authorRole,
+        timestamp,
+        created_at: timestamp,
+      };
+      setInternalNotesList((prev) => [...prev, fallbackNote]);
+    }
   };
 
   // Track whether CS has opened the proof documents (required for external ticket resolution)
@@ -1724,9 +1759,13 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   if (!ticket) return null;
 
   const filteredDepartments = useMemo(() => {
-    return (departments || []).filter(
+    const list = (departments || []).filter(
       (d) => !['customer service', 'customer support', 'cs'].includes(d.toLowerCase().trim())
     );
+    if (!list.some((d) => d.toLowerCase() === 'others')) {
+      list.push('Others');
+    }
+    return list;
   }, [departments]);
 
   const employeesInDept = useMemo(() => {
@@ -1736,15 +1775,24 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
       if (['customer service', 'customer support', 'cs'].includes(empDept) || ['customer service', 'customer support', 'cs'].includes(empRole)) {
         return false;
       }
-      return department ? e.department === department : true;
+      if (!department) return true;
+      if (department.toLowerCase() === 'others') {
+        const standardDepts = (departments || [])
+          .filter((d) => !['others', 'customer service', 'customer support', 'cs'].includes(d.toLowerCase().trim()))
+          .map((d) => d.toLowerCase().trim());
+        return !standardDepts.includes(empDept) || empDept === 'others' || !empDept;
+      }
+      return empDept === department.toLowerCase().trim();
     });
     list.sort((a, b) => {
-      if (a.status === 'active' && b.status !== 'active') return -1;
-      if (b.status === 'active' && a.status !== 'active') return 1;
-      return a.name.localeCompare(b.name);
+      const aActive = a.status === 'active' || a.is_active;
+      const bActive = b.status === 'active' || b.is_active;
+      if (aActive && !bActive) return -1;
+      if (bActive && !aActive) return 1;
+      return (a.name || '').localeCompare(b.name || '');
     });
     return list;
-  }, [department, employees]);
+  }, [department, departments, employees]);
 
   const toggleEmp = (id) => {
     const isAdding = !selectedEmployees.includes(id);
@@ -1924,34 +1972,56 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 </div>
               )}
 
-              <div className="max-h-44 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1">
+              <div className="max-h-56 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1.5">
                 {employeesInDept.length === 0 ? (
                   <div className="text-xs text-slate-muted p-2">
                     Select a department to see employees
                   </div>
                 ) : (
-                  employeesInDept.map((emp) => (
-                    <label
-                      key={emp.id}
-                      className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-card rounded-lg transition-all cursor-pointer border border-transparent hover:border-border"
-                    >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedEmployees.includes(emp.id)}
-                          onChange={() => toggleEmp(emp.id)}
-                          className="w-4 h-4 rounded border-border text-primary focus:ring-accent"
-                        />
-                        <div>
-                          <div className="text-xs font-medium text-slate-dark">{emp.name}</div>
-                          <div className="text-[11px] text-slate-muted">{emp.department} • {emp.status}</div>
+                  employeesInDept.map((emp) => {
+                    const isAvailable = emp.status === 'active' || emp.is_active || emp.availability === 'Available';
+                    const branchName = emp.branch || emp.branch_name || 'Main';
+                    const posLevel = emp.position_level || emp.position || emp.level || (emp.role?.toLowerCase().includes('senior') ? 'Senior / L2' : (emp.role?.toLowerCase().includes('lead') ? 'Lead / L3' : 'L1 / Associate'));
+                    const techRole = emp.technical_role || emp.role || 'Service Engineer';
+
+                    return (
+                      <label
+                        key={emp.id}
+                        className={`flex items-start justify-between gap-2 px-3 py-2.5 rounded-lg transition-all cursor-pointer border ${
+                          selectedEmployees.includes(emp.id)
+                            ? 'bg-primary/5 border-primary/30 shadow-xs'
+                            : 'hover:bg-card border-transparent hover:border-border'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedEmployees.includes(emp.id)}
+                            onChange={() => toggleEmp(emp.id)}
+                            className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-accent"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-dark">{emp.name}</span>
+                              <span className="text-[10px] bg-slate-200/70 text-slate-700 px-1.5 py-0.5 rounded font-medium">
+                                {branchName}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-muted mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                              <span><strong className="text-slate-600 font-medium">Role:</strong> {techRole}</span>
+                              <span>•</span>
+                              <span><strong className="text-slate-600 font-medium">Level:</strong> {posLevel}</span>
+                              <span>•</span>
+                              <span><strong className="text-slate-600 font-medium">Dept:</strong> {emp.department || 'General'}</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <Badge variant={emp.status === 'active' ? 'emerald' : 'secondary'} className="text-[10px]">
-                        {emp.status === 'active' ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </label>
-                  ))
+                        <Badge variant={isAvailable ? 'emerald' : 'secondary'} className="text-[10px] shrink-0">
+                          {isAvailable ? 'Available' : 'Unavailable'}
+                        </Badge>
+                      </label>
+                    );
+                  })
                 )}
               </div>
 

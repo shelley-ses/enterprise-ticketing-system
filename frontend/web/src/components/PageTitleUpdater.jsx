@@ -44,7 +44,6 @@ const ROUTE_MAP = [
 
   // Admin Routes
   { pattern: /^\/admin\/dashboard\/?$/, title: 'Admin Dashboard' },
-  { pattern: /^\/admin\/employees\/?$/, title: 'Employee Management' },
   { pattern: /^\/admin\/reports\/?$/, title: 'Reports & Analytics' },
   { pattern: /^\/admin\/settings\/?$/, title: 'System Settings' },
   { pattern: /^\/admin\/profile\/?$/, title: 'Profile' },

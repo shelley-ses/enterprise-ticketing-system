@@ -242,7 +242,11 @@ export default function CSIncoming() {
           id: Number(row.id ?? row.emp_id),
           name: row.name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
           status: row.is_active ? 'active' : 'inactive',
-            department: row.department?.trim() || 'Unassigned',
+          department: row.department?.trim() || 'Unassigned',
+          branch: row.branch || row.branch_name || 'Main',
+          position_level: row.position_level || row.level || row.designation || (row.role?.toLowerCase().includes('senior') ? 'Senior / L2' : (row.role?.toLowerCase().includes('lead') ? 'Lead / L3' : 'L1 / Associate')),
+          technical_role: row.technical_role || row.role || 'Service Technician',
+          availability: row.availability || (row.is_active || row.status === 'active' ? 'Available' : 'Unavailable'),
         }))
       );
     }
@@ -492,7 +496,7 @@ export default function CSIncoming() {
   }, [filtered, page]);
 
   const handleRowAction = async (t) => {
-    const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Pending Evaluation';
+    const isSummary = t.status === 'Pending Assignment' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Pending Evaluation' || t.status === 'On Hold' || t.status === 'Closed' || t.status === 'Reopened';
     if (isSummary) {
       setModalLoading(true);
       try {
@@ -916,6 +920,8 @@ export default function CSIncoming() {
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
           onStatusUpdate={async (updatedFields) => {
             updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
+
+            setModal((prev) => prev ? { ...prev, ticket: { ...prev.ticket, ...updatedFields } } : null);
 
             setTickets((prev) => prev.map((t) => (
               (t.id === (updatedFields.id || modal.ticket.id) || t.ticket_ID === (updatedFields.ticket_ID || modal.ticket.ticket_ID)) ? { ...t, ...updatedFields } : t

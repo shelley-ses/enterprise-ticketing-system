@@ -280,40 +280,52 @@ export default function CustomerTicketDetailModal({
   const remarksList = useMemo(() => {
     if (!effectiveTicket) return [];
     const list = [];
+    const seenRemarks = new Set();
+    const normalizeKey = (author, text) => `${(author || '').trim().toLowerCase()}::${(text || '').trim().replace(/^["']|["']$/g, '').toLowerCase()}`;
+
+    const addRemark = (id, author, remark, timestamp) => {
+      if (!remark || typeof remark !== 'string' || !remark.trim()) return;
+      const key = normalizeKey(author, remark);
+      if (seenRemarks.has(key)) return;
+      seenRemarks.add(key);
+      list.push({
+        id,
+        author: author || 'Staff Member',
+        remark: remark.trim(),
+        timestamp,
+      });
+    };
+
     if (Array.isArray(effectiveTicket.remarks)) {
       effectiveTicket.remarks.forEach((rem, idx) => {
-        list.push({
-          id: rem.id || `rem-${idx}`,
-          author: rem.author || 'Staff Member',
-          remark: rem.remark || rem.text,
-          timestamp: rem.timestamp || rem.created_at,
-        });
+        addRemark(
+          rem.id || `rem-${idx}`,
+          rem.author || rem.user_name || rem.created_by_name,
+          rem.remark || rem.text,
+          rem.timestamp || rem.created_at
+        );
       });
     }
     if (Array.isArray(effectiveTicket.remarks_history)) {
       effectiveTicket.remarks_history.forEach((rem, idx) => {
-        if (!list.some(r => r.remark === (rem.remark || rem.text))) {
-          list.push({
-            id: rem.id || `rem-hist-${idx}`,
-            author: rem.author || 'Staff Member',
-            remark: rem.remark || rem.text,
-            timestamp: rem.timestamp || rem.created_at,
-          });
-        }
+        addRemark(
+          rem.id || `rem-hist-${idx}`,
+          rem.author || rem.user_name || rem.created_by_name,
+          rem.remark || rem.text,
+          rem.timestamp || rem.created_at
+        );
       });
     }
     if (Array.isArray(effectiveTicket.timeline)) {
       effectiveTicket.timeline.forEach((evt, idx) => {
         if (evt.type === 'remark' && evt.text) {
           const cleanText = evt.text.replace(/^Remark added by [^:]+:\s*"?/, '').replace(/"?$/, '');
-          if (!list.some(r => r.remark === cleanText || r.remark === evt.text)) {
-            list.push({
-              id: evt.id || `timeline-rem-${idx}`,
-              author: evt.author || 'Staff Member',
-              remark: cleanText || evt.text,
-              timestamp: evt.timestamp,
-            });
-          }
+          addRemark(
+            evt.id || `timeline-rem-${idx}`,
+            evt.author,
+            cleanText || evt.text,
+            evt.timestamp
+          );
         }
       });
     }
@@ -348,7 +360,7 @@ export default function CustomerTicketDetailModal({
   if (!effectiveTicket) return null;
 
   // Window Calculation Logic
-  const isClosedTicket = effectiveTicket.status === 'Closed';
+  const isClosedTicket = effectiveTicket.status === 'Closed' || effectiveTicket.status === 'Resolved';
   const closedDate = effectiveTicket.closed_at || effectiveTicket.resolved_at;
   const resolvedAt = closedDate ? new Date(closedDate) : null;
   const reopenWindowDays = Number(windowConfig.reopenWindowDays) || 2;
@@ -433,8 +445,8 @@ export default function CustomerTicketDetailModal({
                   </Badge>
                 )
               ) : (
-                <Badge variant={effectiveTicket.status === 'Open' ? 'sky' : effectiveTicket.status === 'In Progress' ? 'amber' : (effectiveTicket.status === 'Resolved' || effectiveTicket.status === 'Closed') ? 'emerald' : 'default'}>
-                  {effectiveTicket.status}
+                <Badge variant={effectiveTicket.status === 'Open' ? 'sky' : effectiveTicket.status === 'In Progress' ? 'amber' : (effectiveTicket.status === 'Resolved' || effectiveTicket.status === 'Closed') ? 'emerald' : effectiveTicket.status === 'On Hold' ? 'amber' : 'default'}>
+                  {(effectiveTicket.status === 'Pending Assignment' || (effectiveTicket.status === 'Open' && !effectiveTicket.accepted && (effectiveTicket.assigned_employee || effectiveTicket.assigned_to))) ? 'Assigned' : effectiveTicket.status}
                 </Badge>
               )}
               <Badge variant={effectiveTicket.priority === 'Critical' ? 'destructive' : effectiveTicket.priority === 'High' ? 'amber' : 'outline'}>
