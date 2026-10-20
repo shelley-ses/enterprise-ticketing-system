@@ -39,8 +39,8 @@ export default function TicketCreation() {
   const location = useLocation();
   const { user } = useAuth();
   const toast = useToast();
-  const effectiveUser = user || JSON.parse(localStorage.getItem('user') || 'null');
-  const customerId = effectiveUser?.id || 1;
+  const effectiveUser = user || JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || 'null');
+  const customerId = effectiveUser?.client_ID || effectiveUser?.client_id || effectiveUser?.id || null;
 
   const [draftId, setDraftId] = useState(location.state?.draftId || null);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -196,6 +196,7 @@ export default function TicketCreation() {
     setError('');
     try {
       const payload = {
+        client_id: customerId,
         title: (formData.title || '').trim(),
         machine_ID: formData.machine_ID ? Number(formData.machine_ID) : null,
         problem_category_ID: formData.problem_category_ID ? Number(formData.problem_category_ID) : null,

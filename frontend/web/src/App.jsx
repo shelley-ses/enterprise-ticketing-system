@@ -330,7 +330,7 @@ function App() {
               >
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
-                <Route path="employees" element={<AdminEmployees />} />
+                <Route path="employees" element={<Navigate to="dashboard" replace />} />
                 <Route path="reports" element={<AdminReports />} />
                 <Route path="settings" element={<AdminSettings />} />
                 <Route path="profile" element={<Profile />} />

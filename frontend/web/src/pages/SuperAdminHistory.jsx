@@ -57,13 +57,13 @@ export default function SuperAdminHistory() {
       />
 
       <div className="relative w-full">
-        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-muted pointer-events-none" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-muted pointer-events-none" />
         <Input
           type="text"
           placeholder="Search history..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 h-10"
+          className="pl-9 h-9 text-xs"
         />
       </div>
 
@@ -77,28 +77,29 @@ export default function SuperAdminHistory() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="whitespace-nowrap">Timestamp</TableHead>
-                  <TableHead className="whitespace-nowrap">User</TableHead>
-                  <TableHead className="whitespace-nowrap">Action</TableHead>
-                  <TableHead className="whitespace-nowrap">Module</TableHead>
-                  <TableHead className="whitespace-nowrap">Target</TableHead>
-                  <TableHead className="whitespace-nowrap">Details</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">Timestamp</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">User</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">Action</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">Module</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">Target</TableHead>
+                  <TableHead className="whitespace-nowrap text-[11px] font-bold text-muted-slate uppercase tracking-wider py-2.5 px-3">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-slate-muted">
+                    <TableCell colSpan={6} className="text-center py-8 text-xs text-slate-muted">
                       No history records found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filtered.map((log) => (
                     <TableRow key={log.id}>
-                      <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono">{log.timestamp}</TableCell>
-                      <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.user}</TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono py-2.5 px-3">{log.timestamp}</TableCell>
+                      <TableCell className="font-semibold text-slate-dark whitespace-nowrap text-xs py-2.5 px-3">{log.user}</TableCell>
+                      <TableCell className="whitespace-nowrap py-2.5 px-3">
                         <Badge
+                          size="sm"
                           variant={
                             log.action === 'Created'
                               ? 'success'
@@ -110,9 +111,9 @@ export default function SuperAdminHistory() {
                           {log.action}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-slate-muted whitespace-nowrap">{log.module}</TableCell>
-                      <TableCell className="font-medium text-slate-dark whitespace-nowrap">{log.target}</TableCell>
-                      <TableCell className="text-slate-muted">{log.details}</TableCell>
+                      <TableCell className="text-slate-muted whitespace-nowrap text-xs py-2.5 px-3">{log.module}</TableCell>
+                      <TableCell className="font-semibold text-slate-dark whitespace-nowrap text-xs py-2.5 px-3">{log.target}</TableCell>
+                      <TableCell className="text-slate-muted text-xs py-2.5 px-3">{log.details}</TableCell>
                     </TableRow>
                   ))
                 )}

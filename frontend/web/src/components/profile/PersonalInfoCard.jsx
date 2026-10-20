@@ -65,7 +65,7 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
     const trimmed = (val || '').trim();
     if (field === 'email') {
       if (!trimmed) {
-        err = 'Email address is required.';
+        err = 'Email address is required and cannot be empty.';
       } else {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(trimmed)) {
@@ -73,12 +73,20 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
         }
       }
     } else if (field === 'phone') {
-      if (trimmed) {
+      if (!trimmed) {
+        err = 'Phone number is required.';
+      } else {
         const phoneDigits = trimmed.replace(/[^0-9]/g, '');
         const phoneRegex = /^[0-9+\-\s()]{7,20}$/;
         if (!phoneRegex.test(trimmed) || phoneDigits.length < 7 || phoneDigits.length > 20) {
           err = 'Phone number must be between 7 and 20 digits.';
         }
+      }
+    } else if (field === 'address') {
+      if (!trimmed) {
+        err = 'Mailing / contact address is required.';
+      } else if (trimmed.length < 3) {
+        err = 'Please provide a valid, complete address.';
       }
     }
     setValidationErrors((prev) => ({ ...prev, [field]: err }));
@@ -103,10 +111,11 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
     const errors = {};
     const emailTrimmed = (form.email || '').trim();
     const phoneTrimmed = (form.phone || '').trim();
+    const addressTrimmed = (form.address || '').trim();
 
     // Required email validation
     if (!emailTrimmed) {
-      errors.email = 'Email address is required.';
+      errors.email = 'Email address is required and cannot be empty.';
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailTrimmed)) {
@@ -114,13 +123,22 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
       }
     }
 
-    // Phone validation if entered
-    if (phoneTrimmed) {
+    // Required phone validation
+    if (!phoneTrimmed) {
+      errors.phone = 'Phone number is required.';
+    } else {
       const phoneDigits = phoneTrimmed.replace(/[^0-9]/g, '');
       const phoneRegex = /^[0-9+\-\s()]{7,20}$/;
       if (!phoneRegex.test(phoneTrimmed) || phoneDigits.length < 7 || phoneDigits.length > 20) {
         errors.phone = 'Phone number must be between 7 and 20 digits.';
       }
+    }
+
+    // Required address validation
+    if (!addressTrimmed) {
+      errors.address = 'Mailing / contact address is required.';
+    } else if (addressTrimmed.length < 3) {
+      errors.address = 'Please provide a valid, complete address.';
     }
 
     setValidationErrors(errors);
@@ -493,7 +511,7 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-dark-slate uppercase tracking-wide flex items-center gap-1.5">
                 <Phone size={12} className="text-muted-slate" />
-                Phone Number
+                Phone Number <span className="text-red-500">*</span>
               </label>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
                 isEditMode ? 'bg-blue-50 text-accent border-accent/20' : 'bg-slate-50 text-muted-slate border-border'
@@ -535,7 +553,7 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-dark-slate uppercase tracking-wide flex items-center gap-1.5">
                 <MapPin size={12} className="text-muted-slate" />
-                Mailing / Contact Address
+                Mailing / Contact Address <span className="text-red-500">*</span>
               </label>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
                 isEditMode ? 'bg-blue-50 text-accent border-accent/20' : 'bg-slate-50 text-muted-slate border-border'
@@ -545,14 +563,26 @@ export default function PersonalInfoCard({ profile, onProfileUpdated }) {
             </div>
 
             {isEditMode ? (
-              <input
-                type="text"
-                value={form.address}
-                onChange={handleChange('address')}
-                placeholder="Street address, City, Province/State, Postal code"
-                disabled={saving}
-                className="w-full h-10 rounded-xl border border-border bg-card px-3 text-sm text-dark-slate placeholder:text-muted-slate/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/10 transition"
-              />
+              <>
+                <input
+                  type="text"
+                  value={form.address}
+                  onChange={handleChange('address')}
+                  onBlur={handleBlur('address')}
+                  placeholder="Street address, City, Province/State, Postal code"
+                  disabled={saving}
+                  className={`w-full h-10 rounded-xl border px-3 text-sm text-dark-slate placeholder:text-muted-slate/50 focus:outline-none transition ${
+                    validationErrors.address
+                      ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100 bg-red-50/20'
+                      : 'border-border bg-card focus:border-accent focus:ring-2 focus:ring-accent/10'
+                  }`}
+                />
+                {validationErrors.address && (
+                  <p className="text-[11px] text-red-600 font-medium flex items-center gap-1 mt-1 animate-fade-in">
+                    <AlertCircle size={12} /> {validationErrors.address}
+                  </p>
+                )}
+              </>
             ) : (
               <div className="w-full min-h-10 rounded-xl border border-border bg-card px-3 py-2 flex items-center text-sm text-dark-slate font-medium">
                 {savedValues.address || <span className="text-muted-slate italic">No mailing address provided</span>}

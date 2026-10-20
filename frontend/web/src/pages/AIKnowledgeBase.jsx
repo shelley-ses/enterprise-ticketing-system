@@ -3,7 +3,7 @@ import {
   Book, Search, Filter, ChevronDown, X, Upload, FileText, Download,
   Trash2, Edit3, Eye, RefreshCw, Plus, FolderOpen, CheckCircle,
   AlertTriangle, Loader, File, FileSpreadsheet, Archive, ArrowUpDown,
-  Info, History, Globe,
+  Info, History, Globe, MoreVertical,
 } from 'lucide-react';
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
@@ -12,6 +12,12 @@ import tokenStore from '@/auth/tokenStore';
 import echo from '@/services/echo';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 
 const aiKbClient = axios.create({
   baseURL: AI_API_URL,
@@ -236,20 +242,25 @@ function StatCard({ icon: Icon, label, value, sub, bgClass }) {
   );
 }
 
-function EmptyState({ onUpload }) {
+function EmptyState({ onUpload, title, description }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-        <FolderOpen size={36} className="text-slate-300" />
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+        <FolderOpen size={30} className="text-slate-300" />
       </div>
-      <h3 className="text-lg font-bold text-slate-dark mb-1">No knowledge documents have been uploaded yet.</h3>
-      <p className="text-sm text-slate-muted mb-6">Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base.</p>
+      <h3 className="text-sm font-bold text-dark-slate mb-1">
+        {title || "No knowledge documents have been uploaded yet."}
+      </h3>
+      <p className="text-xs text-muted-slate mb-5 max-w-sm">
+        {description || "Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base."}
+      </p>
       <Button
         onClick={onUpload}
-        className="gap-2"
+        size="sm"
+        className="gap-2 text-xs"
       >
-        <Upload size={16} />
-        Upload First Document
+        <Upload size={14} />
+        Upload Document
       </Button>
     </div>
   );
@@ -2077,6 +2088,7 @@ function AIKnowledgeBase() {
     } catch { }
     return MOCK_DOCUMENTS;
   });
+  const [activeTab, setActiveTab] = useState('draft'); // 'draft' | 'published'
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
@@ -2187,8 +2199,21 @@ function AIKnowledgeBase() {
     }
   }, [fetchDocuments]);
 
+  const draftCount = useMemo(() => documents.filter(d => (d.publishState || d.status) !== 'Published' && d.status !== 'Ready').length, [documents]);
+  const publishedCount = useMemo(() => documents.filter(d => (d.publishState || d.status) === 'Published' || d.status === 'Ready').length, [documents]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setFilterStatus('');
+  };
+
   const filteredDocs = useMemo(() => {
     let docs = [...documents];
+    if (activeTab === 'published') {
+      docs = docs.filter(d => (d.publishState || d.status) === 'Published' || d.status === 'Ready');
+    } else {
+      docs = docs.filter(d => (d.publishState || d.status) !== 'Published' && d.status !== 'Ready');
+    }
     if (search) { const q = search.toLowerCase(); docs = docs.filter(d => d.title.toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q) || (d.tags || []).some(t => t.includes(q))); }
     if (filterCategory) docs = docs.filter(d => d.category === filterCategory);
     if (filterStatus) {
@@ -2202,7 +2227,7 @@ function AIKnowledgeBase() {
     if (filterFileType) docs = docs.filter(d => d.fileType === filterFileType);
     docs.sort((a, b) => sortOrder === 'newest' ? new Date(b.uploadDate) - new Date(a.uploadDate) : new Date(a.uploadDate) - new Date(b.uploadDate));
     return docs;
-  }, [documents, search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
+  }, [documents, activeTab, search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
 
   const summary = useMemo(() => ({
     total: documents.length,
@@ -2660,57 +2685,136 @@ function AIKnowledgeBase() {
 
       <div className="flex flex-col xl:flex-row gap-5 items-start">
         <div className="flex-1 min-w-0 w-full">
-          {loading ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex items-center justify-center py-20">
-              <Loader size={24} className="animate-spin text-[#252578]" />
-              <span className="ml-3 text-sm text-gray-500">Loading documents...</span>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Tabs: Draft & Published */}
+            <div className="flex border-b border-gray-200 px-4 pt-3 gap-2 bg-white">
+              <button
+                type="button"
+                onClick={() => handleTabChange('draft')}
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'draft'
+                    ? 'border-[#252578] text-[#252578]'
+                    : 'border-transparent text-muted-slate hover:text-dark-slate'
+                }`}
+              >
+                Draft
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-muted-slate'
+                }`}>
+                  {draftCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTabChange('published')}
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'published'
+                    ? 'border-[#252578] text-[#252578]'
+                    : 'border-transparent text-muted-slate hover:text-dark-slate'
+                }`}
+              >
+                Published
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'published' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-slate-100 text-muted-slate'
+                }`}>
+                  {publishedCount}
+                </span>
+              </button>
             </div>
-          ) : filteredDocs.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-              <EmptyState onUpload={() => setShowUploadModal(true)} />
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100 space-y-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents..." className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]" />
-                  </div>
-                  <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Categories</option>
-                    {MOCK_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                  <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Statuses</option>
-                    {MOCK_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                  <select value={filterFileType} onChange={e => setFilterFileType(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Types</option>
-                    {allFileTypes.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                  <button onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-all cursor-pointer">
-                    <ArrowUpDown size={14} />
-                    {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
-                  </button>
-                </div>
-              </div>
 
+            {/* Filters Toolbar */}
+            <div className="p-4 border-b border-gray-100 space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search documents..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                  />
+                </div>
+                <select
+                  value={filterCategory}
+                  onChange={e => setFilterCategory(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Categories</option>
+                  {MOCK_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Statuses</option>
+                  {activeTab === 'draft' ? (
+                    <>
+                      <option value="Draft">Draft</option>
+                      <option value="Processing">Processing</option>
+                      <option value="Archived">Archived</option>
+                    </>
+                  ) : (
+                    <option value="Published">Published</option>
+                  )}
+                </select>
+                <select
+                  value={filterFileType}
+                  onChange={e => setFilterFileType(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Types</option>
+                  {allFileTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-all cursor-pointer"
+                >
+                  <ArrowUpDown size={13} />
+                  {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
+                </button>
+              </div>
+            </div>
+
+            {/* Table Area */}
+            {loading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader size={20} className="animate-spin text-[#252578]" />
+                <span className="ml-2.5 text-xs text-muted-slate">Loading documents...</span>
+              </div>
+            ) : filteredDocs.length === 0 ? (
+              <EmptyState
+                onUpload={() => setShowUploadModal(true)}
+                title={activeTab === 'draft' ? "No draft documents found" : "No published documents found"}
+                description={
+                  activeTab === 'draft'
+                    ? "There are currently no draft documents matching your filters."
+                    : "There are currently no published documents live for the AI chatbot."
+                }
+              />
+            ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider w-8">
-                        <input type="checkbox" onChange={e => setSelectedDocs(e.target.checked ? documents.map(d => d.id) : [])} checked={selectedDocs.length === documents.length && documents.length > 0} className="rounded border-gray-300" />
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider w-8">
+                        <input
+                          type="checkbox"
+                          onChange={e => setSelectedDocs(e.target.checked ? documents.map(d => d.id) : [])}
+                          checked={selectedDocs.length === documents.length && documents.length > 0}
+                          className="rounded border-gray-300"
+                        />
                       </th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider min-w-[160px]">Document Title</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Category</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Machine Model</th>
-                      <th className="text-center px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Version</th>
-                      <th className="text-center px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">File Type</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Upload Date</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Status</th>
-                      <th className="text-right px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider min-w-[160px]">Document Title</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Category</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Machine Model</th>
+                      <th className="text-center px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Version</th>
+                      <th className="text-center px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">File Type</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Upload Date</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Status</th>
+                      <th className="text-right px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2723,34 +2827,44 @@ function AIKnowledgeBase() {
 
                       return (
                         <tr key={doc.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-all">
-                          <td className="px-3 py-3 w-8"><input type="checkbox" checked={selectedDocs.includes(doc.id)} onChange={() => toggleSelectDoc(doc.id)} className="rounded border-gray-300" /></td>
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-2.5 w-8">
+                            <input
+                              type="checkbox"
+                              checked={selectedDocs.includes(doc.id)}
+                              onChange={() => toggleSelectDoc(doc.id)}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                          <td className="px-3 py-2.5">
                             <div className="flex items-center gap-2.5">
-                              <FileIcon size={16} className="text-gray-400 flex-shrink-0" />
-                              <span className="text-sm font-medium text-gray-800 truncate max-w-[200px] xl:max-w-none" title={doc.title}>{doc.title}</span>
+                              <FileIcon size={15} className="text-muted-slate flex-shrink-0" />
+                              <span className="text-xs font-semibold text-dark-slate truncate max-w-[200px] xl:max-w-none" title={doc.title}>
+                                {doc.title}
+                              </span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{doc.category}</td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{doc.machine}</td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap text-center">{doc.version || '—'}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-center"><span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{doc.fileType}</span></td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap font-medium">{doc.uploadDate}</td>
-                          <td className="px-3 py-3 whitespace-nowrap">
-                            {/* TS080: Distinct badges for Publish State & Processing Status */}
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap">{doc.category}</td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap">{doc.machine}</td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap text-center">{doc.version || '—'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-center">
+                            <span className="text-[10px] font-semibold text-muted-slate bg-gray-100 px-1.5 py-0.5 rounded">
+                              {doc.fileType}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap font-medium">{doc.uploadDate}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              {/* Publish State Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${publishStateColors[doc.publishState || 'Draft']}`}>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${publishStateColors[doc.publishState || 'Draft']}`}>
                                 {PublishIcon && <PublishIcon size={10} />}
                                 {doc.publishState || 'Draft'}
                               </span>
-
-                              {/* Processing Status Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isMidProcess
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                isMidProcess
                                   ? 'bg-blue-50 text-blue-700 border-blue-200'
                                   : doc.processingStatus === 'Failed'
                                     ? 'bg-red-50 text-red-700 border-red-200'
                                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                }`}>
+                              }`}>
                                 {isMidProcess ? (
                                   <Loader size={10} className="animate-spin" />
                                 ) : doc.processingStatus === 'Failed' ? (
@@ -2762,50 +2876,57 @@ function AIKnowledgeBase() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {/* TS080: Conditional Publish / Archive Action Button */}
-                              {isPublished ? (
+                          <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
                                 <button
-                                  onClick={() => handleArchivePrompt(doc)}
-                                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-all cursor-pointer"
-                                  title="Archive Article (remove from chatbot)"
+                                  type="button"
+                                  className="p-1 rounded-lg hover:bg-gray-100 text-muted-slate hover:text-dark-slate transition-all cursor-pointer"
+                                  title="Actions"
+                                  aria-label="Actions"
                                 >
-                                  <Archive size={15} />
+                                  <MoreVertical size={16} />
                                 </button>
-                              ) : (
-                                <button
-                                  onClick={() => handlePublish(doc)}
-                                  disabled={!canPublish}
-                                  className={`p-1.5 rounded-lg transition-all ${canPublish
-                                      ? 'hover:bg-gray-100 text-gray-400 hover:text-green-600 cursor-pointer'
-                                      : 'text-gray-300 cursor-not-allowed opacity-40'
-                                    }`}
-                                  title={
-                                    canPublish
-                                      ? "Publish Article (make active for chatbot)"
-                                      : "This article's content hasn't been successfully processed yet. Fix or replace the file before publishing."
-                                  }
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-36 bg-white">
+                                <DropdownMenuItem onClick={() => handleEdit(doc)} className="cursor-pointer text-xs">
+                                  <Edit3 size={13} className="mr-2 text-muted-slate" />
+                                  <span>Edit</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleView(doc)} className="cursor-pointer text-xs">
+                                  <Eye size={13} className="mr-2 text-muted-slate" />
+                                  <span>View</span>
+                                </DropdownMenuItem>
+                                {isPublished ? (
+                                  <DropdownMenuItem onClick={() => handleArchivePrompt(doc)} className="cursor-pointer text-xs text-amber-700">
+                                    <Archive size={13} className="mr-2 text-amber-600" />
+                                    <span>Unpublish</span>
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    onClick={() => handlePublish(doc)}
+                                    disabled={!canPublish}
+                                    className={`cursor-pointer text-xs ${canPublish ? 'text-emerald-700' : 'opacity-40'}`}
+                                  >
+                                    <Globe size={13} className="mr-2 text-emerald-600" />
+                                    <span>Publish</span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => handleReplace(doc)} className="cursor-pointer text-xs">
+                                  <RefreshCw size={13} className="mr-2 text-muted-slate" />
+                                  <span>Replace</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  destructive
+                                  onClick={() => handleDelete(doc)}
+                                  disabled={isMidProcess}
+                                  className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
                                 >
-                                  <Globe size={15} />
-                                </button>
-                              )}
-
-                              <button onClick={() => handleView(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#252578] transition-all cursor-pointer" title="View"><Eye size={15} /></button>
-                              <button onClick={() => handleEdit(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#252578] transition-all cursor-pointer" title="Edit Metadata"><Edit3 size={15} /></button>
-                              <button onClick={() => handleReplace(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-all cursor-pointer" title="Replace File"><RefreshCw size={15} /></button>
-                              <button
-                                onClick={() => handleDelete(doc)}
-                                disabled={isMidProcess}
-                                className={`p-1.5 rounded-lg transition-all ${isMidProcess
-                                    ? 'text-gray-300 cursor-not-allowed opacity-40'
-                                    : 'hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer'
-                                  }`}
-                                title={isMidProcess ? "Cannot delete while this document is processing." : "Delete"}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            </div>
+                                  <Trash2 size={13} className="mr-2 text-red-500" />
+                                  <span>Delete</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </td>
                         </tr>
                       );
@@ -2813,13 +2934,13 @@ function AIKnowledgeBase() {
                   </tbody>
                 </table>
               </div>
+            )}
 
-              <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                <span>{filteredDocs.length} of {documents.length} documents</span>
-                {selectedDocs.length > 0 && <span>{selectedDocs.length} selected</span>}
-              </div>
+            <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-muted-slate">
+              <span>{filteredDocs.length} of {documents.length} documents</span>
+              {selectedDocs.length > 0 && <span>{selectedDocs.length} selected</span>}
             </div>
-          )}
+          </div>
         </div>
 
         <AISidePanel summary={summary} />

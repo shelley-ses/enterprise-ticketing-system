@@ -58,7 +58,7 @@ class TicketConfigurationService
             'description' => 'Ticket being triaged or actively handled directly by Customer Service.',
         ],
         'Assigned' => [
-            'allowed' => ['Reassigned', 'In Progress (Employee-owned)'],
+            'allowed' => ['Reassigned', 'In Progress (Employee-owned)', 'On Hold/Pending'],
             'type' => 'editable',
             'description' => 'Ticket dispatched to an engineer/technician and awaiting their acceptance.',
         ],
@@ -73,7 +73,7 @@ class TicketConfigurationService
             'description' => 'Service engineer has accepted the assignment and is actively working on the machine.',
         ],
         'Resolved' => [
-            'allowed' => ['Closed', 'In Progress (Employee-owned)'],
+            'allowed' => ['Closed', 'In Progress (Employee-owned)', 'Reopened'],
             'type' => 'editable',
             'description' => 'Work is marked complete with proof of completion pending evaluation.',
         ],

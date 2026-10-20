@@ -89,6 +89,20 @@ class TicketController extends Controller
             $request->merge(['attachments' => $mergedAtts]);
         }
 
+        if ($request->has('attachments')) {
+            $rawAttachments = $request->input('attachments');
+            if (is_string($rawAttachments)) {
+                $decoded = json_decode($rawAttachments, true);
+                $rawAttachments = is_array($decoded) ? $decoded : (strlen(trim($rawAttachments)) ? [$rawAttachments] : []);
+            } elseif (is_numeric($rawAttachments)) {
+                $rawAttachments = [(int) $rawAttachments];
+            } elseif (!is_array($rawAttachments)) {
+                $rawAttachments = [];
+            }
+            $request->merge(['attachments' => array_values(array_filter(array_map('intval', (array) $rawAttachments)))]);
+        } else {
+            $request->merge(['attachments' => []]);
+        }
         $validated = $request->validate([
             'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
@@ -159,6 +173,21 @@ class TicketController extends Controller
             return response()->json([
                 'message' => 'Ticket creation is temporarily disabled. The system is currently undergoing scheduled maintenance. Please try again later.'
             ], 503);
+        }
+
+        if ($request->has('attachments')) {
+            $rawAttachments = $request->input('attachments');
+            if (is_string($rawAttachments)) {
+                $decoded = json_decode($rawAttachments, true);
+                $rawAttachments = is_array($decoded) ? $decoded : (strlen(trim($rawAttachments)) ? [$rawAttachments] : []);
+            } elseif (is_numeric($rawAttachments)) {
+                $rawAttachments = [(int) $rawAttachments];
+            } elseif (!is_array($rawAttachments)) {
+                $rawAttachments = [];
+            }
+            $request->merge(['attachments' => array_values(array_filter(array_map('intval', (array) $rawAttachments)))]);
+        } else {
+            $request->merge(['attachments' => []]);
         }
 
         $validated = $request->validate([

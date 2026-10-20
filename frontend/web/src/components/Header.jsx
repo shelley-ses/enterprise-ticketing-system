@@ -253,8 +253,8 @@ export default function Header({ sidebarHovered }) {
         </div>
       )}
       <header className={`fixed ${systemStatus === 'Under Maintenance' ? 'top-6' : 'top-0'} left-0 w-full bg-white/90 backdrop-blur-md border-b border-slate-200 z-30 px-6 py-3.5 flex items-center justify-between shadow-sm transition-all font-sans`}>
-        {/* Left Section (DESIGN.md Section VI.2) */}
-        <div className="flex items-center gap-4 sm:ml-20 ml-12">
+        {/* Left Section */}
+        <div className="flex items-center sm:ml-20 ml-12">
           <button
             type="button"
             className="p-1.5 rounded-lg text-dark-slate hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -265,10 +265,6 @@ export default function Header({ sidebarHovered }) {
           >
             <PanelLeft size={20} className="text-dark-slate" />
           </button>
-          <div className="h-6 w-px bg-slate-200" aria-hidden="true" />
-          <h1 className="text-lg md:text-xl font-bold text-dark-slate tracking-tight">
-            {getPageTitle()}
-          </h1>
         </div>
 
         {/* Right Section (DESIGN.md Section VI.2) */}

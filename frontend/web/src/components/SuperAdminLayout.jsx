@@ -13,7 +13,7 @@ export default function SuperAdminLayout() {
       <SidebarSuperAdmin collapsed={true} onHoverChange={setSidebarHovered} />
 
       <main className="pt-24 pb-8 px-6 lg:px-12 flex-1 sm:ml-20 ml-0">
-        <div className="w-full">
+        <div className="max-w-7xl mx-auto w-full">
           <Outlet />
         </div>
       </main>

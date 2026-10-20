@@ -56,6 +56,17 @@ const getStoredUser = () => {
 
 const formatDate = (value) => formatDisplayDate(value);
 
+const getTicketAssignedEmployee = (ticket) => {
+  if (!ticket) return 'Unassigned';
+  const candidate =
+    ticket.assigned_employee ||
+    ticket.assigned_employee_name ||
+    ticket.assigned_to_name ||
+    (Array.isArray(ticket.assigned_employees) && ticket.assigned_employees[0]?.name ? ticket.assigned_employees[0].name : null) ||
+    (typeof ticket.assigned_to === 'string' && ticket.assigned_to.trim() && ticket.assigned_to.trim().toLowerCase() !== 'unassigned' ? ticket.assigned_to.trim() : null);
+  return candidate || 'Unassigned';
+};
+
 const statusClass = (s) => statusColors[s] ?? (s?.includes('Discarded') ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700');
 
 export default function MyTickets({ mode = 'all' }) {
@@ -100,6 +111,8 @@ export default function MyTickets({ mode = 'all' }) {
     status: '',
     category: '',
     machine: '',
+    priority: '',
+    employee: '',
     date: '',
   });
 
@@ -265,6 +278,8 @@ export default function MyTickets({ mode = 'all' }) {
     if (filters.machine) list.push({ key: 'machine', label: `Machine: ${filters.machine}` });
     if (filters.status) list.push({ key: 'status', label: `Status: ${filters.status}` });
     if (filters.category) list.push({ key: 'category', label: `Category: ${filters.category}` });
+    if (filters.priority) list.push({ key: 'priority', label: `Priority: ${filters.priority}` });
+    if (filters.employee) list.push({ key: 'employee', label: `Employee: ${filters.employee}` });
     if (filters.date) list.push({ key: 'date', label: `Date: ${filters.date}` });
     return list;
   }, [filters]);
@@ -326,6 +341,26 @@ export default function MyTickets({ mode = 'all' }) {
         }
       }
 
+      // Priority filter
+      if (filters.priority && (ticket.priority || 'Medium').trim().toLowerCase() !== filters.priority.trim().toLowerCase()) {
+        return false;
+      }
+
+      // Employee filter
+      if (filters.employee) {
+        const empFilter = filters.employee.trim().toLowerCase();
+        const empName = getTicketAssignedEmployee(ticket).toLowerCase();
+        if (empFilter === 'unassigned') {
+          if (empName !== 'unassigned' && empName !== '' && empName !== 'null') {
+            return false;
+          }
+        } else {
+          if (!empName.includes(empFilter)) {
+            return false;
+          }
+        }
+      }
+
       // Date filter
       if (filters.date) {
         const ticketDate = ticket.date_created ? new Date(String(ticket.date_created).replace(' ', 'T')) : null;
@@ -364,6 +399,8 @@ export default function MyTickets({ mode = 'all' }) {
       status: '',
       category: '',
       machine: '',
+      priority: '',
+      employee: '',
       date: '',
     });
   };
@@ -501,17 +538,29 @@ export default function MyTickets({ mode = 'all' }) {
       })();
       setSelectedTicket({
         ...t,
-        ...fullTicket,
         ...localDetails,
-        description: localDetails.description || fullTicket.description || t.description || '',
-        last_updated: localDetails.last_updated || fullTicket.updated_at || fullTicket.last_updated || t.last_updated,
-        updated_at: localDetails.last_updated || fullTicket.updated_at,
+        ...fullTicket,
+        status: fullTicket.status || t.status || localDetails.status,
+        description: fullTicket.description || localDetails.description || t.description || '',
+        last_updated: fullTicket.updated_at || fullTicket.last_updated || localDetails.last_updated || t.last_updated,
+        updated_at: fullTicket.updated_at || localDetails.last_updated,
         timeline: mergedTimeline || fullTicket.timeline || localDetails.timeline,
-        resolved_at: fullTicket.resolved_at || null,
+        resolved_at: fullTicket.resolved_at || t.resolved_at || localDetails.resolved_at || null,
+        closed_at: fullTicket.closed_at || t.closed_at || localDetails.closed_at || null,
         proofAttachments: fullTicket.proofAttachments || [],
         proofFiles: fullTicket.proofFiles || [],
         can_discard: (fullTicket.status || t.status) === 'Open' && !fullTicket.assigned_to,
       });
+
+      try {
+        const storedAll = JSON.parse(localStorage.getItem('customer_ticket_details') || '{}');
+        storedAll[t.id] = {
+          ...storedAll[t.id],
+          ...fullTicket,
+          status: fullTicket.status || t.status,
+        };
+        localStorage.setItem('customer_ticket_details', JSON.stringify(storedAll));
+      } catch { /* ignore */ }
     } catch (err) {
       console.error('Failed to load ticket details:', err);
       setSelectedTicket(t);
@@ -940,7 +989,7 @@ export default function MyTickets({ mode = 'all' }) {
         <>
           {/* ─── Search & Filter Bar ─── */}
           <div className="rounded-2xl border border-gray-150 bg-white p-4 shadow-sm space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
               {/* 1. Keywords Search */}
               <div className="relative">
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Keywords</label>
@@ -1057,7 +1106,68 @@ export default function MyTickets({ mode = 'all' }) {
                 </div>
               </div>
 
-              {/* 5. Date Picker */}
+              {/* 5. Priority Dropdown */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Priority</label>
+                <div className="relative">
+                  <select
+                    aria-label="Filter by priority"
+                    value={filters.priority}
+                    onChange={(e) => updateFilter('priority', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white appearance-none pr-7"
+                  >
+                    <option value="">All Priorities</option>
+                    {availablePriorities.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                  {filters.priority ? (
+                    <button
+                      type="button"
+                      aria-label="Clear priority filter"
+                      onClick={() => clearFilter('priority')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]">▼</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 6. Employee Dropdown */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Employee</label>
+                <div className="relative">
+                  <select
+                    aria-label="Filter by employee"
+                    value={filters.employee}
+                    onChange={(e) => updateFilter('employee', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium outline-none focus:ring-2 focus:ring-[#252578] focus:border-transparent transition bg-white appearance-none pr-7"
+                  >
+                    <option value="">All Employees</option>
+                    <option value="Unassigned">Unassigned</option>
+                    {availableEmployees.map((emp) => (
+                      <option key={emp} value={emp}>{emp}</option>
+                    ))}
+                  </select>
+                  {filters.employee ? (
+                    <button
+                      type="button"
+                      aria-label="Clear employee filter"
+                      onClick={() => clearFilter('employee')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : (
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]">▼</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 7. Date Picker */}
               <div className="relative">
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Date</label>
                 <div className="relative">
@@ -1170,12 +1280,7 @@ export default function MyTickets({ mode = 'all' }) {
                   />
                 )}
                 {visibleTickets.map((ticket) => {
-                  const assignedEmpDisplay =
-                    ticket.assigned_employee ||
-                    ticket.assigned_employee_name ||
-                    ticket.assigned_to_name ||
-                    (typeof ticket.assigned_to === 'string' ? ticket.assigned_to : null) ||
-                    'Unassigned';
+                  const assignedEmpDisplay = getTicketAssignedEmployee(ticket);
 
                   return (
                     <TableRow

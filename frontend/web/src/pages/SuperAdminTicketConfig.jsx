@@ -4450,8 +4450,8 @@ export default function SuperAdminTicketConfig() {
         subtitle="Configure ticket classification, lifecycle state machines, service level agreements, and system policies."
       />
 
-      {/* Level 1: 5 Group Pills (Centered) */}
-      <div className="flex gap-1.5 rounded-2xl bg-gray-100 p-1.5 w-fit flex-wrap shadow-xs">
+      {/* Level 1: 5 Group Pills (Centered & Fully Responsive) */}
+      <div className="flex gap-1.5 rounded-xl bg-slate-100 p-1.5 w-full sm:w-fit flex-wrap shadow-2xs">
         {GROUPS_CONFIG.map((group) => {
           const isActive = activeGroup === group.id;
           return (
@@ -4459,9 +4459,9 @@ export default function SuperAdminTicketConfig() {
               key={group.id}
               type="button"
               onClick={() => handleSelectGroup(group.id)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${isActive
-                  ? 'bg-white text-[#252578] shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${isActive
+                  ? 'bg-white text-[#252578] shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               {group.label}
@@ -4551,23 +4551,27 @@ export default function SuperAdminTicketConfig() {
         ) : tab === TAB_WORKFLOW ? (
           <div className="flex flex-col gap-6">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Workflow Status Sequence</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Define progression stages and prerequisite guardrails tickets move through from submission to closure.</p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900">Workflow Status Sequence</h2>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Define progression stages and prerequisite guardrails tickets move through from submission to closure.</p>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 type="button"
                 onClick={handleResetDefaultWorkflow}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
-              <button onClick={handleAddWorkflow} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer">
-                <Plus size={18} />
-                Add Status
+              <button
+                type="button"
+                onClick={handleAddWorkflow}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer"
+              >
+                <Plus size={16} />
+                <span>Add Status</span>
               </button>
             </div>
           </div>
@@ -4723,38 +4727,40 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_TRANSITIONS ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Ticket Status Transition Matrix & Lifecycle Rules</h2>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Ticket Status Transition Matrix & Lifecycle Rules</h2>
                 {hasTransitionChanges ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                    <AlertCircle size={13} className="shrink-0" />
-                    <span>Unsaved Changes — Click "Save Changes" to apply</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>Unsaved Changes</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                    <CheckCircle2 size={13} className="shrink-0" />
-                    <span>Active Rules Enforced — Saved to Central Engine</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 size={12} className="shrink-0" />
+                    <span>Active Rules Enforced</span>
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure valid next-status transitions, sequence flows, and prerequisite guardrails connected to your active workflow.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetTransitions}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveTransitions}
                 disabled={savingTransitions || !hasTransitionChanges}
-                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
                   savingTransitions || !hasTransitionChanges
                     ? 'bg-[#252578]/60 cursor-not-allowed'
                     : 'bg-[#252578] hover:bg-[#1e1e62]'
@@ -4762,13 +4768,13 @@ export default function SuperAdminTicketConfig() {
               >
                 {savingTransitions ? (
                   <>
-                    <RefreshCw size={14} className="animate-spin" />
-                    Saving...
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Saving...</span>
                   </>
                 ) : (
                   <>
-                    <Save size={14} />
-                    Save Changes
+                    <Save size={13} />
+                    <span>Save Changes</span>
                   </>
                 )}
               </button>
@@ -5284,35 +5290,37 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_FILES ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0" />
-                  <span>Active & Enforced on New Uploads</span>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0" />
+                  <span>Active & Enforced</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure system-wide file upload constraints and malware scanning policies across ticket attachments, messages, and knowledge base articles.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetFileConfig}
                 disabled={fileConfigSaving}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveFileConfig}
                 disabled={fileConfigSaving}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer disabled:opacity-50"
               >
-                <Save size={14} />
-                {fileConfigSaving ? 'Saving...' : 'Save Settings'}
+                <Save size={13} />
+                <span>{fileConfigSaving ? 'Saving...' : 'Save Settings'}</span>
               </button>
             </div>
           </div>
@@ -5563,33 +5571,35 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_WINDOWS ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0" />
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0" />
                   <span>Active Operational Policy</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure time windows and operational policies for customer ticket reopening and automated closure of resolved tickets.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetWindowConfig}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveWindowConfig}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer"
               >
-                <Save size={14} />
-                Save Settings
+                <Save size={13} />
+                <span>Save Settings</span>
               </button>
             </div>
           </div>
@@ -5891,27 +5901,29 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_FEEDBACK ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Feedback Form Configuration</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
-                  <span>Database Connected & Real-time Broadcast</span>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Feedback Form Configuration</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure, scope, and order customer satisfaction survey questions across service categories.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleResetFeedback}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-            >
-              <RotateCcw size={14} />
-              Reset Questions to Defaults
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={handleResetFeedback}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={13} />
+                <span>Reset Questions to Defaults</span>
+              </button>
+            </div>
           </div>
 
           {/* TS101 Feedback Form Master Toggle Card */}
@@ -6053,10 +6065,10 @@ export default function SuperAdminTicketConfig() {
             <button
               type="button"
               onClick={handleAddFeedbackQuestion}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-md cursor-pointer shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md cursor-pointer shrink-0"
             >
-              <Plus size={16} />
-              Add Question
+              <Plus size={14} />
+              <span>Add Question</span>
             </button>
           </div>
 
@@ -9617,41 +9629,41 @@ export default function SuperAdminTicketConfig() {
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
-            <table className="w-full text-left">
-              <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold uppercase tracking-wider text-muted-slate">
                 <tr>
-                  <th className="px-5 py-4">ID</th>
-                  <th className="px-5 py-4">Name</th>
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Description</th>}
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Type</th>}
-                  <th className="px-5 py-4 text-center w-20"></th>
+                  <th className="px-3 py-2.5">ID</th>
+                  <th className="px-3 py-2.5">Name</th>
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-3 py-2.5">Description</th>}
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-3 py-2.5">Type</th>}
+                  <th className="px-3 py-2.5 text-center w-16"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={tab === TAB_TICKET_CATEGORIES ? 5 : 3} className="px-5 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={tab === TAB_TICKET_CATEGORIES ? 5 : 3} className="px-3 py-8 text-center text-xs text-muted-slate">
                       No {tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : tab === TAB_EQUIPMENT ? 'categories' : 'priorities'} found.
                     </td>
                   </tr>
                 )}
                 {filtered.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{item.id}</td>
-                    <td className="px-5 py-4 text-sm text-gray-800 font-medium">
+                  <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-3 py-2.5 text-xs font-semibold text-[#252578]">{item.id}</td>
+                    <td className="px-3 py-2.5 text-xs text-dark-slate font-medium">
                       {tab === TAB_PRIORITY && item.color ? (
-                        <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${item.color}`}>{item.name}</span>
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.color}`}>{item.name}</span>
                       ) : (
                         item.name
                       )}
                     </td>
                     {tab === TAB_TICKET_CATEGORIES && (
-                      <td className="px-5 py-4 text-xs text-gray-500 max-w-xs truncate">
+                      <td className="px-3 py-2.5 text-xs text-muted-slate max-w-xs truncate">
                         {item.description || '—'}
                       </td>
                     )}
                     {tab === TAB_TICKET_CATEGORIES && (
-                      <td className="px-5 py-4 text-xs">
+                      <td className="px-3 py-2.5 text-xs">
                         {item.is_system_default ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
                             Core Default
@@ -9663,7 +9675,7 @@ export default function SuperAdminTicketConfig() {
                         )}
                       </td>
                     )}
-                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => {
                           if (openMenuId === item.id) { setOpenMenuId(null); setMenuPos(null); return; }
@@ -9671,10 +9683,10 @@ export default function SuperAdminTicketConfig() {
                           setMenuPos({ x: rect.right - 132, y: rect.bottom + 4 });
                           setOpenMenuId(item.id);
                         }}
-                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                        className="rounded-full p-1.5 text-muted-slate hover:bg-gray-100 hover:text-dark-slate menu-trigger cursor-pointer"
                         aria-label="Actions"
                       >
-                        <MoreVertical size={18} />
+                        <MoreVertical size={16} />
                       </button>
                     </td>
                   </tr>
