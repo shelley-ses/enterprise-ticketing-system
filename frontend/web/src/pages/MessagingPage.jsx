@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw } from 'lucide-react';
+import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw, X } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
 import {
   getTicketMessages,
   sendTicketMessage,
@@ -72,9 +73,9 @@ const checkIsEmployee = (user) => {
 
 function Avatar({ name, size = 'md' }) {
   const sizeClasses = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm';
-  const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const initials = (name || 'User').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   return (
-    <div className={`${sizeClasses} rounded-full bg-[#252578] text-white flex items-center justify-center font-semibold flex-shrink-0`}>
+    <div className={`${sizeClasses} rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold shrink-0`}>
       {initials}
     </div>
   );
@@ -524,25 +525,31 @@ export default function MessagingPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-9rem)]">
-      <h1 className="text-2xl font-bold text-gray-800 mb-4 flex-shrink-0">Messages</h1>
+      <div className="mb-4 shrink-0">
+        <PageHeader
+          pattern="B"
+          title="Messages"
+          subtitle="Live customer support and staff collaboration threads"
+        />
+      </div>
 
-      <div className="flex flex-1 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden min-h-0">
+      <div className="flex flex-1 bg-card rounded-xl shadow-xs border border-border overflow-hidden min-h-0">
         {/* ── Left Panel ── */}
-        <div className="w-[360px] lg:w-[380px] border-r border-gray-100 flex flex-col flex-shrink-0">
+        <div className="w-[360px] lg:w-[380px] border-r border-border flex flex-col shrink-0">
           {/* Active / Archive Conversation Tabs */}
-          <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-1 p-2 bg-slate-50 border-b border-border shrink-0">
             <button
               onClick={() => setConversationTab('active')}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 conversationTab === 'active'
-                  ? 'bg-white text-[#252578] shadow-xs border border-gray-200/60'
-                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
+                  ? 'bg-card text-primary shadow-xs border border-border'
+                  : 'text-slate-muted hover:text-slate-dark hover:bg-slate-100'
               }`}
             >
               <MessageCircle size={14} />
               <span>Active</span>
               {activeContacts.length > 0 && (
-                <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[#252578]/10 text-[#252578] font-semibold">
+                <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-primary/10 text-primary font-semibold">
                   {activeContacts.length}
                 </span>
               )}
@@ -551,8 +558,8 @@ export default function MessagingPage() {
               onClick={() => setConversationTab('archived')}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 conversationTab === 'archived'
-                  ? 'bg-white text-[#252578] shadow-xs border border-gray-200/60'
-                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
+                  ? 'bg-card text-primary shadow-xs border border-border'
+                  : 'text-slate-muted hover:text-slate-dark hover:bg-slate-100'
               }`}
             >
               <Archive size={14} />
@@ -567,13 +574,13 @@ export default function MessagingPage() {
 
           {/* Filter bar — CS: External / Internal */}
           {isCS && (
-            <div className="flex items-center gap-2 p-3 pb-2 border-b border-gray-100 flex-shrink-0 flex-wrap">
+            <div className="flex items-center gap-2 p-3 pb-2 border-b border-border shrink-0 flex-wrap">
               <button
                 onClick={() => setCsFilter('external')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   csFilter === 'external'
-                    ? 'bg-[#252578] text-white shadow-sm'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'bg-slate-100 text-slate-muted hover:bg-slate-200'
                 }`}
               >
                 <Users size={13} />
@@ -583,8 +590,8 @@ export default function MessagingPage() {
                 onClick={() => setCsFilter('internal')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   csFilter === 'internal'
-                    ? 'bg-[#252578] text-white shadow-sm'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'bg-slate-100 text-slate-muted hover:bg-slate-200'
                 }`}
               >
                 <User size={13} />
@@ -652,20 +659,20 @@ export default function MessagingPage() {
             {/* Chat Area */}
             <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
               {/* Conversation header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card shrink-0">
                 <div className="flex items-center gap-3">
                   <Avatar name={selectedContact.subtitle} />
                   <div>
-                    <p className="font-semibold text-sm text-gray-800">{selectedContact.displayTitle}</p>
-                    <p className="text-xs text-gray-500">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
+                    <p className="font-semibold text-sm text-slate-dark">{selectedContact.displayTitle}</p>
+                    <p className="text-xs text-slate-muted">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowDetailsSidebar(!showDetailsSidebar)}
                   className={`px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
                     showDetailsSidebar
-                      ? 'bg-[#252578] text-white border-[#252578] shadow-sm'
-                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                      : 'bg-card text-slate-dark border-border hover:bg-slate-50'
                   }`}
                   title="Toggle Ticket Details"
                 >
@@ -687,12 +694,12 @@ export default function MessagingPage() {
               )}
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-page">
                 {messagesLoading ? (
-                  <div className="text-center py-8 text-gray-400">Loading chat history...</div>
+                  <div className="text-center py-8 text-slate-muted">Loading chat history...</div>
                 ) : messages.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400">
-                    <MessageCircle size={28} className="mx-auto text-gray-300 mb-1" />
+                  <div className="text-center py-8 text-slate-muted">
+                    <MessageCircle size={28} className="mx-auto text-slate-300 mb-1" />
                     <p className="text-xs">No messages yet. Send a message to start the conversation.</p>
                   </div>
                 ) : (
@@ -740,7 +747,7 @@ export default function MessagingPage() {
                         )}
                         <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
                           <div className="max-w-[75%] flex flex-col">
-                          <div className="text-[10px] text-gray-400 mb-0.5 px-1 flex justify-between gap-2">
+                          <div className="text-[10px] text-slate-muted mb-0.5 px-1 flex justify-between gap-2">
                             <span>{msg.sender_name}</span>
                           </div>
                           
@@ -748,8 +755,8 @@ export default function MessagingPage() {
                             {/* Message Bubble */}
                             <div className={`px-4 py-2.5 ${
                               isMine
-                                ? 'bg-[#252578] text-white rounded-2xl rounded-br-md'
-                                : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-bl-md shadow-sm'
+                                ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-md'
+                                : 'bg-card text-slate-dark border border-border rounded-2xl rounded-bl-md shadow-xs'
                             }`}>
                               {editingMessageId === msgId ? (
                                 <div className="flex flex-col gap-1.5 min-w-[200px]">
@@ -878,7 +885,7 @@ export default function MessagingPage() {
                   </p>
                 </div>
               ) : (
-                <div className="px-6 py-4 border-t border-gray-100 bg-white flex-shrink-0">
+                <div className="px-6 py-4 border-t border-border bg-card shrink-0">
                   <div className="flex items-center gap-3">
                     <input
                       type="text"
@@ -887,12 +894,12 @@ export default function MessagingPage() {
                       onKeyDown={handleKeyDown}
                       onFocus={handleInputFocus}
                       placeholder="Type a message..."
-                      className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                      className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
                     />
                     <button
                       onClick={handleSend}
                       disabled={!messageInput.trim()}
-                      className="bg-[#252578] text-white rounded-xl px-4 py-2.5 transition-all hover:bg-[#1f1f66] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="bg-primary text-primary-foreground rounded-xl px-4 py-2.5 transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <Send size={18} />
                     </button>
@@ -903,13 +910,11 @@ export default function MessagingPage() {
 
             {/* Collapsible details sidebar */}
             {showDetailsSidebar && (
-              <div className="w-[300px] xl:w-[320px] bg-white flex flex-col flex-shrink-0 overflow-y-auto border-l border-gray-100 select-none">
-                <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-800 text-sm">Ticket Information</h3>
-                  <button onClick={() => setShowDetailsSidebar(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-50 cursor-pointer">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+              <div className="w-[300px] xl:w-[320px] bg-card flex flex-col shrink-0 overflow-y-auto border-l border-border select-none">
+                <div className="p-4 border-b border-border flex items-center justify-between">
+                  <h3 className="font-bold text-slate-dark text-sm">Ticket Information</h3>
+                  <button onClick={() => setShowDetailsSidebar(false)} className="text-slate-muted hover:text-slate-dark p-1 rounded-lg hover:bg-slate-100 cursor-pointer">
+                    <X size={16} />
                   </button>
                 </div>
                 <div className="p-4 space-y-4">

@@ -1495,7 +1495,7 @@ function AISupportPage() {
 
       // Check ongoing tickets for this user for duplicate detection
       const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
-      
+
       const activeConv = conversations.find(c => c.id === activeConversationId);
       let ticketTitle = (formData.problemSummary || activeConv?.title || 'Support Ticket').trim();
       ticketTitle = ticketTitle.replace(/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item)[:\-])\s*/i, '').trim();
@@ -1638,21 +1638,21 @@ function AISupportPage() {
   }, [navigate, user]);
 
   return (
-    <div className="flex flex-col h-screen p-4">
-      <div className="flex flex-1 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden min-h-0">
+    <div className="flex flex-col h-screen p-4 bg-page">
+      <div className="flex flex-1 bg-card rounded-xl shadow-xs border border-border overflow-hidden min-h-0">
         {sidebarOpen && (
-          <div className="w-[280px] lg:w-[300px] border-r border-gray-100 flex flex-col flex-shrink-0 bg-gray-50/50">
-            <div className="px-3 pt-6 pb-3 border-b border-gray-100 flex-shrink-0 space-y-4">
+          <div className="w-[280px] lg:w-[300px] border-r border-border flex flex-col shrink-0 bg-slate-50/50">
+            <div className="px-3 pt-6 pb-3 border-b border-border shrink-0 space-y-4">
               <button
                 onClick={handleBack}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-500 hover:text-[#252578] hover:bg-gray-100 rounded-lg transition-all cursor-pointer"
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-muted hover:text-primary hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
               >
                 <ArrowLeft size={14} />
                 Back to Dashboard
               </button>
               <button
                 onClick={handleNewChat}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 hover:border-[#252578] hover:text-[#252578] text-gray-700 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-card border border-border hover:border-primary hover:text-primary text-slate-dark rounded-lg text-xs font-semibold transition-all shadow-xs cursor-pointer"
               >
                 <Plus size={14} />
                 New Chat
@@ -1665,24 +1665,24 @@ function AISupportPage() {
                   onClick={() => loadConversation(conv.id)}
                   className={`group w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-all border-l-2 cursor-pointer ${
                     activeConversationId === conv.id
-                      ? 'bg-[#252578]/5 border-l-[#252578]'
-                      : 'border-l-transparent hover:bg-gray-100'
+                      ? 'bg-primary/5 border-l-primary'
+                      : 'border-l-transparent hover:bg-slate-100'
                   }`}
                 >
-                  <MessageSquare size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                  <MessageSquare size={16} className="text-slate-muted mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className={`text-xs truncate ${activeConversationId === conv.id ? 'font-semibold text-[#252578]' : 'font-medium text-gray-700'}`}>
+                    <p className={`text-xs truncate ${activeConversationId === conv.id ? 'font-semibold text-primary' : 'font-medium text-slate-dark'}`}>
                       {conv.title}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-gray-400">{formatShortTime(conv.timestamp || conv.updated_at || conv.created_at)}</span>
-                      <span className="text-[10px] text-gray-300">·</span>
-                      <span className="text-[10px] text-gray-400">{conv.message_count !== undefined ? conv.message_count : (conv.messageCount || 0)} msgs</span>
+                      <span className="text-[10px] text-slate-muted">{formatShortTime(conv.timestamp || conv.updated_at || conv.created_at)}</span>
+                      <span className="text-[10px] text-slate-300">·</span>
+                      <span className="text-[10px] text-slate-muted">{conv.message_count !== undefined ? conv.message_count : (conv.messageCount || 0)} msgs</span>
                     </div>
                   </div>
                   <button
                     onClick={(e) => handleDeleteConversation(e, conv.id)}
-                    className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-gray-200 text-gray-400 hover:text-red-500 transition-all flex-shrink-0 cursor-pointer"
+                    className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-slate-200 text-slate-muted hover:text-red-500 transition-all shrink-0 cursor-pointer"
                     title="Delete conversation"
                   >
                     <Trash2 size={12} />
@@ -1691,19 +1691,19 @@ function AISupportPage() {
               ))}
             </div>
 
-            <div className="p-3 border-t border-gray-100 flex-shrink-0">
+            <div className="p-3 border-t border-border shrink-0">
               <div className="flex items-center gap-2.5 px-2 py-2">
-                <div className="w-7 h-7 rounded-full bg-[#252578] text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold shrink-0">
                   {(() => {
                     const name = user?.first_name || user?.name || 'User';
                     return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
                   })()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-gray-800 truncate">
+                  <p className="text-xs font-semibold text-slate-dark truncate">
                     {user?.first_name ? `${user.first_name} ${user.last_name || ''}` : (user?.name || 'User')}
                   </p>
-                  <p className="text-[10px] text-gray-400 truncate">{user?.email || ''}</p>
+                  <p className="text-[10px] text-slate-muted truncate">{user?.email || ''}</p>
                 </div>
               </div>
             </div>
@@ -1711,19 +1711,19 @@ function AISupportPage() {
         )}
 
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white flex-shrink-0">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-card shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#252578] to-indigo-600 flex items-center justify-center shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-xs">
                 <Bot size={20} className="text-white" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="font-bold text-sm text-gray-900">AI Support Assistant</h1>
-                  <span className="bg-indigo-50 border border-indigo-200 text-[#252578] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                  <h1 className="font-bold text-sm text-slate-dark">AI Support Assistant</h1>
+                  <span className="bg-accent/10 border border-accent/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
                     Automated System
                   </span>
                 </div>
-                <p className="text-[11px] text-gray-500">
+                <p className="text-[11px] text-slate-muted">
                   Not a live human agent · AI searches technical manuals & knowledge base
                 </p>
               </div>
@@ -1732,23 +1732,23 @@ function AISupportPage() {
               {messages.length > 2 && (
                 <button
                   onClick={handleClearChat}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all border border-gray-200 hover:border-red-200 cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-all border border-border hover:border-red-200 cursor-pointer"
                   title="Clear all messages in this conversation"
                 >
                   <Trash2 size={13} />
                   <span>Clear Chat</span>
                 </button>
               )}
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Online
               </span>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-[#f4f7fb]/50">
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-page">
             {messages.map((msg, msgIndex) => {
-              const isDeletable = false;
+              const isDeletable = msg.id !== 'welcome' && msg.id !== 'gather';
               const isErrorMessage = msg.isError || (typeof msg.content === 'string' && msg.content.startsWith('Ticket Submission Error:'));
               const displayErrorText = msg.isError
                 ? (typeof msg.content === 'string' ? msg.content : msg.errorMessage)
@@ -1762,7 +1762,7 @@ function AISupportPage() {
                   <div className="max-w-[75%] flex flex-col">
                     <div className="flex items-start gap-3">
                       {(msg.role === 'ai' || msg.role === 'assistant') && (
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${isErrorMessage ? 'bg-red-600' : 'bg-[#252578]'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 ${isErrorMessage ? 'bg-red-600' : 'bg-primary'}`}>
                           {isErrorMessage ? <AlertTriangle size={16} className="text-white" /> : <Bot size={16} className="text-white" />}
                         </div>
                       )}
@@ -1774,9 +1774,9 @@ function AISupportPage() {
                           </div>
                         )}
                         {isErrorMessage ? (
-                          <div className="bg-red-50 border border-red-200 rounded-2xl rounded-bl-md shadow-sm p-4 text-left">
+                          <div className="bg-red-50 border border-red-200 rounded-2xl rounded-bl-md shadow-xs p-4 text-left">
                             <div className="flex items-start gap-3">
-                              <AlertTriangle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+                              <AlertTriangle size={20} className="text-red-600 shrink-0 mt-0.5" />
                               <div className="flex-1">
                                 <p className="text-sm font-bold text-red-800">
                                   {msg.errorTitle || 'Ticket Submission Error'}
@@ -1787,7 +1787,7 @@ function AISupportPage() {
                                 <div className="flex flex-wrap gap-2 mt-3">
                                   <button
                                     onClick={() => navigate('/my-tickets')}
-                                    className="px-3.5 py-1.5 bg-[#252578] hover:bg-[#1f1f66] text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-sm"
+                                    className="px-3.5 py-1.5 bg-primary hover:bg-primary-hover text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-xs"
                                   >
                                     View My Tickets
                                   </button>
@@ -1797,7 +1797,7 @@ function AISupportPage() {
                                         if (msg.savedForm) setReviewData(msg.savedForm);
                                         setShowReviewModal(true);
                                       }}
-                                      className="px-3.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                                      className="px-3.5 py-1.5 bg-card hover:bg-slate-50 border border-border text-slate-dark text-xs font-semibold rounded-xl transition-all cursor-pointer"
                                     >
                                       Edit & Retry
                                     </button>
@@ -1808,8 +1808,8 @@ function AISupportPage() {
                           </div>
                         ) : (
                           <div className={msg.role === 'user'
-                            ? 'px-4 py-2.5 bg-[#252578] text-white rounded-2xl rounded-br-md shadow-xs'
-                            : 'bg-white text-gray-800 border border-gray-150 rounded-2xl rounded-bl-md shadow-xs px-4 py-3'
+                            ? 'px-4 py-2.5 bg-primary text-primary-foreground rounded-2xl rounded-br-md shadow-xs'
+                            : 'bg-card text-slate-dark border border-border rounded-2xl rounded-bl-md shadow-xs px-4 py-3'
                           }>
                             {typeof msg.content === 'string' ? (
                               <FormattedText text={msg.content} />
@@ -1880,9 +1880,18 @@ function AISupportPage() {
                           <AISourceList sources={msg.sources} />
                         )}
                         <div className={`flex items-center gap-2 mt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <p className="text-[10px] text-gray-400">
+                          <p className="text-[10px] text-slate-muted">
                             {formatTime(msg.timestamp)}
                           </p>
+                          {isDeletable && (
+                            <button
+                              onClick={() => handleDeleteMessage(msg.id)}
+                              className="opacity-0 group-hover/msg:opacity-100 p-0.5 rounded text-slate-muted hover:text-destructive hover:bg-muted transition-all cursor-pointer"
+                              title="Delete this message"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1898,7 +1907,7 @@ function AISupportPage() {
                     <button
                       key={chip}
                       onClick={() => handleSuggestionClick(chip)}
-                      className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600 hover:border-[#252578] hover:text-[#252578] hover:bg-[#252578]/5 transition-all cursor-pointer"
+                      className="px-3 py-1.5 bg-card border border-border rounded-full text-xs font-medium text-slate-muted hover:border-accent hover:text-accent hover:bg-accent/5 transition-all cursor-pointer"
                     >
                       {chip}
                     </button>
@@ -1919,11 +1928,11 @@ function AISupportPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="px-6 py-3 border-t border-gray-100 bg-white flex-shrink-0">
+          <div className="px-6 py-3 border-t border-border bg-card shrink-0">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all flex-shrink-0 cursor-pointer"
+                className="p-2 rounded-xl text-slate-muted hover:text-slate-dark hover:bg-slate-100 transition-all shrink-0 cursor-pointer"
                 title="Attach file"
               >
                 <Paperclip size={18} />
@@ -1935,12 +1944,12 @@ function AISupportPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
-                className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none min-h-[42px] max-h-[120px] overflow-y-auto"
+                className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20 resize-none min-h-[42px] max-h-[120px] overflow-y-auto"
               />
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || isTyping}
-                className="bg-[#252578] text-white rounded-xl px-4 py-2.5 transition-all hover:bg-[#1f1f66] disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 cursor-pointer"
+                className="bg-primary text-primary-foreground rounded-xl px-4 py-2.5 transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer"
               >
                 <Send size={18} />
               </button>

@@ -21,13 +21,18 @@ class VerifyEmployeeJwt
      */
     public function handle(Request $request, Closure $next)
     {
+        $token = null;
         $authHeader = $request->header('Authorization');
-        if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
+        if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
+            $token = substr($authHeader, 7);
+        } elseif ($request->cookie('access_token')) {
+            $token = $request->cookie('access_token');
+        }
+
+        if (!$token) {
             Log::info('VerifyEmployeeJwt: Missing or invalid token format header: ' . ($authHeader ?: 'none'));
             return response()->json(['message' => 'Unauthorized: Missing or invalid token format'], 401);
         }
-
-        $token = substr($authHeader, 7);
         $tokenHash = hash('sha256', $token);
 
         // Check local Redis cache for a valid session

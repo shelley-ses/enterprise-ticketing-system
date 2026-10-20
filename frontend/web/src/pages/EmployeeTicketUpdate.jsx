@@ -1,8 +1,20 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle2,
+  Paperclip,
+  UploadCloud,
+  X,
+  FileText,
+  Clock,
+  ArrowUpDown,
+  AlertTriangle,
+  Loader2,
+} from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { statusColors, priorityColors, slaStatusColors } from '@/constants/employeeTickets';
 import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/ticketService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
@@ -10,9 +22,13 @@ import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDis
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
-import SkeletonLoader from '@/components/SkeletonLoader';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import InternalNotesSection from '@/components/InternalNotesSection';
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ConfirmationModal } from '@/components/ui/confirmation-modal';
+import { Skeleton } from '@/components/ui/skeleton';
 import CustomerInfoPanel from '@/components/employee/CustomerInfoPanel';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
@@ -69,11 +85,10 @@ export default function EmployeeTicketUpdate() {
       if (Array.isArray(details?.worklogs)) {
         setSavedWorkLogs(details.worklogs);
       }
-      // Only reset draft status if user hasn't modified it
       if (!statusDraft) {
         setStatusDraft(details.status);
       }
-    } catch (err) {
+    } catch {
       setErrorMessage('Failed to load ticket details.');
     } finally {
       setLoading(false);
@@ -99,19 +114,22 @@ export default function EmployeeTicketUpdate() {
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
     shouldRefresh: ({ payload }) => {
-      return payload && (
-        Number(payload.ticketId) === numericId ||
-        Number(payload.ticket_ID) === numericId
+      return (
+        payload &&
+        (Number(payload.ticketId) === numericId || Number(payload.ticket_ID) === numericId)
       );
     },
   });
 
-  const isInternal = ticket?.title?.startsWith('[Internal]') || ticket?.is_internal || ticket?.ticket_type === 'Internal' || ticket?.type === 'Internal';
-  const isExternal = !isInternal;
+  const isInternal =
+    ticket?.title?.startsWith('[Internal]') ||
+    ticket?.is_internal ||
+    ticket?.ticket_type === 'Internal' ||
+    ticket?.type === 'Internal';
   const isProofRejected =
     ticket?.proofRejected === true && ticket?.status === 'In Progress';
 
-  const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
 
   const timelineEvents = useMemo(() => {
     if (!ticket) return [];
@@ -149,8 +167,8 @@ export default function EmployeeTicketUpdate() {
 
   const validateFiles = (files) => {
     const ALLOWED = ['pdf', 'png', 'docx', 'doc'];
-    const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
-    const MAX_TOTAL_SIZE = 45 * 1024 * 1024; // 45MB
+    const MAX_FILE_SIZE = 15 * 1024 * 1024;
+    const MAX_TOTAL_SIZE = 45 * 1024 * 1024;
 
     let totalSize = 0;
     for (const file of files) {
@@ -177,7 +195,7 @@ export default function EmployeeTicketUpdate() {
     if (fileError) {
       setErrorMessage(fileError);
       setAttachedFiles([]);
-      e.target.value = null; // Reset the file input
+      e.target.value = null;
     } else {
       setErrorMessage('');
       setAttachedFiles(selected);
@@ -213,7 +231,7 @@ export default function EmployeeTicketUpdate() {
       setAttachedFiles([]);
       setShowStatusConfirm(false);
       await loadTicketData();
-    } catch (err) {
+    } catch {
       setErrorMessage('Failed to update status.');
     } finally {
       setIsSaving(false);
@@ -266,135 +284,135 @@ export default function EmployeeTicketUpdate() {
 
   if (!ticket) return null;
 
+  const backDestination = () => {
+    const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'];
+    const historyStatuses = ['Closed', 'Resolved'];
+    if (ticket && activeStatuses.includes(ticket.status)) {
+      return '/employee/machine';
+    } else if (ticket && historyStatuses.includes(ticket.status)) {
+      return '/employee/progress';
+    }
+    return '/employee/assigned';
+  };
+
+  const backLabel = () => {
+    if (ticket && ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'].includes(ticket.status)) {
+      return 'Back to Assigned Tickets';
+    } else if (ticket && ['Closed', 'Resolved'].includes(ticket.status)) {
+      return 'Back to Ticket History';
+    }
+    return 'Back to Incoming Tickets';
+  };
+
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto">
       {/* Back button */}
-      <button
-        onClick={() => {
-          const activeStatuses = ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'];
-          const historyStatuses = ['Closed', 'Resolved'];
-          if (ticket && activeStatuses.includes(ticket.status)) {
-            navigate('/employee/machine');
-          } else if (ticket && historyStatuses.includes(ticket.status)) {
-            navigate('/employee/progress');
-          } else {
-            navigate('/employee/assigned');
-          }
-        }}
-        className="flex items-center gap-2 text-sm text-[#252578] font-semibold mb-6 hover:opacity-75 transition-opacity"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        {ticket && ['In Progress', 'Pending', 'Pending Evaluation', 'On Hold'].includes(ticket.status)
-          ? 'Back to Assigned Tickets'
-          : ticket && ['Closed', 'Resolved'].includes(ticket.status)
-            ? 'Back to Ticket History'
-            : 'Back to Incoming Tickets'}
-      </button>
-
-
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(backDestination())}
+          className="text-primary hover:text-primary gap-2 -ml-2 font-medium"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {backLabel()}
+        </Button>
+      </div>
 
       {loading ? (
-        <div className="p-8">
-          <div className="h-8 bg-gray-200 rounded-lg w-64 mb-6 animate-pulse" />
-          <SkeletonLoader variant="ticket-card" />
+        <div className="space-y-6">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : (
         <>
           {/* Ticket Header Card */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="text-xs font-bold text-[#252578] bg-blue-50 px-3 py-1 rounded-full">
+              <span className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-md">
                 {ticket.id}
               </span>
-              <span
-                className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                  statusColors[ticket.status] ?? 'bg-gray-100 text-gray-700'
-                }`}
-              >
+              <Badge variant={getStatusBadgeVariant(ticket.status)}>
                 {ticket.status}
-              </span>
-              <span
-                className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                  priorityColors[ticket.priority] ?? 'bg-gray-100 text-gray-700'
-                }`}
+              </Badge>
+              <Badge
+                variant={
+                  ticket.priority?.toLowerCase() === 'critical'
+                    ? 'destructive'
+                    : ticket.priority?.toLowerCase() === 'high'
+                    ? 'warning'
+                    : 'secondary'
+                }
               >
                 {ticket.priority}
-              </span>
+              </Badge>
               {ticket.escalated && (
-                <span className="text-xs font-bold px-3 py-1 bg-orange-100 text-orange-800 rounded-full border border-orange-200">
+                <Badge variant="destructive">
                   Escalated
-                </span>
+                </Badge>
               )}
             </div>
 
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">{ticket.title}</h1>
-            <p className="text-sm text-gray-500">
+            <h1 className="text-2xl font-bold text-foreground mb-1">{ticket.title}</h1>
+            <p className="text-sm text-muted-foreground">
               {ticket.equipment && `${ticket.equipment} · `}
               {ticket.category}
             </p>
 
             {/* Info Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-[10px] text-gray-400 mb-0.5">Requestor</p>
-                <p className="text-sm font-semibold text-gray-800">{ticket.customer || '—'}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="bg-muted/40 rounded-lg p-3 border border-border/50">
+                <p className="text-[11px] font-medium text-muted-foreground mb-0.5">Requestor</p>
+                <p className="text-sm font-semibold text-foreground">{ticket.customer || '—'}</p>
                 {ticket.facility && (
-                  <p className="text-xs text-gray-500 mt-0.5">{ticket.facility}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{ticket.facility}</p>
                 )}
               </div>
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-[10px] text-gray-400 mb-0.5">Date Filed</p>
-                <p className="text-sm font-semibold text-gray-800">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</p>
+              <div className="bg-muted/40 rounded-lg p-3 border border-border/50">
+                <p className="text-[11px] font-medium text-muted-foreground mb-0.5">Date Filed</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {ticket.date ? formatDisplayDate(ticket.date) : '—'}
+                </p>
               </div>
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-[10px] text-gray-400 mb-0.5">SLA</p>
-                <span
-                  className={`inline-flex text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                    slaStatusColors[ticket.slaStatus] ?? 'bg-gray-100 text-gray-700'
-                  }`}
-                >
+              <div className="bg-muted/40 rounded-lg p-3 border border-border/50">
+                <p className="text-[11px] font-medium text-muted-foreground mb-0.5">SLA</p>
+                <span className="inline-flex text-xs font-semibold px-2 py-0.5 rounded-md bg-card border border-border">
                   {ticket.slaStatus ?? '—'}
                 </span>
               </div>
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-[10px] text-gray-400 mb-0.5">Last Update</p>
-                <p className="text-sm font-semibold text-gray-800">{ticket.lastUpdate || ticket.updated_at ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at) : '—'}</p>
+              <div className="bg-muted/40 rounded-lg p-3 border border-border/50">
+                <p className="text-[11px] font-medium text-muted-foreground mb-0.5">Last Update</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {ticket.lastUpdate || ticket.updated_at
+                    ? formatDisplayDate(ticket.lastUpdate || ticket.updated_at)
+                    : '—'}
+                </p>
               </div>
             </div>
 
             {ticket.description && (
-              <div className="mt-4 bg-gray-50 rounded-xl p-4">
-                <p className="text-[10px] text-gray-400 mb-1">Description</p>
-                <p className="text-sm text-gray-700 leading-relaxed">{ticket.description}</p>
+              <div className="mt-4 bg-muted/30 rounded-lg p-4 border border-border/50">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Description
+                </p>
+                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+                  {ticket.description}
+                </p>
               </div>
             )}
           </div>
 
           {/* Feedback messages */}
           {successMessage && (
-            <div className="mb-4 rounded-xl bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm font-medium flex items-center gap-2">
-              <svg className="w-5 h-5 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {successMessage}
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 text-sm font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>{successMessage}</span>
             </div>
           )}
           {errorMessage && (
-            <div className={`mb-4 rounded-xl p-4 text-sm font-medium border flex items-start gap-3 transition-all ${
-              errorMessage.includes('Security threat')
-                ? 'bg-red-50/90 text-red-800 border-red-200 shadow-md ring-2 ring-red-500/20'
-                : 'bg-red-50 border border-red-200 text-red-800 px-4 py-3'
-            }`}>
-              <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                {errorMessage.includes('Security threat') ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                )}
-              </svg>
-              <div>{errorMessage}</div>
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 text-sm font-medium flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
             </div>
           )}
 
@@ -414,60 +432,70 @@ export default function EmployeeTicketUpdate() {
 
             {/* Reassignment pending banner */}
             {ticket.reassignmentRequested && !isReassignmentDenied(ticket) && (
-              <div className="bg-white rounded-xl shadow-md p-5 flex items-center gap-3 border border-amber-100">
-                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
-                <div className="text-sm text-amber-800">
+              <div className="bg-warning/10 rounded-xl p-5 flex items-center gap-3 border border-warning/30 text-warning-foreground">
+                <div className="w-2 h-2 rounded-full bg-warning animate-ping shrink-0" />
+                <div className="text-sm">
                   <span className="font-bold">Reassignment Request Pending:</span>
                   {ticket.reassignmentReason && ` "${ticket.reassignmentReason}"`}
-                  <p className="text-xs text-amber-700 mt-1">You cannot modify this ticket while a reassignment request is pending.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    You cannot modify this ticket while a reassignment request is pending.
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* Proof of Completion */}
-            {(statusDraft === 'Resolved' || ticket.status === 'Resolved' || ticket.status === 'Pending Evaluation' || isProofRejected) && (
-              <div className="bg-white rounded-2xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4 border border-green-100">
+            {/* Proof of Completion Card */}
+            {(statusDraft === 'Resolved' ||
+              ticket.status === 'Resolved' ||
+              ticket.status === 'Pending Evaluation' ||
+              isProofRejected) && (
+              <div className="rounded-xl border border-border bg-card p-6 shadow-xs flex items-center justify-between flex-wrap gap-4">
                 <div className="max-w-lg">
                   {isProofRejected && (
-                    <div className="mb-2.5 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 px-3 py-1.5 rounded-xl text-xs font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
+                    <div className="mb-2.5 flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive px-3 py-1.5 rounded-lg text-xs font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse shrink-0" />
                       Proof Rejected: &quot;{ticket.rejectionReason}&quot;
                     </div>
                   )}
-                  <h3 className="text-sm font-bold text-gray-800">
+                  <h3 className="text-sm font-bold text-foreground">
                     {isProofRejected
                       ? 'Re-upload Proof of Completion'
                       : isInternal
                       ? 'Proof of Completion (Optional for Internal Tickets)'
                       : 'Proof of Completion Required'}
                   </h3>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {isInternal
                       ? 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) is optional for internal tickets and can be attached if desired.'
                       : 'Supporting documentation (PDF, PNG, Word up to 15MB each, 45MB total) must be verified before the ticket can be resolved.'}
                   </p>
                 </div>
                 {ticket.reassignmentRequested ? (
-                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl font-medium">
+                  <span className="text-xs text-warning bg-warning/10 border border-warning/20 px-3 py-2 rounded-lg font-medium">
                     Proof upload disabled while reassignment is pending
                   </span>
                 ) : (
-                  <button
+                  <Button
                     onClick={() => setShowProofModal(true)}
                     disabled={isSaving}
-                    className="px-5 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-green-700/20 flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    {isProofRejected ? 'Re-upload Proof' : (isInternal ? 'Attach Proof Documents' : 'Upload Proof Documents')}
-                  </button>
+                    <UploadCloud className="h-4 w-4" />
+                    {isProofRejected
+                      ? 'Re-upload Proof'
+                      : isInternal
+                      ? 'Attach Proof Documents'
+                      : 'Upload Proof Documents'}
+                  </Button>
                 )}
 
                 {/* List of uploaded proofs */}
-                {((ticket.proofAttachments && ticket.proofAttachments.length > 0) || (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
-                  <div className="w-full mt-4 border-t border-gray-100 pt-3 text-left">
-                    <p className="text-xs font-bold text-gray-600 mb-2">Uploaded Proof Documents:</p>
+                {((ticket.proofAttachments && ticket.proofAttachments.length > 0) ||
+                  (ticket.proofFiles && ticket.proofFiles.length > 0)) && (
+                  <div className="w-full mt-4 border-t border-border pt-4 text-left">
+                    <p className="text-xs font-bold text-muted-foreground mb-2">
+                      Uploaded Proof Documents:
+                    </p>
                     <div className="flex flex-col gap-2">
                       {(ticket.proofAttachments || ticket.proofFiles).map((file, idx) => {
                         const fName = typeof file === 'string' ? file.split('/').pop() : (file.name || file.file_name || `Proof-${idx + 1}`);
@@ -480,16 +508,15 @@ export default function EmployeeTicketUpdate() {
                           return (
                             <div
                               key={file.id || file.proof_ID || idx}
-                              className="flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200 w-fit cursor-not-allowed"
+                              className="flex items-center gap-2 text-xs font-semibold text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 w-fit cursor-not-allowed"
                               title="Proof file quarantined: Threat detected by antivirus scan"
                             >
-                              <ShieldAlert className="w-4 h-4 shrink-0 text-red-500" />
+                              <ShieldAlert className="w-4 h-4 shrink-0 text-destructive" />
                               <span className="line-through">{fName}</span>
-                              <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                              <span className="text-[9px] bg-destructive/20 text-destructive px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
                             </div>
                           );
                         }
-
                         return (
                           <a
                             key={file.id || file.proof_ID || idx}
@@ -498,11 +525,9 @@ export default function EmployeeTicketUpdate() {
                               e.preventDefault();
                               setPreviewFile({ name: fName, url: fUrl });
                             }}
-                            className="flex items-center gap-2 text-xs font-semibold text-blue-600 hover:underline bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 w-fit cursor-pointer"
+                            className="flex items-center gap-2 text-xs font-semibold text-accent hover:underline bg-accent/5 p-2.5 rounded-lg border border-accent/20 w-fit cursor-pointer"
                           >
-                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
+                            <FileText className="h-4 w-4 shrink-0 text-accent" />
                             <span>{fName}</span>
                           </a>
                         );
@@ -513,39 +538,44 @@ export default function EmployeeTicketUpdate() {
               </div>
             )}
 
-            {/* Status Update — hidden when reassignment is pending */}
-            {!ticket.reassignmentRequested && ticket.status !== 'Pending Evaluation' && ticket.status !== 'Resolved' && (
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
-                  Update Ticket Status
-                </h3>
+            {/* Status Update Form */}
+            {!ticket.reassignmentRequested &&
+              ticket.status !== 'Pending Evaluation' &&
+              ticket.status !== 'Resolved' && (
+                <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4">
+                    Update Ticket Status
+                  </h3>
 
-                {!showStatusConfirm ? (
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
                         Select new status
                       </label>
                       <select
                         value={statusDraft}
                         disabled={isSaving}
                         onChange={(e) => setStatusDraft(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 font-semibold cursor-pointer disabled:opacity-50"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2.5 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent font-semibold cursor-pointer disabled:opacity-50"
                       >
                         {STATUS_OPTIONS.map((s) => (
-                          <option key={s} value={s}>{s}</option>
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
                         ))}
                       </select>
                     </div>
 
-                     {statusDraft !== ticket.status && (
+                    {statusDraft !== ticket.status && (
                       <div className="space-y-4">
                         {(statusDraft !== 'Resolved' || isInternal) && (
                           <>
                             <div>
-                              <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                                Remarks / Notes <span className="text-red-500">*</span>{' '}
-                                <span className="text-gray-400 font-normal">(required on status change)</span>
+                              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                                Remarks / Notes <span className="text-destructive">*</span>{' '}
+                                <span className="text-muted-foreground font-normal">
+                                  (required on status change)
+                                </span>
                               </label>
                               <textarea
                                 placeholder="Provide detailed notes about this status change..."
@@ -553,14 +583,16 @@ export default function EmployeeTicketUpdate() {
                                 disabled={isSaving}
                                 onChange={(e) => setRemarks(e.target.value)}
                                 rows={4}
-                                className="w-full text-sm border border-gray-200 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 resize-none disabled:opacity-50"
+                                className="w-full text-sm border border-border rounded-lg p-3 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none disabled:opacity-50"
                               />
                             </div>
 
                             <div>
-                              <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
                                 Supporting Documentation{' '}
-                                <span className="text-gray-400 font-normal">(optional · PDF, PNG, Word · max 15MB each, 45MB total)</span>
+                                <span className="text-muted-foreground font-normal">
+                                  (optional · PDF, PNG, Word · max 15MB each, 45MB total)
+                                </span>
                               </label>
                               <input
                                 type="file"
@@ -568,23 +600,27 @@ export default function EmployeeTicketUpdate() {
                                 accept=".pdf,.png,.docx,.doc"
                                 disabled={isSaving}
                                 onChange={handleFileChange}
-                                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#252578]/10 file:text-[#252578] hover:file:bg-[#252578]/20 file:cursor-pointer disabled:opacity-50"
+                                className="w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:cursor-pointer disabled:opacity-50"
                               />
                               {attachedFiles.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                <div className="mt-2 flex flex-wrap gap-2">
                                   {attachedFiles.map((file, idx) => (
                                     <span
                                       key={idx}
-                                      className="inline-flex items-center gap-1 text-[10px] bg-white border border-gray-200 rounded-full px-2.5 py-0.5 font-medium text-gray-600"
+                                      className="inline-flex items-center gap-1.5 text-xs bg-muted border border-border rounded-md px-2.5 py-1 text-foreground"
                                     >
                                       <span>{file.name}</span>
                                       <button
                                         type="button"
-                                        onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                                        className="text-red-500 font-bold hover:text-red-700 ml-1"
+                                        onClick={() =>
+                                          setAttachedFiles((prev) =>
+                                            prev.filter((_, i) => i !== idx)
+                                          )
+                                        }
+                                        className="text-muted-foreground hover:text-destructive"
                                         title="Remove file"
                                       >
-                                        ×
+                                        <X className="h-3 w-3" />
                                       </button>
                                     </span>
                                   ))}
@@ -595,11 +631,12 @@ export default function EmployeeTicketUpdate() {
                         )}
 
                         {statusDraft === 'Resolved' && !isInternal ? (
-                          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-xs font-semibold text-center">
-                            You must submit a Proof of Completion to resolve external tickets. Please click &quot;Upload Proof Documents&quot; in the card above.
+                          <div className="bg-warning/10 border border-warning/20 text-warning-foreground p-4 rounded-lg text-xs font-medium text-center">
+                            You must submit a Proof of Completion to resolve external tickets.
+                            Please click &quot;Upload Proof Documents&quot; in the card above.
                           </div>
                         ) : (
-                          <button
+                          <Button
                             type="button"
                             disabled={isSaving}
                             onClick={() => {
@@ -610,76 +647,62 @@ export default function EmployeeTicketUpdate() {
                               setErrorMessage('');
                               setShowStatusConfirm(true);
                             }}
-                            className="w-full py-3 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-[#252578]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full"
                           >
-                            {isSaving ? 'Saving...' : (statusDraft === 'Resolved' ? 'Resolve Internal Ticket' : 'Save Status Change')}
-                          </button>
+                            {isSaving ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Saving...
+                              </>
+                            ) : statusDraft === 'Resolved' ? (
+                              'Resolve Internal Ticket'
+                            ) : (
+                              'Save Status Change'
+                            )}
+                          </Button>
                         )}
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="bg-gray-50 border border-blue-100 rounded-xl p-5 text-center">
-                    <h5 className="text-sm font-bold text-gray-800 mb-2">Confirm Status Change</h5>
-                    <p className="text-sm text-gray-500 mb-4">
-                      Are you sure you want to change the status from{' '}
-                      <strong className="text-gray-700">&quot;{ticket.status}&quot;</strong> to{' '}
-                      <strong className="text-gray-700">&quot;{statusDraft}&quot;</strong>?
-                    </p>
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        disabled={isSaving}
-                        onClick={() => setShowStatusConfirm(false)}
-                        className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isSaving}
-                        onClick={handleStatusSave}
-                        className="flex-1 py-2.5 text-sm font-semibold bg-[#252578] hover:bg-[#1a1a5c] text-white rounded-xl shadow transition-colors disabled:opacity-50"
-                      >
-                        {isSaving ? 'Saving...' : 'Yes, Save Changes'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
 
-            {/* Request Reassignment — hidden when reassignment is already pending */}
+            {/* Request Reassignment Card */}
             {!hasPendingReassignment(ticket) ? (
-              <div className="bg-white rounded-xl shadow-md p-6 flex items-center justify-between flex-wrap gap-4">
+              <div className="rounded-xl border border-border bg-card p-6 shadow-xs flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h3 className="text-sm font-bold text-gray-800">Request Reassignment</h3>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <h3 className="text-sm font-bold text-foreground">Request Reassignment</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
                     Cannot complete this ticket? Request to have it reassigned to another technician.
                   </p>
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   disabled={isSaving}
                   onClick={() => setShowReassignModal(true)}
-                  className="px-5 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
                 >
                   Request Reassignment
-                </button>
+                </Button>
               </div>
             ) : (
-              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 flex items-center gap-3 text-xs text-amber-800 shadow-xs">
-                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+              <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 flex items-center gap-3 text-xs text-warning-foreground shadow-xs">
+                <div className="w-2 h-2 rounded-full bg-warning animate-ping shrink-0" />
                 <div>
-                  <span className="font-bold">Reassignment Request Pending:</span> &quot;{ticket.reassignmentReason || ticket.reassignment_reason || 'Awaiting CS coordinator review'}&quot;
+                  <span className="font-bold">Reassignment Request Pending:</span> &quot;
+                  {ticket.reassignmentReason ||
+                    ticket.reassignment_reason ||
+                    'Awaiting CS coordinator review'}
+                  &quot;
                 </div>
               </div>
             )}
 
             {/* Ticket Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">
+              <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider mb-3">
                   Original Ticket Attachments
                 </h3>
                 <div className="flex flex-wrap gap-3">
@@ -694,16 +717,15 @@ export default function EmployeeTicketUpdate() {
                       return (
                         <div
                           key={file.id || file.attachment_id || idx}
-                          className="flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 cursor-not-allowed"
+                          className="flex items-center gap-2 text-xs font-semibold text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20 cursor-not-allowed"
                           title="Attachment quarantined: Threat detected by antivirus scan"
                         >
-                          <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+                          <ShieldAlert className="w-4 h-4 text-destructive shrink-0" />
                           <span className="line-through">{fName}</span>
-                          <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
+                          <span className="text-[9px] bg-destructive/20 text-destructive px-1 py-0.5 rounded font-bold uppercase">Blocked</span>
                         </div>
                       );
                     }
-
                     return (
                       <a
                         key={file.id || file.attachment_id || idx}
@@ -712,12 +734,10 @@ export default function EmployeeTicketUpdate() {
                           e.preventDefault();
                           setPreviewFile({ name: fName, url: fUrl });
                         }}
-                        className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-[#252578] bg-gray-50 hover:bg-[#252578]/5 px-3 py-2 rounded-xl border border-gray-100 hover:border-[#252578]/10 transition-all cursor-pointer"
+                        className="flex items-center gap-2 text-xs font-semibold text-foreground hover:text-primary bg-muted/50 hover:bg-muted px-3 py-2 rounded-lg border border-border transition-colors cursor-pointer"
                       >
-                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        {fName}
+                        <Paperclip className="h-4 w-4 text-muted-foreground" />
+                        <span>{fName}</span>
                       </a>
                     );
                   })}
@@ -731,32 +751,36 @@ export default function EmployeeTicketUpdate() {
               onAddNote={handleAddInternalNote}
               isAdding={isAddingNote}
               userRole={user?.role}
-              disabledReason={ticket.reassignmentRequested ? 'Internal notes cannot be added while a reassignment request is pending.' : null}
+              disabledReason={
+                ticket.reassignmentRequested
+                  ? 'Internal notes cannot be added while a reassignment request is pending.'
+                  : null
+              }
             />
 
             {/* Work Logs */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4 flex items-center gap-2">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+              <h3 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                 Work Log
-                <span className="text-[9px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold uppercase border border-blue-200">Staff Only</span>
+                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold uppercase border border-primary/20">
+                  Staff Only
+                </span>
               </h3>
 
-              {/* Existing logs */}
               {savedWorkLogs.length > 0 && (
-                <div className="space-y-2 mb-4 max-h-44 overflow-y-auto">
+                <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
                   {savedWorkLogs.map((log, i) => (
-                    <div key={i} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                      <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
-                        <span className="font-bold text-[#252578]">{log.log_date}</span>
+                    <div key={i} className="bg-muted/40 border border-border rounded-lg p-3">
+                      <div className="flex justify-between items-center text-xs text-muted-foreground mb-1">
+                        <span className="font-bold text-primary">{log.log_date}</span>
                         <span>{log.hours_spent}h</span>
                       </div>
-                      <p className="text-sm text-gray-700">{log.task_description}</p>
+                      <p className="text-sm text-foreground">{log.task_description}</p>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Add work log form */}
               {!ticket.reassignmentRequested ? (
                 <form
                   onSubmit={async (e) => {
@@ -796,11 +820,13 @@ export default function EmployeeTicketUpdate() {
                     onChange={(e) => setWorkLogTask(e.target.value)}
                     rows={2}
                     disabled={isSavingLog}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50 resize-none"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2.5 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 resize-none"
                   />
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide block mb-1">Hours Spent</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider block mb-1">
+                        Hours Spent
+                      </label>
                       <input
                         type="number"
                         step="0.5"
@@ -810,68 +836,74 @@ export default function EmployeeTicketUpdate() {
                         value={workLogHours}
                         onChange={(e) => setWorkLogHours(e.target.value)}
                         disabled={isSavingLog}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
                       />
                     </div>
-                    <div className="flex-1">
-                      <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide block mb-1">Date</label>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider block mb-1">
+                        Date
+                      </label>
                       <input
                         type="date"
                         value={workLogDate}
                         onChange={(e) => setWorkLogDate(e.target.value)}
                         disabled={isSavingLog}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/20 disabled:opacity-50"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
                       />
                     </div>
                   </div>
-                  {workLogError && <p className="text-xs text-red-600 font-semibold">{workLogError}</p>}
-                  {workLogSuccess && <p className="text-xs text-green-600 font-semibold">{workLogSuccess}</p>}
-                  <button
+                  {workLogError && <p className="text-xs text-destructive font-semibold">{workLogError}</p>}
+                  {workLogSuccess && <p className="text-xs text-emerald-600 font-semibold">{workLogSuccess}</p>}
+                  <Button
                     type="submit"
                     disabled={isSavingLog}
-                    className="px-4 py-2.5 bg-[#252578] hover:bg-[#1a1a5c] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 w-full"
+                    className="w-full"
                   >
-                    {isSavingLog ? 'Saving...' : 'Save Work Log'}
-                  </button>
+                    {isSavingLog ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Work Log'
+                    )}
+                  </Button>
                 </form>
               ) : (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-xl font-medium">
+                <p className="text-xs text-warning bg-warning/10 border border-warning/20 p-2.5 rounded-lg font-medium">
                   Work logs cannot be submitted while a reassignment request is pending.
                 </p>
               )}
             </div>
 
             {/* Ticket Timeline */}
-            <div className="bg-white rounded-xl shadow-md p-6">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
                   Ticket Timeline &amp; History
                 </h3>
-                <button
+                <Button
                   type="button"
-                  onClick={() => setTimelineSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252578]/5 hover:bg-[#252578]/10 border border-[#252578]/10 rounded-xl text-xs font-bold text-[#252578] transition-colors"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTimelineSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                  className="gap-1.5 text-xs text-primary"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
-                  </svg>
-                  {timelineSortOrder === 'asc' ? 'Showing: Oldest First' : 'Showing: Newest First'}
-                </button>
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  {timelineSortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
+                </Button>
               </div>
-              <div className="relative pl-6 space-y-4 border-l border-gray-200 ml-3 py-1.5">
+              <div className="relative pl-6 space-y-4 border-l border-border ml-3 py-1.5">
                 {sortedTimelineEvents.map((evt, idx) => (
                   <div key={evt.id || idx} className="relative text-sm">
-                    <div className="absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#252578] shadow" />
-                    <div className="flex justify-between items-center text-[10px] text-gray-400 mb-0.5">
-                      <span className="font-bold text-[#252578] uppercase text-[9px] tracking-wide">
+                    <div className="absolute -left-[31px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-card bg-primary" />
+                    <div className="flex justify-between items-center text-xs text-muted-foreground mb-1">
+                      <span className="font-bold text-primary uppercase text-[10px] tracking-wider">
                         {evt.type === 'system' ? 'System' : evt.type || 'Update'}
                       </span>
                       <span>{formatDisplayDate(evt.timestamp)}</span>
                     </div>
-                    <p
-                      className="text-gray-700 leading-relaxed font-medium bg-gray-50/50 p-2 rounded-lg border border-gray-100/50 break-words whitespace-pre-wrap max-w-full overflow-hidden"
-                      style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-                    >
+                    <p className="text-foreground leading-relaxed font-normal bg-muted/30 p-2.5 rounded-lg border border-border break-words whitespace-pre-wrap">
                       {evt.text}
                     </p>
                   </div>
@@ -881,6 +913,18 @@ export default function EmployeeTicketUpdate() {
           </div>
         </>
       )}
+
+      {/* Confirmation Modal for status change */}
+      <ConfirmationModal
+        open={showStatusConfirm}
+        onOpenChange={setShowStatusConfirm}
+        title="Confirm Status Change"
+        description={`Are you sure you want to change the status from "${ticket.status}" to "${statusDraft}"?`}
+        confirmLabel={isSaving ? 'Saving...' : 'Yes, Save Changes'}
+        cancelLabel="Cancel"
+        onConfirm={handleStatusSave}
+        isDestructive={false}
+      />
 
       {showProofModal && (
         <ProofCompletionModal
@@ -896,7 +940,7 @@ export default function EmployeeTicketUpdate() {
         <ReassignmentModal
           ticket={ticket}
           onClose={() => setShowReassignModal(false)}
-          onReassignSuccess={(id) => {
+          onReassignSuccess={() => {
             setTicket((prev) => ({
               ...prev,
               reassignmentRequested: true,

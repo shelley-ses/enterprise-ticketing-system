@@ -7,6 +7,12 @@ use Tests\TestCase;
 
 class EmployeeEligibilityTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutMiddleware();
+    }
+
     /**
      * Test: GET /api/tickets/{ticketId}/eligible-employees proxies to employee-service and returns categorized tracks (TS110).
      */

@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter, RotateCcw, X } from 'lucide-react';
-import actionIcon from '@/assets/action.png';
+import { Search, RotateCcw, SlidersHorizontal, Loader2 } from 'lucide-react';
 import Pagination from '@/components/Pagination';
-import SkeletonLoader from '@/components/SkeletonLoader';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { DataTableSkeleton, DataTableEmptyState } from '@/components/ui/data-table';
 import { ticketBroadcast } from '@/services/ticketBroadcast';
 import {
   getCSIncomingTickets,
@@ -616,379 +619,294 @@ export default function CSIncoming() {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-3xl font-bold text-[#252578]">Incoming Tickets</h1>
-          <div className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white shrink-0">
+    <div className="space-y-6">
+      <PageHeader
+        title="Incoming Tickets"
+        subtitle="Triage and assign new support tickets"
+        actions={
+          <div className="flex border border-border rounded-lg overflow-hidden bg-card shrink-0">
             {['all', 'external', 'internal'].map((type) => (
               <button
                 key={type}
                 type="button"
                 onClick={() => setTypeFilter(type)}
-                className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
                   typeFilter === type
-                    ? 'bg-[#252578] text-white'
-                    : 'bg-white hover:bg-gray-55 text-gray-600'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card hover:bg-muted text-muted-foreground'
                 }`}
               >
                 {type}
               </button>
             ))}
           </div>
-        </div>
-        <p className="text-gray-500 mt-1">Triage and assign new support tickets</p>
-      </div>
+        }
+      />
 
       {error && (
-        <div className="rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm">{error}</div>
+        <div className="rounded-lg bg-destructive/10 text-destructive border border-destructive/20 px-4 py-3 text-sm font-medium">
+          {error}
+        </div>
       )}
 
-
-
-      {loading ? (
-        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm p-8">
-          <table className="w-full">
-            <tbody>
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-              <SkeletonLoader variant="table-row" />
-            </tbody>
-          </table>
+      {/* Filter toolbar */}
+      <div className="w-full space-y-3 shrink-0">
+        <div className="relative w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by ID, customer, keyword..."
+            className="w-full rounded-lg border border-border bg-card pl-9 pr-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          />
         </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm w-full shrink-0">
-            <div className="flex flex-wrap items-center gap-3 w-full">
-              {/* Ticket ID & Keyword Search Field */}
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  value={search}
-                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  placeholder="Search by ticket ID, customer, type, title, category, status, date..."
-                  className="w-full pl-10 pr-9 py-2.5 text-xs sm:text-sm rounded-xl border border-gray-200 bg-gray-50/50 outline-none focus:ring-2 focus:ring-[#252578] focus:bg-white transition-all"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => { setSearch(''); setPage(1); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Customer Dropdown */}
-              <select
-                value={customerFilter}
-                onChange={(e) => { setCustomerFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {customers.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-
-              {/* Machine Dropdown */}
-              <select
-                value={machineFilter}
-                onChange={(e) => { setMachineFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {machines.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-
-              {/* Status Dropdown */}
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {statuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-
-              {/* Department Dropdown */}
-              <select
-                value={departmentFilter}
-                onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
-                className="w-full sm:w-auto shrink-0 rounded-xl border border-gray-200 px-3 py-2.5 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-[#252578] bg-white cursor-pointer"
-              >
-                {departmentOptions.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Active Filter Chips & Reset All Action */}
-            {hasActiveFilters && (
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 mr-1 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5 text-[#252578]" /> Active Filters:
-                </span>
-
-                {search && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Search: &quot;{search}&quot;
-                    <button type="button" onClick={() => clearFilter('search')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {customerFilter !== 'All Customers' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Customer: {customerFilter}
-                    <button type="button" onClick={() => clearFilter('customer')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {machineFilter !== 'All Machines' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Machine: {machineFilter}
-                    <button type="button" onClick={() => clearFilter('machine')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {statusFilter !== 'All Statuses' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Status: {statusFilter}
-                    <button type="button" onClick={() => clearFilter('status')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {departmentFilter !== 'All Departments' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
-                    Dept: {departmentFilter}
-                    <button type="button" onClick={() => clearFilter('department')} className="hover:text-blue-950 cursor-pointer">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="inline-flex items-center gap-1.5 ml-auto px-3 py-1 text-xs font-semibold text-gray-600 hover:text-red-700 bg-gray-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3" /> Reset all filters
-                </button>
-              </div>
-            )}
-          </div>
-
-      {/* Table */}
-      <div className="bg-white/70 backdrop-blur-lg rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] p-6">
-
-        {/* Incoming Tabs */}
-        <div className="flex border-b border-gray-100 mb-6 gap-2">
-          <button
-            type="button"
-            onClick={() => { setIncomingTab('open'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
-              incomingTab === 'open'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            Open / Unassigned
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              incomingTab === 'open' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.open}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setIncomingTab('pending_assignment'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
-              incomingTab === 'pending_assignment'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            <option value="All Statuses">All Statuses</option>
+            {(csFilterOptions.statuses?.length > 0
+              ? csFilterOptions.statuses.map((s) => s.status_name || s.name || s)
+              : ['Open', 'In Progress', 'Pending Assignment', 'Resolved', 'Closed', 'On Hold', 'Reopened', 'Pending Evaluation']
+            ).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          <select
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            Pending Assignment
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              incomingTab === 'pending_assignment' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.pending}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setIncomingTab('all'); setPage(1); }}
-            className={`pb-3 px-4 text-sm font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
-              incomingTab === 'all'
-                ? 'border-[#252578] text-[#252578]'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            <option value="All Departments">All Departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+
+          <select
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            All Incoming
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-              incomingTab === 'all' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {counts.all}
-            </span>
-          </button>
+            {machines.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          >
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <select
+            value={assignmentFilter}
+            onChange={(e) => setAssignmentFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          >
+            <option value="All">All Assignments</option>
+            <option value="Pending Assignment">Pending Assignment</option>
+            <option value="Pending Reassign">Pending Reassign</option>
+            <option value="Pending Evaluation">Pending Evaluation</option>
+          </select>
+
+          {(search || category !== 'All Categories' || machineFilter !== 'All Machines' || departmentFilter !== 'All Departments' || statusFilter !== 'All Statuses' || assignmentFilter !== 'All' || typeFilter !== 'all') && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={resetFilters}
+              className="gap-1.5 text-xs text-muted-foreground hover:text-destructive shrink-0"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </Button>
+          )}
         </div>
+      </div>
 
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-semibold text-[#252578]">
-            {incomingTab === 'open' ? 'Open Tickets' : incomingTab === 'pending_assignment' ? 'Pending Assignment Tickets' : 'All Incoming Tickets'}
-          </h2>
-          <div className="text-sm text-gray-500">{filtered.length} tickets</div>
-        </div>
+      {/* Tabs */}
+      <div className="flex border-b border-border gap-2">
+        <button
+          type="button"
+          onClick={() => { setIncomingTab('open'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            incomingTab === 'open'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Open / Unassigned</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            incomingTab === 'open' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.open}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setIncomingTab('pending_assignment'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            incomingTab === 'pending_assignment'
+              ? 'border-accent text-accent'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>Pending Assignment</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            incomingTab === 'pending_assignment' ? 'bg-accent/15 text-accent' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.pending}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setIncomingTab('all'); setPage(1); }}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+            incomingTab === 'all'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+          }`}
+        >
+          <span>All Incoming</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            incomingTab === 'all' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {counts.all}
+          </span>
+        </button>
+      </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-left">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-5 py-4">Ticket ID</th>
-                <th className="px-5 py-4">Customer</th>
-                <th className="px-5 py-4">Type</th>
-                <th className="px-5 py-4">Title</th>
-                <th className="px-5 py-4">Category</th>
-                <th className="px-5 py-4">Status</th>
-                <th className="px-5 py-4">Date Submitted</th>
-                <th className="px-5 py-4 text-center">Action</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-gray-100 text-gray-700">
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-500">
-                    <div className="max-w-sm mx-auto space-y-2">
-                      <p className="font-semibold text-gray-700">No tickets match your search or filter criteria.</p>
-                      <p className="text-xs text-gray-500">Try adjusting your filters or resetting them to view the full queue.</p>
-                      <button
-                        type="button"
-                        onClick={resetFilters}
-                        className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-[#252578] bg-blue-50 hover:bg-blue-100 rounded-xl transition cursor-pointer"
-                      >
-                        <RotateCcw size={12} /> Reset all filters
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {paginated.map((t, idx) => {
+      {/* Table Card */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[140px]">Ticket ID</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-[150px]">Date Submitted</TableHead>
+              <TableHead className="w-[80px] text-center">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <DataTableSkeleton columns={8} rows={6} />
+            ) : filtered.length === 0 ? (
+              <DataTableEmptyState
+                colSpan={8}
+                message="No tickets match your search or filter criteria. Try adjusting your filters or resetting them to view the full queue."
+              />
+            ) : (
+              paginated.map((t, idx) => {
                 const isNew = t.id === newTicketId || t.ticket_ID === newTicketId;
+                const isInternalTicket =
+                  t.title?.startsWith('[Internal]') ||
+                  t.is_internal ||
+                  t.ticket_type === 'Internal' ||
+                  t.type === 'Internal';
+
                 return (
-                  <tr
+                  <TableRow
                     key={t.id}
                     onClick={() => handleRowAction(t)}
-                    className={`cursor-pointer ${
-                      isNew ? 'animate-new-pulse' : (idx === 0 && page === 1 ? 'bg-blue-50' : 'hover:bg-gray-50')
-                    } transition-all`}
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                      isNew ? 'bg-primary/5' : idx === 0 && page === 1 ? 'bg-muted/20' : ''
+                    }`}
                   >
-                    <td className="py-4 px-4 font-medium">
-                      <div className="flex flex-col gap-0.5">
+                    <TableCell className="font-semibold text-primary whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-[#252578]">{t.id}</span>
+                          <span>{t.id}</span>
                           {isNew && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-green-100 text-green-800 text-xs font-semibold animate-bounce shrink-0">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                               New
                             </span>
                           )}
                         </div>
                         {t.reassignmentRequested && (
-                          <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 shrink-0 w-max">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/15 text-warning w-fit">
                             Pending Reassignment
                           </span>
                         )}
                       </div>
-                    </td>
-                  <td className="py-4 px-4 text-gray-600">{t.customer}</td>
-                  <td className="py-4 px-4">
-                    <span
-                      className={`inline-flex whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        (t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal')
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      {(t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal') ? 'Internal' : 'External'}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-gray-700">
-                    <span className="font-semibold break-words whitespace-normal">{t.title}</span>
-                  </td>
-                  <td className="py-4 px-4">
-                    <span className="inline-flex whitespace-nowrap px-3 py-1 bg-gray-100 rounded-full text-xs">{t.category}</span>
-                  </td>
-                  <td className="py-4 px-4">
-                    <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                       getDisplayStatus(t) === 'Pending Evaluation' ? 'bg-purple-100 text-purple-700' :
-                       t.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                       getDisplayStatus(t) === 'In Progress' ? 'bg-blue-100 text-blue-700' :
-                       getDisplayStatus(t) === 'Pending Assignment' ? 'bg-amber-100 text-amber-700' :
-                       getDisplayStatus(t) === 'Resolved' ? 'bg-green-100 text-green-700' :
-                       getDisplayStatus(t) === 'Closed' ? 'bg-gray-100 text-gray-700' :
-                       getDisplayStatus(t) === 'Escalated' ? 'bg-red-100 text-red-700' :
-                       (getDisplayStatus(t) === 'Reopened' || getDisplayStatus(t) === 'Reopen') ? 'bg-red-100 text-red-700 border border-red-200 font-bold' :
-                       'bg-gray-100 text-gray-700'
-                     }`}>{getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}</span>
-                  </td>
-                  {/* <td className="py-4 px-4">
-                    <span className={`inline-flex whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold ${
-                      t.sla === 'Breached' ? 'bg-red-100 text-red-700' :
-                      t.sla === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-green-100 text-green-700'
-                    }`}>{t.sla}</span>
-                  </td> */}
-                  <td className="py-4 px-4 text-gray-500">{formatDisplayDate(t.date || t.created_at)}</td>
-                  <td className="py-4 px-4 text-center">
-                    <button
-                      onClick={() => handleRowAction(t)}
-                      className="p-2 rounded-xl hover:bg-gray-105 transition-all"
-                    >
-                      <img src={actionIcon} alt="action" className="w-5 h-5 opacity-70" />
-                    </button>
-                  </td>
-                </tr>
-              );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground truncate max-w-[12rem]">
+                      {t.customer}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={isInternalTicket ? 'secondary' : 'outline'}>
+                        {isInternalTicket ? 'Internal' : 'External'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium text-foreground max-w-[18rem] truncate">
+                      {t.title}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {t.category}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusBadgeVariant(getDisplayStatus(t))}>
+                        {getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDisplayDate(t.date || t.created_at)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRowAction(t);
+                        }}
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        aria-label="Manage ticket"
+                      >
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
 
-        {/* Pagination */}
-        <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Showing{' '}
-            {filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1}
-            {' '}-{' '}
-            {Math.min(page * ITEMS_PER_PAGE, filtered.length)}
-            {' '}of {filtered.length}
+        {!loading && filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              Showing {(page - 1) * ITEMS_PER_PAGE + 1} -{' '}
+              {Math.min(page * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} tickets
+            </div>
+            <Pagination
+              totalItems={filtered.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              currentPage={page}
+              onPageChange={(p) => setPage(p)}
+            />
           </div>
-          <Pagination
-            totalItems={filtered.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            currentPage={page}
-            onPageChange={(p) => setPage(p)}
-          />
-        </div>
+        )}
       </div>
-        </>
-      )}
 
       {/* Modals */}
       {modalLoading && (
-        <SkeletonLoader variant="modal" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 max-w-xs w-full mx-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-semibold text-foreground">Loading ticket details...</p>
+          </div>
+        </div>
       )}
       {!modalLoading && modal?.mode === 'summary' && (
         <TicketSummary

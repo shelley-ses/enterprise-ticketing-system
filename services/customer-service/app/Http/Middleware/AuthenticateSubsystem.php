@@ -19,9 +19,15 @@ class AuthenticateSubsystem
     public function handle(Request $request, Closure $next)
     {
         // 1. Try to authenticate as Employee using central JWT
+        $token = null;
         $authHeader = $request->header('Authorization');
         if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
             $token = substr($authHeader, 7);
+        } elseif ($request->cookie('access_token')) {
+            $token = $request->cookie('access_token');
+        }
+
+        if ($token) {
             $parts = explode('.', $token);
             if (count($parts) === 3 || (app()->environment('local') && $token === 'frontend-dev-token')) {
                 try {

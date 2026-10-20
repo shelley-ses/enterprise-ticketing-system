@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, LogOut, User, Bell } from 'lucide-react';
+import { Home, User, Bell, PanelLeft, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { getNotifications, markNotificationRead, markNotificationsRead, getTicketDetails, getAssignableEmployees, getDepartments, respondReassignment } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -14,7 +14,7 @@ export default function Header({ sidebarHovered }) {
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
@@ -219,52 +219,71 @@ export default function Header({ sidebarHovered }) {
     }
   };
 
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  const handleLogoutClick = () => {
-    setDropdownOpen(false);
-    setShowLogoutModal(true);
-  };
-
-  const confirmLogout = async () => {
-    setLoggingOut(true);
-    try {
-      const isCustomer = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
-      await logout();
-      const redirectUrl = isCustomer ? '/customer' : '/';
-      window.location.replace(redirectUrl);
-    } catch (err) {
-      console.error('Logout failed:', err);
-      setLoggingOut(false);
-      setShowLogoutModal(false);
-    }
+  const getPageTitle = () => {
+    const p = location.pathname.toLowerCase();
+    if (p.includes('/dashboard')) return 'Dashboard';
+    if (p.includes('/create-ticket')) return 'Create Ticket';
+    if (p.includes('/my-tickets')) return 'My Tickets';
+    if (p.includes('/history')) return 'History';
+    if (p.includes('/messages')) return 'Messages';
+    if (p.includes('/profile')) return 'My Profile';
+    if (p.includes('/notifications')) return 'Notifications';
+    if (p.includes('/incoming')) return 'Incoming Queue';
+    if (p.includes('/assigned')) return 'Assigned Tickets';
+    if (p.includes('/machine')) return 'Equipment & Machines';
+    if (p.includes('/progress')) return 'Progress Tracking';
+    if (p.includes('/ticket-update')) return 'Ticket Update';
+    if (p.includes('/ticket-config')) return 'Ticket Configuration';
+    if (p.includes('/audit-logs')) return 'Audit Logs';
+    if (p.includes('/knowledge-base')) return 'AI Knowledge Base';
+    if (p.includes('/settings')) return 'Settings';
+    if (p.includes('/employees')) return 'Employee Directory';
+    if (p.includes('/reports')) return 'Reports & Analytics';
+    if (p.includes('/ai-support')) return 'AI Support Assistant';
+    return 'Ticketing System';
   };
 
   const userInitial = user?.name?.charAt(0)?.toUpperCase() || 'U';
 
-    return (
+  return (
     <>
       {systemStatus === 'Under Maintenance' && (
         <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-500 text-white text-[11px] font-semibold px-4 py-1 flex items-center justify-center gap-2 shadow-sm text-center">
           <span>⚠ System Notice: Platform is currently in Maintenance Mode. Non-admin operations may be restricted.</span>
         </div>
       )}
-      <header className={`fixed ${systemStatus === 'Under Maintenance' ? 'top-6' : 'top-0'} left-0 w-full bg-white/80 backdrop-blur-md border-b border-gray-200 z-30 px-6 py-4 flex items-center justify-between shadow-sm transition-all`}>
-        <div className="hidden sm:block w-20 shrink-0" aria-hidden="true" />
+      <header className={`fixed ${systemStatus === 'Under Maintenance' ? 'top-6' : 'top-0'} left-0 w-full bg-white/90 backdrop-blur-md border-b border-slate-200 z-30 px-6 py-3.5 flex items-center justify-between shadow-sm transition-all font-sans`}>
+        {/* Left Section (DESIGN.md Section VI.2) */}
+        <div className="flex items-center gap-4 sm:ml-20 ml-12">
+          <button
+            type="button"
+            className="p-1.5 rounded-lg text-dark-slate hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label="Toggle navigation"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('toggle-sidebar'));
+            }}
+          >
+            <PanelLeft size={20} className="text-dark-slate" />
+          </button>
+          <div className="h-6 w-px bg-slate-200" aria-hidden="true" />
+          <h1 className="text-lg md:text-xl font-bold text-dark-slate tracking-tight">
+            {getPageTitle()}
+          </h1>
+        </div>
 
-        <div className="flex items-center gap-6">
+        {/* Right Section (DESIGN.md Section VI.2) */}
+        <div className="flex items-center gap-4">
           <div className="relative flex items-center gap-3">
             <button
               data-notification-trigger="true"
               onClick={handleBellClick}
-              className="relative p-2 text-[#252578] hover:bg-gray-100 rounded-full transition-colors"
+              className="relative p-2 text-dark-slate hover:bg-slate-100 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label={`Notifications${notificationCount > 0 ? ` (${notificationCount} unread)` : ''}`}
               aria-expanded={notificationDropdownOpen}
             >
               <Bell size={20} />
               {notificationCount > 0 && (
-                <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-semibold shadow-sm">
+                <span className="absolute top-0 right-0 min-w-[1.25rem] h-5 px-1 bg-accent text-white rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold shadow-sm">
                   {notificationCount}
                 </span>
               )}
@@ -282,47 +301,41 @@ export default function Header({ sidebarHovered }) {
               />
             )}
 
+            <div className="h-6 w-px bg-slate-200" aria-hidden="true" />
+
+            {/* User Profile Card (Dropdown Trigger) */}
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-slate-100/80 transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <div className="w-8 h-8 rounded-full bg-[#252578] text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-[#A7A7C8] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-sm">
                 {userInitial}
               </div>
-              <div className="flex flex-col items-start leading-none">
-                <span className="text-sm font-medium text-[#252578]">{user?.name || 'User'}</span>
-                <span className="text-xs text-gray-500 capitalize">{user?.role || ''}</span>
+              <div className="flex flex-col items-start leading-tight text-left">
+                <span className="text-sm font-semibold text-dark-slate">{user?.name || 'User'}</span>
+                <span className="text-xs text-muted-slate capitalize">{user?.role || ''}</span>
               </div>
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
+              <ChevronDown className="w-4 h-4 text-muted-slate ml-1" />
             </button>
 
             {dropdownOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-xl shadow-xl py-2 z-50">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-surface border border-slate-100 rounded-xl shadow-md py-1.5 z-50 animate-fade-slide-in">
                   <button
                     onClick={() => { setDropdownOpen(false); navigate(`${basePath}/profile`); }}
-                    className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors cursor-pointer"
+                    className="flex items-center w-full px-4 py-2.5 hover:bg-slate-50 text-dark-slate text-sm font-medium transition-colors cursor-pointer"
                   >
-                    <User size={16} className="mr-2.5" /> My Profile
+                    <User size={16} className="mr-2.5 text-muted-slate" /> My Profile
                   </button>
                   {import.meta.env.VITE_APP_MODE !== 'customer' && (
                     <button
                       onClick={() => window.location.href = '/'}
-                      className="flex items-center w-full px-4 py-2.5 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors cursor-pointer"
+                      className="flex items-center w-full px-4 py-2.5 hover:bg-slate-50 text-dark-slate text-sm font-medium transition-colors cursor-pointer"
                     >
-                      <Home size={16} className="mr-2.5" /> Home
+                      <Home size={16} className="mr-2.5 text-muted-slate" /> Back to Home
                     </button>
                   )}
-                  <div className="h-px bg-gray-100 my-1" />
-                  <button
-                    onClick={handleLogoutClick}
-                    className="flex items-center w-full px-4 py-2.5 hover:bg-red-50 text-red-600 text-sm font-medium transition-colors cursor-pointer"
-                  >
-                    <LogOut size={16} className="mr-2.5" /> Logout
-                  </button>
                 </div>
               </>
             )}
@@ -363,48 +376,6 @@ export default function Header({ sidebarHovered }) {
           <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs w-full mx-4 border border-gray-100">
             <div className="w-10 h-10 border-4 border-[#252578]/10 border-t-[#252578] rounded-full animate-spin" />
             <p className="text-sm font-semibold text-[#252578]">Loading ticket...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Logout Confirmation Modal */}
-      {showLogoutModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-100 flex flex-col gap-4 text-center">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
-              <LogOut size={24} />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-800">Confirm Logout</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Are you sure you want to log out of your account?
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-3 mt-2">
-              <button
-                type="button"
-                onClick={() => setShowLogoutModal(false)}
-                disabled={loggingOut}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmLogout}
-                disabled={loggingOut}
-                className="px-5 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-2"
-              >
-                {loggingOut ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    Logging out...
-                  </>
-                ) : (
-                  'Logout'
-                )}
-              </button>
-            </div>
           </div>
         </div>
       )}

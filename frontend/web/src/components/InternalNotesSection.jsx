@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Lock, ShieldAlert, AlertCircle, X, Clock } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock, ShieldAlert, AlertCircle, X, Clock } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { validateNoteText, NOTE_MAX_LENGTH } from '@/utils/noteValidation';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 const TRUNCATE_CHAR_LIMIT = 350;
 
@@ -35,28 +37,28 @@ export function NoteItem({
 
   return (
     <div
-      className={`bg-white border rounded-xl p-3.5 shadow-xs leading-relaxed min-w-0 max-w-full overflow-hidden transition-all ${
+      className={`bg-card border rounded-xl p-3 shadow-xs text-field-value leading-relaxed min-w-0 max-w-full overflow-hidden font-sans transition-all ${
         isOptimistic
-          ? 'border-blue-200 bg-blue-50/40 opacity-80'
-          : 'border-slate-150 hover:border-slate-250'
+          ? 'border-accent/40 bg-accent/5 opacity-80'
+          : 'border-border'
       } ${className}`}
     >
-      <div className="flex flex-wrap justify-between items-center gap-1.5 text-xs text-gray-400 mb-1.5">
+      <div className="flex flex-wrap justify-between items-center gap-1.5 text-timestamp text-muted-slate mb-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-[#252578]">{author || 'Staff Member'}</span>
-          <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full border border-slate-200 tracking-wide uppercase">
+          <span className="text-badge text-primary font-semibold">{author || 'Staff Member'}</span>
+          <span className="text-[10px] bg-muted/60 text-muted-foreground font-semibold px-2 py-0.5 rounded-full border border-border tracking-wide uppercase">
             {displayRole}
           </span>
           {isOptimistic && (
-            <span className="text-[10px] bg-blue-100 text-blue-700 font-semibold px-1.5 py-0.2 rounded animate-pulse inline-flex items-center gap-1">
+            <span className="text-[10px] bg-accent/10 text-accent font-semibold px-1.5 py-0.5 rounded animate-pulse inline-flex items-center gap-1">
               <Clock size={10} /> Sending...
             </span>
           )}
         </div>
-        <span className="text-[11px] text-gray-400">{formatDisplayDate(timestamp)}</span>
+        <span className="text-timestamp">{formatDisplayDate(timestamp)}</span>
       </div>
       <p
-        className="text-xs text-gray-800 break-words whitespace-pre-wrap max-w-full overflow-hidden leading-relaxed"
+        className="text-field-value text-dark-slate break-words whitespace-pre-wrap max-w-full overflow-hidden"
         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
       >
         {displayText}
@@ -65,7 +67,7 @@ export function NoteItem({
         <button
           type="button"
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="text-xs text-[#252578] hover:underline font-semibold mt-1 inline-block cursor-pointer"
+          className="text-xs text-primary hover:text-accent font-semibold mt-1 inline-block cursor-pointer transition-colors"
         >
           {isExpanded ? 'Show less' : 'Show more'}
         </button>
@@ -95,8 +97,8 @@ export function NoteList({
 
   if (!sortedNotes || sortedNotes.length === 0) {
     return (
-      <div className="py-4 text-center bg-white/60 rounded-xl border border-dashed border-slate-200">
-        <p className="text-xs text-gray-400 italic">{emptyMessage}</p>
+      <div className="py-3 text-center bg-muted/30 rounded-xl border border-dashed border-border">
+        <p className="text-xs text-muted-slate italic">{emptyMessage}</p>
       </div>
     );
   }
@@ -199,29 +201,29 @@ export default function InternalNotesSection({
     <div
       role="region"
       aria-label="Staff-Only Internal Notes"
-      className="border-2 border-slate-200/90 rounded-2xl p-5 bg-gradient-to-b from-slate-50/80 to-slate-100/50 space-y-4 text-left shadow-xs transition-all"
+      className="border border-border rounded-xl p-5 bg-slate-50/50 space-y-4 text-left font-sans"
     >
-      {/* Visually Distinct Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-slate-700 shrink-0">
-            <Lock size={14} className="text-slate-800" />
+          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center text-dark-slate shrink-0">
+            <Lock size={14} className="text-dark-slate" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+            <h4 className="text-field-label uppercase text-dark-slate flex items-center gap-1.5 font-bold">
               <span>{title}</span>
               {badgeText && (
-                <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold uppercase border border-amber-300">
+                <Badge variant="destructive" className="uppercase text-[10px]">
                   {badgeText}
-                </span>
+                </Badge>
               )}
             </h4>
             {subtitle && (
-              <p className="text-[11px] text-slate-500 font-medium">{subtitle}</p>
+              <p className="text-timestamp text-muted-slate italic">{subtitle}</p>
             )}
           </div>
         </div>
-        <span className="text-[11px] text-slate-500 font-mono bg-white/80 px-2 py-0.5 rounded-md border border-slate-200">
+        <span className="text-[11px] text-muted-slate font-mono bg-card px-2 py-0.5 rounded-md border border-border">
           {notes.length} {notes.length === 1 ? 'note' : 'notes'}
         </span>
       </div>
@@ -248,7 +250,7 @@ export default function InternalNotesSection({
           <button
             type="button"
             onClick={() => setSubmitError('')}
-            className="text-red-400 hover:text-red-600 p-0.5"
+            className="text-red-400 hover:text-red-600 p-0.5 cursor-pointer"
             aria-label="Dismiss error"
           >
             <X size={14} />
@@ -264,7 +266,7 @@ export default function InternalNotesSection({
             <span>{disabledReason}</span>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-2 pt-2 border-t border-slate-200/70">
+          <form onSubmit={handleSubmit} className="space-y-2 pt-1 border-t border-border">
             <div className="relative">
               <label htmlFor="internal-note-input" className="sr-only">
                 Write an internal note
@@ -273,43 +275,43 @@ export default function InternalNotesSection({
                 id="internal-note-input"
                 rows={2}
                 maxLength={NOTE_MAX_LENGTH}
-                placeholder="Write a private internal note for technicians and staff..."
+                placeholder="Write an internal note..."
                 value={noteText}
                 disabled={isAdding}
                 onChange={handleTextChange}
-                className="w-full text-xs border border-slate-300 rounded-xl p-3 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-[#252578]/25 focus:border-[#252578] disabled:opacity-50 resize-y min-h-[56px] transition shadow-xs"
+                className="w-full text-xs border border-border rounded-xl p-2.5 bg-card text-dark-slate outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent disabled:opacity-50 resize-y min-h-[44px]"
               />
             </div>
 
-            {/* Character Limit and Counter */}
-            <div className="flex justify-between items-center text-[11px] text-slate-500 px-0.5">
-              <span>Private to internal staff</span>
+            {/* Always-visible maximum character limit indication & live counter */}
+            <div className="flex justify-between items-center text-[11px] text-muted-slate px-0.5">
+              <span className="font-medium text-muted-slate">Max {NOTE_MAX_LENGTH.toLocaleString()} characters</span>
               <span
                 className={
                   validation.isOverLimit
-                    ? 'text-red-600 font-bold'
+                    ? 'text-red-500 font-bold'
                     : validation.charsRemaining <= 100
-                    ? 'text-amber-700 font-semibold'
-                    : 'text-slate-400'
+                    ? 'text-amber-600 font-semibold'
+                    : 'text-muted-slate'
                 }
               >
-                {noteText.length} / {NOTE_MAX_LENGTH.toLocaleString()} chars
+                {noteText.length} / {NOTE_MAX_LENGTH.toLocaleString()}
               </span>
             </div>
 
             {/* Inline Soft Gibberish Warning */}
             {validation.warning && (
-              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-xs text-amber-800">
-                <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-xs text-amber-800 animate-fadeIn">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div className="flex-1 leading-snug">
                   <p className="font-semibold">{validation.warning}</p>
                   {warnPending ? (
                     <p className="text-[11px] text-amber-700 mt-0.5">
-                      Click &ldquo;Submit Anyway&rdquo; to confirm, or edit your note.
+                      Click &ldquo;Add Note&rdquo; again to submit anyway, or review your note above.
                     </p>
                   ) : (
                     <p className="text-[11px] text-amber-600 mt-0.5">
-                      Please ensure your note provides useful technical context.
+                      Please double-check before submitting.
                     </p>
                   )}
                 </div>
@@ -317,27 +319,36 @@ export default function InternalNotesSection({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="flex items-center justify-end gap-2">
               {warnPending && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setWarnPending(false)}
-                  className="px-3 py-1.5 text-xs border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl transition font-medium cursor-pointer"
+                  className="cursor-pointer"
                 >
                   Review Note
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="submit"
+                size="sm"
                 disabled={isAdding || !noteText.trim() || validation.isOverLimit}
-                className={`px-4 py-2 text-white text-xs font-semibold rounded-xl shrink-0 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                  warnPending
-                    ? 'bg-amber-600 hover:bg-amber-700'
-                    : 'bg-[#252578] hover:bg-[#1a1a5c]'
-                }`}
+                variant={warnPending ? 'warning' : 'default'}
+                className="cursor-pointer"
               >
-                {isAdding ? 'Saving Note...' : warnPending ? 'Submit Anyway' : 'Add Internal Note'}
-              </button>
+                {isAdding ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Adding...
+                  </>
+                ) : warnPending ? (
+                  'Submit Anyway'
+                ) : (
+                  'Add Note'
+                )}
+              </Button>
             </div>
           </form>
         )

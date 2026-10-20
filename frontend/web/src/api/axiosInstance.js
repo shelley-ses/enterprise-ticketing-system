@@ -96,8 +96,10 @@ axiosInstance.interceptors.response.use(
       }
 
       // Only clear session & dispatch logout if the request was to a core session endpoint
+      // and NOT in employee mode where Central SSO manages the user session
       const isCoreSessionUrl = requestUrl.includes('/me') || requestUrl.includes('/profile') || requestUrl.includes('/user');
-      if (isCoreSessionUrl) {
+      const isEmployeeMode = import.meta.env.VITE_APP_MODE === 'employee';
+      if (isCoreSessionUrl && !isEmployeeMode) {
         tokenStore.clearToken();
         localStorage.removeItem('user');
         if (typeof window !== 'undefined') {
