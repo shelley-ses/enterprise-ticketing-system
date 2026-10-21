@@ -36,5 +36,9 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-3.8-flash'),
     ],
 
+    'clamav' => [
+        'host' => env('CLAMAV_HOST', 'clamav'),
+        'port' => (int) env('CLAMAV_PORT', 3310),
+    ],
 
 ];
