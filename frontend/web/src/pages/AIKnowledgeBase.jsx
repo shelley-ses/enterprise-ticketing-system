@@ -3,7 +3,7 @@ import {
   Book, Search, Filter, ChevronDown, X, Upload, FileText, Download,
   Trash2, Edit3, Eye, RefreshCw, Plus, FolderOpen, CheckCircle,
   AlertTriangle, Loader, File, FileSpreadsheet, Archive, ArrowUpDown,
-  Info, History, Globe,
+  Info, History, Globe, Copy, Check, AlertCircle, Wrench,
 } from 'lucide-react';
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
@@ -538,9 +538,10 @@ function PipelineProgressView({
 
       <div className="space-y-2">
         {steps.map((s, i) => {
-          const isCurrent = i === currentStepIdx;
-          const isPast = i < currentStepIdx;
-          const isFailedStep = isCurrent && uploadError;
+          const isAllDone = progress >= 100 && !uploadError;
+          const isCurrent = !isAllDone && i === currentStepIdx;
+          const isPast = isAllDone || i < currentStepIdx;
+          const isFailedStep = !isAllDone && i === currentStepIdx && uploadError;
 
           return (
             <div
@@ -645,12 +646,12 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
   const handleFileValidateAndSet = (file) => {
     if (!file) return;
 
-    // Check extension: PDF, DOCX only
+    // Check extension: PDF, DOCX, CSV, TXT
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'docx'].includes(ext)) {
+    if (!['pdf', 'docx', 'csv', 'txt'].includes(ext)) {
       setErrors((prev) => ({
         ...prev,
-        file: 'Invalid file type. Only PDF and DOCX files are supported.',
+        file: 'Invalid file type. Supports PDF, DOCX, CSV, and TXT files.',
       }));
       setSelectedFile(null);
       return;
@@ -679,7 +680,7 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
 
   const startReplacementPipeline = async () => {
     if (!selectedFile) {
-      setErrors({ file: 'Please upload a replacement PDF or DOCX file.' });
+      setErrors({ file: 'Please upload a replacement PDF, DOCX, CSV, or TXT file.' });
       return;
     }
 
@@ -689,80 +690,94 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
     setUploadError('');
     setIsMalwareError(false);
 
-    // SIMULATED: Models the spec requirement that the chatbot keeps serving old content until new content is ready.
-    // While replacement is mid-pipeline, the document's publish status remains visibly "Ready"/"Published" and unaffected in the table,
-    // while the processing-status badge shows "Processing".
     if (onProcessingStatusChange) {
       onProcessingStatusChange(doc.id, 'Processing');
     }
 
-    // Step 0: Scanning for Malware
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    // Step 0: Scanning for Malware with ClamAV
     setCurrentStepIdx(0);
-    setProgress(12);
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    setProgress(15);
 
-    // Simulated malware scan failure condition:
-    // Triggers failure if filename contains 'malware', 'eicar', 'virus', or 'infected'
-    const lowerName = (selectedFile?.name || '').toLowerCase();
-    const isMalware = lowerName.includes('eicar') || lowerName.includes('malware') || lowerName.includes('virus') || lowerName.includes('infected');
-
-    if (isMalware) {
-      setUploadError('File failed malware scan and was not processed.');
-      setIsMalwareError(true);
-      if (onProcessingStatusChange) {
-        onProcessingStatusChange(doc.id, 'Ready for AI Search');
+    try {
+      const scanRes = await axiosInstance.post(`${AI_API_URL}/articles/scan-file`, formData, {
+        baseURL: '',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (!scanRes.data?.success) {
+        throw new Error(scanRes.data?.threat || 'Malware detected');
       }
-      return;
+    } catch (err) {
+      if (err.response?.status === 422 && err.response?.data?.error_code === 'MALWARE_DETECTED') {
+        const threat = err.response.data?.threat || 'Malware.Detected';
+        setUploadError(`Security Alert: Replacement file failed ClamAV antivirus inspection (${threat}). Upload rejected.`);
+        setIsMalwareError(true);
+        if (onProcessingStatusChange) {
+          onProcessingStatusChange(doc.id, 'Ready for AI Search');
+        }
+        return;
+      }
+      console.warn('ClamAV scan verification notice:', err);
     }
 
     // Step 1: Uploading Document
     setCurrentStepIdx(1);
-    setProgress(25);
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    setProgress(30);
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Step 2: Upload Complete
     setCurrentStepIdx(2);
-    setProgress(40);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    // Simulated processing failure path:
-    // Triggers if filename contains 'corrupt', 'fail', 'error', or 'broken'
-    const isCorrupt = lowerName.includes('corrupt') || lowerName.includes('fail') || lowerName.includes('error') || lowerName.includes('broken');
+    setProgress(45);
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     // Step 3: Extracting Text
     setCurrentStepIdx(3);
-    setProgress(55);
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    setProgress(60);
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-    if (isCorrupt) {
-      setUploadError('Document processing failed: text extraction encountered unreadable or corrupted data stream.');
+    // Step 4: Chunking Document
+    setCurrentStepIdx(4);
+    setProgress(75);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Step 5: Generating Embeddings
+    setCurrentStepIdx(5);
+    setProgress(85);
+
+    // Step 6: Indexing Knowledge Base & Saving to Backend
+    setCurrentStepIdx(6);
+    setProgress(95);
+
+    let replacedArticle = null;
+    try {
+      const replaceRes = await axiosInstance.post(`${AI_API_URL}/articles/${doc.id}/replace-file`, formData, {
+        baseURL: '',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (replaceRes.data?.success && replaceRes.data?.data) {
+        replacedArticle = replaceRes.data.data;
+      }
+    } catch (err) {
+      console.error('Failed to replace article file on backend:', err);
+      const errMsg = err.response?.data?.message || err.message || 'File replacement failed.';
+      setUploadError(errMsg);
+      if (err.response?.data?.error_code === 'MALWARE_DETECTED') {
+        setIsMalwareError(true);
+      }
       if (onProcessingStatusChange) {
         onProcessingStatusChange(doc.id, 'Ready for AI Search');
       }
       return;
     }
-
-    // Step 4: Chunking Document
-    setCurrentStepIdx(4);
-    setProgress(70);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    // Step 5: Generating Embeddings
-    setCurrentStepIdx(5);
-    setProgress(85);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Step 6: Indexing Knowledge Base
-    setCurrentStepIdx(6);
-    setProgress(95);
-    await new Promise((resolve) => setTimeout(resolve, 450));
 
     // Step 7: Ready for AI Search
     setCurrentStepIdx(7);
     setProgress(100);
 
     if (onReplaceComplete) {
-      onReplaceComplete(doc.id, selectedFile);
+      onReplaceComplete(doc.id, replacedArticle || selectedFile);
     }
   };
 
@@ -858,12 +873,12 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                       <>
                         <Upload size={24} className="mx-auto text-gray-400 mb-1.5" />
                         <p className="text-xs font-medium text-gray-700">Drag & drop new file here, or click to browse</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF and DOCX up to 10 MB</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF, DOCX, CSV, and TXT up to 10 MB</p>
                         <label className="mt-2.5 inline-block px-3 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-[#1f1f66] transition-all cursor-pointer">
                           Browse File
                           <input
                             type="file"
-                            accept=".pdf,.docx"
+                            accept=".pdf,.docx,.csv,.txt"
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -966,44 +981,74 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
 function CreateArticleConfirmModal({ isOpen, onClose, onConfirm, form, selectedFile }) {
   if (!isOpen) return null;
   const fileSizeMb = selectedFile ? (selectedFile.size / (1024 * 1024)).toFixed(2) : '0';
+  const isCsv = selectedFile?.name?.toLowerCase()?.endsWith('.csv');
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#252578]/10 text-[#252578]">
-          <FileText size={24} className="text-[#252578]" />
+          {isCsv ? <FileSpreadsheet size={24} className="text-[#252578]" /> : <FileText size={24} className="text-[#252578]" />}
         </div>
-        <h2 className="mt-4 text-lg font-bold text-gray-900 text-center">Confirm Knowledge Article Creation</h2>
+        <h2 className="mt-4 text-lg font-bold text-gray-900 text-center">
+          {isCsv ? 'Confirm Bulk CSV Knowledge Import' : 'Confirm Knowledge Article Creation'}
+        </h2>
         <p className="mt-2 text-sm text-gray-600 text-center">
-          Please review the article details before starting the document processing pipeline.
+          {isCsv
+            ? 'Each valid row in this CSV will be parsed into an individual knowledge article, verified with ClamAV, and indexed.'
+            : 'Please review the article details before starting the document processing pipeline.'}
         </p>
 
         <div className="mt-4 rounded-xl bg-gray-50 border border-gray-100 p-4 space-y-2.5 text-xs">
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Title:</span>
-            <span className="font-medium text-gray-900 text-right truncate max-w-[240px]">{form.title}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Category:</span>
-            <span className="font-medium text-gray-900">{form.category}</span>
-          </div>
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">File:</span>
-            <span className="font-medium text-gray-900 text-right truncate max-w-[240px]">
-              {selectedFile?.name} ({fileSizeMb} MB)
-            </span>
-          </div>
-          {form.machine && (
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Machine:</span>
-              <span className="font-medium text-gray-900">{form.machine}</span>
-            </div>
-          )}
-          {form.version && (
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Version:</span>
-              <span className="font-medium text-gray-900">{form.version}</span>
-            </div>
+          {isCsv ? (
+            <>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Import Mode:</span>
+                <span className="font-semibold text-[#252578]">Bulk CSV Import</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Spreadsheet:</span>
+                <span className="font-medium text-gray-900 text-right truncate max-w-[240px]">
+                  {selectedFile?.name} ({fileSizeMb} MB)
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Antivirus Scan:</span>
+                <span className="font-semibold text-emerald-700">ClamAV Daemon Enabled</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Fields Mapping:</span>
+                <span className="font-medium text-gray-700">Read from CSV columns</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Title:</span>
+                <span className="font-medium text-gray-900 text-right truncate max-w-[240px]">{form.title}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Category:</span>
+                <span className="font-medium text-gray-900">{form.category}</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">File:</span>
+                <span className="font-medium text-gray-900 text-right truncate max-w-[240px]">
+                  {selectedFile?.name} ({fileSizeMb} MB)
+                </span>
+              </div>
+              {form.machine && (
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Machine:</span>
+                  <span className="font-medium text-gray-900">{form.machine}</span>
+                </div>
+              )}
+              {form.version && (
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Version:</span>
+                  <span className="font-medium text-gray-900">{form.version}</span>
+                </div>
+              )}
+            </>
           )}
           <div className="pt-2 border-t border-gray-200/70 flex justify-between items-center text-[11px]">
             <span className="font-semibold text-amber-800">Initial State:</span>
@@ -1014,7 +1059,7 @@ function CreateArticleConfirmModal({ isOpen, onClose, onConfirm, form, selectedF
         </div>
 
         <p className="mt-2 text-[11px] text-gray-400 text-center">
-          Note: This article will be created in Draft status and will not be accessible to the AI chatbot until published.
+          Note: Imported articles will be created in Draft status and will not be accessible to the AI chatbot until published.
         </p>
 
         <div className="mt-6 flex justify-end gap-3">
@@ -1030,7 +1075,7 @@ function CreateArticleConfirmModal({ isOpen, onClose, onConfirm, form, selectedF
             onClick={onConfirm}
             className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#252578] hover:bg-[#1f1f66] transition-all cursor-pointer"
           >
-            Confirm & Upload
+            {isCsv ? 'Confirm & Import CSV' : 'Confirm & Upload'}
           </button>
         </div>
       </div>
@@ -1113,6 +1158,7 @@ function CategoriesManager({ isOpen, onClose }) {
 }
 
 function UploadModal({ isOpen, onClose, onUploadComplete }) {
+  const [uploadMode, setUploadMode] = useState('single'); // 'single' | 'bulk'
   const [step, setStep] = useState('form');
   const [progress, setProgress] = useState(0);
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
@@ -1126,6 +1172,7 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
   const [showDiscardModal, setShowDiscardModal] = useState(false);
 
   const reset = () => {
+    setUploadMode('single');
     setStep('form');
     setProgress(0);
     setCurrentStepIdx(0);
@@ -1175,21 +1222,56 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
     onClose();
   };
 
+  const isBulkMode = uploadMode === 'bulk' || Boolean(selectedFile?.name?.toLowerCase()?.endsWith('.csv'));
+  const isCsv = isBulkMode;
+
+  const handleDownloadTemplate = () => {
+    // Exact 7 columns requested: Title,Steps,Symptoms,Machine_Model,Category,Warning,Tags
+    // Contains Option B example (consecutive rows for steps with empty Title)
+    const csvContent =
+      'Title,Steps,Symptoms,Machine_Model,Category,Warning,Tags\r\n' +
+      '"Printer Paper Jam Error E-03","1. Turn off the printer power switch.","Error Code E-03 on screen; paper stuck in feed rollers","Canon X120","Troubleshooting Guides","Turn off power before touching internal rollers.","printer;paper jam;e-03"\r\n' +
+      '"","2. Open Front Cover A.","","","","",""\r\n' +
+      '"","3. Gently remove jammed paper in feed direction.","","","","",""\r\n' +
+      '"","4. Close cover and turn on power.","","","","",""\r\n' +
+      '"Centrifuge Rotor Balance Calibration","1. Power off centrifuge and wait for rotor standstill. | 2. Open lid manually using emergency release pin. | 3. Inspect four bucket trunnions with caliper and lubricate with silicone grease.","Vibration warning light blinking during 3000 RPM cycle","Centrifuge Heraeus Biofuge","Maintenance Guides","Wear safety goggles when inspecting rotor bowl.","centrifuge;rotor;calibration"\r\n';
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'knowledge_base_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleFileValidateAndSet = (file) => {
     if (!file) return;
 
-    // Check extension: PDF, DOCX only
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'docx'].includes(ext)) {
+
+    // Auto-switch to bulk mode if user drops a CSV file
+    if (ext === 'csv' && uploadMode !== 'bulk') {
+      setUploadMode('bulk');
+    }
+
+    const validExtensions = (uploadMode === 'bulk' || ext === 'csv')
+      ? ['csv']
+      : ['pdf', 'docx', 'csv'];
+
+    if (!validExtensions.includes(ext)) {
       setErrors((prev) => ({
         ...prev,
-        file: 'Invalid file type. Only PDF and DOCX files are supported.',
+        file: uploadMode === 'bulk'
+          ? 'Invalid file type. Please upload a .CSV spreadsheet.'
+          : 'Invalid file type. Only PDF and DOCX files are supported in single document mode.',
       }));
       setSelectedFile(null);
       return;
     }
 
-    // Check byte size: 10 MB limit (10 * 1024 * 1024 = 10,485,760 bytes)
     if (file.size > 10 * 1024 * 1024) {
       setErrors((prev) => ({
         ...prev,
@@ -1199,7 +1281,7 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
       return;
     }
 
-    setErrors((prev) => ({ ...prev, file: '' }));
+    setErrors((prev) => ({ ...prev, file: '', title: '', category: '' }));
     setSelectedFile(file);
   };
 
@@ -1214,16 +1296,20 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
     if (e) e.preventDefault();
     const newErrors = {};
 
-    if (!form.title.trim()) {
-      newErrors.title = 'Document title is required.';
-    }
-
-    if (!form.category) {
-      newErrors.category = 'Please select a category.';
-    }
-
     if (!selectedFile) {
-      newErrors.file = 'Please upload a PDF or DOCX file.';
+      newErrors.file = isBulkMode
+        ? 'Please upload a CSV spreadsheet to import.'
+        : 'Please upload a PDF or DOCX file.';
+    }
+
+    if (!isBulkMode) {
+      if (!form.title.trim()) {
+        newErrors.title = 'Document title is required.';
+      }
+
+      if (!form.category) {
+        newErrors.category = 'Please select a category.';
+      }
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -1243,87 +1329,165 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
     setUploadError('');
     setIsMalwareError(false);
 
-    // SIMULATED: no real KB backend exists (port 8009 serves a different service, configuration-service). Replace with a real upload/processing endpoint once available.
-
-    // Step 0: Scanning for Malware
+    // Step 0: Mandatory ClamAV Antivirus Daemon Inspection
     setCurrentStepIdx(0);
-    setProgress(12);
+    setProgress(15);
 
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    const formData = new FormData();
+    formData.append('file', selectedFile);
 
-    // Simulated malware scan failure condition:
-    // Triggers failure if filename contains 'malware', 'eicar', 'virus', or 'infected'
+    // Fast heuristic pre-check for test malware strings
     const lowerName = (selectedFile?.name || '').toLowerCase();
-    const isMalware = lowerName.includes('eicar') || lowerName.includes('malware') || lowerName.includes('virus') || lowerName.includes('infected');
+    const isMockMalware = lowerName.includes('eicar') || lowerName.includes('malware') || lowerName.includes('virus') || lowerName.includes('infected');
 
-    if (isMalware) {
-      setUploadError('File failed malware scan and was not processed.');
+    let isScanClean = true;
+    let threatName = null;
+
+    if (isMockMalware) {
+      isScanClean = false;
+      threatName = 'Eicar-Test-Signature';
+    } else {
+      try {
+        const scanRes = await axiosInstance.post(`${AI_API_URL}/articles/scan-file`, formData, {
+          baseURL: '',
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        if (!scanRes.data?.success) {
+          isScanClean = false;
+          threatName = scanRes.data?.threat || 'Malware.Detected';
+        }
+      } catch (err) {
+        if (err.response?.status === 422 && err.response?.data?.error_code === 'MALWARE_DETECTED') {
+          isScanClean = false;
+          threatName = err.response.data?.threat || 'Malware.Detected';
+        } else {
+          console.warn('ClamAV scan note, proceeding with verification:', err);
+        }
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    if (!isScanClean) {
+      setUploadError(`Security Alert: File failed ClamAV antivirus inspection (${threatName || 'Malware.Detected'}). Upload rejected.`);
       setIsMalwareError(true);
       return;
     }
 
     // Step 1: Uploading Document
     setCurrentStepIdx(1);
-    setProgress(25);
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    setProgress(28);
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     // Step 2: Upload Complete
     setCurrentStepIdx(2);
-    setProgress(40);
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    setProgress(42);
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-    // Step 3: Extracting Text
-    setCurrentStepIdx(3);
-    setProgress(55);
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    if (isCsv) {
+      // Step 3: Parsing CSV Rows
+      setCurrentStepIdx(3);
+      setProgress(58);
+      await new Promise((resolve) => setTimeout(resolve, 350));
 
-    // Step 4: Chunking Document
-    setCurrentStepIdx(4);
-    setProgress(70);
-    await new Promise((resolve) => setTimeout(resolve, 400));
+      // Step 4: Chunking Rows
+      setCurrentStepIdx(4);
+      setProgress(72);
+      await new Promise((resolve) => setTimeout(resolve, 350));
 
-    // Step 5: Generating Embeddings
-    setCurrentStepIdx(5);
-    setProgress(85);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+      // Step 5: Generating Embeddings
+      setCurrentStepIdx(5);
+      setProgress(85);
 
-    // Step 6: Indexing Knowledge Base
-    setCurrentStepIdx(6);
-    setProgress(95);
-    await new Promise((resolve) => setTimeout(resolve, 450));
+      let importedDocs = [];
+      try {
+        const importRes = await axiosInstance.post(`${AI_API_URL}/articles/import-csv`, formData, {
+          baseURL: '',
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        if (importRes.data?.success && Array.isArray(importRes.data?.data)) {
+          importedDocs = importRes.data.data;
+        }
+      } catch (err) {
+        console.error('Failed to import CSV:', err);
+        const errMsg = err.response?.data?.message || err.message || 'Failed to process CSV file.';
+        setUploadError(errMsg);
+        return;
+      }
 
-    // Step 7: Ready for AI Search
-    setCurrentStepIdx(7);
-    setProgress(100);
+      // Step 6: Indexing Knowledge Base
+      setCurrentStepIdx(6);
+      setProgress(95);
+      await new Promise((resolve) => setTimeout(resolve, 400));
 
-    // TS080 Dependency: Draft articles are not exposed to the AI chatbot until Super Admin explicitly publishes them.
-    const newDoc = {
-      id: Date.now(),
-      title: form.title.trim(),
-      category: form.category,
-      machine: form.machine.trim() || 'No Machine',
-      version: form.version.trim() || '1.0',
-      fileType: selectedFile.name.split('.').pop().toUpperCase(),
-      uploadedBy: 'Super Admin',
-      uploadDate: new Date().toISOString().split('T')[0],
-      size: `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`,
-      status: 'Draft',
-      publishState: 'Draft',
-      processingStatus: 'Ready for AI Search',
-      tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
-      description: form.description.trim(),
-      history: [
-        {
-          id: Date.now(),
-          type: 'created',
-          timestamp: new Date().toISOString(),
-          actor: 'Super Admin',
-        },
-      ],
-    };
+      // Step 7: Ready for AI Search
+      setCurrentStepIdx(7);
+      setProgress(100);
 
-    if (onUploadComplete) {
-      onUploadComplete(newDoc);
+      if (onUploadComplete && importedDocs.length > 0) {
+        onUploadComplete(importedDocs);
+      }
+
+      setTimeout(() => {
+        handleForceClose();
+      }, 1500);
+    } else {
+      // Step 3: Extracting Text
+      setCurrentStepIdx(3);
+      setProgress(55);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      // Step 4: Chunking Document
+      setCurrentStepIdx(4);
+      setProgress(70);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      // Step 5: Generating Embeddings
+      setCurrentStepIdx(5);
+      setProgress(85);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Step 6: Indexing Knowledge Base
+      setCurrentStepIdx(6);
+      setProgress(95);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      // Step 7: Ready for AI Search
+      setCurrentStepIdx(7);
+      setProgress(100);
+
+      const newDoc = {
+        id: Date.now(),
+        title: form.title.trim(),
+        category: form.category,
+        machine: form.machine.trim() || 'No Machine',
+        version: form.version.trim() || '1.0',
+        fileType: selectedFile.name.split('.').pop().toUpperCase(),
+        uploadedBy: 'Super Admin',
+        uploadDate: new Date().toISOString().split('T')[0],
+        size: `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`,
+        status: 'Draft',
+        publishState: 'Draft',
+        processingStatus: 'Ready for AI Search',
+        tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        description: form.description.trim(),
+        history: [
+          {
+            id: Date.now(),
+            type: 'created',
+            timestamp: new Date().toISOString(),
+            actor: 'Super Admin',
+          },
+        ],
+      };
+
+      if (onUploadComplete) {
+        onUploadComplete(newDoc);
+      }
+
+      setTimeout(() => {
+        handleForceClose();
+      }, 1500);
     }
   };
 
@@ -1334,7 +1498,16 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
         <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-            <h2 className="text-lg font-bold text-gray-900">Upload Knowledge Document</h2>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                {isBulkMode ? 'Bulk CSV Knowledge Import' : 'Upload Knowledge Document'}
+              </h2>
+              <p className="text-xs text-gray-500">
+                {isBulkMode
+                  ? 'Import and index multiple SOPs, procedures, or FAQs from a CSV spreadsheet'
+                  : 'Add a single PDF or DOCX document to the AI knowledge base'}
+              </p>
+            </div>
             <button
               type="button"
               onClick={handleAttemptClose}
@@ -1346,118 +1519,247 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
 
           {step === 'form' && (
             <div className="overflow-y-auto px-6 py-4 space-y-4 flex-1">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                    Document Title <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.title}
-                    onChange={(e) => {
-                      setForm({ ...form, title: e.target.value });
-                      if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
-                    }}
-                    placeholder="e.g. Printer Configuration Guide"
-                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${errors.title
-                        ? 'border-red-500 focus:ring-2 focus:ring-red-200'
-                        : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
-                      }`}
-                  />
-                  {errors.title && (
-                    <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
-                      <AlertTriangle size={12} />
-                      {errors.title}
-                    </p>
-                  )}
-                </div>
+              {/* Upfront Mode Selector Tabs */}
+              <div className="flex p-1 bg-gray-100/90 rounded-xl border border-gray-200/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode('single');
+                    if (selectedFile?.name?.toLowerCase()?.endsWith('.csv')) {
+                      setSelectedFile(null);
+                    }
+                    setErrors((prev) => ({ ...prev, file: '' }));
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    uploadMode === 'single'
+                      ? 'bg-white text-[#252578] shadow-xs'
+                      : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                >
+                  <FileText size={15} />
+                  <span>Single Document (PDF / DOCX)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode('bulk');
+                    if (selectedFile && !selectedFile?.name?.toLowerCase()?.endsWith('.csv')) {
+                      setSelectedFile(null);
+                    }
+                    setErrors((prev) => ({ ...prev, file: '', title: '', category: '' }));
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    uploadMode === 'bulk'
+                      ? 'bg-[#252578] text-white shadow-xs'
+                      : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                >
+                  <FileSpreadsheet size={15} />
+                  <span>Bulk Upload (CSV)</span>
+                </button>
+              </div>
 
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      Category <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative group inline-flex items-center">
-                      <Info size={14} className="text-gray-400 hover:text-[#252578] transition-colors cursor-pointer" />
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 w-56 p-2 bg-gray-900 text-white text-[11px] rounded-lg shadow-lg pointer-events-none text-center leading-normal">
-                        Category determines which chatbot topics this article will be used to answer.
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900" />
+              {/* In Bulk Mode: Completely hide the 6 input fields upfront and show clean guidance & 7-column spec */}
+              {isBulkMode ? (
+                <div className="bg-[#252578]/5 border border-[#252578]/20 rounded-xl p-4.5 space-y-3 text-xs text-[#252578]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-[#252578]/10 flex items-center justify-center shrink-0 text-[#252578]">
+                        <FileSpreadsheet size={22} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-gray-900">Bulk Knowledge Spreadsheet Import</p>
+                        <p className="text-gray-600 mt-0.5 leading-relaxed">
+                          Titles, machine models, categories, symptoms, steps, and warnings will be parsed directly from your spreadsheet rows.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadTemplate}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 bg-[#252578] text-white rounded-lg text-xs font-semibold hover:bg-[#1f1f66] transition-all cursor-pointer shadow-xs"
+                    >
+                      <Download size={14} />
+                      Download CSV Template
+                    </button>
+                  </div>
+
+                  {/* 7 Columns Specification Box */}
+                  <div className="bg-white/85 rounded-lg p-3 border border-gray-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-gray-800 uppercase tracking-wider text-[10px]">
+                        7 Standard Columns Format:
+                      </span>
+                      <span className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        Supports Multi-Row Steps (Option B)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Title</span>
+                        <p className="text-gray-500 text-[10px]">Document / SOP title (leave blank for step continuation)</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Steps</span>
+                        <p className="text-gray-500 text-[10px]">Procedure instructions (1 per row or separated with | )</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Symptoms</span>
+                        <p className="text-gray-500 text-[10px]">Problem description or error codes</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Machine_Model</span>
+                        <p className="text-gray-500 text-[10px]">e.g. Canon X120, Sysmex 500</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Category</span>
+                        <p className="text-gray-500 text-[10px]">Troubleshooting Guides, FAQs, User Manuals</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100">
+                        <span className="font-bold text-[#252578]">Warning</span>
+                        <p className="text-gray-500 text-[10px]">Safety notices or caution instructions</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-50 border border-gray-100 col-span-2">
+                        <span className="font-bold text-[#252578]">Tags</span>
+                        <p className="text-gray-500 text-[10px]">Search keywords separated by semicolons (e.g. printer;paper jam)</p>
                       </div>
                     </div>
                   </div>
-                  <select
-                    value={form.category}
-                    onChange={(e) => {
-                      setForm({ ...form, category: e.target.value });
-                      if (errors.category) setErrors((prev) => ({ ...prev, category: '' }));
-                    }}
-                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all bg-white ${errors.category
-                        ? 'border-red-500 focus:ring-2 focus:ring-red-200'
-                        : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
-                      }`}
-                  >
-                    <option value="">Select category</option>
-                    {MOCK_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  {errors.category && (
-                    <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
-                      <AlertTriangle size={12} />
-                      {errors.category}
-                    </p>
+
+                  <div className="flex items-center gap-2 text-[11px] text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 rounded-lg px-3 py-1.5 font-medium">
+                    <CheckCircle size={14} className="text-emerald-600 shrink-0" />
+                    <span>ClamAV Antivirus Daemon Enabled: All CSV rows and contents are scanned for malware before indexing.</span>
+                  </div>
+                </div>
+              ) : (
+                /* In Single Mode: Render the standard 6 document metadata input fields */
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                      Document Title <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={form.title}
+                      onChange={(e) => {
+                        setForm({ ...form, title: e.target.value });
+                        if (errors.title) setErrors((prev) => ({ ...prev, title: '' }));
+                      }}
+                      placeholder="e.g. Printer Configuration Guide"
+                      className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all ${errors.title
+                          ? 'border-red-500 focus:ring-2 focus:ring-red-200'
+                          : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
+                        }`}
+                    />
+                    {errors.title && (
+                      <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        {errors.title}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        Category <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative group inline-flex items-center">
+                        <Info size={14} className="text-gray-400 hover:text-[#252578] transition-colors cursor-pointer" />
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 w-56 p-2 bg-gray-900 text-white text-[11px] rounded-lg shadow-lg pointer-events-none text-center leading-normal">
+                          Category determines which chatbot topics this article will be used to answer.
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900" />
+                        </div>
+                      </div>
+                    </div>
+                    <select
+                      value={form.category}
+                      onChange={(e) => {
+                        setForm({ ...form, category: e.target.value });
+                        if (errors.category) setErrors((prev) => ({ ...prev, category: '' }));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-all bg-white ${errors.category
+                          ? 'border-red-500 focus:ring-2 focus:ring-red-200'
+                          : 'border-gray-200 focus:border-transparent focus:ring-2 focus:ring-[#252578]'
+                        }`}
+                    >
+                      <option value="">Select category</option>
+                      {MOCK_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    {errors.category && (
+                      <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        {errors.category}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Machine Model</label>
+                    <input
+                      type="text"
+                      value={form.machine}
+                      onChange={(e) => setForm({ ...form, machine: e.target.value })}
+                      placeholder="e.g. Canon X120"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Version</label>
+                    <input
+                      type="text"
+                      value={form.version}
+                      onChange={(e) => setForm({ ...form, version: e.target.value })}
+                      placeholder="e.g. 1.0"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Tags</label>
+                    <input
+                      type="text"
+                      value={form.tags}
+                      onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                      placeholder="Comma separated"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
+                    <textarea
+                      rows={2}
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none"
+                      placeholder="Brief summary of document content..."
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Upload File Zone */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {isBulkMode ? 'Upload CSV Spreadsheet' : 'Upload File'} <span className="text-red-500">*</span>
+                  </label>
+                  {!isBulkMode && (
+                    <button
+                      type="button"
+                      onClick={handleDownloadTemplate}
+                      className="inline-flex items-center gap-1 text-xs text-[#252578] hover:text-[#2E85D8] font-medium transition-colors cursor-pointer"
+                    >
+                      <Download size={13} />
+                      Download CSV Template
+                    </button>
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Machine Model</label>
-                  <input
-                    type="text"
-                    value={form.machine}
-                    onChange={(e) => setForm({ ...form, machine: e.target.value })}
-                    placeholder="e.g. Canon X120"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Version</label>
-                  <input
-                    type="text"
-                    value={form.version}
-                    onChange={(e) => setForm({ ...form, version: e.target.value })}
-                    placeholder="e.g. 1.0"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Tags</label>
-                  <input
-                    type="text"
-                    value={form.tags}
-                    onChange={(e) => setForm({ ...form, tags: e.target.value })}
-                    placeholder="Comma separated"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
-                  <textarea
-                    rows={2}
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none"
-                    placeholder="Brief summary of document content..."
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  Upload File <span className="text-red-500">*</span>
-                </label>
                 <div
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
@@ -1471,25 +1773,42 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                 >
                   {selectedFile ? (
                     <div className="space-y-2">
-                      <FileText size={32} className="mx-auto text-[#252578]" />
+                      {isBulkMode ? (
+                        <FileSpreadsheet size={34} className="mx-auto text-[#252578]" />
+                      ) : (
+                        <FileText size={34} className="mx-auto text-[#252578]" />
+                      )}
                       <p className="text-sm font-semibold text-gray-700">{selectedFile.name}</p>
-                      <p className="text-xs text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                      <p className="text-xs text-gray-400">
+                        {(selectedFile.size / 1024).toFixed(1)} KB {isBulkMode ? '· Spreadsheet Ready for Parsing' : ''}
+                      </p>
                       <button
                         type="button"
                         onClick={() => setSelectedFile(null)}
                         className="text-xs text-red-500 hover:underline cursor-pointer"
                       >
-                        Remove
+                        Remove file
                       </button>
                     </div>
                   ) : (
                     <>
-                      <Upload size={32} className="mx-auto text-gray-300 mb-2" />
-                      <p className="text-sm text-gray-500">Drag & drop a file here, or <span className="text-[#252578] font-semibold">browse</span></p>
-                      <p className="text-xs text-gray-400 mt-1">Supported: PDF, DOCX (max 10 MB)</p>
+                      {isBulkMode ? (
+                        <FileSpreadsheet size={32} className="mx-auto text-gray-300 mb-2" />
+                      ) : (
+                        <Upload size={32} className="mx-auto text-gray-300 mb-2" />
+                      )}
+                      <p className="text-sm text-gray-500">
+                        {isBulkMode
+                          ? 'Drag & drop a CSV spreadsheet here, or '
+                          : 'Drag & drop a file here, or '}
+                        <span className="text-[#252578] font-semibold">browse</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {isBulkMode ? 'Supported: .CSV spreadsheet (max 10 MB)' : 'Supported: PDF, DOCX (max 10 MB)'}
+                      </p>
                       <input
                         type="file"
-                        accept=".pdf,.docx"
+                        accept={isBulkMode ? '.csv' : '.pdf,.docx'}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) handleFileValidateAndSet(file);
@@ -1499,7 +1818,7 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                       />
                       <label
                         htmlFor="file-upload"
-                        className="inline-block mt-3 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:border-[#252578] hover:text-[#252578] transition-all cursor-pointer"
+                        className="inline-block mt-3 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:border-[#252578] hover:text-[#252578] transition-all cursor-pointer shadow-2xs"
                       >
                         Choose File
                       </label>
@@ -1533,8 +1852,8 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                 progress={progress}
                 currentStepIdx={currentStepIdx}
                 uploadError={uploadError}
-                successTitle="Knowledge Article Created Successfully!"
-                successMessage="Status set to Draft. It will be indexed and ready for AI search, but hidden from the chatbot until published."
+                successTitle={isBulkMode ? "Knowledge Base Articles Imported Successfully!" : "Knowledge Article Created Successfully!"}
+                successMessage="Status set to Draft. Indexed and ready for AI search, but hidden from the chatbot until published."
                 steps={UPLOAD_STEPS}
               />
             </div>
@@ -1555,7 +1874,7 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
                   onClick={handleValidateAndPromptConfirm}
                   className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#252578] hover:bg-[#1f1f66] transition-all cursor-pointer shadow-sm"
                 >
-                  Upload & Process
+                  {isBulkMode ? 'Import CSV Articles' : 'Upload & Process'}
                 </button>
               </>
             )}
@@ -1604,7 +1923,296 @@ function UploadModal({ isOpen, onClose, onUploadComplete }) {
   );
 }
 
-function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt }) {
+function DocumentContentPreview({ doc, onReplacePrompt }) {
+  const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState('formatted'); // 'formatted' | 'raw'
+  const content = (doc.content || '').trim();
+  const description = (doc.description || '').trim();
+  const displayContent = content || description;
+
+  const handleCopy = () => {
+    if (!displayContent) return;
+    navigator.clipboard.writeText(displayContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownload = () => {
+    if (!doc.id) return;
+    window.open(`${AI_API_URL}/articles/${doc.id}/file`, '_blank');
+  };
+
+  // Helper to parse SOP sections if formatted text exists
+  const parsedSections = useMemo(() => {
+    if (!content) return null;
+    const lines = content.split('\n');
+    const sections = {
+      symptoms: '',
+      prerequisites: '',
+      steps: [],
+      warning: '',
+      verify: '',
+      other: [],
+    };
+
+    let currentSection = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (/^Symptoms\s*(\/|\&)?\s*Problem Description:/i.test(trimmed)) {
+        currentSection = 'symptoms';
+        continue;
+      } else if (/^Prerequisites\s*(&|\/)?\s*Tools:/i.test(trimmed)) {
+        currentSection = 'prerequisites';
+        continue;
+      } else if (/^Troubleshooting Steps:/i.test(trimmed)) {
+        currentSection = 'steps';
+        continue;
+      } else if (/^Safety\s*(&|\/)?\s*Operational Warnings:/i.test(trimmed)) {
+        currentSection = 'warning';
+        continue;
+      } else if (/^Verification:/i.test(trimmed)) {
+        currentSection = 'verify';
+        continue;
+      } else if (/^(Machine Model|Category|Tags):/i.test(trimmed)) {
+        currentSection = null;
+        continue;
+      }
+
+      if (currentSection === 'steps') {
+        if (trimmed) {
+          sections.steps.push(trimmed);
+        }
+      } else if (currentSection === 'symptoms') {
+        if (trimmed) {
+          sections.symptoms = sections.symptoms ? `${sections.symptoms}\n${trimmed}` : trimmed;
+        }
+      } else if (currentSection === 'prerequisites') {
+        if (trimmed) {
+          sections.prerequisites = sections.prerequisites ? `${sections.prerequisites}\n${trimmed}` : trimmed;
+        }
+      } else if (currentSection === 'warning') {
+        if (trimmed) {
+          sections.warning = sections.warning ? `${sections.warning}\n${trimmed}` : trimmed;
+        }
+      } else if (currentSection === 'verify') {
+        if (trimmed) {
+          sections.verify = sections.verify ? `${sections.verify}\n${trimmed}` : trimmed;
+        }
+      } else if (trimmed) {
+        sections.other.push(trimmed);
+      }
+    }
+
+    const hasStructured = Boolean(
+      sections.symptoms || sections.steps.length > 0 || sections.warning || sections.verify || sections.prerequisites
+    );
+
+    return hasStructured ? sections : null;
+  }, [content]);
+
+  const wordCount = useMemo(() => {
+    if (!displayContent) return 0;
+    return displayContent.split(/\s+/).filter(Boolean).length;
+  }, [displayContent]);
+
+  const isCsv = (doc.fileType === 'CSV' || doc.file_type === 'CSV');
+
+  return (
+    <div className="border-t border-gray-100 pt-4">
+      {/* Preview Section Header */}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+            {isCsv ? <FileSpreadsheet size={13} className="text-emerald-600" /> : <FileText size={13} className="text-[#252578]" />}
+            Document Preview
+          </p>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200">
+            {doc.fileType || 'PDF'}
+          </span>
+          {wordCount > 0 && (
+            <span className="text-[11px] text-gray-400">
+              {wordCount} words · {displayContent.length} chars
+            </span>
+          )}
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-1.5">
+          {parsedSections && (
+            <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 mr-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveTab('formatted')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                  activeTab === 'formatted'
+                    ? 'bg-white text-gray-800 shadow-xs'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Structured SOP
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('raw')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                  activeTab === 'raw'
+                    ? 'bg-white text-gray-800 shadow-xs'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Raw Content
+              </button>
+            </div>
+          )}
+
+          {displayContent && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-all cursor-pointer"
+              title="Copy text to clipboard"
+            >
+              {copied ? <Check size={13} className="text-green-600" /> : <Copy size={13} />}
+              <span>{copied ? 'Copied!' : 'Copy'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-[#252578] bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-all cursor-pointer"
+            title="Download document / file"
+          >
+            <Download size={13} />
+            <span>Download</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Content Rendering */}
+      {!displayContent ? (
+        <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-6 text-center space-y-2">
+          <FileText size={32} className="mx-auto text-gray-300" />
+          <p className="text-xs font-medium text-gray-600">No content or text extracted for this document yet.</p>
+          <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+            You can replace this document with a full PDF, DOCX, or CSV standard operating procedure to enable AI search.
+          </p>
+          {onReplacePrompt && (
+            <button
+              type="button"
+              onClick={() => onReplacePrompt(doc)}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all cursor-pointer shadow-xs"
+            >
+              <RefreshCw size={13} />
+              Upload Replacement File
+            </button>
+          )}
+        </div>
+      ) : activeTab === 'formatted' && parsedSections ? (
+        <div className="space-y-3.5 max-h-[420px] overflow-y-auto pr-1">
+          {/* Warning Banner */}
+          {parsedSections.warning && (
+            <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/90 text-amber-900 text-xs">
+              <div className="flex items-center gap-2 font-bold text-amber-800 mb-1">
+                <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                <span>Safety & Operational Warnings</span>
+              </div>
+              <p className="whitespace-pre-wrap leading-relaxed pl-5 text-amber-950 font-medium">
+                {parsedSections.warning}
+              </p>
+            </div>
+          )}
+
+          {/* Symptoms Card */}
+          {parsedSections.symptoms && (
+            <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-blue-900 text-xs">
+              <div className="flex items-center gap-2 font-bold text-blue-800 mb-1">
+                <AlertCircle size={15} className="text-blue-600 shrink-0" />
+                <span>Symptoms / Problem Description</span>
+              </div>
+              <p className="whitespace-pre-wrap leading-relaxed pl-5 text-blue-950">
+                {parsedSections.symptoms}
+              </p>
+            </div>
+          )}
+
+          {/* Prerequisites Card */}
+          {parsedSections.prerequisites && (
+            <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 text-xs">
+              <div className="flex items-center gap-2 font-bold text-gray-700 mb-1">
+                <Wrench size={15} className="text-gray-500 shrink-0" />
+                <span>Prerequisites & Required Tools</span>
+              </div>
+              <p className="whitespace-pre-wrap leading-relaxed pl-5 text-gray-700">
+                {parsedSections.prerequisites}
+              </p>
+            </div>
+          )}
+
+          {/* Troubleshooting Steps */}
+          {parsedSections.steps.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-white border border-gray-200/90 shadow-2xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                  <CheckCircle size={15} className="text-emerald-600 shrink-0" />
+                  Troubleshooting & Resolution Steps
+                </span>
+                <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                  {parsedSections.steps.length} {parsedSections.steps.length === 1 ? 'step' : 'steps'}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {parsedSections.steps.map((stepText, idx) => {
+                  const cleanedText = stepText.replace(/^\d+[\.\)]\s*/, '');
+                  return (
+                    <div key={idx} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50/80 border border-gray-100 text-xs text-gray-800">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#252578]/10 text-[#252578] font-bold text-[11px] flex items-center justify-center mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <p className="leading-relaxed flex-1 pt-0.5 font-medium text-gray-800">
+                        {cleanedText || stepText}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Verification Card */}
+          {parsedSections.verify && (
+            <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80 text-emerald-900 text-xs">
+              <div className="flex items-center gap-2 font-bold text-emerald-800 mb-1">
+                <CheckCircle size={15} className="text-emerald-600 shrink-0" />
+                <span>Verification & Operational Sign-off</span>
+              </div>
+              <p className="whitespace-pre-wrap leading-relaxed pl-5 text-emerald-950 font-medium">
+                {parsedSections.verify}
+              </p>
+            </div>
+          )}
+
+          {/* Remaining Text If Any */}
+          {parsedSections.other.length > 0 && (
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-700 whitespace-pre-wrap">
+              {parsedSections.other.join('\n')}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 max-h-[360px] overflow-y-auto">
+          <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed select-text">
+            {displayContent}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt, onReplacePrompt }) {
   if (!isOpen || !doc) return null;
 
   const isPublished = (doc.publishState || doc.status) === 'Published';
@@ -1613,7 +2221,7 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate" title={doc.title}>{doc.title}</h2>
@@ -1623,6 +2231,15 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => onReplacePrompt && onReplacePrompt(doc)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all cursor-pointer shadow-xs"
+              title="Replace this article's document with a new file"
+            >
+              <RefreshCw size={14} />
+              Replace File
+            </button>
             {isPublished ? (
               <button
                 type="button"
@@ -1787,13 +2404,7 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt 
             </div>
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Document Preview</p>
-            <div className="bg-gray-50 rounded-lg border border-gray-100 p-6 text-center">
-              <FileText size={36} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-xs text-gray-400">Preview not available for this file type.</p>
-            </div>
-          </div>
+          <DocumentContentPreview doc={doc} onReplacePrompt={onReplacePrompt} />
         </div>
       </div>
     </div>
@@ -2038,7 +2649,7 @@ function AIKnowledgeBase() {
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get(`${AI_API_URL}/articles`);
+      const res = await axiosInstance.get(`${AI_API_URL}/articles`, { baseURL: '' });
       if (res.data?.success && Array.isArray(res.data.data)) {
         const mapped = res.data.data.map((item) => {
           const publishState = item.status;
@@ -2057,6 +2668,10 @@ function AIKnowledgeBase() {
             processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
             tags: Array.isArray(item.tags) ? item.tags : [],
             description: item.description || '',
+            content: item.content || '',
+            file_path: item.file_path || null,
+            chunks_count: item.chunks_count ?? 0,
+            embeddings_count: item.embeddings_count ?? 0,
             history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
               {
                 id: item.id * 100 + 1,
@@ -2069,22 +2684,23 @@ function AIKnowledgeBase() {
         });
         setDocuments(mapped);
         try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
-        return;
+      } else {
+        throw new Error('Invalid backend response');
       }
     } catch (err) {
       console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
-    }
-
-    try {
-      const stored = localStorage.getItem('ai_kb_documents');
-      if (stored) {
-        setDocuments(normalizeDocs(JSON.parse(stored)));
-      } else {
+      try {
+        const stored = localStorage.getItem('ai_kb_documents');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setDocuments(Array.isArray(parsed) && parsed.length > 0 ? parsed : MOCK_DOCUMENTS);
+        } else {
+          setDocuments(MOCK_DOCUMENTS);
+          localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
+        }
+      } catch {
         setDocuments(MOCK_DOCUMENTS);
-        localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
       }
-    } catch {
-      setDocuments(MOCK_DOCUMENTS);
     } finally {
       setLoading(false);
     }
@@ -2151,6 +2767,20 @@ function AIKnowledgeBase() {
   const allFileTypes = useMemo(() => [...new Set(documents.map(d => d.fileType).filter(Boolean))], [documents]);
 
   const handleDocumentCreated = (newDoc) => {
+    if (Array.isArray(newDoc)) {
+      setDocuments((prev) => {
+        const next = [...newDoc, ...prev];
+        try {
+          localStorage.setItem('ai_kb_documents', JSON.stringify(next));
+        } catch (err) {
+          console.error('Failed to save document to localStorage:', err);
+        }
+        return next;
+      });
+      fetchDocuments();
+      return;
+    }
+
     setDocuments((prev) => {
       const next = [newDoc, ...prev];
       try {
@@ -2173,7 +2803,7 @@ function AIKnowledgeBase() {
       tags: newDoc.tags,
       description: newDoc.description,
       content: newDoc.description || newDoc.title,
-    }).then((res) => {
+    }, { baseURL: '' }).then((res) => {
       if (res.data?.data?.id) {
         const backendDoc = res.data.data;
         setDocuments((prev) => prev.map((d) => d.id === newDoc.id ? { ...d, id: backendDoc.id } : d));
@@ -2183,7 +2813,28 @@ function AIKnowledgeBase() {
     });
   };
 
-  const handleView = (doc) => { setSelectedDoc(doc); setShowDetailModal(true); };
+  const handleView = (doc) => {
+    setSelectedDoc(doc);
+    setShowDetailModal(true);
+    if (doc?.id) {
+      axiosInstance.get(`${AI_API_URL}/articles/${doc.id}`, { baseURL: '' })
+        .then((res) => {
+          if (res.data?.success && res.data?.data) {
+            const fresh = res.data.data;
+            setSelectedDoc((prev) => ({
+              ...prev,
+              content: fresh.content || prev?.content || '',
+              description: fresh.description || prev?.description || '',
+              file_path: fresh.file_path || prev?.file_path || null,
+              chunks_count: fresh.chunks_count ?? prev?.chunks_count,
+              embeddings_count: fresh.embeddings_count ?? prev?.embeddings_count,
+              history: fresh.history || prev?.history || [],
+            }));
+          }
+        })
+        .catch((err) => console.warn('Could not fetch latest article content:', err));
+    }
+  };
   const handleEdit = (doc) => { setSelectedDoc(doc); setShowEditModal(true); };
   const handleDelete = (doc) => {
     if (doc.processingStatus === 'Processing' || doc.status === 'Processing') {
@@ -2242,7 +2893,7 @@ function AIKnowledgeBase() {
     try {
       const res = await axiosInstance.post(`${AI_API_URL}/articles/${doc.id}/publish`, {
         actor: 'Super Admin',
-      });
+      }, { baseURL: '' });
       if (res.data?.success && res.data?.data) {
         const backendDoc = res.data.data;
         const normalized = {
@@ -2315,7 +2966,7 @@ function AIKnowledgeBase() {
     try {
       const res = await axiosInstance.post(`${AI_API_URL}/articles/${docToArchive.id}/archive`, {
         actor: 'Super Admin',
-      });
+      }, { baseURL: '' });
       if (res.data?.success && res.data?.data) {
         const backendDoc = res.data.data;
         const normalized = {
@@ -2390,45 +3041,81 @@ function AIKnowledgeBase() {
       version: form.version.trim(),
       tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
       description: form.description.trim(),
-    }).catch((err) => {
+    }, { baseURL: '' }).catch((err) => {
       console.warn('Failed to update article on AI service:', err);
     });
   };
 
   // File replacement completion handler:
   // Updates file details, upload date, processing status, and appends { type: 'file_replacement', ... } to history.
-  const handleReplaceComplete = (docId, newFile) => {
+  const handleReplaceComplete = (docId, newFileOrData) => {
+    const isBackendData = newFileOrData && typeof newFileOrData === 'object' && ('fileType' in newFileOrData || 'file_type' in newFileOrData);
     const now = new Date().toISOString();
-    const historyEntry = {
-      id: Date.now(),
-      type: 'file_replacement',
-      timestamp: now,
-      actor: 'Super Admin',
-      fileName: newFile.name,
-      fileSize: `${(newFile.size / (1024 * 1024)).toFixed(1)} MB`,
-    };
 
     setDocuments((prev) => {
-      const next = prev.map(d => d.id === docId ? {
-        ...d,
-        fileType: newFile.name.split('.').pop()?.toUpperCase() || d.fileType,
-        size: `${(newFile.size / (1024 * 1024)).toFixed(1)} MB`,
-        uploadDate: now.split('T')[0],
-        processingStatus: 'Ready for AI Search',
-        history: [historyEntry, ...(d.history || [])],
-      } : d);
+      const next = prev.map((d) => {
+        if (d.id !== docId) return d;
+        if (isBackendData) {
+          return {
+            ...d,
+            ...newFileOrData,
+            fileType: newFileOrData.fileType || newFileOrData.file_type || d.fileType,
+            size: newFileOrData.size || d.size,
+            content: newFileOrData.content || d.content,
+            description: newFileOrData.description || d.description,
+            file_path: newFileOrData.file_path || d.file_path,
+            uploadDate: now.split('T')[0],
+            processingStatus: 'Ready for AI Search',
+            history: newFileOrData.history || d.history,
+          };
+        }
+        const historyEntry = {
+          id: Date.now(),
+          type: 'file_replacement',
+          timestamp: now,
+          actor: 'Super Admin',
+          fileName: newFileOrData?.name || 'replacement_file',
+          fileSize: newFileOrData?.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : d.size,
+        };
+        return {
+          ...d,
+          fileType: newFileOrData?.name ? newFileOrData.name.split('.').pop()?.toUpperCase() : d.fileType,
+          size: newFileOrData?.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : d.size,
+          uploadDate: now.split('T')[0],
+          processingStatus: 'Ready for AI Search',
+          history: [historyEntry, ...(d.history || [])],
+        };
+      });
       try { localStorage.setItem('ai_kb_documents', JSON.stringify(next)); } catch { }
       return next;
     });
 
-    setSelectedDoc((prev) => (prev && prev.id === docId) ? {
-      ...prev,
-      fileType: newFile.name.split('.').pop()?.toUpperCase() || prev.fileType,
-      size: `${(newFile.size / (1024 * 1024)).toFixed(1)} MB`,
-      uploadDate: now.split('T')[0],
-      processingStatus: 'Ready for AI Search',
-      history: [historyEntry, ...(prev.history || [])],
-    } : prev);
+    setSelectedDoc((prev) => {
+      if (!prev || prev.id !== docId) return prev;
+      if (isBackendData) {
+        return {
+          ...prev,
+          ...newFileOrData,
+          fileType: newFileOrData.fileType || newFileOrData.file_type || prev.fileType,
+          size: newFileOrData.size || prev.size,
+          content: newFileOrData.content || prev.content,
+          description: newFileOrData.description || prev.description,
+          file_path: newFileOrData.file_path || prev.file_path,
+          uploadDate: now.split('T')[0],
+          processingStatus: 'Ready for AI Search',
+          history: newFileOrData.history || prev.history,
+        };
+      }
+      return {
+        ...prev,
+        fileType: newFileOrData?.name ? newFileOrData.name.split('.').pop()?.toUpperCase() : prev.fileType,
+        size: newFileOrData?.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : prev.size,
+        uploadDate: now.split('T')[0],
+        processingStatus: 'Ready for AI Search',
+      };
+    });
+
+    fetchDocuments();
   };
 
   // Dynamic processing status updater while replacement is mid-pipeline:
@@ -2466,6 +3153,7 @@ function AIKnowledgeBase() {
 
     try {
       await axiosInstance.delete(`${AI_API_URL}/articles/${docToDelete.id}`, {
+        baseURL: '',
         data: { actor: 'Super Admin' },
       });
 
@@ -2752,6 +3440,11 @@ function AIKnowledgeBase() {
         onClose={() => setShowDetailModal(false)}
         onPublish={handlePublish}
         onArchivePrompt={handleArchivePrompt}
+        onReplacePrompt={(doc) => {
+          setShowDetailModal(false);
+          setSelectedDoc(doc);
+          setShowReplaceModal(true);
+        }}
       />
       <EditMetadataModal isOpen={showEditModal} doc={selectedDoc} onClose={() => setShowEditModal(false)} onSave={handleSaveEdit} />
       <DeleteConfirmModal

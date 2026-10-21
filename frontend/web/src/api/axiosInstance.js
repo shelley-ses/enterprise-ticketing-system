@@ -46,6 +46,12 @@ const getCookie = (name) => {
 
 axiosInstance.interceptors.request.use(
   (config) => {
+    // If the request URL is already an absolute API path (starts with /api/) or full URL (http/https),
+    // clear baseURL so Axios does not erroneously prepend API_BASE_URL (/api/ticketing/customer)
+    if (config.url && (config.url.startsWith('/api/') || config.url.startsWith('http://') || config.url.startsWith('https://'))) {
+      config.baseURL = '';
+    }
+
     const method = (config.method || 'get').toLowerCase();
     const xsrfToken = getCookie('XSRF-TOKEN');
 
