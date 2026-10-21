@@ -361,44 +361,240 @@ class MessageController extends Controller
     public function update(Request $request, $ticket_id, $message_id)
     {
         $user = Auth::user();
+        if (!$user && ($request->input('user_id') || $request->header('X-User-Id'))) {
+            $fallbackId = $request->input('user_id') ?: $request->header('X-User-Id');
+            $fallbackType = $request->input('user_type') ?: $request->header('X-User-Type', 'customer');
+            $fallbackName = $request->input('user_name') ?: $request->header('X-User-Name', 'User');
+            $user = new \Illuminate\Auth\GenericUser([
+                'id' => $fallbackId,
+                'name' => $fallbackName,
+                'user_type' => $fallbackType,
+            ]);
+        }
+
         if (!$user) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+            return response()->json([
+                'message' => 'Unauthorized.',
+                'code' => 'UNAUTHORIZED',
+            ], 401);
         }
 
-        $request->validate([
-            'message' => 'required|string|max:5000',
-        ]);
+        // Enforce non-empty content validation (consistent with new messages)
+        $rawMessage = $request->input('message');
+        if (!is_string($rawMessage) || trim($rawMessage) === '') {
+            return response()->json([
+                'message' => 'Message content cannot be empty.',
+                'code' => 'EMPTY_CONTENT',
+                'errors' => [
+                    'message' => ['The message field cannot be empty.']
+                ]
+            ], 422);
+        }
 
-        $message = Message::where('ticket_id', (int)$ticket_id)->find($message_id);
+        $newMessage = trim($rawMessage);
+        if (mb_strlen($newMessage) > 5000) {
+            return response()->json([
+                'message' => 'Message exceeds maximum length of 5000 characters.',
+                'code' => 'CONTENT_TOO_LONG',
+                'errors' => [
+                    'message' => ['The message must not exceed 5000 characters.']
+                ]
+            ], 422);
+        }
+
+        // Locate message in MongoDB (support both int and string ticket_id)
+        $message = Message::whereIn('ticket_id', [(int)$ticket_id, (string)$ticket_id])->find($message_id);
         if (!$message) {
-            return response()->json(['message' => 'Message not found'], 404);
+            return response()->json([
+                'message' => 'Message not found.',
+                'code' => 'NOT_FOUND',
+            ], 404);
         }
 
-        // Only the sender of the message can edit it
+        // Security check: Restricted strictly to the original sender
         $userKey = $this->resolveUserKey($user);
         $messageSenderKey = $message->sender_type . ':' . $message->sender_id;
 
         if ($userKey !== $messageSenderKey) {
-            return response()->json(['message' => 'Unauthorized to edit this message'], 403);
+            return response()->json([
+                'message' => 'You cannot edit a message sent by someone else.',
+                'code' => 'UNAUTHORIZED_SENDER',
+            ], 403);
         }
 
-        // Append to edit history
+        // Check ticket status for closed or archived state
+        try {
+            $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
+                ->table('tickets')
+                ->where('ticket_ID', (int)$ticket_id)
+                ->first();
+
+            if ($ticketRecord && (int)$ticketRecord->ticket_status_ID === 4) {
+                return response()->json([
+                    'message' => 'This conversation is archived because the ticket has been closed. Messages cannot be edited.',
+                    'code' => 'CONVERSATION_ARCHIVED',
+                ], 403);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error checking ticket status in message update: ' . $e->getMessage());
+        }
+
+        // Enforce configured edit-time window
+        $editWindowMinutes = (int) env('MESSAGE_EDIT_WINDOW_MINUTES', 15);
+        try {
+            $configRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                ->table('ticket_configurations')
+                ->where('key', 'windows')
+                ->value('value');
+            if ($configRow) {
+                $parsed = is_string($configRow) ? json_decode($configRow, true) : $configRow;
+                if (is_array($parsed)) {
+                    if (isset($parsed['messageEditWindowMinutes'])) {
+                        $editWindowMinutes = (int)$parsed['messageEditWindowMinutes'];
+                    } elseif (isset($parsed['message_edit_window_minutes'])) {
+                        $editWindowMinutes = (int)$parsed['message_edit_window_minutes'];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error checking edit window config: ' . $e->getMessage());
+        }
+
+        if ($editWindowMinutes > 0 && !empty($message->created_at)) {
+            $createdAt = \Illuminate\Support\Carbon::parse($message->created_at);
+            $expiresAt = $createdAt->copy()->addMinutes($editWindowMinutes);
+            if (now()->greaterThan($expiresAt)) {
+                return response()->json([
+                    'message' => "The edit window for this message has expired. Messages can only be edited within {$editWindowMinutes} minutes of sending.",
+                    'code' => 'EDIT_WINDOW_EXPIRED',
+                    'edit_window_minutes' => $editWindowMinutes,
+                    'sent_at' => $createdAt->toIso8601String(),
+                    'expired_at' => $expiresAt->toIso8601String(),
+                ], 422);
+            }
+        }
+
+        $priorContent = $message->message;
+        $editedAt = now()->toIso8601String();
+        $editorName = $this->resolveUserName($user);
+
+        // Store version in edit_history (never destructively overwrite prior versions)
         $history = $message->edit_history ?? [];
+        $versionNumber = count($history) + 1;
+
         $history[] = [
-            'message' => $message->message,
-            'edited_at' => now()->toIso8601String(),
+            'version' => $versionNumber,
+            'message' => $priorContent,
+            'edited_at' => $editedAt,
+            'edited_by' => $userKey,
+            'editor_name' => $editorName,
         ];
 
-        $message->edit_history = $history;
-        $message->message = $request->input('message');
-        $message->save();
+        // Ensure original created_at timestamp is preserved unchanged for thread chronological ordering
+        $originalCreatedAt = $message->created_at;
 
-        // Broadcast to Reverb
+        $message->edit_history = $history;
+        $message->message = $newMessage;
+        $message->is_edited = true;
+        $message->edited = true;
+        $message->edited_at = $editedAt;
+        $message->created_at = $originalCreatedAt;
+
+        try {
+            $message->save();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to save edited message: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to save message edit. Please try again.',
+                'code' => 'SAVE_FAILED',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        // Audit Logging (Log traceability & MySQL ticket_audit_logs)
+        \Illuminate\Support\Facades\Log::info('Message edited for audit traceability', [
+            'ticket_id' => (int)$ticket_id,
+            'message_id' => (string)($message->id ?? $message->_id),
+            'editor_key' => $userKey,
+            'editor_name' => $editorName,
+            'edited_at' => $editedAt,
+            'prior_content' => $priorContent,
+            'new_content' => $newMessage,
+            'version' => $versionNumber,
+        ]);
+
+        try {
+            $actorType = ($user instanceof \App\Models\Employee) ? 'employee' : 'client';
+            $actionById = ($user instanceof \App\Models\Employee) ? (int)$user->emp_id : (int)$user->id;
+            \Illuminate\Support\Facades\DB::connection('mysql')
+                ->table('ticket_audit_logs')
+                ->insert([
+                    'ticket_ID' => (int)$ticket_id,
+                    'action_type' => 'message_edit',
+                    'action_by_ID' => $actionById,
+                    'actor_type' => $actorType,
+                    'details' => json_encode([
+                        'message_id' => (string)($message->id ?? $message->_id),
+                        'editor' => $editorName,
+                        'editor_key' => $userKey,
+                        'edited_at' => $editedAt,
+                        'prior_content' => $priorContent,
+                        'new_content' => $newMessage,
+                        'version' => $versionNumber,
+                    ]),
+                    'created_at' => now(),
+                ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Failed to record message_edit in ticket_audit_logs: ' . $e->getMessage());
+        }
+
+        // Broadcast to Reverb (port 6002) for real-time update to participants without triggering "new message" notifications
         broadcast(new MessageUpdated($message))->toOthers();
 
         return response()->json([
             'message' => 'Message updated successfully',
-            'data' => $message
+            'data' => $message,
+        ]);
+    }
+
+    /**
+     * Retrieve the edit history of a message.
+     */
+    public function history(Request $request, $ticket_id, $message_id)
+    {
+        $user = Auth::user();
+        if (!$user && ($request->input('user_id') || $request->header('X-User-Id'))) {
+            $fallbackId = $request->input('user_id') ?: $request->header('X-User-Id');
+            $fallbackType = $request->input('user_type') ?: $request->header('X-User-Type', 'customer');
+            $fallbackName = $request->input('user_name') ?: $request->header('X-User-Name', 'User');
+            $user = new \Illuminate\Auth\GenericUser([
+                'id' => $fallbackId,
+                'name' => $fallbackName,
+                'user_type' => $fallbackType,
+            ]);
+        }
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $message = Message::whereIn('ticket_id', [(int)$ticket_id, (string)$ticket_id])->find($message_id);
+        if (!$message) {
+            return response()->json(['message' => 'Message not found'], 404);
+        }
+
+        $history = $message->edit_history ?? [];
+
+        return response()->json([
+            'message_id' => (string)($message->id ?? $message->_id),
+            'ticket_id' => (int)$ticket_id,
+            'original_sent_at' => $message->created_at ? \Illuminate\Support\Carbon::parse($message->created_at)->toIso8601String() : null,
+            'is_edited' => (bool)($message->is_edited ?? $message->edited ?? (!empty($history))),
+            'edited_at' => $message->edited_at ?? null,
+            'current_content' => $message->message,
+            'versions_count' => count($history) + 1,
+            'edit_count' => count($history),
+            'edit_history' => $history,
         ]);
     }
 
@@ -412,7 +608,7 @@ class MessageController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $message = Message::where('ticket_id', (int)$ticket_id)->find($message_id);
+        $message = Message::whereIn('ticket_id', [(int)$ticket_id, (string)$ticket_id])->find($message_id);
         if (!$message) {
             return response()->json(['message' => 'Message not found'], 404);
         }
@@ -449,10 +645,26 @@ class MessageController extends Controller
             } else {
                 $senderType = 'employee';
             }
+        } elseif ($user instanceof \Illuminate\Auth\GenericUser && isset($user->user_type)) {
+            $senderId = $user->id;
+            $senderType = $user->user_type;
         } else {
             $senderId = $user->id;
             $senderType = 'customer';
         }
         return $senderType . ':' . $senderId;
+    }
+
+    /**
+     * Helper to resolve the display name for a user.
+     */
+    protected function resolveUserName($user)
+    {
+        if ($user instanceof \App\Models\Employee) {
+            return trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+        } elseif ($user instanceof \App\Models\Client) {
+            return $user->client_name ?? 'Client';
+        }
+        return $user->name ?? 'User';
     }
 }

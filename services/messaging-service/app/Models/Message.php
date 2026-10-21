@@ -16,6 +16,9 @@ class Message extends Model
         'sender_type', // 'customer', 'employee', 'cs'
         'message',
         'edit_history',
+        'is_edited',
+        'edited',
+        'edited_at',
         'deleted_by',
     ];
 

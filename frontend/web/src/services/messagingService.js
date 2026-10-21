@@ -75,6 +75,11 @@ export const editTicketMessage = async (ticketId, messageId, messageText) => {
   return data;
 };
 
+export const getMessageEditHistory = async (ticketId, messageId) => {
+  const response = await messagingClient.get(`/tickets/${ticketId}/messages/${messageId}/history`);
+  return response.data;
+};
+
 export const deleteTicketMessage = async (ticketId, messageId) => {
   const response = await messagingClient.delete(`/tickets/${ticketId}/messages/${messageId}`);
   return response.data;

@@ -7,6 +7,7 @@ import {
   getTicketMessages,
   sendTicketMessage,
   editTicketMessage,
+  getMessageEditHistory,
   deleteTicketMessage,
 } from '@/services/messagingService';
 import { getMessagingEcho } from '@/services/messagingEcho';
@@ -94,12 +95,16 @@ export default function MessagingPage() {
   const isCustomer = !isCS && !isEmployee;
 
   const userType = isCS ? 'cs' : (isEmployee ? 'employee' : 'customer');
-  const userId = isCustomer ? user?.id : user?.emp_id;
+  const userId = isCustomer ? (user?.id ?? user?.client_ID ?? user?.client_id) : (user?.emp_id ?? user?.id);
   const currentUserKey = `${userType}:${userId}`;
 
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editInputText, setEditInputText] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
   const [activeHistoryMsgId, setActiveHistoryMsgId] = useState(null);
+  const [historyModalData, setHistoryModalData] = useState(null);
+  const [msgHistoryLoading, setMsgHistoryLoading] = useState(false);
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
 
   const location = useLocation();
@@ -363,6 +368,9 @@ export default function MessagingPage() {
                 ...m,
                 message: e.message,
                 edit_history: e.edit_history,
+                is_edited: e.is_edited ?? true,
+                edited: e.edited ?? true,
+                edited_at: e.edited_at,
                 updated_at: e.updated_at,
               };
             }
@@ -591,19 +599,89 @@ export default function MessagingPage() {
     }
   }, [messages]);
 
+  const handleStartEdit = useCallback((msg) => {
+    setEditingMessageId(msg.id || msg._id);
+    setEditInputText(msg.message || '');
+    setEditError(null);
+    setActiveMenuMsgId(null);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditInputText('');
+    setEditError(null);
+  }, []);
+
   const handleUpdateMessage = useCallback(async (messageId) => {
     const trimmed = editInputText.trim();
-    if (!trimmed || !selectedContactId) return;
+    if (!selectedContactId) return;
+
+    if (!trimmed) {
+      setEditError("Message content cannot be empty.");
+      return;
+    }
+
+    setEditSaving(true);
+    setEditError(null);
 
     try {
       const updated = await editTicketMessage(selectedContactId, messageId, trimmed);
-      setMessages(prev => prev.map(m => (m.id === messageId || m._id === messageId) ? updated : m));
+      setMessages(prev => prev.map(m => (m.id === messageId || m._id === messageId) ? {
+        ...m,
+        ...updated,
+        message: updated?.message ?? trimmed,
+        is_edited: true,
+        edited: true,
+        edited_at: updated?.edited_at ?? new Date().toISOString(),
+        edit_history: updated?.edit_history ?? m.edit_history,
+      } : m));
       setEditingMessageId(null);
+      setEditInputText('');
+      setEditError(null);
     } catch (err) {
       console.error("Failed to update message", err);
-      window.alert("Failed to update message. Please try again.");
+      const serverMsg = err?.response?.data?.message || err?.response?.data?.errors?.message?.[0] || "Failed to update message. Please try again.";
+      setEditError(serverMsg);
+    } finally {
+      setEditSaving(false);
     }
   }, [editInputText, selectedContactId]);
+
+  const handleOpenHistory = useCallback(async (msg) => {
+    const msgId = msg.id || msg._id;
+    setActiveHistoryMsgId(msgId);
+    setMsgHistoryLoading(true);
+    setHistoryModalData({
+      message: msg,
+      history: msg.edit_history || [],
+      original_sent_at: msg.created_at,
+      current_content: msg.message,
+      edited_at: msg.edited_at,
+    });
+
+    try {
+      const remoteHistory = await getMessageEditHistory(selectedContactId, msgId);
+      if (remoteHistory) {
+        setHistoryModalData({
+          message: msg,
+          history: remoteHistory.edit_history || msg.edit_history || [],
+          original_sent_at: remoteHistory.original_sent_at || msg.created_at,
+          current_content: remoteHistory.current_content || msg.message,
+          edited_at: remoteHistory.edited_at || msg.edited_at,
+        });
+      }
+    } catch (err) {
+      console.warn("Could not fetch remote edit history, using local history payload", err);
+    } finally {
+      setMsgHistoryLoading(false);
+    }
+  }, [selectedContactId]);
+
+  const handleCloseHistory = useCallback(() => {
+    setActiveHistoryMsgId(null);
+    setHistoryModalData(null);
+    setMsgHistoryLoading(false);
+  }, []);
 
   const handleDeleteMessage = useCallback(async (messageId) => {
     if (!selectedContactId) return;
@@ -895,32 +973,52 @@ export default function MessagingPage() {
                                 : 'bg-card text-slate-dark border border-border rounded-2xl rounded-bl-md shadow-xs'
                             }`}>
                               {editingMessageId === msgId ? (
-                                <div className="flex flex-col gap-1.5 min-w-[200px]">
-                                  <input
-                                    type="text"
+                                <div className="flex flex-col gap-2 min-w-[240px] sm:min-w-[320px]">
+                                  <textarea
                                     value={editInputText}
-                                    onChange={e => setEditInputText(e.target.value)}
-                                    className="w-full text-sm text-gray-800 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#252578]"
+                                    onChange={e => {
+                                      setEditInputText(e.target.value);
+                                      if (editError) setEditError(null);
+                                    }}
+                                    rows={3}
+                                    className="w-full text-sm text-gray-800 bg-white border border-gray-300 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-[#252578] resize-none"
                                     autoFocus
+                                    placeholder="Edit your message..."
                                     onKeyDown={e => {
-                                      if (e.key === 'Enter') handleUpdateMessage(msgId);
-                                      if (e.key === 'Escape') setEditingMessageId(null);
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleUpdateMessage(msgId);
+                                      }
+                                      if (e.key === 'Escape') handleCancelEdit();
                                     }}
                                   />
-                                  <div className="flex justify-end gap-1.5 text-[10px]">
-                                    <button
-                                      onClick={() => setEditingMessageId(null)}
-                                      className="px-2 py-0.5 rounded hover:bg-gray-100 text-gray-500 font-semibold cursor-pointer"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => handleUpdateMessage(msgId)}
-                                      disabled={!editInputText.trim()}
-                                      className="px-2 py-0.5 bg-[#f3f4f6] text-gray-800 hover:bg-gray-200 rounded font-semibold cursor-pointer disabled:opacity-50"
-                                    >
-                                      Save
-                                    </button>
+                                  {editError && (
+                                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded p-2 flex items-start gap-1.5 animate-in fade-in duration-150">
+                                      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                                      <span>{editError}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-between text-xs pt-1">
+                                    <span className="text-[10px] text-gray-400">Esc to cancel • Enter to save</span>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={handleCancelEdit}
+                                        disabled={editSaving}
+                                        className="px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium cursor-pointer transition-colors"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateMessage(msgId)}
+                                        disabled={!editInputText.trim() || editSaving}
+                                        className="px-3 py-1 bg-primary text-primary-foreground hover:opacity-90 rounded font-semibold cursor-pointer disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                                      >
+                                        {editSaving && <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>}
+                                        <span>Save</span>
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               ) : (
@@ -942,11 +1040,7 @@ export default function MessagingPage() {
                                   <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-32 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
                                     {isAuthor && (
                                       <button
-                                        onClick={() => {
-                                          setEditingMessageId(msgId);
-                                          setEditInputText(msg.message);
-                                          setActiveMenuMsgId(null);
-                                        }}
+                                        onClick={() => handleStartEdit(msg)}
                                         className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 cursor-pointer font-medium whitespace-nowrap"
                                       >
                                         <Edit2 size={12} />
@@ -969,33 +1063,20 @@ export default function MessagingPage() {
                             )}
                           </div>
 
-                          {/* Footer / Edit History Toggle */}
-                          <div className={`flex items-center mt-1 text-[10px] text-gray-400 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                          {/* Footer / Edit Indicator & History Trigger */}
+                          <div className={`flex items-center gap-1.5 mt-1 text-[10px] text-gray-400 ${isMine ? 'justify-end' : 'justify-start'}`}>
                             <span>{formatTime(msg.created_at)}</span>
-                            {msg.edit_history && msg.edit_history.length > 0 && (
+                            {(msg.is_edited || msg.edited || (msg.edit_history && msg.edit_history.length > 0)) && (
                               <button
-                                onClick={() => setActiveHistoryMsgId(activeHistoryMsgId === msgId ? null : msgId)}
-                                className="hover:text-gray-600 underline ml-2 cursor-pointer font-medium text-[9px]"
+                                type="button"
+                                onClick={() => handleOpenHistory(msg)}
+                                className="text-slate-400 hover:text-primary transition-colors underline cursor-pointer font-medium text-[9px] flex items-center gap-0.5"
+                                title="Click to view edit history"
                               >
-                                (edited)
+                                <span>(edited{msg.edited_at ? ` • ${formatTime(msg.edited_at)}` : ''})</span>
                               </button>
                             )}
                           </div>
-
-                          {/* Edit History dropdown */}
-                          {activeHistoryMsgId === msgId && msg.edit_history && (
-                            <div className={`mt-2 bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs text-gray-600 max-w-[280px] shadow-sm ${isMine ? 'self-end' : 'self-start'}`}>
-                              <p className="font-semibold mb-1 border-b border-gray-100 pb-0.5 text-[9px] uppercase text-gray-400 tracking-wider">Edit History</p>
-                              <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                                {msg.edit_history.map((hist, idx) => (
-                                  <div key={idx} className="border-b border-gray-100/50 pb-1 last:border-0 last:pb-0">
-                                    <p className="font-medium text-gray-800 break-words">{hist.message}</p>
-                                    <p className="text-[9px] text-gray-400 mt-0.5">{formatDisplayDate(hist.edited_at)}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                       </React.Fragment>
@@ -1298,6 +1379,127 @@ export default function MessagingPage() {
             </div>
           </div>
         )}
+
+      {/* Edit History Modal */}
+      {historyModalData && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={handleCloseHistory}
+        >
+          <div
+            className="bg-card text-card-foreground border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-history-title"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                  <History size={16} />
+                </div>
+                <div>
+                  <h3 id="edit-history-title" className="text-sm font-semibold text-foreground">
+                    Message Edit History
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                    <Clock size={11} />
+                    <span>Originally sent {formatDisplayDate(historyModalData.original_sent_at)}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseHistory}
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted transition-colors cursor-pointer"
+                title="Close"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {msgHistoryLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-muted gap-2">
+                  <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
+                  <p className="text-xs">Fetching version history...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Current Active Version */}
+                  <div className="border border-primary/30 bg-primary/5 rounded-xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-primary flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                        Current Version (Active)
+                      </span>
+                      {historyModalData.edited_at && (
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          {formatDisplayDate(historyModalData.edited_at)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed bg-card/60 p-2.5 rounded-lg border border-border">
+                      {historyModalData.current_content}
+                    </p>
+                  </div>
+
+                  {/* Prior Versions */}
+                  <div>
+                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                      Prior Versions ({historyModalData.history?.length || 0})
+                    </h4>
+
+                    {(!historyModalData.history || historyModalData.history.length === 0) ? (
+                      <p className="text-xs text-muted-foreground italic py-3 text-center bg-muted/20 rounded-lg">
+                        No previous edits recorded for this message.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {historyModalData.history.map((hist, idx) => (
+                          <div
+                            key={idx}
+                            className="border border-border rounded-xl p-3 bg-card space-y-1.5 shadow-xs"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-slate-dark text-[11px] flex items-center gap-1">
+                                <span className="font-semibold">Version {hist.version || idx + 1}</span>
+                                {hist.editor_name && (
+                                  <span className="text-slate-muted font-normal">• by {hist.editor_name}</span>
+                                )}
+                              </span>
+                              <span className="text-[10px] text-slate-muted font-mono">
+                                {formatDisplayDate(hist.edited_at)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-dark whitespace-pre-wrap break-words leading-relaxed bg-muted/30 p-2.5 rounded-lg border border-border">
+                              {hist.message}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-border bg-muted/30 flex justify-end">
+              <button
+                type="button"
+                onClick={handleCloseHistory}
+                className="px-4 py-1.5 rounded-lg bg-card text-foreground border border-border hover:bg-muted font-medium text-xs cursor-pointer transition-colors shadow-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
