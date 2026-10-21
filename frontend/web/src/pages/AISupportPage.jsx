@@ -104,6 +104,46 @@ function FormattedText({ text }) {
   );
 }
 
+const isTroubleshootingResponse = (content) => {
+  if (typeof content !== 'string' || !content.trim()) return false;
+  const lower = content.toLowerCase();
+
+  // If it's a pure greeting, acknowledgment, or informational request without troubleshooting steps, do NOT prompt
+  const isGreetingOrClarification =
+    lower.startsWith('hello') ||
+    lower.startsWith('hi') ||
+    lower.startsWith('hey') ||
+    lower.startsWith('greetings') ||
+    lower.includes('describe the machine') ||
+    lower.includes('what machine are you having') ||
+    lower.includes('what is the brand') ||
+    lower.includes('how can i assist you today') ||
+    lower.includes('how can i help you today');
+
+  // Check for troubleshooting steps or actionable directives
+  const hasStructuredSteps = /^(?:step\s*\d+|[1-9]\s*[\.\)]|\*|\-)\s+/im.test(content);
+  const hasTroubleshootingKeywords =
+    lower.includes('step 1') ||
+    lower.includes('troubleshoot') ||
+    lower.includes('try the following') ||
+    lower.includes('to resolve this') ||
+    lower.includes('check if') ||
+    lower.includes('power cycle') ||
+    lower.includes('restart the') ||
+    lower.includes('unplug') ||
+    lower.includes('disconnect') ||
+    lower.includes('clear the jam') ||
+    lower.includes('reinstall') ||
+    lower.includes('inspect the') ||
+    lower.includes('replace the');
+
+  if (isGreetingOrClarification && !hasStructuredSteps) {
+    return false;
+  }
+
+  return hasStructuredSteps || hasTroubleshootingKeywords;
+};
+
 const suggestionChips = [
   'Printer won\'t start',
   'Machine Error 402',
@@ -1819,7 +1859,7 @@ function AISupportPage() {
                             )}
 
                             {/* "Did this help?" Interactive Feedback Prompt on substantive AI troubleshooting messages */}
-                            {msg.role === 'ai' && !isErrorMessage && msg.id !== 'welcome' && msg.id !== 'gather-details' && (
+                            {msg.role === 'ai' && !isErrorMessage && msg.id !== 'welcome' && msg.id !== 'gather-details' && (feedbackMap[msg.id] || isTroubleshootingResponse(msg.content)) && (
                               <div className="mt-3 pt-2.5 border-t border-gray-150 text-left">
                                 {feedbackMap[msg.id] === 'resolved' ? (
                                   <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 text-xs text-green-800 flex items-center gap-2">

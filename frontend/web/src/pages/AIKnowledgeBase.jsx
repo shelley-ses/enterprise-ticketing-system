@@ -2892,7 +2892,7 @@ function AIKnowledgeBase() {
       tags: newDoc.tags,
       description: newDoc.description,
       content: newDoc.description || newDoc.title,
-    }, { baseURL: '' }).then((res) => {
+    }).then((res) => {
       if (res.data?.data?.id) {
         const backendDoc = res.data.data;
         setDocuments((prev) => prev.map((d) => d.id === newDoc.id ? { ...d, id: backendDoc.id } : d));
@@ -2982,7 +2982,7 @@ function AIKnowledgeBase() {
     try {
       const res = await aiKbClient.post(`/articles/${doc.id}/publish`, {
         actor: 'Super Admin',
-      }, { baseURL: '' });
+      });
       if (res.data?.success && res.data?.data) {
         const backendDoc = res.data.data;
         const normalized = {
@@ -3055,7 +3055,7 @@ function AIKnowledgeBase() {
     try {
       const res = await aiKbClient.post(`/articles/${docToArchive.id}/archive`, {
         actor: 'Super Admin',
-      }, { baseURL: '' });
+      });
       if (res.data?.success && res.data?.data) {
         const backendDoc = res.data.data;
         const normalized = {
@@ -3130,7 +3130,7 @@ function AIKnowledgeBase() {
       version: form.version.trim(),
       tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
       description: form.description.trim(),
-    }, { baseURL: '' }).catch((err) => {
+    }).catch((err) => {
       console.warn('Failed to update article on AI service:', err);
     });
   };
