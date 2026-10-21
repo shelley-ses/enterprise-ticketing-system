@@ -82,7 +82,7 @@ class GeminiService
         ];
 
         if (!empty($lastUserQuery) && !$isGreeting) {
-            $ragResult = $this->ragService->retrieve($lastUserQuery, 3, 0.20);
+            $ragResult = $this->ragService->retrieve($lastUserQuery, 5, 0.20);
 
             // =========================================================================
             // FALLBACK PATH: No Published article matched customer query
@@ -130,7 +130,7 @@ class GeminiService
                 "Your objective is to guide customers through clear, step-by-step diagnostic and troubleshooting actions for their machines, hardware, or software problems.\n\n" .
                 "Key Guidelines:\n" .
                 "1. Keep troubleshooting steps concise and direct (maximum 3 to 4 short bullet points, under 150 words total). Avoid unnecessary filler text.\n" .
-                "2. Base your guidance strictly on the approved published documentation provided below. Never invent, hallucinate, or reference draft or archived procedures.\n" .
+                "2. Base your guidance strictly on the approved published documentation provided below. If multiple articles or procedures are provided, prioritize the most recently updated procedure and provide the numbered troubleshooting steps in chronological order. Never invent, hallucinate, or reference draft or archived procedures.\n" .
                 "3. If the user indicates that basic troubleshooting failed, or if the issue involves dangerous high-voltage electrical, jammed heavy machinery, broken hardware, or requires an on-site technician dispatch, you MUST recommend escalating to a support ticket.\n" .
                 "4. When escalating, append a structured JSON block at the very end of your response exactly like this:\n" .
                 "```json\n" .
@@ -149,7 +149,8 @@ class GeminiService
                 $systemInstruction .= "\n\n=== APPROVED PUBLISHED KNOWLEDGE BASE SOURCES ===\n";
                 foreach ($ragResult['chunks'] as $idx => $chunk) {
                     $num = $idx + 1;
-                    $systemInstruction .= "Source {$num}: [{$chunk['article_title']} | {$chunk['article_category']}" . (!empty($chunk['article_machine']) ? " | {$chunk['article_machine']}" : "") . "]\n" .
+                    $updatedStr = !empty($chunk['article_updated_at']) ? " | Last Updated: " . date('Y-m-d H:i', strtotime($chunk['article_updated_at'])) : "";
+                    $systemInstruction .= "Source {$num}: [{$chunk['article_title']} | {$chunk['article_category']}" . (!empty($chunk['article_machine']) ? " | {$chunk['article_machine']}" : "") . "{$updatedStr}]\n" .
                         $chunk['content'] . "\n\n";
                 }
                 $systemInstruction .= "=== END APPROVED SOURCES ===\n";
@@ -235,6 +236,7 @@ class GeminiService
                 'category' => $c['article_category'],
                 'machine' => $c['article_machine'],
                 'score' => $c['score'],
+                'updated_at' => $c['article_updated_at'] ?? null,
             ], $ragResult['chunks']);
             $parsed['rag_duration_ms'] = $ragResult['duration_ms'];
             $parsed['total_duration_ms'] = $totalDurationMs;

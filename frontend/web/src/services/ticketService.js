@@ -260,6 +260,7 @@ export const clearEmployeeTicketsCache = () => {
   employeeTicketsCache = {};
   employeeTicketsCacheAt = {};
   employeeTicketsInFlight = {};
+  clearTicketDetailsCache();
 };
 
 const isCacheFresh = () => optionsCache && (Date.now() - optionsCacheAt) < OPTIONS_CACHE_TTL_MS;
@@ -528,8 +529,11 @@ const fetchCSDashboard = async ({ limit = 10 } = {}) => {
   return response.data;
 };
 
-const fetchIncomingTickets = async ({ limit = 50, page = 1, ...filters } = {}) => {
+const fetchIncomingTickets = async ({ limit = 50, page = 1, forceRefresh = false, ...filters } = {}) => {
   const params = { limit, page, ...filters };
+  if (forceRefresh) {
+    params.forceRefresh = true;
+  }
   const response = await ticketClient.get('/cs-incoming', { params });
   const data = response.data?.incoming_tickets ?? [];
   const pagination = response.data?.pagination ?? null;
@@ -551,7 +555,7 @@ export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = fa
     } else if (!hasFilters && !forceRefresh && incomingTicketsInFlight) {
       result = await incomingTicketsInFlight;
     } else {
-      const promise = fetchIncomingTickets({ limit, page, ...filters }).finally(() => {
+      const promise = fetchIncomingTickets({ limit, page, forceRefresh, ...filters }).finally(() => {
         if (!hasFilters) incomingTicketsInFlight = null;
       });
       if (!hasFilters) incomingTicketsInFlight = promise;
@@ -565,15 +569,7 @@ export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = fa
   const rawList = Array.isArray(result) ? result : (result?.list ?? []);
   const pagination = Array.isArray(result) ? null : (result?.pagination ?? null);
 
-  const overrides = getEmployeeOverrides();
-  const list = rawList.map((t) => {
-    const { status: _overrideStatus, ...overrideFields } = overrides[t.id] || {};
-
-    return {
-      ...t,
-      ...overrideFields,
-    };
-  });
+  const list = rawList;
 
   if (paginate) {
     return { tickets: list, pagination };
@@ -826,6 +822,12 @@ const fetchEmployeeAssignedTickets = async ({ employeeEmail }) => {
 export const getEmployeeAssignedTickets = async ({ employeeEmail, forceRefresh = false } = {}) => {
   const emailKey = employeeEmail || 'default';
 
+  if (forceRefresh) {
+    delete employeeTicketsCache[emailKey];
+    delete employeeTicketsCacheAt[emailKey];
+    delete employeeTicketsInFlight[emailKey];
+  }
+
   if (!forceRefresh && employeeTicketsCache[emailKey] && (Date.now() - employeeTicketsCacheAt[emailKey]) < EMPLOYEE_TICKETS_CACHE_TTL_MS) {
     return employeeTicketsCache[emailKey];
   }
@@ -947,10 +949,70 @@ export const updateEmployeeTicketOverride = (ticketId, override) => {
   }
 };
 
+export const cleanupCorruptedOverrides = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const all = getEmployeeOverrides();
+    let modified = false;
+    Object.keys(all).forEach((key) => {
+      if (all[key] && (all[key].reassignmentRequested !== undefined || all[key].reassignmentStatus !== undefined)) {
+        delete all[key].reassignmentRequested;
+        delete all[key].reassignmentStatus;
+        delete all[key].reassignmentDenyReason;
+        delete all[key].reassignmentReason;
+        modified = true;
+      }
+    });
+    if (modified) {
+      window.localStorage.setItem(EMPLOYEE_OVERRIDE_KEY, JSON.stringify(all));
+    }
+  } catch {
+    // Ignore
+  }
+};
+cleanupCorruptedOverrides();
+
 export const requestReassignment = async ({ ticketId, reason }) => {
   const response = await ticketClient.post(`/tickets/${ticketId}/reassign-request`, {
     reason,
   });
+
+  try {
+    const all = getEmployeeOverrides();
+    const numericId = Number(ticketId);
+    const keys = [
+      `TKT-${String(numericId).padStart(4, '0')}`,
+      `TKT-${String(numericId).padStart(5, '0')}`,
+      String(numericId),
+      Number(ticketId),
+      ...(response.data?.ticket?.id ? [response.data.ticket.id] : []),
+    ];
+    Object.keys(all).forEach((k) => {
+      const matchNum = Number(String(k).replace(/\D/g, ''));
+      if (matchNum === numericId && !keys.includes(k)) {
+        keys.push(k);
+      }
+    });
+
+    keys.forEach((k) => {
+      if (all[k]) {
+        delete all[k].deniedReassignment;
+        delete all[k].reassignmentDenied;
+        delete all[k].disapprovalReason;
+        delete all[k].reassignmentDenyReason;
+        all[k].reassignmentRequested = true;
+        all[k].reassignmentStatus = 'Pending';
+        all[k].reassignmentReason = reason;
+        all[k].status = 'Pending Reassignment';
+      }
+    });
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(EMPLOYEE_OVERRIDE_KEY, JSON.stringify(all));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();
   clearCSDashboardCache();
@@ -963,6 +1025,38 @@ export const respondReassignment = async ({ ticketId, action, newEmployeeId, rea
   if (newEmployeeId !== undefined) body.new_employee_id = newEmployeeId;
   if (reason !== undefined) body.reason = reason;
   const response = await ticketClient.post(`/tickets/${ticketId}/reassign-respond`, body);
+
+  try {
+    const all = getEmployeeOverrides();
+    const numericId = Number(ticketId);
+    const keys = [
+      `TKT-${String(numericId).padStart(4, '0')}`,
+      `TKT-${String(numericId).padStart(5, '0')}`,
+      String(numericId),
+      Number(ticketId),
+    ];
+    Object.keys(all).forEach((k) => {
+      const matchNum = Number(String(k).replace(/\D/g, ''));
+      if (matchNum === numericId && !keys.includes(k)) {
+        keys.push(k);
+      }
+    });
+
+    keys.forEach((k) => {
+      if (all[k]) {
+        delete all[k].reassignmentRequested;
+        delete all[k].reassignmentStatus;
+        delete all[k].reassignmentReason;
+        delete all[k].reassignmentDenyReason;
+      }
+    });
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(EMPLOYEE_OVERRIDE_KEY, JSON.stringify(all));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+
   clearEmployeeTicketsCache();
   clearIncomingTicketsCache();
   clearCSDashboardCache();
@@ -977,9 +1071,49 @@ export const getReassignmentRequests = async (params = {}) => {
   return response.data?.requests ?? [];
 };
 
-export const getTicketDetails = async (ticketId) => {
-  const response = await ticketClient.get(`/tickets/${ticketId}`);
-  return response.data;
+const ticketDetailsCache = {};
+const ticketDetailsCacheAt = {};
+const ticketDetailsInFlight = {};
+const TICKET_DETAILS_CACHE_TTL_MS = 30000;
+
+export const clearTicketDetailsCache = (ticketId) => {
+  if (ticketId) {
+    const key = String(ticketId);
+    delete ticketDetailsCache[key];
+    delete ticketDetailsCacheAt[key];
+    delete ticketDetailsInFlight[key];
+  } else {
+    Object.keys(ticketDetailsCache).forEach((k) => delete ticketDetailsCache[k]);
+    Object.keys(ticketDetailsCacheAt).forEach((k) => delete ticketDetailsCacheAt[k]);
+    Object.keys(ticketDetailsInFlight).forEach((k) => delete ticketDetailsInFlight[k]);
+  }
+};
+
+export const getTicketDetails = async (ticketId, { forceRefresh = false } = {}) => {
+  const key = String(ticketId);
+  if (forceRefresh) {
+    clearTicketDetailsCache(key);
+  }
+
+  if (!forceRefresh && ticketDetailsCache[key] && (Date.now() - (ticketDetailsCacheAt[key] || 0)) < TICKET_DETAILS_CACHE_TTL_MS) {
+    return ticketDetailsCache[key];
+  }
+
+  if (!forceRefresh && ticketDetailsInFlight[key]) {
+    return ticketDetailsInFlight[key];
+  }
+
+  ticketDetailsInFlight[key] = ticketClient.get(`/tickets/${ticketId}`)
+    .then((response) => {
+      ticketDetailsCache[key] = response.data;
+      ticketDetailsCacheAt[key] = Date.now();
+      return response.data;
+    })
+    .finally(() => {
+      delete ticketDetailsInFlight[key];
+    });
+
+  return ticketDetailsInFlight[key];
 };
 
 export const getCustomerTicketContext = async (ticketId) => {

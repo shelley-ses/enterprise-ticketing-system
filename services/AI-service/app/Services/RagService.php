@@ -486,8 +486,9 @@ class RagService
     /**
      * RAG Index Retrieval:
      * - Filters STRICTLY to embeddings belonging to Published articles (`a.status = 'Published' AND e.is_active = true`).
+     * - Disambiguation & Freshness: when multiple articles cover the same problem, prioritizes the most updated one.
+     * - Structured extraction: handles multi-line machine/issue inputs and orders troubleshooting steps chronologically.
      * - Defense-in-depth safety check: inspects each candidate chunk against real-time DB state.
-     * - Security alert monitoring if any non-Published content is ever encountered.
      * - Measures and logs execution latency against 5-second target.
      *
      * @param string $query User query
@@ -495,11 +496,22 @@ class RagService
      * @param float $minScore Minimum relevance threshold
      * @return array {chunks: array, duration_ms: float, matched: bool}
      */
-    public function retrieve(string $query, int $topK = 3, float $minScore = 0.20): array
+    public function retrieve(string $query, int $topK = 5, float $minScore = 0.20): array
     {
         $startTime = hrtime(true);
 
         $queryEmbedding = $this->generateEmbedding($query);
+
+        // Extract symptom/problem line if user provided multi-line structured input (e.g. 1. Machine 2. Serial 4. Symptom)
+        $lines = explode("\n", $query);
+        $symptomText = '';
+        foreach ($lines as $line) {
+            $trimmed = trim(preg_replace('/^(?:\d+[\.\)\-:]|\b[qQ]\d+[:\.]|\b(?:machine|problem|issue|item|serial)[:\-])\s*/i', '', $line));
+            if (mb_strlen($trimmed) > 20) {
+                $symptomText .= " " . $trimmed;
+            }
+        }
+        $symptomEmbedding = !empty($symptomText) ? $this->generateEmbedding(trim($symptomText)) : null;
 
         // Candidate selection: strictly Published articles and active embeddings in search index
         $candidates = DB::table('kb_embeddings as e')
@@ -518,10 +530,11 @@ class RagService
                 'a.category as article_category',
                 'a.machine as article_machine',
                 'a.status as article_status',
+                'a.updated_at as article_updated_at',
             ])
             ->get();
 
-        $scoredChunks = [];
+        $articleGroups = [];
 
         foreach ($candidates as $candidate) {
             $vec = is_string($candidate->embedding) ? json_decode($candidate->embedding, true) : (array) $candidate->embedding;
@@ -530,28 +543,84 @@ class RagService
             }
 
             $score = $this->cosineSimilarity($queryEmbedding, $vec);
+            if ($symptomEmbedding) {
+                $symptomScore = $this->cosineSimilarity($symptomEmbedding, $vec);
+                $score = max($score, $symptomScore);
+            }
 
-            if ($score >= $minScore) {
-                $scoredChunks[] = [
-                    'score' => round($score, 4),
-                    'embedding_id' => $candidate->embedding_id,
-                    'article_id' => $candidate->article_id,
-                    'chunk_id' => $candidate->chunk_id,
+            $artId = $candidate->article_id;
+            if (!isset($articleGroups[$artId])) {
+                $articleGroups[$artId] = [
+                    'article_id' => $artId,
                     'article_title' => $candidate->article_title,
                     'article_category' => $candidate->article_category,
                     'article_machine' => $candidate->article_machine,
                     'article_status' => $candidate->article_status,
-                    'content' => $candidate->chunk_content,
+                    'article_updated_at' => $candidate->article_updated_at,
+                    'max_score' => 0.0,
+                    'chunks' => [],
                 ];
+            }
+
+            if ($score > $articleGroups[$artId]['max_score']) {
+                $articleGroups[$artId]['max_score'] = round($score, 4);
+            }
+
+            $articleGroups[$artId]['chunks'][] = [
+                'embedding_id' => $candidate->embedding_id,
+                'chunk_id' => $candidate->chunk_id,
+                'chunk_index' => (int) $candidate->chunk_index,
+                'score' => round($score, 4),
+                'content' => $candidate->chunk_content,
+            ];
+        }
+
+        // Filter articles meeting minScore
+        $matchedArticles = array_filter($articleGroups, fn ($a) => $a['max_score'] >= $minScore);
+
+        // Sort articles: prioritize semantic match, and if 2 articles both match the problem (close score margin < 0.15),
+        // prioritize the most recently updated article so newer KB procedures take precedence.
+        uasort($matchedArticles, function ($a, $b) {
+            $scoreDiff = $b['max_score'] - $a['max_score'];
+            if (abs($scoreDiff) < 0.15) {
+                $timeA = strtotime($a['article_updated_at'] ?? '1970-01-01');
+                $timeB = strtotime($b['article_updated_at'] ?? '1970-01-01');
+                if ($timeA !== $timeB) {
+                    return $timeB <=> $timeA; // Most updated article first
+                }
+            }
+            return $b['max_score'] <=> $a['max_score'];
+        });
+
+        // Select chunks from the top ranked articles in chronological order (chunk_index ASC)
+        // so Gemini receives complete numbered troubleshooting steps in sequence.
+        $selectedChunks = [];
+        foreach ($matchedArticles as $art) {
+            $chunks = $art['chunks'];
+            usort($chunks, fn ($c1, $c2) => $c1['chunk_index'] <=> $c2['chunk_index']);
+
+            foreach ($chunks as $c) {
+                $selectedChunks[] = [
+                    'score' => $c['score'],
+                    'embedding_id' => $c['embedding_id'],
+                    'article_id' => $art['article_id'],
+                    'chunk_id' => $c['chunk_id'],
+                    'chunk_index' => $c['chunk_index'],
+                    'article_title' => $art['article_title'],
+                    'article_category' => $art['article_category'],
+                    'article_machine' => $art['article_machine'],
+                    'article_status' => $art['article_status'],
+                    'article_updated_at' => $art['article_updated_at'],
+                    'content' => $c['content'],
+                ];
+                if (count($selectedChunks) >= $topK) {
+                    break 2;
+                }
             }
         }
 
-        // Sort descending by similarity score
-        usort($scoredChunks, fn ($a, $b) => $b['score'] <=> $a['score']);
-        $topCandidates = array_slice($scoredChunks, 0, $topK);
-
         // Cybersec defense-in-depth safety check & monitoring
-        $verifiedPublishedChunks = $this->verifyPublishedChunks($topCandidates, $query);
+        $verifiedPublishedChunks = $this->verifyPublishedChunks($selectedChunks, $query);
 
         $durationMs = round((hrtime(true) - $startTime) / 1e6, 2);
 
@@ -559,6 +628,7 @@ class RagService
         Log::info('RAG retrieval executed', [
             'query_length' => mb_strlen($query),
             'candidates_evaluated' => count($candidates),
+            'matched_articles' => count($matchedArticles),
             'matched_chunks' => count($verifiedPublishedChunks),
             'duration_ms' => $durationMs,
             'under_5s_target' => $durationMs < 5000.0,

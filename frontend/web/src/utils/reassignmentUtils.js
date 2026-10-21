@@ -40,8 +40,18 @@ export const extractDisapprovalReasonFromText = (text) => {
 export const isReassignmentDenied = (ticket) => {
   if (!ticket) return false;
 
-  // Direct status or boolean flags
+  // Active pending reassignment request supersedes any past denial
   const statusStr = String(ticket.reassignmentStatus || ticket.assignment_status || ticket.status || '').toLowerCase();
+  if (
+    ['pending', 'reassignment_requested', 'pending reassignment', 'pending reassign'].includes(statusStr) ||
+    ticket.reassignmentRequested === true ||
+    ticket.status === 'Pending Reassignment' ||
+    ticket.has_pending_reassignment
+  ) {
+    return false;
+  }
+
+  // Direct status or boolean flags
   if (['denied', 'rejected', 'disapproved', 'failed', 'reassignment failed', 'reassignment disapproved'].includes(statusStr)) {
     return true;
   }
@@ -178,16 +188,18 @@ export const getReassignmentDisapprovalReason = (ticket) => {
  */
 export const hasPendingReassignment = (ticket) => {
   if (!ticket) return false;
-  if (isReassignmentDenied(ticket)) return false;
   const statusStr = String(ticket.reassignmentStatus || ticket.assignment_status || ticket.status || '').toLowerCase();
   if (['pending', 'reassignment_requested', 'pending reassignment', 'pending reassign'].includes(statusStr)) {
     return true;
   }
-  return Boolean(
-    ticket.reassignmentRequested ||
+  if (
+    ticket.reassignmentRequested === true ||
     ticket.status === 'Pending Reassignment' ||
     ticket.has_pending_reassignment
-  );
+  ) {
+    return true;
+  }
+  return false;
 };
 
 /**

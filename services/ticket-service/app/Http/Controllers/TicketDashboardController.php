@@ -66,7 +66,9 @@ class TicketDashboardController extends Controller
             'customer_id' => $request->query('customer_id'),
         ];
 
-        $data = $this->dashboardService->getCsIncoming($perPage, $typeFilter, $page, $filters);
+        $forceRefresh = filter_var($request->query('forceRefresh', $request->query('force_refresh', false)), FILTER_VALIDATE_BOOLEAN);
+
+        $data = $this->dashboardService->getCsIncoming($perPage, $typeFilter, $page, $filters, $forceRefresh);
         return response()->json($data);
     }
 

@@ -494,7 +494,26 @@ function TicketReviewModal({ isOpen, data, machines = [], onClose, onSubmit, onS
             type="button"
             onClick={() => {
               onClose();
-              navigate('/create-ticket', { state: { prefillData: form, fromAiChat: true } });
+              navigate('/create-ticket', {
+                state: {
+                  conversationId: activeConversationId,
+                  conversation_id: activeConversationId,
+                  fromConversationId: activeConversationId,
+                  fromAiChat: true,
+                  prefillData: {
+                    title: form.problemSummary || form.title || '',
+                    problemSummary: form.problemSummary || form.title || '',
+                    machine_ID: form.machine_ID || '',
+                    machineModel: form.machineModel || '',
+                    machine_name: form.machineModel || '',
+                    problem_category_ID: form.problem_category_ID || '',
+                    category: form.category || '',
+                    category_name: form.category || '',
+                    description: form.conversationSummary || form.description || '',
+                    conversationSummary: form.conversationSummary || form.description || '',
+                  },
+                },
+              });
             }}
             className="text-xs text-[#252578] font-semibold hover:underline cursor-pointer"
           >
@@ -693,11 +712,13 @@ function AISupportPage() {
   }, [conversations]);
 
   // Load conversation state
+  // Load conversation state
   const loadConversation = useCallback((convId) => {
     if (!convId) return;
 
     // Handle local draft conversations that have not been persisted to the backend yet
-    if (String(convId).startsWith('conv-')) {
+    const isLocalDraft = String(convId).startsWith('draft-') && !(conversationsRef.current || []).some(c => c.id === convId);
+    if (isLocalDraft) {
       const saved = conversationStateRef.current[convId];
       if (saved) {
         setMessages(saved.messages);
@@ -716,7 +737,10 @@ function AISupportPage() {
       return;
     }
 
-    axiosInstance.get(`${AI_API_URL}/conversations/${convId}`, { baseURL: '' })
+    axiosInstance.get(`${AI_API_URL}/conversations/${convId}`, { 
+      baseURL: '',
+      params: { user_id: currentUserId }
+    })
       .then(res => {
         if (res.data.success && res.data.conversation) {
           const conv = res.data.conversation;
@@ -811,7 +835,7 @@ function AISupportPage() {
         }
         setActiveConversationId(convId);
       });
-  }, []);
+  }, [currentUserId]);
 
   const handleNewChat = useCallback(() => {
     const list = conversationsRef.current || [];
@@ -825,7 +849,7 @@ function AISupportPage() {
       return;
     }
 
-    const id = `conv-${Date.now()}`;
+    const id = `draft-${Date.now()}`;
     const newConv = {
       id,
       title: 'New Conversation',
@@ -836,7 +860,7 @@ function AISupportPage() {
 
     setConversations(prev => {
       // Remove any prior empty local draft
-      const filtered = prev.filter(c => !(String(c.id).startsWith('conv-') && c.title === 'New Conversation' && (!c.messageCount || c.messageCount <= 2)));
+      const filtered = prev.filter(c => !(String(c.id).startsWith('draft-') && c.title === 'New Conversation' && (!c.messageCount || c.messageCount <= 2)));
       return [newConv, ...filtered];
     });
 
@@ -986,13 +1010,20 @@ function AISupportPage() {
       }))
       .filter(m => m.content !== '');
 
+    const activeIdToSend = String(activeConversationId).startsWith('draft-') ? null : activeConversationId;
+
     axiosInstance.post(`${AI_API_URL}/chat`, { 
       messages: apiMessages,
-      conversation_id: activeConversationId,
+      conversation_id: activeIdToSend,
       user_id: currentUserId
     }, { baseURL: '' })
       .then(res => {
         setIsTyping(false);
+        const returnedConvId = res.data.conversation_id || activeConversationId;
+        if (returnedConvId !== activeConversationId) {
+          setActiveConversationId(returnedConvId);
+        }
+
         if (res.data.is_duplicate && res.data.conversation_id) {
           loadConversation(res.data.conversation_id);
           fetchConversationsListOnly();
@@ -1026,7 +1057,7 @@ function AISupportPage() {
             setShowTicketCard(false);
           }
 
-          saveConversationState(activeConversationId, updated, conversationPhase, false, shouldSuggestTicket, escTicketData);
+          saveConversationState(returnedConvId, updated, conversationPhase, false, shouldSuggestTicket, escTicketData);
           fetchConversationsListOnly();
           return updated;
         });
@@ -1305,10 +1336,6 @@ function AISupportPage() {
   }, [conversations, activeConversationId, messages, user, ticketOptions]);
 
   const handleCreateTicket = useCallback(async () => {
-    if (activeConversationId) {
-      navigate('/create-ticket', { state: { conversationId: activeConversationId } });
-      return;
-    }
     const review = generateRealReviewData(escalationTicketData);
     let targetMachineId = review.machine_ID || null;
     const targetModel = (review.machineModel || '').trim().toLowerCase();
@@ -1322,50 +1349,39 @@ function AISupportPage() {
       if (found) targetMachineId = found.machine_ID;
     }
 
-    // Duplicate check: only block pre-emptively if this machine was explicitly identified
-    if (review.isExplicitMachine) {
-      try {
-        const existingTickets = await getCustomerTickets({ createdBy: currentUserId || 1, forceRefresh: true }).catch(() => []);
-        
-        // Duplicate protection: only block if active ongoing ticket is for the SAME machine
-        const ongoingSameMachine = (existingTickets || []).find(t => {
-          const s = (t.status || '').toLowerCase();
-          const isActive = s !== 'closed' && s !== 'resolved' && s !== 'completed' && s !== 'cancelled' && s !== 'discarded';
-          if (!isActive) return false;
-
-          const isSameId = targetMachineId && t.machine_ID && Number(t.machine_ID) === Number(targetMachineId);
-          const tEquip = (t.equipment || t.machine_name || '').toLowerCase();
-          const isSameName = targetModel && tEquip && (tEquip.includes(targetModel) || targetModel.includes(tEquip));
-
-          return isSameId || isSameName;
-        });
-
-        if (ongoingSameMachine) {
-          const ticketNo = ongoingSameMachine.ticket_ID ? (String(ongoingSameMachine.ticket_ID).startsWith('TKT-') ? String(ongoingSameMachine.ticket_ID) : `TKT-${String(ongoingSameMachine.ticket_ID).padStart(4, '0')}`) : 'ongoing ticket';
-          const machineLabel = ongoingSameMachine.equipment || ongoingSameMachine.machine_name || review.machineModel || 'this machine';
-          addMessage({
-            id: `ai-${Date.now()}`,
-            role: 'ai',
-            content: `Notice: You already have an active ongoing support ticket for **${machineLabel}** (**${ticketNo}** - Status: *${ongoingSameMachine.status || 'Open'}*). Duplicate ticket creation for the same machine is restricted until resolved.\n\nOpening review form: If you have an issue with a **different machine**, please select that machine in the form.`,
-            timestamp: new Date().toISOString(),
-          });
-          setReviewData({
-            ...review,
-            machineModel: '',
-            machine_ID: null,
-          });
-          setShowReviewModal(true);
-          setShowTicketCard(false);
-          return;
-        }
-      } catch (err) {
-        console.warn("Failed to check ongoing customer tickets:", err);
-      }
+    let targetCategoryId = review.problem_category_ID || null;
+    const targetCategory = (review.category || '').trim().toLowerCase();
+    if (!targetCategoryId && ticketOptions?.problem_categories && targetCategory) {
+      const foundCat = ticketOptions.problem_categories.find(c =>
+        c.category_name?.toLowerCase() === targetCategory ||
+        targetCategory.includes(c.category_name?.toLowerCase())
+      );
+      if (foundCat) targetCategoryId = foundCat.problem_category_ID;
     }
 
-    setReviewData(review);
-    setShowReviewModal(true);
-  }, [currentUserId, escalationTicketData, generateRealReviewData, ticketOptions, addMessage]);
+    const prefill = {
+      title: review.problemSummary || '',
+      problemSummary: review.problemSummary || '',
+      machine_ID: targetMachineId || review.machine_ID || '',
+      machineModel: review.machineModel || '',
+      machine_name: review.machineModel || '',
+      problem_category_ID: targetCategoryId || review.problem_category_ID || '',
+      category: review.category || '',
+      category_name: review.category || '',
+      description: review.conversationSummary || '',
+      conversationSummary: review.conversationSummary || '',
+    };
+
+    navigate('/create-ticket', {
+      state: {
+        conversationId: activeConversationId,
+        conversation_id: activeConversationId,
+        fromConversationId: activeConversationId,
+        fromAiChat: true,
+        prefillData: prefill,
+      },
+    });
+  }, [activeConversationId, escalationTicketData, generateRealReviewData, ticketOptions, navigate]);
 
   const handleSubmitTicket = useCallback(async (formData) => {
     try {

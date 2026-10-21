@@ -63,7 +63,8 @@ class EmployeeAssignmentService
             return ['status' => 422, 'data' => ['message' => $e->getMessage(), 'code' => 'INVALID_TICKET_TRANSITION']];
         }
 
-        DB::transaction(function () use ($ticketId, $validated, $assignedBy) {
+        $removedEmpIds = [];
+        DB::transaction(function () use ($ticketId, $validated, $assignedBy, &$removedEmpIds) {
             $pendingAssignmentId = DB::table('ticket_statuses')
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
                 ->value('ticket_status_ID') ?? 10;
@@ -95,6 +96,7 @@ class EmployeeAssignmentService
 
             $newEmpIds = $validated['employee_ids'];
             $toRemove = $existing->keys()->diff($newEmpIds);
+            $removedEmpIds = $toRemove->values()->all();
             $toAdd = collect($newEmpIds)->diff($existing->keys());
 
             if ($toRemove->isNotEmpty()) {
@@ -222,9 +224,25 @@ class EmployeeAssignmentService
             }
         }
 
+        // Notify unassigned employees about ticket reassignment
+        foreach ($removedEmpIds as $removedEmpId) {
+            $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+            $this->notificationService->notifyRecipient(
+                $removedEmpId,
+                'employee',
+                'Ticket Reassigned',
+                "Ticket {$ticketRef}: \"" . ($ticket ? $ticket->title : '') . "\" has been reassigned to another engineer.",
+                $ticketId,
+                ['ticket_id' => $ticketId, 'ticket_ref' => $ticketRef, 'title' => $ticket ? $ticket->title : '', 'type' => 'ticket_unassigned']
+            );
+        }
+
         $this->notificationService->broadcastTicketChange('assigned', $ticketId, [
+            'ticket_id' => $ticketId,
             'assigned_to' => $validated['employee_ids'][0],
             'employee_ids' => $validated['employee_ids'],
+            'removed_employee_ids' => $removedEmpIds,
+            'previous_employee_ids' => $removedEmpIds,
         ]);
 
         try {
@@ -280,21 +298,6 @@ class EmployeeAssignmentService
 
         // Branch 1: Employee accept logic (when engineer self-accepts)
         if (!$isCS || !$validated) {
-            try {
-                $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_IN_PROGRESS_EMPLOYEE);
-            } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
-                return [
-                    'status' => 422,
-                    'data' => [
-                        'message' => $e->getMessage(),
-                        'code' => 'INVALID_TICKET_TRANSITION',
-                        'from_status' => $e->fromStatus,
-                        'to_status' => $e->toStatus,
-                        'allowed_statuses' => $e->allowedStatuses,
-                    ]
-                ];
-            }
-
             $empId = $user->emp_id;
 
             $assignment = DB::table('ticket_assignments')
@@ -319,8 +322,34 @@ class EmployeeAssignmentService
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
+                    $assignment = DB::table('ticket_assignments')
+                        ->where('ticket_ID', $ticketId)
+                        ->where('employee_ID', $empId)
+                        ->first();
                 } else {
                     return ['status' => 403, 'data' => ['message' => 'You are not assigned to this ticket.']];
+                }
+            }
+
+            if ($assignment && $assignment->assignment_status === 'accepted') {
+                return ['status' => 200, 'data' => ['message' => 'Ticket already accepted.']];
+            }
+
+            // Only validate state machine transition if not already In Progress
+            if ($currentState !== TicketStateMachine::STATE_IN_PROGRESS_EMPLOYEE) {
+                try {
+                    $this->stateMachine->validateTransition($ticket, $currentState, TicketStateMachine::STATE_IN_PROGRESS_EMPLOYEE);
+                } catch (\App\Exceptions\InvalidTicketTransitionException $e) {
+                    return [
+                        'status' => 422,
+                        'data' => [
+                            'message' => $e->getMessage(),
+                            'code' => 'INVALID_TICKET_TRANSITION',
+                            'from_status' => $e->fromStatus,
+                            'to_status' => $e->toStatus,
+                            'allowed_statuses' => $e->allowedStatuses,
+                        ]
+                    ];
                 }
             }
 
@@ -395,9 +424,12 @@ class EmployeeAssignmentService
                 );
             }
 
+            $allActiveEmpIds = DB::table('ticket_assignments')->where('ticket_ID', $ticketId)->pluck('employee_ID')->all();
             $this->notificationService->broadcastTicketChange('accepted', $ticketId, [
+                'ticket_id' => $ticketId,
                 'assigned_to' => $empId,
-                'employee_ids' => [$empId],
+                'accepted_by' => $empId,
+                'employee_ids' => !empty($allActiveEmpIds) ? $allActiveEmpIds : [$empId],
             ]);
 
             try {
@@ -460,7 +492,8 @@ class EmployeeAssignmentService
             }
         }
 
-        DB::transaction(function () use ($ticketId, $validated, $assignedBy, $employees, $changes) {
+        $removedEmpIds = [];
+        DB::transaction(function () use ($ticketId, $validated, $assignedBy, $employees, $changes, &$removedEmpIds) {
             $pendingAssignmentId = DB::table('ticket_statuses')
                 ->whereRaw('LOWER(status_name) = ?', ['pending assignment'])
                 ->value('ticket_status_ID') ?? 7;
@@ -487,6 +520,7 @@ class EmployeeAssignmentService
 
                 $newEmpIds = $employees->all();
                 $toRemove = $existing->keys()->diff($newEmpIds);
+                $removedEmpIds = $toRemove->values()->all();
                 $toAdd = collect($newEmpIds)->diff($existing->keys());
 
                 if ($toRemove->isNotEmpty()) {
@@ -530,6 +564,16 @@ class EmployeeAssignmentService
                 ]);
             }
         });
+
+        $this->notificationService->broadcastTicketChange('assigned', $ticketId, [
+            'ticket_id' => $ticketId,
+            'assigned_to' => $employees->first(),
+            'employee_ids' => $employees->all(),
+            'removed_employee_ids' => $removedEmpIds,
+            'previous_employee_ids' => $removedEmpIds,
+        ]);
+
+        $this->cacheService->clearTicketCaches();
 
         $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
 
@@ -575,10 +619,17 @@ class EmployeeAssignmentService
             $prioName
         );
 
-        $this->notificationService->broadcastTicketChange('assigned', $ticketId, [
-            'assigned_to' => $employees->first(),
-            'employee_ids' => $employees->all(),
-        ]);
+        // Notify unassigned employees about ticket reassignment
+        foreach ($removedEmpIds as $removedEmpId) {
+            $this->notificationService->notifyRecipient(
+                $removedEmpId,
+                'employee',
+                'Ticket Reassigned',
+                "Ticket {$ticketRef}: \"" . $ticket->title . "\" has been reassigned to another engineer.",
+                $ticketId,
+                ['ticket_id' => $ticketId, 'ticket_ref' => $ticketRef, 'title' => $ticket->title, 'type' => 'ticket_unassigned']
+            );
+        }
 
         try {
             $empNames = DB::table('employees')
@@ -600,7 +651,6 @@ class EmployeeAssignmentService
             Log::error("Failed to send internal assignment message in acceptTicket (CS): " . $e->getMessage());
         }
 
-        $this->cacheService->clearTicketCaches();
         return ['status' => 200, 'data' => ['message' => 'Ticket assigned successfully.']];
     }
 
@@ -992,22 +1042,41 @@ class EmployeeAssignmentService
         $deniedReassigns = collect();
 
         if (!empty($ticketIds)) {
-            $pendingReassigns = DB::table('reassignment_requests')
+            $latestRequests = DB::table('reassignment_requests')
                 ->whereIn('ticket_id', $ticketIds)
-                ->where('status', 'pending')
+                ->orderByDesc('request_id')
                 ->get()
-                ->keyBy('ticket_id');
+                ->groupBy('ticket_id')
+                ->map(fn($group) => $group->first());
 
-            $deniedReassigns = DB::table('reassignment_requests')
-                ->whereIn('ticket_id', $ticketIds)
-                ->where('status', 'denied')
-                ->get()
-                ->keyBy('ticket_id');
+            $pendingReassigns = $latestRequests->filter(fn($r) => $r->status === 'pending');
+            $deniedReassigns = $latestRequests->filter(fn($r) => $r->status === 'denied');
         }
 
-        return $rows->map(function ($row) use ($pendingReassigns, $deniedReassigns) {
+        $deniedAuditReasons = collect();
+        if ($deniedReassigns->isNotEmpty()) {
+            $deniedTicketIds = $deniedReassigns->keys()->all();
+            $deniedAuditReasons = DB::table('ticket_audit_logs')
+                ->whereIn('ticket_ID', $deniedTicketIds)
+                ->whereIn('action_type', ['reassign_deny', 'reassign_reject'])
+                ->orderByDesc('log_ID')
+                ->get()
+                ->groupBy('ticket_ID')
+                ->map(function ($group) {
+                    $first = $group->first();
+                    $details = json_decode($first->details ?? '{}', true);
+                    return $details['reason'] ?? null;
+                });
+        }
+
+        return $rows->map(function ($row) use ($pendingReassigns, $deniedReassigns, $deniedAuditReasons) {
             $pendingReassign = $pendingReassigns->get($row->ticket_ID);
             $deniedReassign = $deniedReassigns->get($row->ticket_ID);
+
+            $csDisapprovalReason = null;
+            if (empty($pendingReassign) && !empty($deniedReassign)) {
+                $csDisapprovalReason = $deniedReassign->deny_reason ?: ($deniedAuditReasons->get($row->ticket_ID) ?: null);
+            }
 
             $createdAtObj = is_string($row->created_at) ? Carbon::parse($row->created_at) : $row->created_at;
             $updatedAtObj = is_string($row->updated_at) ? Carbon::parse($row->updated_at) : $row->updated_at;
@@ -1029,7 +1098,9 @@ class EmployeeAssignmentService
                 'escalated' => false,
                 'reassignmentRequested' => !empty($pendingReassign),
                 'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
-                'deniedReassignment' => !empty($deniedReassign),
+                'deniedReassignment' => empty($pendingReassign) && !empty($deniedReassign),
+                'disapprovalReason' => $csDisapprovalReason,
+                'reassignmentDenyReason' => $csDisapprovalReason,
                 'proofRejected' => (bool)$row->proof_rejected,
                 'rejectionReason' => $row->rejection_reason,
                 'type' => $row->ticket_type ?? 'External',

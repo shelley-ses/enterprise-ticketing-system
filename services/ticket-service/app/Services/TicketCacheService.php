@@ -25,6 +25,7 @@ class TicketCacheService
                 '*cs_dashboard_recent_*',
                 '*customer_dashboard_recent_*',
                 '*customer_dashboard_counts_*',
+                '*ticket_attachments_data_*',
             ];
 
             $driver = config('database.redis.client', 'phpredis');

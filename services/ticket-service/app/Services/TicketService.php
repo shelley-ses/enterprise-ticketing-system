@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Helpers\RoleHelper;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -126,6 +127,7 @@ class TicketService
         $pendingReassign = DB::table('reassignment_requests')
             ->where('ticket_id', $ticketId)
             ->where('status', 'pending')
+            ->orderByDesc('request_id')
             ->first();
 
         $createdAtObj = is_string($row->created_at) ? Carbon::parse($row->created_at) : $row->created_at;
@@ -667,12 +669,37 @@ class TicketService
             ->leftJoin('employees as e', 'e.emp_id', '=', 'rr.employee_id')
             ->where('rr.ticket_id', $ticketId)
             ->where('rr.status', 'pending')
+            ->orderByDesc('rr.request_id')
             ->select(
                 'rr.*',
                 DB::raw("CONCAT(e.first_name, ' ', e.last_name) as requesting_employee_name"),
                 'e.department as requesting_employee_department'
             )
             ->first();
+
+        $latestReassign = DB::table('reassignment_requests as rr')
+            ->where('rr.ticket_id', $ticketId)
+            ->orderByDesc('rr.request_id')
+            ->select('rr.*')
+            ->first();
+
+        $deniedReassign = (empty($pendingReassign) && $latestReassign && $latestReassign->status === 'denied')
+            ? $latestReassign
+            : null;
+
+        $latestDenyAuditReason = null;
+        if ($deniedReassign) {
+            $latestDenyAudit = DB::table('ticket_audit_logs')
+                ->where('ticket_ID', $ticketId)
+                ->whereIn('action_type', ['reassign_deny', 'reassign_reject'])
+                ->orderByDesc('log_ID')
+                ->first();
+            if ($latestDenyAudit) {
+                $denyDetails = json_decode($latestDenyAudit->details ?? '{}', true);
+                $latestDenyAuditReason = $denyDetails['reason'] ?? null;
+            }
+        }
+        $actualDenyReason = $deniedReassign ? ($deniedReassign->deny_reason ?: $latestDenyAuditReason) : null;
 
         $auditLogs = DB::table('ticket_audit_logs as tal')
             ->leftJoin('employees as e', function ($join) {
@@ -1047,50 +1074,66 @@ class TicketService
             return strcmp($a['timestamp'], $b['timestamp']);
         });
 
-        $attachments = [];
-        try {
-            $resp = Http::get("http://attachment-service:8000/api/attachments?ticket_id={$ticketId}");
-            if ($resp->successful()) {
-                $attachments = $resp->json('attachments') ?? [];
-            }
-        } catch (\Exception $e) {
-            Log::error("Failed to fetch attachments for ticket {$ticketId}: " . $e->getMessage());
-        }
-
-        $proofAttachments = [];
-        try {
-            $assignments = DB::table('ticket_assignments')
-                ->where('ticket_ID', $ticketId)
-                ->pluck('assignment_ID')
-                ->all();
-
-            foreach ($assignments as $assignmentId) {
-                $resp = Http::get("http://attachment-service:8000/api/attachments?assignment_id={$assignmentId}");
+        $attachmentCacheKey = "ticket_attachments_data_{$ticketId}";
+        $cachedAttachmentData = Cache::get($attachmentCacheKey);
+        if ($cachedAttachmentData !== null && is_array($cachedAttachmentData)) {
+            $attachments = $cachedAttachmentData['attachments'] ?? [];
+            $proofAttachments = $cachedAttachmentData['proofAttachments'] ?? [];
+        } else {
+            $attachments = [];
+            try {
+                $resp = Http::timeout(1.5)->get("http://attachment-service:8000/api/attachments?ticket_id={$ticketId}");
                 if ($resp->successful()) {
-                    $assignmentAttachments = $resp->json('attachments') ?? [];
-                    $proofAttachments = array_merge($proofAttachments, $assignmentAttachments);
+                    $attachments = $resp->json('attachments') ?? [];
                 }
+            } catch (\Exception $e) {
+                Log::warning("Failed to fetch attachments for ticket {$ticketId}: " . $e->getMessage());
             }
 
-            if (empty($proofAttachments) && !empty($assignments)) {
-                $dbProofs = DB::table('proof_of_completion')
-                    ->whereIn('assignment_ID', $assignments)
-                    ->get()
-                    ->map(function ($row) {
-                        return [
-                            'id' => $row->proof_ID,
-                            'name' => $row->file_name,
-                            'url' => str_starts_with($row->file_path, 'http') ? $row->file_path : '/storage/' . $row->file_path,
-                            'file_type' => $row->file_type,
-                            'size' => $row->file_size,
-                            'uploaded_at' => $row->uploaded_at
-                        ];
-                    })
+            $proofAttachments = [];
+            try {
+                $assignments = DB::table('ticket_assignments')
+                    ->where('ticket_ID', $ticketId)
+                    ->pluck('assignment_ID')
                     ->all();
-                $proofAttachments = $dbProofs;
+
+                foreach ($assignments as $assignmentId) {
+                    try {
+                        $resp = Http::timeout(1.5)->get("http://attachment-service:8000/api/attachments?assignment_id={$assignmentId}");
+                        if ($resp->successful()) {
+                            $assignmentAttachments = $resp->json('attachments') ?? [];
+                            $proofAttachments = array_merge($proofAttachments, $assignmentAttachments);
+                        }
+                    } catch (\Exception $e) {}
+                }
+
+                if (empty($proofAttachments) && !empty($assignments)) {
+                    $dbProofs = DB::table('proof_of_completion')
+                        ->whereIn('assignment_ID', $assignments)
+                        ->get()
+                        ->map(function ($row) {
+                            return [
+                                'id' => $row->proof_ID,
+                                'name' => $row->file_name,
+                                'url' => str_starts_with($row->file_path, 'http') ? $row->file_path : '/storage/' . $row->file_path,
+                                'file_type' => $row->file_type,
+                                'size' => $row->file_size,
+                                'uploaded_at' => $row->uploaded_at
+                            ];
+                        })
+                        ->all();
+                    $proofAttachments = $dbProofs;
+                }
+            } catch (\Exception $e) {
+                Log::warning("Failed to fetch proof attachments for ticket {$ticketId}: " . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error("Failed to fetch proof attachments for ticket {$ticketId}: " . $e->getMessage());
+
+            try {
+                Cache::put($attachmentCacheKey, [
+                    'attachments' => $attachments,
+                    'proofAttachments' => $proofAttachments,
+                ], 60);
+            } catch (\Exception $e) {}
         }
 
         $createdAtIso = $ticket->created_at ? Carbon::parse($ticket->created_at)->toIso8601String() : null;
@@ -1107,7 +1150,9 @@ class TicketService
                 'e.email',
                 'e.department',
                 'e.role',
-                'ta.assignment_status'
+                'ta.assignment_status',
+                'ta.assigned_at',
+                'ta.accepted_at'
             )
             ->get();
 
@@ -1175,6 +1220,10 @@ class TicketService
             'reassignmentDepartment' => $pendingReassign ? ($pendingReassign->requesting_employee_department ?: $department) : $department,
             'reassignmentRequestedAt' => $pendingReassign ? ($pendingReassign->requested_at ? Carbon::parse($pendingReassign->requested_at)->toIso8601String() : ($pendingReassign->created_at ? Carbon::parse($pendingReassign->created_at)->toIso8601String() : null)) : null,
             'reassignmentEmployeeId' => $pendingReassign ? (int)$pendingReassign->employee_id : null,
+            'deniedReassignment' => !empty($deniedReassign),
+            'reassignmentDenied' => !empty($deniedReassign),
+            'disapprovalReason' => $actualDenyReason,
+            'reassignmentDenyReason' => $actualDenyReason,
             'proofRejected' => (bool)$ticket->proof_rejected,
             'rejectionReason' => $ticket->rejection_reason,
             'resolved_at' => $resolvedAtIso,
