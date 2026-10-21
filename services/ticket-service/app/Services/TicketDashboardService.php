@@ -306,7 +306,7 @@ class TicketDashboardService
     /**
      * Get paginated incoming tickets list for CS with filtering (TS023).
      */
-    public function getCsIncoming(int $perPage, string $typeFilter, int $page, array $filters = []): array
+    public function getCsIncoming(int $perPage, string $typeFilter, int $page, array $filters = [], bool $forceRefresh = false): array
     {
         $hasFilters = !empty(array_filter($filters, fn($v) => $v !== null && $v !== ''));
         $filterKey = $hasFilters ? md5(json_encode($filters)) : 'none';
@@ -395,7 +395,7 @@ class TicketDashboardService
                 });
             }
 
-            $paginated = $query->orderByDesc('t.created_at')
+            $paginated = $query->orderByDesc(DB::raw('COALESCE(t.updated_at, t.created_at)'))
                 ->paginate($perPage, ['*'], 'page', $page);
 
             $rows = collect($paginated->items());
@@ -408,7 +408,11 @@ class TicketDashboardService
                 $assignments = DB::table('ticket_assignments as ta')
                     ->leftJoin('employees as e', 'e.emp_id', '=', 'ta.employee_ID')
                     ->whereIn('ta.ticket_ID', $ticketIds)
-                    ->select('ta.*', DB::raw("CONCAT(e.first_name, ' ', e.last_name) as employee_name"))
+                    ->select(
+                        'ta.*',
+                        DB::raw("CONCAT(e.first_name, ' ', e.last_name) as employee_name"),
+                        'e.department as employee_department'
+                    )
                     ->get()
                     ->groupBy('ticket_ID');
 
@@ -422,21 +426,29 @@ class TicketDashboardService
                         'e.department as requesting_employee_department'
                     )
                     ->get()
-                    ->keyBy('ticket_id');
+                    ->groupBy('ticket_id')
+                    ->map(fn($group) => $group->sortByDesc('request_id')->first());
             }
 
             $incomingTickets = $rows->map(function ($row) use ($assignments, $pendingReassigns) {
-                $assignedIds = isset($assignments[$row->ticket_ID])
-                    ? $assignments[$row->ticket_ID]->pluck('employee_ID')->map(fn($id) => (int)$id)->all()
-                    : [];
+                $assignedList = isset($assignments[$row->ticket_ID]) ? $assignments[$row->ticket_ID] : collect();
 
-                $assignedNames = isset($assignments[$row->ticket_ID])
-                    ? $assignments[$row->ticket_ID]->pluck('employee_name')->filter()->implode(', ')
-                    : null;
+                $assignedIds = $assignedList->pluck('employee_ID')->map(fn($id) => (int)$id)->all();
 
-                $accepted = isset($assignments[$row->ticket_ID])
-                    ? $assignments[$row->ticket_ID]->contains('assignment_status', 'accepted')
-                    : false;
+                $assignedNames = $assignedList->pluck('employee_name')->filter()->implode(', ') ?: null;
+
+                $accepted = $assignedList->contains('assignment_status', 'accepted');
+
+                $assignedEmployees = $assignedList->map(function ($a) {
+                    return [
+                        'id' => (int) $a->employee_ID,
+                        'name' => $a->employee_name ?: ('Engineer #' . $a->employee_ID),
+                        'department' => $a->employee_department ?? null,
+                        'assignment_status' => $a->assignment_status ?: 'assigned',
+                        'assigned_at' => $a->assigned_at ? Carbon::parse($a->assigned_at)->toIso8601String() : null,
+                        'accepted_at' => $a->accepted_at ? Carbon::parse($a->accepted_at)->toIso8601String() : null,
+                    ];
+                })->values()->all();
 
                 $pendingReassign = $pendingReassigns->get($row->ticket_ID);
 
@@ -471,6 +483,7 @@ class TicketDashboardService
                     'assigned' => $assignedIds,
                     'assigned_employee' => $assignedNames,
                     'assigned_employee_name' => $assignedNames,
+                    'assigned_employees' => $assignedEmployees,
                     'accepted' => $accepted,
                     'reassignmentRequested' => !empty($pendingReassign),
                     'reassignmentReason' => $pendingReassign ? $pendingReassign->reason : null,
@@ -497,6 +510,11 @@ class TicketDashboardService
                 ]
             ];
         };
+
+        if ($forceRefresh) {
+            \Illuminate\Support\Facades\Cache::forget($cacheKey);
+            return $fetchQuery();
+        }
 
         return $hasFilters
             ? $fetchQuery()

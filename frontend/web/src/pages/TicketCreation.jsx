@@ -47,13 +47,68 @@ export default function TicketCreation() {
   const [draftMessage, setDraftMessage] = useState('');
   const [existingDraftAttachments, setExistingDraftAttachments] = useState([]);
 
+  const incomingPrefill = location.state?.prefillData || null;
+  const isFromAi = Boolean(
+    location.state?.fromAiChat ||
+    location.state?.conversationId ||
+    location.state?.conversation_id ||
+    location.state?.fromConversationId ||
+    incomingPrefill
+  );
+
   const [formData, setFormData] = useState({
-    title: '',
-    machine_ID: '',
-    problem_category_ID: '',
-    description: '',
+    title: incomingPrefill?.title || incomingPrefill?.problemSummary || '',
+    machine_ID: incomingPrefill?.machine_ID || '',
+    problem_category_ID: incomingPrefill?.problem_category_ID || '',
+    description: incomingPrefill?.description || incomingPrefill?.conversationSummary || '',
     priority_ID: 1, // default to Low (1)
+    origin: isFromAi ? 'ai_chatbot' : undefined,
+    conversation_id: location.state?.conversationId || location.state?.conversation_id || location.state?.fromConversationId || undefined,
   });
+
+  // Helper to resolve machine ID from options given ID or name/model
+  const resolveMachineId = useCallback((val, machineList) => {
+    if (!val || !machineList || !machineList.length) return '';
+    const numericVal = Number(val);
+    if (!isNaN(numericVal) && numericVal > 0) {
+      const exists = machineList.some((m) => Number(m.machine_ID) === numericVal);
+      if (exists) return numericVal;
+    }
+    const search = String(val).trim().toLowerCase();
+    if (!search) return '';
+    const matched = machineList.find((m) => {
+      const name = (m.machine_name || '').toLowerCase();
+      const model = (m.model || '').toLowerCase();
+      const brand = (m.brand || '').toLowerCase();
+      const serial = (m.serial_number || '').toLowerCase();
+      return (
+        name === search ||
+        model === search ||
+        (name && search.includes(name)) ||
+        (model && search.includes(model)) ||
+        (brand && search.includes(brand)) ||
+        (serial && search.includes(serial))
+      );
+    });
+    return matched ? matched.machine_ID : '';
+  }, []);
+
+  // Helper to resolve category ID from options given ID or category name
+  const resolveCategoryId = useCallback((val, categoryList) => {
+    if (!val || !categoryList || !categoryList.length) return '';
+    const numericVal = Number(val);
+    if (!isNaN(numericVal) && numericVal > 0) {
+      const exists = categoryList.some((c) => Number(c.problem_category_ID) === numericVal);
+      if (exists) return numericVal;
+    }
+    const search = String(val).trim().toLowerCase();
+    if (!search) return '';
+    const matched = categoryList.find((c) => {
+      const name = (c.category_name || '').toLowerCase();
+      return name === search || search.includes(name) || name.includes(search);
+    });
+    return matched ? matched.problem_category_ID : '';
+  }, []);
   const [options, setOptions] = useState({
     equipment_options: [],
     category_options: [],
@@ -156,27 +211,61 @@ export default function TicketCreation() {
     }
   }, [location.state]);
 
-  // Load escalated AI handoff prefill if redirected from AI Support triage
+  // Load escalated AI handoff prefill if redirected from AI Support triage or route state
   useEffect(() => {
-    const convId = location.state?.fromConversationId || location.state?.conversation_id;
+    const prefill = location.state?.prefillData;
+    if (prefill) {
+      setFormData((prev) => {
+        const nextTitle = prev.title || prefill.title || prefill.problemSummary || '';
+        const nextDesc = prev.description || prefill.description || prefill.conversationSummary || '';
+        const rawMachine = prefill.machine_ID || prefill.machineModel || prefill.machine_name || prefill.machine;
+        const resolvedMachine = prev.machine_ID || resolveMachineId(rawMachine, options.machines);
+        const rawCategory = prefill.problem_category_ID || prefill.category || prefill.category_name;
+        const resolvedCategory = prev.problem_category_ID || resolveCategoryId(rawCategory, options.problem_categories);
+
+        return {
+          ...prev,
+          title: nextTitle,
+          description: nextDesc,
+          machine_ID: resolvedMachine || prev.machine_ID,
+          problem_category_ID: resolvedCategory || prev.problem_category_ID,
+          origin: 'ai_chatbot',
+          conversation_id: location.state?.conversationId || location.state?.conversation_id || location.state?.fromConversationId || prev.conversation_id,
+        };
+      });
+    }
+
+    const convId = location.state?.conversationId || location.state?.conversation_id || location.state?.fromConversationId;
     if (convId && !draftId) {
       getEscalateHandoff(convId)
-        .then((handoff) => {
+        .then((res) => {
+          const handoff = res?.data || res;
           if (handoff) {
-            setFormData((prev) => ({
-              ...prev,
-              title: handoff.title || prev.title,
-              description: handoff.description || prev.description,
-              origin: 'ai_escalation',
-              conversation_id: convId,
-            }));
+            setFormData((prev) => {
+              const nextTitle = prev.title || handoff.title || '';
+              const nextDesc = prev.description || handoff.description || '';
+              const rawMachine = handoff.machine || handoff.machine_ID;
+              const resolvedMachine = prev.machine_ID || resolveMachineId(rawMachine, options.machines);
+              const rawCategory = handoff.category || handoff.problem_category_ID;
+              const resolvedCategory = prev.problem_category_ID || resolveCategoryId(rawCategory, options.problem_categories);
+
+              return {
+                ...prev,
+                title: nextTitle,
+                description: nextDesc,
+                machine_ID: resolvedMachine || prev.machine_ID,
+                problem_category_ID: resolvedCategory || prev.problem_category_ID,
+                origin: 'ai_chatbot',
+                conversation_id: convId,
+              };
+            });
           }
         })
         .catch((err) => {
           console.warn('Could not prefill escalation handoff payload:', err);
         });
     }
-  }, [location.state, draftId]);
+  }, [location.state, options.machines, options.problem_categories, draftId, resolveMachineId, resolveCategoryId]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -194,14 +283,54 @@ export default function TicketCreation() {
     setSavingDraft(true);
     setDraftMessage('');
     setError('');
+
+    const hasScanning = files.some((f) => f.status === 'scanning');
+    if (hasScanning) {
+      setError('Please wait for file scanning to complete before saving draft.');
+      setSavingDraft(false);
+      return;
+    }
+
     try {
+      const cleanNewFiles = files.filter((f) => f.status === 'clean');
+      const preparedNewAttachments = [];
+      for (const f of cleanNewFiles) {
+        if (f.attachmentId) {
+          preparedNewAttachments.push({
+            id: f.attachmentId,
+            attachment_id: f.attachmentId,
+            name: f.name,
+            url: f.url || null,
+            size: f.size || null,
+          });
+        } else if (f.file) {
+          const uploaded = await uploadAttachments([f.file]);
+          const upItem = Array.isArray(uploaded) ? uploaded[0] : (uploaded?.attachments?.[0] || uploaded?.data?.[0]);
+          if (upItem?.id || upItem?.attachment_ID) {
+            preparedNewAttachments.push({
+              id: upItem.id || upItem.attachment_ID,
+              attachment_id: upItem.id || upItem.attachment_ID,
+              name: f.name,
+              url: upItem.url || null,
+              size: f.size || null,
+            });
+          }
+        }
+      }
+
+      const allDraftAttachments = [
+        ...existingDraftAttachments,
+        ...preparedNewAttachments,
+      ];
+
       const payload = {
         client_id: customerId,
         title: (formData.title || '').trim(),
         machine_ID: formData.machine_ID ? Number(formData.machine_ID) : null,
         problem_category_ID: formData.problem_category_ID ? Number(formData.problem_category_ID) : null,
         description: formData.description || '',
-        priority_ID: formData.priority_ID ? Number(formData.priority_ID) : 1,
+        priority_ID: formData.priority_ID ? Number(formData.priority_ID) : (options.ticket_priorities?.[0]?.priority_ID || 1),
+        attachments: allDraftAttachments,
       };
       if (draftId) {
         payload.id = draftId;
@@ -210,7 +339,11 @@ export default function TicketCreation() {
       if (res?.draft?.id) {
         setDraftId(res.draft.id);
       }
-      setDraftMessage('Draft saved successfully. You can safely leave and resume editing anytime from My Drafts.');
+      if (res?.draft?.attachments) {
+        setExistingDraftAttachments(res.draft.attachments);
+        setFiles([]);
+      }
+      setDraftMessage('Draft saved successfully with attachments. You can safely leave and resume editing anytime from My Drafts.');
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to save draft. Please try again.');
     } finally {
@@ -219,12 +352,9 @@ export default function TicketCreation() {
   };
 
   const scanUploadedFile = async (fileItem) => {
-    const formData = new FormData();
-    formData.append('files[]', fileItem.file);
-
     try {
-      const res = await uploadAttachments(formData);
-      const uploaded = res?.attachments?.[0] || res?.data?.[0];
+      const res = await uploadAttachments([fileItem.file]);
+      const uploaded = Array.isArray(res) ? res[0] : (res?.attachments?.[0] || res?.data?.[0]);
 
       if (uploaded?.status === 'quarantined') {
         setFiles((prev) =>
@@ -247,6 +377,7 @@ export default function TicketCreation() {
                   ...f,
                   status: 'clean',
                   attachmentId: uploaded?.id || uploaded?.attachment_ID,
+                  url: uploaded?.url,
                 }
               : f
           )
@@ -423,7 +554,7 @@ export default function TicketCreation() {
       payload.append('machine_ID', formData.machine_ID);
       payload.append('problem_category_ID', formData.problem_category_ID);
       payload.append('description', normalizedDesc);
-      payload.append('priority_ID', formData.priority_ID);
+      payload.append('priority_ID', formData.priority_ID || options.ticket_priorities?.[0]?.priority_ID || 1);
       if (draftId) {
         payload.append('draft_id', draftId);
       }
@@ -435,7 +566,9 @@ export default function TicketCreation() {
       }
       if (existingDraftAttachments && existingDraftAttachments.length > 0) {
         existingDraftAttachments.forEach((att) => {
-          const id = att.id || att.attachment_id || att.attachment_ID;
+          const id = typeof att === 'number'
+            ? att
+            : (att.id || att.attachment_id || att.attachment_ID || (Number(att) || null));
           if (id) {
             payload.append('attachments[]', id);
           }
@@ -514,6 +647,15 @@ export default function TicketCreation() {
             </Button>
           }
         />
+
+        {isFromAi && (
+          <div className="rounded-xl p-3.5 bg-blue-50/80 border border-blue-200 text-xs text-primary flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-bold uppercase tracking-wider text-[10px] bg-blue-100 text-[#252578] px-2 py-0.5 rounded-md">AI Support Prefill</span>
+              <span className="font-medium text-slate-700">Problem details from your AI Support conversation have been prefilled. Review and complete your submission.</span>
+            </div>
+          </div>
+        )}
 
         {draftMessage && (
           <div className="mb-6 rounded-xl p-4 text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-800 flex items-start gap-3 transition-all animate-fadeIn">
@@ -631,23 +773,6 @@ export default function TicketCreation() {
                 >
                   <option value="">Select Category</option>
                   {categoryOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="ticket-priority">Priority <span className="text-destructive">*</span></Label>
-                <select
-                  id="ticket-priority"
-                  name="priority_ID"
-                  required
-                  value={formData.priority_ID}
-                  onChange={handleChange}
-                  disabled={loadingOptions}
-                  className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-dark-slate shadow-xs focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 outline-none disabled:opacity-50"
-                >
-                  {priorityOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>

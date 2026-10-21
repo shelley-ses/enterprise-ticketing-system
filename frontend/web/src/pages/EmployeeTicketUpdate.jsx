@@ -351,6 +351,16 @@ export default function EmployeeTicketUpdate() {
                   Escalated
                 </Badge>
               )}
+              {isReassignmentDenied(ticket) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowReassignModal(true)}
+                  className="border-destructive/30 text-destructive hover:bg-destructive/10 text-xs ml-auto font-medium"
+                >
+                  Request Reassignment Again
+                </Button>
+              )}
             </div>
 
             <h1 className="text-2xl font-bold text-foreground mb-1">{ticket.title}</h1>
@@ -418,7 +428,10 @@ export default function EmployeeTicketUpdate() {
 
           <div className="space-y-6">
             {/* Reassignment disapproved banner */}
-            <ReassignmentDisapprovalBanner ticket={ticket} />
+            <ReassignmentDisapprovalBanner
+              ticket={ticket}
+              onRequestReassignAgain={() => setShowReassignModal(true)}
+            />
 
             {/* Customer & Machine Context Panel (TS029) */}
             <CustomerInfoPanel
@@ -940,11 +953,17 @@ export default function EmployeeTicketUpdate() {
         <ReassignmentModal
           ticket={ticket}
           onClose={() => setShowReassignModal(false)}
-          onReassignSuccess={() => {
+          onReassignSuccess={(ticketId, reason) => {
             setTicket((prev) => ({
               ...prev,
               reassignmentRequested: true,
               reassignmentStatus: 'Pending',
+              reassignmentReason: reason,
+              status: 'Pending Reassignment',
+              deniedReassignment: false,
+              reassignmentDenied: false,
+              disapprovalReason: null,
+              reassignmentDenyReason: null,
             }));
             setShowReassignModal(false);
           }}

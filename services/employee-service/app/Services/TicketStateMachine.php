@@ -51,15 +51,15 @@ class TicketStateMachine
             'type' => 'editable',
         ],
         'Assigned' => [
-            'allowed' => ['Reassigned', 'In Progress (Employee-owned)'],
+            'allowed' => ['Reassigned', 'In Progress (Employee-owned)', 'Assigned', 'On Hold/Pending'],
             'type' => 'editable',
         ],
         'Reassigned' => [
-            'allowed' => ['In Progress (Employee-owned)', 'Assigned'],
+            'allowed' => ['In Progress (Employee-owned)', 'Assigned', 'On Hold/Pending'],
             'type' => 'editable',
         ],
         'In Progress (Employee-owned)' => [
-            'allowed' => ['On Hold/Pending', 'Reassigned', 'Resolved'],
+            'allowed' => ['On Hold/Pending', 'Reassigned', 'Resolved', 'Assigned'],
             'type' => 'editable',
         ],
         'Resolved' => [
@@ -202,8 +202,15 @@ class TicketStateMachine
             return true;
         }
 
-        // Allow CS technician updates and reassignment while in Assigned (Pending Assignment) status
-        if ($fromState === self::STATE_ASSIGNED && $toState === self::STATE_ASSIGNED) {
+        // Allow CS technician updates and reassignment to Assigned from any active working state
+        if (in_array($fromState, [
+            self::STATE_OPEN,
+            self::STATE_ASSIGNED,
+            self::STATE_REASSIGNED,
+            self::STATE_IN_PROGRESS_EMPLOYEE,
+            self::STATE_IN_PROGRESS_CS,
+            self::STATE_ON_HOLD,
+        ], true) && $toState === self::STATE_ASSIGNED) {
             return true;
         }
 

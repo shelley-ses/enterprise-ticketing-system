@@ -19,7 +19,6 @@ import {
   acceptTicket,
   getTicketFormOptions,
   prefetchTicketFormOptions,
-  updateEmployeeTicketOverride,
   respondReassignment,
   getTicketDetails,
   updateTicket,
@@ -919,8 +918,6 @@ export default function CSIncoming() {
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
           onStatusUpdate={async (updatedFields) => {
-            updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
-
             setModal((prev) => prev ? { ...prev, ticket: { ...prev.ticket, ...updatedFields } } : null);
 
             setTickets((prev) => prev.map((t) => (

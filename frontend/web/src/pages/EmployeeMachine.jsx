@@ -7,7 +7,7 @@ import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, clearEmployeeTicketsCache } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { hasPendingReassignment } from '@/utils/reassignmentUtils';
 import { PageHeader } from '@/components/ui/page-header';
@@ -108,19 +108,43 @@ export default function EmployeeMachine() {
     }
   }, [location.state, tickets]);
 
+  const handleRealtimeRefresh = useCallback(() => {
+    clearEmployeeTicketsCache();
+    loadTickets({ forceRefresh: true });
+  }, [loadTickets]);
+
   useRealtimeRefresh({
-    refresh: loadTickets,
+    refresh: handleRealtimeRefresh,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
     shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
-        const isRelevant =
+        const payloadTicketId = Number(
+          payload?.ticket_id ||
+          payload?.ticket_ID ||
+          payload?.ticketId ||
+          payload?.id ||
+          payload?.ticket?.ticket_ID ||
+          payload?.ticket?.id ||
+          0
+        );
+        const isCurrentAssignee =
           payload && (
             Number(payload.assigned_to) === myEmpId ||
+            Number(payload.employee_id) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        return !!isRelevant;
+        const isRemovedAssignee =
+          payload && (
+            (Array.isArray(payload.removed_employee_ids) && payload.removed_employee_ids.map(Number).includes(myEmpId)) ||
+            (Array.isArray(payload.previous_employee_ids) && payload.previous_employee_ids.map(Number).includes(myEmpId))
+          );
+        const isHoldingTicket =
+          Boolean(payloadTicketId) &&
+          tickets.some((t) => Number(t.ticket_ID || String(t.id).replace(/\D/g, '')) === payloadTicketId);
+
+        return Boolean(isCurrentAssignee || isRemovedAssignee || isHoldingTicket || !payloadTicketId);
       }
       return true;
     },
@@ -393,8 +417,15 @@ export default function EmployeeMachine() {
                         {getTicketTypeLabel(t)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-medium text-foreground truncate max-w-[16rem]">
-                      {t.title}
+                    <TableCell className="font-medium text-foreground max-w-[16rem]">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="truncate">{t.title}</span>
+                        {t.proofRejected && (
+                          <p className="text-xs text-rose-600 font-medium truncate" title={`Proof rejected: ${t.rejectionReason || 'No reason provided'}`}>
+                            Rejection reason: &quot;{t.rejectionReason || 'Proof rejected by CS'}&quot;
+                          </p>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {t.category}
@@ -413,9 +444,17 @@ export default function EmployeeMachine() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getStatusBadgeVariant(displayStatus)}>
-                        {displayStatus}
-                      </Badge>
+                      <div className="flex flex-col gap-1 items-start">
+                        <Badge variant={getStatusBadgeVariant(displayStatus)}>
+                          {displayStatus}
+                        </Badge>
+                        {t.proofRejected && (
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            Proof Rejected
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                       {formatDisplayDate(t.lastUpdate)}
@@ -448,6 +487,26 @@ export default function EmployeeMachine() {
         <TicketInfoModal
           ticket={infoTicket}
           onClose={() => setInfoTicket(null)}
+          onReassignSuccess={(id, reason) => {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === id || t.ticket_ID === id
+                  ? {
+                      ...t,
+                      reassignmentRequested: true,
+                      reassignmentStatus: 'Pending',
+                      reassignmentReason: reason,
+                      status: 'Pending Reassignment',
+                      deniedReassignment: false,
+                      reassignmentDenied: false,
+                      disapprovalReason: null,
+                      reassignmentDenyReason: null,
+                    }
+                  : t
+              )
+            );
+            loadTickets({ forceRefresh: true });
+          }}
         />
       )}
 

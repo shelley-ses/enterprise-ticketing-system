@@ -11,7 +11,7 @@ import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, clearEmployeeTicketsCache } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import { PageHeader } from '@/components/ui/page-header';
@@ -114,7 +114,7 @@ export default function EmployeeAssigned() {
 
   // Compute incoming counts for display
   const pendingAcceptanceCount = useMemo(() => {
-    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && !t.accepted && !hasPendingReassignment(t)).length;
+    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && (!t.accepted || t.proofRejected) && !hasPendingReassignment(t)).length;
   }, [tickets]);
 
   const pendingReassignmentCount = useMemo(() => {
@@ -122,7 +122,7 @@ export default function EmployeeAssigned() {
   }, [tickets]);
 
   const totalIncomingCount = useMemo(() => {
-    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && !t.accepted).length;
+    return tickets.filter((t) => !t.rejected && !CLOSED_STATUSES.includes(t.status) && (!t.accepted || t.proofRejected)).length;
   }, [tickets]);
 
   const pendingCount = totalIncomingCount;
@@ -172,19 +172,49 @@ export default function EmployeeAssigned() {
 
 
 
+  const handleRealtimeRefresh = useCallback(() => {
+    clearEmployeeTicketsCache();
+    loadTickets({ forceRefresh: true });
+  }, [loadTickets]);
+
   useRealtimeRefresh({
-    refresh: loadTickets,
+    refresh: handleRealtimeRefresh,
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
     shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
-        const isRelevant =
+        const payloadTicketId = Number(
+          payload?.ticket_id ||
+          payload?.ticket_ID ||
+          payload?.ticketId ||
+          payload?.id ||
+          payload?.ticket?.ticket_ID ||
+          payload?.ticket?.id ||
+          0
+        );
+        const isCurrentAssignee =
           payload && (
             Number(payload.assigned_to) === myEmpId ||
+            Number(payload.employee_id) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        return !!isRelevant;
+        const isRemovedAssignee =
+          payload && (
+            (Array.isArray(payload.removed_employee_ids) && payload.removed_employee_ids.map(Number).includes(myEmpId)) ||
+            (Array.isArray(payload.previous_employee_ids) && payload.previous_employee_ids.map(Number).includes(myEmpId))
+          );
+        const isHoldingTicket =
+          Boolean(payloadTicketId) &&
+          tickets.some((t) => Number(t.ticket_ID || String(t.id).replace(/\D/g, '')) === payloadTicketId);
+
+        if (isRemovedAssignee && payloadTicketId) {
+          setPendingTicket((prev) => (Number(prev?.ticket_ID || String(prev?.id).replace(/\D/g, '')) === payloadTicketId ? null : prev));
+          setInfoTicket((prev) => (Number(prev?.ticket_ID || String(prev?.id).replace(/\D/g, '')) === payloadTicketId ? null : prev));
+          setReassignTicket((prev) => (Number(prev?.ticket_ID || String(prev?.id).replace(/\D/g, '')) === payloadTicketId ? null : prev));
+        }
+
+        return Boolean(isCurrentAssignee || isRemovedAssignee || isHoldingTicket || !payloadTicketId);
       }
       return true;
     },
@@ -195,7 +225,7 @@ export default function EmployeeAssigned() {
     let list = tickets.filter((t) => {
       if (t.rejected) return false;
       if (CLOSED_STATUSES.includes(t.status)) return false;
-      if (t.accepted) return false;
+      if (t.accepted && !t.proofRejected) return false;
 
       // Tab filtering
       if (incomingTab === 'incoming') {
@@ -236,9 +266,17 @@ export default function EmployeeAssigned() {
       }
       return true;
     });
+
     if (sortPriority === 'Priority') {
       list = sortTicketsByPriority(list, 'desc');
+    } else {
+      list = [...list].sort((a, b) => {
+        const timeA = new Date(a.updated_at || a.last_update || a.lastUpdate || a.date || a.created_at || 0).getTime();
+        const timeB = new Date(b.updated_at || b.last_update || b.lastUpdate || b.date || b.created_at || 0).getTime();
+        return timeB - timeA;
+      });
     }
+
     return list;
   }, [tickets, search, incomingTab, statusFilter, categoryFilter, priorityFilter, sortPriority, typeFilter]);
 
@@ -354,6 +392,11 @@ export default function EmployeeAssigned() {
       // If pending reassignment, open TicketDetailModal (which hides Request Reassignment button and shows pending banner)
       if (hasPendingReassignment(t)) {
         setPendingTicket(t);
+        return;
+      }
+      // If proof rejected → show TicketInfoModal with proof rejection banner and Update button
+      if (t.proofRejected) {
+        setInfoTicket(t);
         return;
       }
       // Not yet accepted → show full Accept/Reject modal
@@ -552,6 +595,11 @@ export default function EmployeeAssigned() {
                   </TableCell>
                   <TableCell className="max-w-[260px]">
                     <p className="font-medium text-dark-slate text-sm line-clamp-2 leading-snug">{t.title}</p>
+                    {t.proofRejected && (
+                      <p className="text-xs text-rose-600 font-medium truncate mt-0.5" title={`Proof rejected: ${t.rejectionReason || 'No reason provided'}`}>
+                        Rejection reason: &quot;{t.rejectionReason || 'Proof rejected by CS'}&quot;
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-slate text-sm truncate">{t.category}</TableCell>
                   <TableCell>
@@ -568,6 +616,16 @@ export default function EmployeeAssigned() {
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                         Pending Reassignment
                       </span>
+                    ) : t.proofRejected ? (
+                      <div className="flex flex-col gap-1 items-start">
+                        <Badge variant={getStatusBadgeVariant(t.status)} dot>
+                          {t.status}
+                        </Badge>
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                          Proof Rejected
+                        </span>
+                      </div>
                     ) : (
                       <Badge variant={getStatusBadgeVariant(t.status)} dot>
                         {t.status}
@@ -604,6 +662,26 @@ export default function EmployeeAssigned() {
         <TicketInfoModal
           ticket={infoTicket}
           onClose={() => setInfoTicket(null)}
+          onReassignSuccess={(id, reason) => {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === id || t.ticket_ID === id
+                  ? {
+                      ...t,
+                      reassignmentRequested: true,
+                      reassignmentStatus: 'Pending',
+                      reassignmentReason: reason,
+                      status: 'Pending Reassignment',
+                      deniedReassignment: false,
+                      reassignmentDenied: false,
+                      disapprovalReason: null,
+                      reassignmentDenyReason: null,
+                    }
+                  : t
+              )
+            );
+            loadTickets({ forceRefresh: true });
+          }}
         />
       )}
 
@@ -612,6 +690,26 @@ export default function EmployeeAssigned() {
         <TicketInfoModal
           ticket={deniedReassignTicket}
           onClose={() => setDeniedReassignTicket(null)}
+          onReassignSuccess={(id, reason) => {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === id || t.ticket_ID === id
+                  ? {
+                      ...t,
+                      reassignmentRequested: true,
+                      reassignmentStatus: 'Pending',
+                      reassignmentReason: reason,
+                      status: 'Pending Reassignment',
+                      deniedReassignment: false,
+                      reassignmentDenied: false,
+                      disapprovalReason: null,
+                      reassignmentDenyReason: null,
+                    }
+                  : t
+              )
+            );
+            loadTickets({ forceRefresh: true });
+          }}
         />
       )}
 
@@ -623,19 +721,24 @@ export default function EmployeeAssigned() {
           onReassignSuccess={(id, reason) => {
             setTickets((prev) =>
               prev.map((t) =>
-                t.id === id
+                t.id === id || t.ticket_ID === id
                   ? {
                       ...t,
                       reassignmentRequested: true,
                       reassignmentStatus: 'Pending',
                       reassignmentReason: reason,
                       status: 'Pending Reassignment',
+                      deniedReassignment: false,
+                      reassignmentDenied: false,
+                      disapprovalReason: null,
+                      reassignmentDenyReason: null,
                     }
                   : t
               )
             );
             setIncomingTab('pending_reassignment');
             setReassignTicket(null);
+            loadTickets({ forceRefresh: true });
           }}
         />
       )}

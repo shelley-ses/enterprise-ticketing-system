@@ -11,7 +11,6 @@ import {
   acceptTicket,
   getTicketFormOptions,
   getCSFilterOptions,
-  updateEmployeeTicketOverride,
   getTicketDetails,
   updateTicket,
   respondReassignment,
@@ -245,7 +244,7 @@ export default function CSAssigned() {
 
   useRealtimeRefresh({
     refresh: (context) => {
-      loadLiveData(context);
+      loadLiveData({ ...context, forceRefresh: true });
       if (context && context.source === 'websocket') {
         setNotificationBanner('Ticket list automatically updated via real-time sync');
         setTimeout(() => {
@@ -352,6 +351,12 @@ export default function CSAssigned() {
       const tokens = cleanQ.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
       return tokens.length > 0 && tokens.every((token) => searchBlob.includes(token));
     });
+
+    return [...list].sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.last_update || a.lastUpdate || a.date || a.created_at || 0).getTime();
+      const timeB = new Date(b.updated_at || b.last_update || b.lastUpdate || b.date || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
   }, [tickets, search, customerFilter, machineFilter, departmentFilter, statusFilter, category, typeFilter, assignedTab]);
 
   const ITEMS_PER_PAGE = 10;
@@ -367,7 +372,7 @@ export default function CSAssigned() {
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, page]);
 
-  const handleRowAction = async (t) => {
+  const handleRowAction = (t) => {
     const isMock = !!t.isMock;
     if (isMock) {
       setModal({ mode: 'summary', ticket: t });
@@ -376,17 +381,26 @@ export default function CSAssigned() {
 
     const isSummary = t.reassignmentRequested || t.status === 'Pending Assignment' || t.status === 'Pending Evaluation' || t.status === 'Resolved' || t.status === 'In Progress' || t.status === 'Pending' || t.status === 'Closed' || t.status === 'Reopened' || t.status === 'On Hold';
     if (isSummary) {
-      setModalLoading(true);
-      try {
-        const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
-        const details = await getTicketDetails(ticketId);
-        setModal({ mode: 'summary', ticket: { ...t, ...details } });
-      } catch (err) {
-        console.warn('Failed to load full ticket details, fallback to list item:', err);
-        setModal({ mode: 'summary', ticket: t });
-      } finally {
-        setModalLoading(false);
-      }
+      // Instantly open the modal with existing ticket data from list so user never experiences latency
+      setModal({ mode: 'summary', ticket: t, isLoadingDetails: true });
+      const ticketId = t.ticket_ID || Number(String(t.id).replace(/\D/g, ''));
+      getTicketDetails(ticketId)
+        .then((details) => {
+          setModal((prev) => {
+            if (!prev || prev.mode !== 'summary') return prev;
+            const currentId = prev.ticket?.ticket_ID || Number(String(prev.ticket?.id).replace(/\D/g, ''));
+            if (currentId !== ticketId) return prev;
+            return {
+              ...prev,
+              ticket: { ...prev.ticket, ...details },
+              isLoadingDetails: false,
+            };
+          });
+        })
+        .catch((err) => {
+          console.warn('Failed to load full ticket details, fallback to list item:', err);
+          setModal((prev) => (prev ? { ...prev, isLoadingDetails: false } : null));
+        });
     } else {
       setModal({ mode: 'assign', ticket: t });
     }
@@ -402,9 +416,11 @@ export default function CSAssigned() {
 
     const isMock = !!updated.isMock;
     if (isMock) {
-      const refreshed = { ...updated, status: 'Pending Assignment' };
+      const refreshed = { ...updated, status: 'Pending Assignment', reassignmentRequested: false };
       setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));
-      setModal({ mode: 'summary', ticket: refreshed });
+      setAssignedTab('all');
+      setPage(1);
+      setModal(null);
       window.alert('Ticket assigned successfully.');
       return true;
     }
@@ -419,25 +435,23 @@ export default function CSAssigned() {
 
       window.dispatchEvent(new Event('notifications:updated'));
 
+      // Redirect to "All Assigned" tab and close modal
+      setAssignedTab('all');
+      setPage(1);
+      setModal(null);
+
       // Soft data refetch
       try {
         const incoming = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         const assignedTickets = incoming.filter(t =>
           t.reassignmentRequested === true ||
-          ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed'].includes(t.status) ||
+          ['Pending Assignment', 'In Progress', 'Pending Evaluation', 'Resolved', 'Pending', 'Closed', 'On Hold'].includes(t.status) ||
           (t.assigned && t.assigned.length > 0)
         );
         setTickets(assignedTickets);
-        
-        const refreshedTicket = assignedTickets.find(t => t.ticket_ID === updated.ticket_ID) || {
-          ...updated,
-          status: 'Pending Assignment',
-        };
-        setModal({ mode: 'summary', ticket: refreshedTicket });
       } catch (e) {
-        const refreshed = { ...updated, status: 'Pending Assignment' };
+        const refreshed = { ...updated, status: 'Pending Assignment', reassignmentRequested: false };
         setTickets((prev) => prev.map((t) => ((t.ticket_ID === updated.ticket_ID || t.id === updated.id) ? refreshed : t)));
-        setModal({ mode: 'summary', ticket: refreshed });
       }
       return true;
     } catch (err) {
@@ -654,16 +668,17 @@ export default function CSAssigned() {
               <TableHead>Title</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-[150px]">Date Submitted</TableHead>
+              <TableHead className="min-w-[180px]">Assignees</TableHead>
+              <TableHead className="w-[150px]">Last Update</TableHead>
               <TableHead className="w-[80px] text-center">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <DataTableSkeleton columns={8} rows={6} />
+              <DataTableSkeleton columns={9} rows={6} />
             ) : filtered.length === 0 ? (
               <DataTableEmptyState
-                colSpan={8}
+                colSpan={9}
                 message="No tickets found in this assigned queue."
               />
             ) : (
@@ -737,8 +752,60 @@ export default function CSAssigned() {
                         {isReassignmentReq ? 'Pending Reassignment' : (t.status === 'Reopen' ? 'Reopened' : t.status)}
                       </Badge>
                     </TableCell>
+                    <TableCell className="max-w-[16rem]">
+                      {(() => {
+                        const list = Array.isArray(t.assigned_employees) && t.assigned_employees.length > 0
+                          ? t.assigned_employees
+                          : (t.assigned_employee ? [{ name: t.assigned_employee, assignment_status: t.accepted ? 'accepted' : 'assigned' }] : []);
+
+                        if (list.length === 0) {
+                          return <span className="text-xs text-muted-foreground italic font-normal">Unassigned</span>;
+                        }
+
+                        const acceptedCount = list.filter((e) => e.assignment_status === 'accepted').length;
+
+                        return (
+                          <div className="flex flex-col gap-1">
+                            {list.length > 1 && (
+                              <span className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
+                                {acceptedCount} of {list.length} Accepted
+                              </span>
+                            )}
+                            <div className="flex flex-wrap gap-1.5">
+                              {list.map((emp, i) => {
+                                const isAcc = emp.assignment_status === 'accepted';
+                                const isReassign = emp.assignment_status === 'reassign_requested';
+                                return (
+                                  <span
+                                    key={emp.id || i}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                                      isAcc
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : isReassign
+                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                        : 'bg-slate-50 text-slate-700 border-slate-200'
+                                    }`}
+                                    title={isAcc ? 'Accepted' : isReassign ? 'Reassignment Requested' : 'Pending Acceptance'}
+                                  >
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full ${
+                                        isAcc ? 'bg-emerald-500' : isReassign ? 'bg-amber-500' : 'bg-slate-400'
+                                      }`}
+                                    />
+                                    <span className="truncate max-w-[90px]">{emp.name}</span>
+                                    <span className="text-[9px] font-semibold opacity-80">
+                                      ({isAcc ? 'Accepted' : isReassign ? 'Reassign' : 'Pending'})
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatDisplayDate(t.date || t.created_at)}
+                      {formatDisplayDate(t.updated_at || t.last_update || t.lastUpdate || t.date || t.created_at)}
                     </TableCell>
                     <TableCell className="text-center">
                       <Button
@@ -794,8 +861,6 @@ export default function CSAssigned() {
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'assign', ticket: modal.ticket })}
           onStatusUpdate={async (updatedFields) => {
-            updateEmployeeTicketOverride(updatedFields.id || modal.ticket.id, updatedFields);
-            
             setTickets((prev) => prev.map((t) => (
               (t.id === (updatedFields.id || modal.ticket.id) || t.ticket_ID === (updatedFields.ticket_ID || modal.ticket.ticket_ID)) ? { ...t, ...updatedFields } : t
             )));
@@ -826,6 +891,8 @@ export default function CSAssigned() {
                   action: updatedFields.reassignmentStatus === 'Approved' ? 'approve' : 'deny',
                   reason: updatedFields.reassignmentDenyReason ?? '',
                 });
+                setAssignedTab('all');
+                setPage(1);
               } else {
                 const statusMap = {
                   'Open': 1,

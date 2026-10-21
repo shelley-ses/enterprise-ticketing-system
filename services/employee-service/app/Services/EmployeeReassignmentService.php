@@ -37,6 +37,14 @@ class EmployeeReassignmentService
         }
 
         DB::transaction(function () use ($ticketId, $empId, $reason) {
+            DB::table('reassignment_requests')
+                ->where('ticket_id', $ticketId)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'superseded',
+                    'updated_at' => now(),
+                ]);
+
             DB::table('reassignment_requests')->insert([
                 'ticket_id' => $ticketId,
                 'employee_id' => $empId,
@@ -64,6 +72,13 @@ class EmployeeReassignmentService
                 'created_at' => now(),
             ]);
         });
+
+        $this->notificationService->broadcastTicketChange('reassign_requested', $ticketId, [
+            'employee_id' => $empId,
+            'reason' => $reason,
+        ]);
+
+        $this->cacheService->clearTicketCaches();
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         if ($ticket) {
@@ -109,13 +124,6 @@ class EmployeeReassignmentService
             );
         }
 
-        $this->notificationService->broadcastTicketChange('reassign_requested', $ticketId, [
-            'employee_id' => $empId,
-            'reason' => $reason,
-        ]);
-
-        $this->cacheService->clearTicketCaches();
-
         return ['status' => 200, 'data' => ['message' => 'Reassignment request submitted successfully.']];
     }
 
@@ -136,6 +144,7 @@ class EmployeeReassignmentService
         $pendingRequest = DB::table('reassignment_requests')
             ->where('ticket_id', $ticketId)
             ->where('status', 'pending')
+            ->orderByDesc('request_id')
             ->first();
 
         if (!$pendingRequest) {
@@ -212,6 +221,7 @@ class EmployeeReassignmentService
                     ->where('request_id', $pendingRequest->request_id)
                     ->update([
                         'status' => 'denied',
+                        'deny_reason' => $denyReason,
                         'reviewed_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -250,6 +260,24 @@ class EmployeeReassignmentService
                 ]);
             }
         });
+
+        $this->notificationService->broadcastTicketChange('reassigned_response', $ticketId, [
+            'ticket_id' => $ticketId,
+            'ticket_ID' => $ticketId,
+            'ticketId' => $ticketId,
+            'action' => $validated['action'],
+            'employee_id' => $targetEmpId,
+            'assigned_to' => $validated['action'] === 'approve' ? $newEmpId : $targetEmpId,
+            'employee_ids' => $validated['action'] === 'approve' ? ($newEmpId ? [$newEmpId] : []) : [$targetEmpId],
+            'removed_employee_ids' => $validated['action'] === 'approve' ? [$targetEmpId] : [],
+            'previous_employee_ids' => $validated['action'] === 'approve' ? [$targetEmpId] : [],
+            'disapproval_reason' => $validated['action'] === 'deny' ? $denyReason : null,
+            'reassignment_deny_reason' => $validated['action'] === 'deny' ? $denyReason : null,
+            'disapprovalReason' => $validated['action'] === 'deny' ? $denyReason : null,
+            'reassignmentDenyReason' => $validated['action'] === 'deny' ? $denyReason : null,
+        ]);
+
+        $this->cacheService->clearTicketCaches();
 
         $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         if ($ticket) {
@@ -359,13 +387,6 @@ class EmployeeReassignmentService
                 $priorityName
             );
         }
-
-        $this->notificationService->broadcastTicketChange('reassigned_response', $ticketId, [
-            'action' => $validated['action'],
-            'employee_id' => $targetEmpId,
-        ]);
-
-        $this->cacheService->clearTicketCaches();
 
         return ['status' => 200, 'data' => ['message' => 'Reassignment request responded to successfully.']];
     }

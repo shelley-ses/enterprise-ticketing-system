@@ -36,6 +36,7 @@ AI assistants operating within this repository are configured with specialized r
 - **`docker-runbook`**: Executes container commands, database migrations, logs, and ClamAV/Reverb operational checks.
 - **`gemini-ai`**: Manages the Google Gemini 2.0 Flash AI support subsystem, conversation persistence, escalation payloads, and direct manual ticket fallback.
 - **`api-testing`**: Verifies endpoints across the Nginx gateway and microservices with JWT bearer tokens.
+- **`security-audit`**: Inspects code changes, git diffs, and staged commits for secret leaks and verifies compliance with repository security standards.
 
 ## Inviolable Architectural Invariants
 

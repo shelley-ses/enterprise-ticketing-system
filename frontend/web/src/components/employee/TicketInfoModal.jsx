@@ -6,13 +6,15 @@ import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import InternalNotesSection from '@/components/InternalNotesSection';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
+import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { isReassignmentDenied } from '@/utils/reassignmentUtils';
 import { getTicketDetails } from '@/services/ticketService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
-export default function TicketInfoModal({ ticket, onClose }) {
+export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) {
   const navigate = useNavigate();
   const [previewFile, setPreviewFile] = useState(null);
+  const [showReassignModal, setShowReassignModal] = useState(false);
   const [ticketDetails, setTicketDetails] = useState(ticket);
 
   useLockBodyScroll(!!ticket);
@@ -32,6 +34,8 @@ export default function TicketInfoModal({ ticket, onClose }) {
               disapprovalReason: prev?.disapprovalReason || full.disapprovalReason,
               reassignmentStatus: prev?.reassignmentStatus || full.reassignmentStatus,
               deniedReassignment: prev?.deniedReassignment ?? full.deniedReassignment,
+              proofRejected: prev?.proofRejected ?? full.proofRejected,
+              rejectionReason: prev?.rejectionReason ?? full.rejectionReason,
             }));
           }
         })
@@ -70,6 +74,11 @@ export default function TicketInfoModal({ ticket, onClose }) {
             {ticket.escalated && (
               <span className="text-xs font-bold px-3 py-1 bg-orange-100 text-orange-800 rounded-full border border-orange-200">
                 Escalated
+              </span>
+            )}
+            {(currentTicket.proofRejected || currentTicket.rejectionReason) && (
+              <span className="text-xs font-bold px-3 py-1 bg-rose-100 text-rose-800 rounded-full border border-rose-200">
+                Proof Rejected
               </span>
             )}
           </div>
@@ -215,7 +224,26 @@ export default function TicketInfoModal({ ticket, onClose }) {
             />
           )}
 
-          <ReassignmentDisapprovalBanner ticket={currentTicket} />
+          <ReassignmentDisapprovalBanner
+            ticket={currentTicket}
+            onRequestReassignAgain={() => setShowReassignModal(true)}
+          />
+
+          {(currentTicket.proofRejected || currentTicket.rejectionReason) && (
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-800">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-1 shrink-0" />
+              <div className="space-y-1">
+                <span className="font-bold text-rose-900 block text-xs uppercase tracking-wide">
+                  Proof of Completion Rejected by Customer Service
+                </span>
+                <p className="text-xs text-rose-800 font-medium leading-relaxed">
+                  {currentTicket.rejectionReason
+                    ? `Reason: "${currentTicket.rejectionReason}"`
+                    : 'Please review and re-upload your proof of completion.'}
+                </p>
+              </div>
+            </div>
+          )}
 
           {currentTicket.reassignmentRequested && !isReassignmentDenied(currentTicket) && (
             <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
@@ -230,6 +258,15 @@ export default function TicketInfoModal({ ticket, onClose }) {
 
         {/* Footer */}
         <div className="p-6 border-t border-gray-150 flex-shrink-0 flex justify-end gap-3">
+          {isReassignmentDenied(currentTicket) && (
+            <button
+              type="button"
+              onClick={() => setShowReassignModal(true)}
+              className="px-5 py-2.5 border border-red-200 text-red-700 hover:bg-red-50 text-sm font-semibold rounded-xl transition-all"
+            >
+              Request Reassignment Again
+            </button>
+          )}
           <button
             type="button"
             onClick={handleUpdate}
@@ -243,6 +280,30 @@ export default function TicketInfoModal({ ticket, onClose }) {
         <FilePreviewModal
           file={previewFile}
           onClose={() => setPreviewFile(null)}
+        />
+      )}
+      {showReassignModal && (
+        <ReassignmentModal
+          ticket={currentTicket}
+          onClose={() => setShowReassignModal(false)}
+          onReassignSuccess={(ticketId, reason) => {
+            setShowReassignModal(false);
+            setTicketDetails((prev) => ({
+              ...prev,
+              reassignmentRequested: true,
+              reassignmentStatus: 'Pending',
+              reassignmentReason: reason,
+              status: 'Pending Reassignment',
+              deniedReassignment: false,
+              reassignmentDenied: false,
+              disapprovalReason: null,
+              reassignmentDenyReason: null,
+            }));
+            if (typeof onReassignSuccess === 'function') {
+              onReassignSuccess(ticketId, reason);
+            }
+            onClose();
+          }}
         />
       )}
     </div>

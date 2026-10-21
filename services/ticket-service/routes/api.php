@@ -122,6 +122,43 @@ Route::middleware('auth.subsystem')->group(function () {
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
     });
 
+    Route::patch('/tickets/{ticketId}/accept', function (Request $request, $ticketId) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->patch("http://employee-service:8000/api/tickets/{$ticketId}/accept", $request->all());
+        if ($resp->successful()) {
+            app(\App\Services\TicketCacheService::class)->clearTicketCaches();
+        }
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::post('/tickets/{ticketId}/reassign-request', function (Request $request, $ticketId) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->post("http://employee-service:8000/api/tickets/{$ticketId}/reassign-request", $request->all());
+        if ($resp->successful()) {
+            app(\App\Services\TicketCacheService::class)->clearTicketCaches();
+        }
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::post('/tickets/{ticketId}/reassign-respond', function (Request $request, $ticketId) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->post("http://employee-service:8000/api/tickets/{$ticketId}/reassign-respond", $request->all());
+        if ($resp->successful()) {
+            app(\App\Services\TicketCacheService::class)->clearTicketCaches();
+        }
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
+    Route::get('/reassignment-requests', function (Request $request) {
+        $token = $request->bearerToken();
+        $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])
+            ->get('http://employee-service:8000/api/reassignment-requests', $request->all());
+        return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
+    });
+
     Route::get('/employee-tickets', function (Request $request) {
         $token = $request->bearerToken();
         $resp = Illuminate\Support\Facades\Http::withHeaders(['Authorization' => "Bearer {$token}"])

@@ -389,7 +389,7 @@ export default function TicketModal({ isOpen, onClose, onSubmit, openTicketsCoun
               placeholder="Please provide as much detail as possible..."
               value={formData.description}
               onChange={handleChange}
-              onBlur={handleCasingBlur('description')}
+              onBlur={() => touch('description')}
               disabled={isSubmitting}
               className={`w-full resize-none rounded-xl border bg-white px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#252578] ${touched.description && descriptionError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
             />

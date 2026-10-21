@@ -878,7 +878,9 @@ export default function MessagingPage() {
                   <Avatar name={selectedContact.subtitle} />
                   <div>
                     <p className="font-semibold text-sm text-slate-dark">{selectedContact.displayTitle}</p>
-                    <p className="text-xs text-slate-muted">Owner: {selectedContact.subtitle} • Status: {selectedContact.status}</p>
+                    <p className="text-xs text-slate-muted">
+                      {isCustomer ? `Ticket #${selectedContact.ticket_ID || selectedContact.id}` : `Client: ${selectedContact.subtitle}`} • Status: {selectedContact.status}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -961,8 +963,23 @@ export default function MessagingPage() {
                         )}
                         <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
                           <div className="max-w-[75%] flex flex-col">
-                          <div className="text-[10px] text-slate-muted mb-0.5 px-1 flex justify-between gap-2">
-                            <span>{msg.sender_name}</span>
+                          <div className="text-[10px] text-slate-muted mb-0.5 px-1 flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-slate-700">{msg.sender_name}</span>
+                            {msg.sender_type === 'cs' && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold text-[9px]">
+                                Customer Support
+                              </span>
+                            )}
+                            {msg.sender_type === 'employee' && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-semibold text-[9px]">
+                                Staff / Engineer
+                              </span>
+                            )}
+                            {msg.sender_type === 'customer' && !isMine && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold text-[9px]">
+                                Customer
+                              </span>
+                            )}
                           </div>
                           
                           <div className={`flex items-center gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>

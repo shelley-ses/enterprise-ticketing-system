@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
-import { getEmployeeAssignedTickets } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, clearEmployeeTicketsCache } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -50,7 +50,10 @@ export default function EmployeeProgress() {
   }, [loadHistory]);
 
   useRealtimeRefresh({
-    refresh: loadHistory,
+    refresh: () => {
+      clearEmployeeTicketsCache();
+      loadHistory({ forceRefresh: true });
+    },
     channels: [{ name: 'ticket-updates', event: 'ticket.changed' }],
     intervalMs: 30000,
   });

@@ -8,7 +8,7 @@ import {
 } from '@/constants/employeeTickets';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { useAuth } from '@/context/AuthContext';
-import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails, getInternalTickets, getEmployeeProfile } from '@/services/ticketService';
+import { getEmployeeAssignedTickets, acceptTicket, updateTicket, updateEmployeeTicketOverride, getTicketDetails, getInternalTickets, getEmployeeProfile, clearEmployeeTicketsCache } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { DashboardHeader } from '@/components/ui/page-header';
 import { MetricCard } from '@/components/ui/metric-card';
@@ -251,8 +251,9 @@ export default function EmployeeDashboard() {
     getEmployeeProfile().then(p => setEmployeeName(p.name)).catch(() => {});
   }, [loadTickets, loadMyTickets]);
 
-  const handleRefreshAll = useCallback(async (opts = {}) => {
-    await loadTickets(opts);
+  const handleRefreshAll = useCallback(async () => {
+    clearEmployeeTicketsCache();
+    await loadTickets({ forceRefresh: true });
     await loadMyTickets();
   }, [loadTickets, loadMyTickets]);
 
@@ -263,12 +264,31 @@ export default function EmployeeDashboard() {
     shouldRefresh: ({ source, payload }) => {
       if (source === 'websocket') {
         const myEmpId = Number(user?.emp_id ?? user?.id);
-        const isRelevant =
+        const payloadTicketId = Number(
+          payload?.ticket_id ||
+          payload?.ticket_ID ||
+          payload?.ticketId ||
+          payload?.id ||
+          payload?.ticket?.ticket_ID ||
+          payload?.ticket?.id ||
+          0
+        );
+        const isCurrentAssignee =
           payload && (
             Number(payload.assigned_to) === myEmpId ||
+            Number(payload.employee_id) === myEmpId ||
             (Array.isArray(payload.employee_ids) && payload.employee_ids.map(Number).includes(myEmpId))
           );
-        return !!isRelevant;
+        const isRemovedAssignee =
+          payload && (
+            (Array.isArray(payload.removed_employee_ids) && payload.removed_employee_ids.map(Number).includes(myEmpId)) ||
+            (Array.isArray(payload.previous_employee_ids) && payload.previous_employee_ids.map(Number).includes(myEmpId))
+          );
+        const isHoldingTicket =
+          Boolean(payloadTicketId) &&
+          tickets.some((t) => Number(t.ticket_ID || String(t.id).replace(/\D/g, '')) === payloadTicketId);
+
+        return Boolean(isCurrentAssignee || isRemovedAssignee || isHoldingTicket || !payloadTicketId);
       }
       return true;
     },

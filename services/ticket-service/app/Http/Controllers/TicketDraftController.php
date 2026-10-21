@@ -87,7 +87,8 @@ class TicketDraftController extends Controller
             return response()->json(['message' => 'Unauthorized client. Valid credentials required.'], 401);
         }
 
-        $draftId = $request->input('draft_id') ? (int) $request->input('draft_id') : null;
+        $rawDraftId = $request->input('draft_id', $request->input('id'));
+        $draftId = (!empty($rawDraftId) && is_numeric($rawDraftId)) ? (int) $rawDraftId : null;
 
         $result = $this->draftService->saveDraft($clientId, $request->all(), $draftId);
 

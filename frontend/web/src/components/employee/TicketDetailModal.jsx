@@ -278,7 +278,14 @@ export default function TicketDetailModal({
                ──────────────────────────────────────────────────────── */}
             {!isAccepted ? (
               <div className="space-y-4">
-                <ReassignmentDisapprovalBanner ticket={ticket} />
+                <ReassignmentDisapprovalBanner
+                  ticket={ticket}
+                  onRequestReassignAgain={() => {
+                    if (typeof onRequestReassign === 'function') {
+                      onRequestReassign(ticket);
+                    }
+                  }}
+                />
                 {ticket.status === 'Pending Evaluation' ? (
                 <div className="border border-purple-100 rounded-2xl p-6 bg-purple-50/30 text-center space-y-3">
                   <h4 className="text-sm font-bold text-purple-800">Pending for Evaluation</h4>
@@ -340,7 +347,14 @@ export default function TicketDetailModal({
               <div className="space-y-6">
                 
                 {/* Reassignment disapproved banner */}
-                <ReassignmentDisapprovalBanner ticket={ticket} />
+                <ReassignmentDisapprovalBanner
+                  ticket={ticket}
+                  onRequestReassignAgain={() => {
+                    if (typeof onRequestReassign === 'function') {
+                      onRequestReassign(ticket);
+                    }
+                  }}
+                />
 
                 {/* 1. Reassignment request pending banner (if reassignment requested post-accept) */}
                 {hasPendingReassignment(ticket) && (

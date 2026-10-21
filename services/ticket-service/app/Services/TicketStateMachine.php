@@ -231,7 +231,7 @@ class TicketStateMachine
     /**
      * Determine if a transition is permitted.
      */
-    public function canTransition(string $fromState, string $toState): bool
+    public function canTransition(string $fromState, string $toState, array $context = []): bool
     {
         if ($fromState === self::STATE_CANCELLED) {
             return false;
@@ -257,8 +257,15 @@ class TicketStateMachine
             return true;
         }
 
-        // Allow CS technician updates and reassignment while in Assigned (Pending Assignment) status
-        if ($fromState === self::STATE_ASSIGNED && $toState === self::STATE_ASSIGNED) {
+        // Allow CS technician updates and reassignment to Assigned from any active working state
+        if (in_array($fromState, [
+            self::STATE_OPEN,
+            self::STATE_ASSIGNED,
+            self::STATE_REASSIGNED,
+            self::STATE_IN_PROGRESS_EMPLOYEE,
+            self::STATE_IN_PROGRESS_CS,
+            self::STATE_ON_HOLD,
+        ], true) && $toState === self::STATE_ASSIGNED) {
             return true;
         }
 
@@ -271,6 +278,14 @@ class TicketStateMachine
         if ($toState === self::STATE_CLOSED && in_array($fromState, [
             self::STATE_IN_PROGRESS_CS,
             self::STATE_IN_PROGRESS_EMPLOYEE,
+        ], true)) {
+            return true;
+        }
+
+        // Allow proof rejection returning to In Progress
+        if (!empty($context['proof_rejected']) && in_array($toState, [
+            self::STATE_IN_PROGRESS_EMPLOYEE,
+            self::STATE_IN_PROGRESS_CS,
         ], true)) {
             return true;
         }
@@ -357,8 +372,16 @@ class TicketStateMachine
             return;
         }
 
+        // Contextual proof rejection / pending evaluation transition
+        if (
+            (!empty($context['proof_rejected']) || ($ticket && (int)($ticket->ticket_status_ID ?? 0) === self::STATUS_ID_PENDING_EVALUATION))
+            && in_array($toState, [self::STATE_IN_PROGRESS_EMPLOYEE, self::STATE_IN_PROGRESS_CS], true)
+        ) {
+            return;
+        }
+
         // 4. Standard transition table validation
-        if (!$this->canTransition($fromState, $toState)) {
+        if (!$this->canTransition($fromState, $toState, $context)) {
             $allowed = $this->getAllowedTransitions($fromState);
             throw new InvalidTicketTransitionException($fromState, $toState, $allowed);
         }
