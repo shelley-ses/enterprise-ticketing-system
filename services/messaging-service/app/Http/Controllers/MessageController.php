@@ -128,13 +128,12 @@ class MessageController extends Controller
                     ->exists();
             }
 
-            // Status ID 4 = Closed, Status ID 8 = Reopened
+            // Status ID 4 = Closed (Archived)
             $isClosed = ($statusId === 4);
-            $isDelegated = $hasAssignment || (!in_array($statusId, [1, 7, 8])); // 1: Open, 7: Pending, 8: Reopened
 
-            if ($isClosed || $isDelegated) {
+            if ($isClosed) {
                 return response()->json([
-                    'message' => 'This conversation is archived because the ticket has been delegated or closed. Reopen the ticket to restore the conversation.'
+                    'message' => 'This conversation is archived because the ticket has been closed. Reopen the ticket to restore the conversation.'
                 ], 403);
             }
         }

@@ -15,7 +15,7 @@ class GeminiService
     public function __construct(?RagService $ragService = null)
     {
         $this->apiKey = config('services.gemini.api_key') ?? env('GEMINI_API_KEY', '');
-        $this->model = config('services.gemini.model') ?? env('GEMINI_MODEL', 'gemini-3.8-flash');
+        $this->model = config('services.gemini.model') ?? env('GEMINI_MODEL', 'gemini-3.5-flash-lite');
         $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
         $this->ragService = $ragService ?? app(RagService::class);
     }
@@ -196,7 +196,7 @@ class GeminiService
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
-            ])->timeout(8)->post($url, $payload);
+            ])->timeout(15)->post($url, $payload);
 
             if (!$response->successful()) {
                 Log::error('Gemini API request failed', [
