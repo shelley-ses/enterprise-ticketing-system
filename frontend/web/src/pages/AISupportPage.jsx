@@ -602,7 +602,7 @@ function AISupportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const effectiveUser = user || getStoredUser();
-  const currentUserId = effectiveUser?.id;
+  const currentUserId = effectiveUser?.id ?? effectiveUser?.client_ID ?? effectiveUser?.client_id;
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -626,10 +626,11 @@ function AISupportPage() {
   const [feedbackMap, setFeedbackMap] = useState({});
 
   useEffect(() => {
+    if (!effectiveUser) return;
     getTicketFormOptions()
       .then(opts => setTicketOptions(opts))
       .catch(err => console.warn("Failed to load ticket form options:", err));
-  }, []);
+  }, [effectiveUser]);
 
   useEffect(() => {
     if (effectiveUser?.role && effectiveUser.role !== 'customer') {
@@ -1036,7 +1037,7 @@ function AISupportPage() {
         });
       });
 
-  }, [input, conversationPhase, messages, showSuggestionChips, showTicketCard, activeConversationId, isTyping, addMessage, saveConversationState, escalationTicketData, fetchConversationsListOnly]);
+  }, [input, conversationPhase, messages, showSuggestionChips, showTicketCard, activeConversationId, isTyping, addMessage, saveConversationState, escalationTicketData, fetchConversationsListOnly, currentUserId]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
