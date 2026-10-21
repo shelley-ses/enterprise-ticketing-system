@@ -5,6 +5,7 @@ import SidebarCS from './SidebarCS';
 import { CS_TICKET_REFRESH_EVENT } from '@/services/ticketService';
 import { useAuth } from '@/context/AuthContext';
 import ForceChangePasswordModal from './ForceChangePasswordModal';
+import MaintenanceGate from './MaintenanceGate';
 
 export default function CSLayout() {
   const { isFirstLogin } = useAuth();
@@ -24,13 +25,15 @@ export default function CSLayout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] font-['Poppins'] flex flex-col">
+    <div className="min-h-screen bg-page font-sans flex flex-col text-dark-slate">
       <Header sidebarHovered={sidebarHovered} />
       <SidebarCS collapsed={true} onHoverChange={setSidebarHovered} />
 
       <main className="pt-24 pb-8 px-6 lg:px-12 flex-1 sm:ml-20 ml-0">
         <div className="max-w-7xl mx-auto">
-          <Outlet context={{ refreshKey }} />
+          <MaintenanceGate>
+            <Outlet context={{ refreshKey }} />
+          </MaintenanceGate>
         </div>
       </main>
 

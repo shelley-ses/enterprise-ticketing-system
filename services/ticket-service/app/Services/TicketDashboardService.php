@@ -67,6 +67,12 @@ class TicketDashboardService
                 ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
                 ->join('problem_categories as pc', 'pc.problem_category_ID', '=', 't.problem_category_ID')
                 ->leftJoin('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+                ->leftJoin('employees as e', 'e.emp_id', '=', 't.assigned_to')
+                ->leftJoin('ticket_assignments as ta', function ($join) {
+                    $join->on('ta.ticket_ID', '=', 't.ticket_ID')
+                         ->whereNull('ta.completed_at');
+                })
+                ->leftJoin('employees as e_ta', 'e_ta.emp_id', '=', 'ta.employee_ID')
                 ->select(
                     't.ticket_ID',
                     't.ticket_number',
@@ -81,7 +87,8 @@ class TicketDashboardService
                     't.updated_at',
                     't.assigned_to',
                     'pc.category_name',
-                    'tp.priority_name'
+                    'tp.priority_name',
+                    DB::raw("COALESCE(CONCAT(e.first_name, ' ', e.last_name), CONCAT(e_ta.first_name, ' ', e_ta.last_name)) as assigned_employee_name")
                 )
                 ->where('t.created_by', $createdBy)
                 ->where('t.is_internal', false);
@@ -151,6 +158,9 @@ class TicketDashboardService
                     'created_at' => $row->created_at ? Carbon::parse($row->created_at)->toIso8601String() : null,
                     'updated_at' => $row->updated_at ? Carbon::parse($row->updated_at)->toIso8601String() : null,
                     'assigned_to' => $row->assigned_to,
+                    'assigned_employee' => $row->assigned_employee_name,
+                    'assigned_employee_name' => $row->assigned_employee_name,
+                    'assigned_to_name' => $row->assigned_employee_name,
                 ])
                 ->values()
                 ->toArray();
@@ -200,11 +210,18 @@ class TicketDashboardService
             ->select('priority_ID', 'priority_name')
             ->get();
 
+        $employees = DB::table('employees')
+            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?)', ['customer service', 'superadmin'])
+            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+            ->orderBy('first_name')
+            ->get();
+
         return [
             'machines' => $machines,
             'categories' => $categories,
             'statuses' => $statuses,
             'priorities' => $priorities,
+            'employees' => $employees,
         ];
     }
 

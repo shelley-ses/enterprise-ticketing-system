@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Search, Plus, MoreVertical, Clock, Save, Building2, ChevronRight, ChevronDown, ChevronUp, ArrowLeft, CheckCircle2, Edit3, Trash2, Power, AlertCircle, RotateCcw, GitBranch, ArrowRight, Lock, Info, ShieldCheck, ShieldAlert, FileUp, Check, HardDrive, Bell, Users, UserCheck, Mail, Layers, Star, MessageSquare, Hash, Eye, Calendar, Tag, EyeOff, Send, Key, RefreshCw, X, Sparkles, Sliders, Settings, Table, ArrowUpDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import NotificationModal from '@/components/NotificationModal';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/context/AuthContext';
 import {
   getSuperAdminConfig,
@@ -202,6 +203,91 @@ export const GROUPS_CONFIG = [
     ],
   },
 ];
+
+export const SUBTAB_METADATA = {
+  // Classification
+  [TAB_TICKET_CATEGORIES]: {
+    icon: Tag,
+    subtitle: 'Problem categories & default classifications',
+  },
+  [TAB_EQUIPMENT]: {
+    icon: HardDrive,
+    subtitle: 'Hardware, equipment, and device categories',
+  },
+  [TAB_PRIORITY]: {
+    icon: AlertCircle,
+    subtitle: 'Urgency tiers, response targets & colors',
+  },
+  [TAB_BRANCH_CONFIG]: {
+    icon: Building2,
+    subtitle: 'Branch-level categories & SLA overrides',
+  },
+  [TAB_DEFAULTS]: {
+    icon: Sliders,
+    subtitle: 'Default status, priority, and dynamic SLA',
+  },
+  [TAB_NUMBER_FORMAT]: {
+    icon: Hash,
+    subtitle: 'Ticket ID prefix, date format & sequence padding',
+  },
+  [TAB_LIMITS]: {
+    icon: Users,
+    subtitle: 'Concurrency thresholds & max open ticket limits',
+  },
+
+  // Lifecycle & Workflow
+  [TAB_WORKFLOW]: {
+    icon: GitBranch,
+    subtitle: 'Progression stages from submission to closure',
+  },
+  [TAB_TRANSITIONS]: {
+    icon: ArrowRight,
+    subtitle: 'Allowed state transitions & workflow matrix',
+  },
+  [TAB_WINDOWS]: {
+    icon: Clock,
+    subtitle: 'Reopening grace periods & auto-closure timers',
+  },
+  [TAB_FEEDBACK]: {
+    icon: Star,
+    subtitle: 'CSAT rating questions & feedback triggers',
+  },
+
+  // SLA & Escalations
+  [TAB_SLA]: {
+    icon: ShieldCheck,
+    subtitle: 'Department SLA response & resolution hours',
+  },
+  [TAB_ESCALATION]: {
+    icon: ShieldAlert,
+    subtitle: 'Automated breach escalation & alert stages',
+  },
+
+  // Notifications
+  [NOTIF_SUBTAB_RECIPIENTS]: {
+    icon: Users,
+    subtitle: 'Alert recipient groups, managers & technicians',
+  },
+  [NOTIF_SUBTAB_CHANNELS]: {
+    icon: Bell,
+    subtitle: 'In-app, browser notification & sound channels',
+  },
+  [NOTIF_SUBTAB_EMAIL_DELIVERY]: {
+    icon: Send,
+    subtitle: 'SMTP / Resend API delivery configuration',
+  },
+  [NOTIF_SUBTAB_EMAIL_TEMPLATES]: {
+    icon: Mail,
+    subtitle: 'Transactional email notification templates',
+  },
+
+  // Storage & Security
+  [TAB_FILES]: {
+    icon: FileUp,
+    subtitle: 'File size limits, allowed extensions & ClamAV',
+  },
+};
+
 
 // ==========================================
 // TS094: Ticket Number Format Configuration Constants
@@ -662,6 +748,109 @@ const formatWindowDays = (days, type) => {
   }
 };
 
+function TicketConfigTabSkeleton({ currentSubTab }) {
+  const isTableLayout = [
+    TAB_TICKET_CATEGORIES,
+    TAB_EQUIPMENT,
+    TAB_PRIORITY,
+  ].includes(currentSubTab);
+
+  const isGridLayout = [
+    TAB_WORKFLOW,
+    TAB_SLA,
+    TAB_ESCALATION,
+    TAB_TRANSITIONS,
+  ].includes(currentSubTab);
+
+  return (
+    <div className="flex flex-col gap-6 animate-pulse" aria-busy="true" aria-label="Loading configuration">
+      {/* Header Skeleton */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1 space-y-2">
+          <div className="h-7 w-60 bg-gray-200 rounded-lg" />
+          <div className="h-4 w-96 max-w-full bg-gray-200 rounded-md" />
+        </div>
+        <div className="flex items-center gap-2.5">
+          <div className="h-10 w-24 bg-gray-200 rounded-xl" />
+          <div className="h-10 w-32 bg-gray-200 rounded-xl" />
+        </div>
+      </div>
+
+      {isTableLayout ? (
+        <div className="flex flex-col gap-4">
+          <div className="h-11 w-full bg-gray-200 rounded-xl" />
+          <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="h-12 bg-gray-50 border-b border-gray-100 px-5 flex items-center gap-6">
+              <div className="h-4 w-12 bg-gray-200 rounded" />
+              <div className="h-4 w-36 bg-gray-200 rounded" />
+              <div className="h-4 w-48 bg-gray-200 rounded" />
+              <div className="h-4 w-24 bg-gray-200 rounded ml-auto" />
+            </div>
+            <div className="divide-y divide-gray-100">
+              {[1, 2, 3, 4, 5].map((idx) => (
+                <div key={idx} className="px-5 py-4 flex items-center gap-6">
+                  <div className="h-4 w-10 bg-gray-200 rounded" />
+                  <div className="h-4 w-32 bg-gray-200 rounded" />
+                  <div className="h-4 w-64 bg-gray-200 rounded" />
+                  <div className="h-6 w-20 bg-gray-200 rounded-full ml-auto" />
+                  <div className="h-7 w-7 bg-gray-200 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : isGridLayout ? (
+        <div className="flex flex-col gap-6">
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm flex justify-between gap-4">
+            {[1, 2, 3, 4].map((step) => (
+              <div key={step} className="flex flex-col items-center flex-1 gap-2">
+                <div className="h-12 w-12 rounded-full bg-gray-200" />
+                <div className="h-4 w-20 bg-gray-200 rounded" />
+                <div className="h-3 w-28 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6].map((idx) => (
+              <div key={idx} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-5 w-28 bg-gray-200 rounded" />
+                  <div className="h-5 w-16 bg-gray-200 rounded-full" />
+                </div>
+                <div className="h-3.5 w-full bg-gray-100 rounded" />
+                <div className="h-3.5 w-3/4 bg-gray-100 rounded" />
+                <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                  <div className="h-4 w-20 bg-gray-200 rounded" />
+                  <div className="h-6 w-6 bg-gray-200 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm space-y-6">
+          <div className="space-y-2">
+            <div className="h-5 w-48 bg-gray-200 rounded" />
+            <div className="h-3.5 w-80 bg-gray-100 rounded" />
+          </div>
+          <div className="space-y-4">
+            <div className="h-10 w-full bg-gray-200 rounded-xl" />
+            <div className="h-36 w-full bg-gray-100 rounded-xl" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="h-12 bg-gray-50 rounded-xl" />
+              <div className="h-12 bg-gray-50 rounded-xl" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <div className="h-10 w-24 bg-gray-200 rounded-xl" />
+            <div className="h-10 w-32 bg-gray-200 rounded-xl" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SuperAdminTicketConfig() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -716,6 +905,25 @@ export default function SuperAdminTicketConfig() {
     return groupDef.subTabs.find((st) => st.id.toLowerCase() === s)?.id || null;
   }, []);
 
+  const findGroupBySubTabId = useCallback((rawSubTab) => {
+    if (!rawSubTab) return null;
+    const s = rawSubTab.toLowerCase();
+    if (
+      s === 'ticket-categories' || s === 'ticket_categories' || s === 'ticket-category' || s === 'ticketcategories' ||
+      s === 'branch-config' || s === 'branch-configuration' || s === 'branch' || s === 'branch_config' ||
+      s === 'branch-priority' || s === 'branch_priority' || s === 'branch-categories' || s === 'branch_categories' ||
+      s === 'equipment' || s === 'priority' || s === 'defaults' || s === 'number-format' || s === 'limits'
+    ) {
+      return GROUP_CLASSIFICATION;
+    }
+    for (const group of GROUPS_CONFIG) {
+      if (group.subTabs.some((st) => st.id.toLowerCase() === s)) {
+        return group.id;
+      }
+    }
+    return null;
+  }, []);
+
   // The URL is the sole source of truth for what is rendered. Local storage only
   // remembers each group's last valid sub-tab for the next group navigation.
   const [activeSubTabs, setActiveSubTabs] = useState(() => ({
@@ -727,21 +935,39 @@ export default function SuperAdminTicketConfig() {
     ...(initialSavedState?.activeSubTabs || {}),
   }));
 
-  const normalizedRouteGroup = normalizeGroupId(params.group);
+  // Resolve active group and subtab from clean short routes (/superadmin/config/:subtab) or legacy routes
+  const rawParam = params.subtab || params.group;
+  const isDirectSubTab = findGroupBySubTabId(rawParam);
+  const isDirectGroup = normalizeGroupId(rawParam);
+
+  let routeGroup = null;
+  let routeSubTab = null;
+
+  if (params.group && params.subtab) {
+    // Legacy dual-param route: /superadmin/ticket-config/:group/:subtab
+    routeGroup = normalizeGroupId(params.group);
+    if (routeGroup) {
+      routeSubTab = normalizeSubTabId(routeGroup, params.subtab);
+    }
+  } else if (isDirectSubTab) {
+    // Clean shortened 4-segment route: /superadmin/config/:subtab (e.g. email-templates, sla, workflow)
+    routeGroup = isDirectSubTab;
+    routeSubTab = normalizeSubTabId(routeGroup, rawParam);
+  } else if (isDirectGroup) {
+    // Shortened group route: /superadmin/config/:group (e.g. notifications)
+    routeGroup = isDirectGroup;
+    routeSubTab = normalizeSubTabId(routeGroup, activeSubTabs[routeGroup]);
+  }
+
   const savedGroup = normalizeGroupId(initialSavedState?.activeGroup);
-  const activeGroup = params.group
-    ? (normalizedRouteGroup || GROUP_CLASSIFICATION)
-    : (savedGroup || GROUP_CLASSIFICATION);
+  const activeGroup = routeGroup || savedGroup || GROUP_CLASSIFICATION;
 
   const currentGroup = useMemo(() => {
     return GROUPS_CONFIG.find((g) => g.id === activeGroup) || GROUPS_CONFIG[0];
   }, [activeGroup]);
 
-  const normalizedRouteSubTab = normalizeSubTabId(activeGroup, params.subtab);
   const rememberedSubTab = normalizeSubTabId(activeGroup, activeSubTabs[activeGroup]);
-  const currentSubTab = params.subtab
-    ? (normalizedRouteSubTab || currentGroup.defaultSubTab)
-    : (rememberedSubTab || currentGroup.defaultSubTab);
+  const currentSubTab = routeSubTab || rememberedSubTab || currentGroup.defaultSubTab;
 
   const tab = currentSubTab;
   const notifSubtab = currentSubTab;
@@ -755,32 +981,34 @@ export default function SuperAdminTicketConfig() {
   }, [storageKey, activeGroup, activeSubTabs]);
 
   useEffect(() => {
-    if (params.group !== activeGroup || params.subtab !== currentSubTab) {
-      navigate(`/superadmin/ticket-config/${activeGroup}/${currentSubTab}`, { replace: true });
+    const isLegacyRoute = window.location.pathname.includes('/ticket-config');
+    const currentParam = params.subtab || params.group;
+    if (isLegacyRoute || currentParam !== currentSubTab) {
+      navigate(`/superadmin/config/${currentSubTab}`, { replace: true });
     }
-  }, [params.group, params.subtab, activeGroup, currentSubTab, navigate]);
+  }, [params.group, params.subtab, currentSubTab, navigate]);
 
   useEffect(() => {
-    if (!normalizedRouteGroup || !normalizedRouteSubTab) return;
+    if (!activeGroup || !currentSubTab) return;
     setActiveSubTabs((prev) => (
-      prev[normalizedRouteGroup] === normalizedRouteSubTab
+      prev[activeGroup] === currentSubTab
         ? prev
-        : { ...prev, [normalizedRouteGroup]: normalizedRouteSubTab }
+        : { ...prev, [activeGroup]: currentSubTab }
     ));
-  }, [normalizedRouteGroup, normalizedRouteSubTab]);
+  }, [activeGroup, currentSubTab]);
 
   const handleSelectGroup = useCallback((groupId) => {
     const validGroup = normalizeGroupId(groupId) || GROUP_CLASSIFICATION;
     const groupDef = GROUPS_CONFIG.find((g) => g.id === validGroup) || GROUPS_CONFIG[0];
     const targetSubTab = normalizeSubTabId(validGroup, activeSubTabs[validGroup]) || groupDef.defaultSubTab;
     setSelectedDeptId(null);
-    navigate(`/superadmin/ticket-config/${validGroup}/${targetSubTab}`);
+    navigate(`/superadmin/config/${targetSubTab}`);
   }, [activeSubTabs, normalizeGroupId, normalizeSubTabId, navigate]);
 
   const handleSelectSubTab = useCallback((subTabId) => {
     const validSubTab = normalizeSubTabId(activeGroup, subTabId) || currentGroup.defaultSubTab;
     setSelectedDeptId(null);
-    navigate(`/superadmin/ticket-config/${activeGroup}/${validSubTab}`);
+    navigate(`/superadmin/config/${validSubTab}`);
   }, [activeGroup, currentGroup.defaultSubTab, normalizeSubTabId, navigate]);
 
   const setNotifSubtab = handleSelectSubTab;
@@ -1602,7 +1830,18 @@ export default function SuperAdminTicketConfig() {
         showSuccess('Saved', 'Priority has been saved.');
       }
       setEditingItem(null);
-      loadConfig();
+      try {
+        const fresh = await getSuperAdminConfig();
+        if (fresh) {
+          setItems((prev) => ({
+            ...prev,
+            ticketCategories: fresh.ticket_categories || prev.ticketCategories,
+            equipment: fresh.equipment || prev.equipment,
+            priorities: fresh.priorities || prev.priorities,
+          }));
+        }
+      } catch {}
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to save configuration settings.');
@@ -1654,10 +1893,26 @@ export default function SuperAdminTicketConfig() {
         await deleteSuperAdminPriority(item.id);
         showSuccess('Deleted', `${item.name} has been deleted.`);
       }
-      loadConfig();
+
+      // Optimistically remove from state immediately so UI updates in 0ms without requiring page refresh
+      setItems((prev) => ({
+        ...prev,
+        ticketCategories: tab === TAB_TICKET_CATEGORIES
+          ? (prev.ticketCategories || []).filter((c) => c.id !== item.id)
+          : prev.ticketCategories,
+        equipment: tab === TAB_EQUIPMENT
+          ? (prev.equipment || []).filter((e) => e.id !== item.id)
+          : prev.equipment,
+        priorities: tab === TAB_PRIORITY
+          ? (prev.priorities || []).filter((p) => p.id !== item.id)
+          : prev.priorities,
+      }));
+
+      await loadConfig({ source: 'background' });
     } catch (err) {
       console.error(err);
       showError('Error', err?.response?.data?.message || 'Failed to delete item.');
+      await loadConfig({ source: 'background' });
     }
   };
 
@@ -1728,11 +1983,13 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteWorkflowStatus(status.id);
         showSuccess('Deleted', `${status.name} has been deleted.`);
-        await loadConfig();
+        setWorkflowStatuses((prev) => prev.filter((s) => s.id !== status.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete workflow status:', err);
         const errMsg = err?.response?.data?.message || 'Failed to delete workflow status.';
         showError('Error', errMsg);
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -1804,10 +2061,12 @@ export default function SuperAdminTicketConfig() {
       try {
         await deleteEscalationRule(rule.id);
         showSuccess('Deleted', `${rule.name} has been deleted.`);
-        await loadConfig();
+        setEscalationRules((prev) => prev.filter((r) => r.id !== rule.id));
+        await loadConfig({ source: 'background' });
       } catch (err) {
         console.error('Failed to delete escalation rule:', err);
         showError('Error', 'Failed to delete escalation rule.');
+        await loadConfig({ source: 'background' });
       }
     }, { confirmText: 'Delete', confirmClassName: 'bg-red-600 hover:bg-red-700' });
   };
@@ -4000,6 +4259,7 @@ export default function SuperAdminTicketConfig() {
         try {
           const res = await deleteBranchCategory(selectedBranch.id, cat.id);
           showSuccess('Category Removed', res.message || `Category "${cat.name}" removed.`);
+          setBranchCategories((prev) => prev.filter((c) => c.id !== cat.id));
           await loadBranchCategoriesAndSla();
         } catch (err) {
           const body = err.response?.data;
@@ -4160,39 +4420,38 @@ export default function SuperAdminTicketConfig() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-[1440px] mx-auto w-full">
       {/* Interactive Hierarchical Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-gray-500">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-muted">
         <button
           type="button"
           onClick={() => handleSelectGroup(GROUP_CLASSIFICATION)}
-          className="hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors"
+          className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           Ticket Configuration
         </button>
-        <ChevronRight size={13} className="text-gray-400 shrink-0" />
+        <ChevronRight size={13} className="text-slate-300 shrink-0" />
         <button
           type="button"
           onClick={() => handleSelectGroup(currentGroup.id)}
-          className="hover:text-[#252578] hover:underline cursor-pointer font-medium transition-colors"
+          className="hover:text-primary hover:underline cursor-pointer font-medium transition-colors"
         >
           {currentGroup.label}
         </button>
-        <ChevronRight size={13} className="text-gray-400 shrink-0" />
-        <span className="text-gray-900 font-semibold cursor-default select-none" aria-current="page">
+        <ChevronRight size={13} className="text-slate-300 shrink-0" />
+        <span className="text-slate-dark font-semibold cursor-default select-none" aria-current="page">
           {currentGroup.subTabs.find((s) => s.id === currentSubTab)?.label || currentSubTab}
         </span>
       </nav>
 
-      <div>
-        <h1 className="text-3xl font-bold text-[#252578]">Ticket Configuration</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Configure ticket classification, lifecycle state machines, service level agreements, and system policies.
-        </p>
-      </div>
+      <PageHeader
+        pattern="B"
+        title="Ticket Configuration"
+        subtitle="Configure ticket classification, lifecycle state machines, service level agreements, and system policies."
+      />
 
-      {/* Level 1: 5 Group Pills */}
-      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit flex-wrap shadow-xs">
+      {/* Level 1: 5 Group Pills (Centered & Fully Responsive) */}
+      <div className="flex gap-1.5 rounded-xl bg-slate-100 p-1.5 w-full sm:w-fit flex-wrap shadow-2xs">
         {GROUPS_CONFIG.map((group) => {
           const isActive = activeGroup === group.id;
           return (
@@ -4200,9 +4459,9 @@ export default function SuperAdminTicketConfig() {
               key={group.id}
               type="button"
               onClick={() => handleSelectGroup(group.id)}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${isActive
-                  ? 'bg-white text-[#252578] shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${isActive
+                  ? 'bg-white text-[#252578] shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               {group.label}
@@ -4211,61 +4470,108 @@ export default function SuperAdminTicketConfig() {
         })}
       </div>
 
-      {/* Level 2: Secondary Sub-Tab Strip (consistently rendered for all groups to prevent layout shifts) */}
-      <div className="flex items-center border-b border-gray-200 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[41px]">
-        <div className="flex items-center gap-2 ml-3 min-w-max">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mr-2 select-none">
-            <span>{currentGroup.label}</span>
-            <ChevronRight size={13} className="text-gray-300" />
-          </div>
+      {/* Level 2 & 3: Centered Master-Detail Workspace (Facebook Settings style) */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+        {/* Left: Facebook Settings Vertical Sub-Category List */}
+        <aside className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24" aria-label={`${currentGroup.label} Subcategories`}>
+          <div className="rounded-2xl border border-gray-200/80 bg-white p-3 shadow-xs">
+            <div className="px-3 py-2.5 mb-2 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Settings Menu
+                </span>
+                <h2 className="text-sm font-bold text-gray-800">
+                  {currentGroup.label}
+                </h2>
+              </div>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-[#252578] border border-blue-100">
+                {currentGroup.subTabs.length} items
+              </span>
+            </div>
 
-          <nav className="flex gap-6 -mb-px" aria-label={`${currentGroup.label} Sub-tabs`}>
-            {currentGroup.subTabs.map((sub) => {
-              const isSubActive = currentSubTab === sub.id;
-              return (
-                <button
-                  key={sub.id}
-                  type="button"
-                  onClick={() => handleSelectSubTab(sub.id)}
-                  className={`pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-all cursor-pointer ${isSubActive
-                      ? 'border-[#252578] text-[#252578]'
-                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+            <nav className="flex flex-col gap-1.5 max-h-64 sm:max-h-80 lg:max-h-[calc(100vh-170px)] overflow-y-auto [scrollbar-width:thin]" aria-label={`${currentGroup.label} Subcategories`}>
+              {currentGroup.subTabs.map((sub) => {
+                const isSubActive = currentSubTab === sub.id;
+                const meta = SUBTAB_METADATA[sub.id] || { icon: Settings, subtitle: '' };
+                const IconComponent = meta.icon || Settings;
+
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => handleSelectSubTab(sub.id)}
+                    className={`group flex items-center gap-3 w-full p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                      isSubActive
+                        ? 'bg-[#252578]/5 border-l-4 border-[#252578] shadow-xs text-[#252578]'
+                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
                     }`}
-                >
-                  {sub.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      </div>
+                  >
+                    <div
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                        isSubActive
+                          ? 'bg-[#252578] text-white shadow-xs'
+                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700'
+                      }`}
+                    >
+                      <IconComponent size={18} />
+                    </div>
 
-      {/* Level 3: Tab Content Area with Smooth Entry Transition */}
-      <div
-        ref={tabContentRef}
-        key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
-        className="animate-fade-slide-in min-h-[400px] flex flex-col gap-6 scroll-mt-36"
-      >
-        {tab === TAB_WORKFLOW ? (
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-semibold truncate ${isSubActive ? 'text-[#252578]' : 'text-gray-800'}`}>
+                        {sub.label}
+                      </div>
+                      {meta.subtitle && (
+                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {meta.subtitle}
+                        </div>
+                      )}
+                    </div>
+
+                    <ChevronRight
+                      size={15}
+                      className={`shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                        isSubActive ? 'text-[#252578]' : 'text-gray-300 group-hover:text-gray-400'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        {/* Right: Tab Content Area */}
+        <div
+          ref={tabContentRef}
+          key={`${activeGroup}-${currentSubTab}-${branchSubSection}`}
+          className="flex-1 min-w-0 w-full animate-fade-slide-in flex flex-col gap-6 scroll-mt-36"
+        >
+        {loading ? (
+          <TicketConfigTabSkeleton currentSubTab={currentSubTab} />
+        ) : tab === TAB_WORKFLOW ? (
           <div className="flex flex-col gap-6">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Workflow Status Sequence</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Define progression stages and prerequisite guardrails tickets move through from submission to closure.</p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900">Workflow Status Sequence</h2>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Define progression stages and prerequisite guardrails tickets move through from submission to closure.</p>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 type="button"
                 onClick={handleResetDefaultWorkflow}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
-              <button onClick={handleAddWorkflow} className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer">
-                <Plus size={18} />
-                Add Status
+              <button
+                type="button"
+                onClick={handleAddWorkflow}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer"
+              >
+                <Plus size={16} />
+                <span>Add Status</span>
               </button>
             </div>
           </div>
@@ -4421,38 +4727,40 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_TRANSITIONS ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Ticket Status Transition Matrix & Lifecycle Rules</h2>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Ticket Status Transition Matrix & Lifecycle Rules</h2>
                 {hasTransitionChanges ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-                    <AlertCircle size={13} className="shrink-0" />
-                    <span>Unsaved Changes — Click "Save Changes" to apply</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>Unsaved Changes</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                    <CheckCircle2 size={13} className="shrink-0" />
-                    <span>Active Rules Enforced — Saved to Central Engine</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 size={12} className="shrink-0" />
+                    <span>Active Rules Enforced</span>
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure valid next-status transitions, sequence flows, and prerequisite guardrails connected to your active workflow.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetTransitions}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveTransitions}
                 disabled={savingTransitions || !hasTransitionChanges}
-                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-all shrink-0 cursor-pointer ${
                   savingTransitions || !hasTransitionChanges
                     ? 'bg-[#252578]/60 cursor-not-allowed'
                     : 'bg-[#252578] hover:bg-[#1e1e62]'
@@ -4460,13 +4768,13 @@ export default function SuperAdminTicketConfig() {
               >
                 {savingTransitions ? (
                   <>
-                    <RefreshCw size={14} className="animate-spin" />
-                    Saving...
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Saving...</span>
                   </>
                 ) : (
                   <>
-                    <Save size={14} />
-                    Save Changes
+                    <Save size={13} />
+                    <span>Save Changes</span>
                   </>
                 )}
               </button>
@@ -4982,35 +5290,37 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_FILES ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0" />
-                  <span>Active & Enforced on New Uploads</span>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">File Upload & Security Limits</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0" />
+                  <span>Active & Enforced</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure system-wide file upload constraints and malware scanning policies across ticket attachments, messages, and knowledge base articles.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetFileConfig}
                 disabled={fileConfigSaving}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveFileConfig}
                 disabled={fileConfigSaving}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer disabled:opacity-50"
               >
-                <Save size={14} />
-                {fileConfigSaving ? 'Saving...' : 'Save Settings'}
+                <Save size={13} />
+                <span>{fileConfigSaving ? 'Saving...' : 'Save Settings'}</span>
               </button>
             </div>
           </div>
@@ -5203,9 +5513,9 @@ export default function SuperAdminTicketConfig() {
               </div>
 
               {/* Inline Architecture Notice Badge */}
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 border border-amber-200/80 w-fit">
-                <AlertCircle size={13} className="text-amber-600 shrink-0" />
-                <span>Pending architecture approval — not yet functional</span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 border border-emerald-200/80 w-fit">
+                <ShieldCheck size={13} className="text-emerald-600 shrink-0" />
+                <span>Enforced via ClamAV Antivirus Daemon</span>
               </span>
             </div>
 
@@ -5261,33 +5571,35 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_WINDOWS ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0" />
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Reopen & Auto-Close Windows</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0" />
                   <span>Active Operational Policy</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure time windows and operational policies for customer ticket reopening and automated closure of resolved tickets.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
+                type="button"
                 onClick={handleResetWindowConfig}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
               >
-                <RotateCcw size={14} />
-                Reset to Defaults
+                <RotateCcw size={13} />
+                <span>Reset to Defaults</span>
               </button>
               <button
+                type="button"
                 onClick={handleSaveWindowConfig}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#252578] px-5 py-2.5 text-xs font-semibold text-white transition-all hover:shadow-lg shrink-0 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md shrink-0 cursor-pointer"
               >
-                <Save size={14} />
-                Save Settings
+                <Save size={13} />
+                <span>Save Settings</span>
               </button>
             </div>
           </div>
@@ -5589,27 +5901,29 @@ export default function SuperAdminTicketConfig() {
       ) : tab === TAB_FEEDBACK ? (
         <div className="flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-gray-900">Feedback Form Configuration</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
-                  <span>Database Connected & Real-time Broadcast</span>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Feedback Form Configuration</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure, scope, and order customer satisfaction survey questions across service categories.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleResetFeedback}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
-            >
-              <RotateCcw size={14} />
-              Reset Questions to Defaults
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={handleResetFeedback}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={13} />
+                <span>Reset Questions to Defaults</span>
+              </button>
+            </div>
           </div>
 
           {/* TS101 Feedback Form Master Toggle Card */}
@@ -5751,10 +6065,10 @@ export default function SuperAdminTicketConfig() {
             <button
               type="button"
               onClick={handleAddFeedbackQuestion}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#252578] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-md cursor-pointer shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:shadow-md cursor-pointer shrink-0"
             >
-              <Plus size={16} />
-              Add Question
+              <Plus size={14} />
+              <span>Add Question</span>
             </button>
           </div>
 
@@ -6942,6 +7256,9 @@ export default function SuperAdminTicketConfig() {
                     const isTestingThis = Boolean(testingTemplate[template.event_key]);
                     const errors = templateErrors[template.event_key] || {};
                     const isDirty = draft.subject !== template.subject || draft.body !== template.body;
+                    const combinedText = `${draft.subject || ''} ${draft.body || ''}`;
+                    const hasPlaceholders = /\{{1,2}[a-zA-Z0-9_]+\}{1,2}/.test(combinedText);
+                    const isMissingPlaceholders = !hasPlaceholders;
 
                     return (
                       <div
@@ -7105,6 +7422,18 @@ export default function SuperAdminTicketConfig() {
                                   superAdminEmail={user?.email}
                                 />
                               </div>
+
+                              {isMissingPlaceholders && (
+                                <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-3.5 text-xs text-amber-900 shadow-xs animate-in fade-in">
+                                  <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <span className="font-bold text-amber-950">You are not allowed to remove all placeholders.</span>
+                                    <p className="mt-0.5 text-amber-800 leading-relaxed">
+                                      Every email notification template must contain at least one dynamic placeholder (e.g. <code className="bg-amber-100/90 px-1.5 py-0.5 rounded font-mono font-semibold text-[11px]">{'{ticket_number}'}</code> or <code className="bg-amber-100/90 px-1.5 py-0.5 rounded font-mono font-semibold text-[11px]">{'{customer_name}'}</code>) so recipients receive essential context. Saving is disabled until at least one placeholder token is present.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Action Footer */}
@@ -7175,14 +7504,32 @@ export default function SuperAdminTicketConfig() {
                                   )}
                                 </button>
 
+                                {isMissingPlaceholders && (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-100/80 text-amber-900 border border-amber-300">
+                                    <AlertCircle size={13} className="text-amber-600 shrink-0" />
+                                    Placeholders required to save
+                                  </span>
+                                )}
+
                                 {/* Save */}
                                 <button
                                   type="button"
-                                  disabled={isSaving || !isDirty}
+                                  disabled={isSaving || !isDirty || isMissingPlaceholders}
+                                  title={
+                                    isMissingPlaceholders
+                                      ? 'You are not allowed to remove all placeholders. Insert at least one dynamic placeholder before saving.'
+                                      : !isDirty
+                                      ? 'No changes to save'
+                                      : 'Save template'
+                                  }
                                   onClick={async () => {
                                     const errs = {};
                                     if (!draft.subject?.trim()) errs.subject = 'Subject is required.';
                                     if (!draft.body?.trim()) errs.body = 'Body is required.';
+                                    const combinedText = `${draft.subject || ''} ${draft.body || ''}`;
+                                    if (!/\{{1,2}[a-zA-Z0-9_]+\}{1,2}/.test(combinedText)) {
+                                      errs.body = 'Email template must contain at least one dynamic placeholder (e.g. {{ticket_number}} or {ticket_number}). Removing all placeholders is not permitted.';
+                                    }
                                     if (Object.keys(errs).length > 0) {
                                       setTemplateErrors((prev) => ({ ...prev, [template.event_key]: errs }));
                                       return;
@@ -7215,10 +7562,10 @@ export default function SuperAdminTicketConfig() {
                                       setTemplateSaving((prev) => ({ ...prev, [template.event_key]: false }));
                                     }
                                   }}
-                                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white transition-all cursor-pointer shadow-xs ${
-                                    isDirty && !isSaving
-                                      ? 'bg-[#252578] hover:bg-[#1a1a5e] hover:shadow-md'
-                                      : 'bg-gray-300 cursor-not-allowed'
+                                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white transition-all shadow-xs ${
+                                    isDirty && !isSaving && !isMissingPlaceholders
+                                      ? 'bg-[#252578] hover:bg-[#1a1a5e] hover:shadow-md cursor-pointer'
+                                      : 'bg-gray-300 cursor-not-allowed opacity-75'
                                   }`}
                                 >
                                   {isSaving ? (
@@ -9282,41 +9629,41 @@ export default function SuperAdminTicketConfig() {
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
-            <table className="w-full text-left">
-              <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-bold uppercase tracking-wider text-muted-slate">
                 <tr>
-                  <th className="px-5 py-4">ID</th>
-                  <th className="px-5 py-4">Name</th>
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Description</th>}
-                  {tab === TAB_TICKET_CATEGORIES && <th className="px-5 py-4">Type</th>}
-                  <th className="px-5 py-4 text-center w-20"></th>
+                  <th className="px-3 py-2.5">ID</th>
+                  <th className="px-3 py-2.5">Name</th>
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-3 py-2.5">Description</th>}
+                  {tab === TAB_TICKET_CATEGORIES && <th className="px-3 py-2.5">Type</th>}
+                  <th className="px-3 py-2.5 text-center w-16"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={tab === TAB_TICKET_CATEGORIES ? 5 : 3} className="px-5 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={tab === TAB_TICKET_CATEGORIES ? 5 : 3} className="px-3 py-8 text-center text-xs text-muted-slate">
                       No {tab === TAB_TICKET_CATEGORIES ? 'ticket categories' : tab === TAB_EQUIPMENT ? 'categories' : 'priorities'} found.
                     </td>
                   </tr>
                 )}
                 {filtered.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-4 text-sm font-semibold text-[#252578]">{item.id}</td>
-                    <td className="px-5 py-4 text-sm text-gray-800 font-medium">
+                  <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-3 py-2.5 text-xs font-semibold text-[#252578]">{item.id}</td>
+                    <td className="px-3 py-2.5 text-xs text-dark-slate font-medium">
                       {tab === TAB_PRIORITY && item.color ? (
-                        <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${item.color}`}>{item.name}</span>
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.color}`}>{item.name}</span>
                       ) : (
                         item.name
                       )}
                     </td>
                     {tab === TAB_TICKET_CATEGORIES && (
-                      <td className="px-5 py-4 text-xs text-gray-500 max-w-xs truncate">
+                      <td className="px-3 py-2.5 text-xs text-muted-slate max-w-xs truncate">
                         {item.description || '—'}
                       </td>
                     )}
                     {tab === TAB_TICKET_CATEGORIES && (
-                      <td className="px-5 py-4 text-xs">
+                      <td className="px-3 py-2.5 text-xs">
                         {item.is_system_default ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
                             Core Default
@@ -9328,7 +9675,7 @@ export default function SuperAdminTicketConfig() {
                         )}
                       </td>
                     )}
-                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => {
                           if (openMenuId === item.id) { setOpenMenuId(null); setMenuPos(null); return; }
@@ -9336,10 +9683,10 @@ export default function SuperAdminTicketConfig() {
                           setMenuPos({ x: rect.right - 132, y: rect.bottom + 4 });
                           setOpenMenuId(item.id);
                         }}
-                        className="rounded-full p-2 text-gray-500 hover:bg-gray-100 menu-trigger"
+                        className="rounded-full p-1.5 text-muted-slate hover:bg-gray-100 hover:text-dark-slate menu-trigger cursor-pointer"
                         aria-label="Actions"
                       >
-                        <MoreVertical size={18} />
+                        <MoreVertical size={16} />
                       </button>
                     </td>
                   </tr>
@@ -9349,6 +9696,7 @@ export default function SuperAdminTicketConfig() {
           </div>
         </>
       )}
+        </div>
       </div>
 
       {openMenuId && menuPos && createPortal(

@@ -1,15 +1,31 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RotateCcw, AlertCircle, CheckCircle, X, Clock, ShieldAlert } from 'lucide-react';
+import {
+  X,
+  FileText,
+  Paperclip,
+  CheckCircle,
+  CheckCircle2,
+  AlertCircle,
+  Star,
+  ArrowUpDown,
+  RotateCcw,
+  Pencil,
+  Eye,
+  Check,
+  Clock,
+  ShieldAlert,
+} from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
-import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
 import { getFeedbackFormStatus, getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 const getFileName = (file, fallback = 'Attachment') => {
   if (!file) return fallback;
@@ -36,6 +52,7 @@ export default function CustomerTicketDetailModal({
   onViewTicket,
   onFeedbackSubmitted,
 }) {
+  useLockBodyScroll(Boolean(ticket));
   const navigate = useNavigate();
   const [currentTicket, setCurrentTicket] = useState(ticket);
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc');
@@ -263,40 +280,52 @@ export default function CustomerTicketDetailModal({
   const remarksList = useMemo(() => {
     if (!effectiveTicket) return [];
     const list = [];
+    const seenRemarks = new Set();
+    const normalizeKey = (author, text) => `${(author || '').trim().toLowerCase()}::${(text || '').trim().replace(/^["']|["']$/g, '').toLowerCase()}`;
+
+    const addRemark = (id, author, remark, timestamp) => {
+      if (!remark || typeof remark !== 'string' || !remark.trim()) return;
+      const key = normalizeKey(author, remark);
+      if (seenRemarks.has(key)) return;
+      seenRemarks.add(key);
+      list.push({
+        id,
+        author: author || 'Staff Member',
+        remark: remark.trim(),
+        timestamp,
+      });
+    };
+
     if (Array.isArray(effectiveTicket.remarks)) {
       effectiveTicket.remarks.forEach((rem, idx) => {
-        list.push({
-          id: rem.id || `rem-${idx}`,
-          author: rem.author || 'Staff Member',
-          remark: rem.remark || rem.text,
-          timestamp: rem.timestamp || rem.created_at,
-        });
+        addRemark(
+          rem.id || `rem-${idx}`,
+          rem.author || rem.user_name || rem.created_by_name,
+          rem.remark || rem.text,
+          rem.timestamp || rem.created_at
+        );
       });
     }
     if (Array.isArray(effectiveTicket.remarks_history)) {
       effectiveTicket.remarks_history.forEach((rem, idx) => {
-        if (!list.some(r => r.remark === (rem.remark || rem.text))) {
-          list.push({
-            id: rem.id || `rem-hist-${idx}`,
-            author: rem.author || 'Staff Member',
-            remark: rem.remark || rem.text,
-            timestamp: rem.timestamp || rem.created_at,
-          });
-        }
+        addRemark(
+          rem.id || `rem-hist-${idx}`,
+          rem.author || rem.user_name || rem.created_by_name,
+          rem.remark || rem.text,
+          rem.timestamp || rem.created_at
+        );
       });
     }
     if (Array.isArray(effectiveTicket.timeline)) {
       effectiveTicket.timeline.forEach((evt, idx) => {
         if (evt.type === 'remark' && evt.text) {
           const cleanText = evt.text.replace(/^Remark added by [^:]+:\s*"?/, '').replace(/"?$/, '');
-          if (!list.some(r => r.remark === cleanText || r.remark === evt.text)) {
-            list.push({
-              id: evt.id || `timeline-rem-${idx}`,
-              author: evt.author || 'Staff Member',
-              remark: cleanText || evt.text,
-              timestamp: evt.timestamp,
-            });
-          }
+          addRemark(
+            evt.id || `timeline-rem-${idx}`,
+            evt.author,
+            cleanText || evt.text,
+            evt.timestamp
+          );
         }
       });
     }
@@ -331,7 +360,7 @@ export default function CustomerTicketDetailModal({
   if (!effectiveTicket) return null;
 
   // Window Calculation Logic
-  const isClosedTicket = effectiveTicket.status === 'Closed';
+  const isClosedTicket = effectiveTicket.status === 'Closed' || effectiveTicket.status === 'Resolved';
   const closedDate = effectiveTicket.closed_at || effectiveTicket.resolved_at;
   const resolvedAt = closedDate ? new Date(closedDate) : null;
   const reopenWindowDays = Number(windowConfig.reopenWindowDays) || 2;
@@ -399,57 +428,57 @@ export default function CustomerTicketDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        {/* Modal Header */}
-        <div className="flex items-start justify-between border-b border-gray-150 px-6 py-5 shrink-0 bg-white">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-card border border-border shadow-modal animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-start justify-between border-b border-border px-6 py-5 shrink-0 bg-card">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-[#252578]">{effectiveTicket.id}</span>
+              <span className="text-sm font-semibold text-primary font-mono">{effectiveTicket.id}</span>
               {effectiveTicket.status === 'Closed' ? (
                 isAutoClosedModal ? (
-                  <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-300">
-                    <Clock size={11} className="text-slate-500" />
+                  <Badge variant="outline" className="gap-1 bg-slate-100 text-slate-800 border-slate-300">
+                    <Clock className="h-3 w-3 text-slate-500" />
                     Closed automatically
-                  </span>
+                  </Badge>
                 ) : (
-                  <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700">
+                  <Badge variant="emerald">
                     {effectiveTicket.closed_by ? `Closed by ${effectiveTicket.closed_by}` : 'Closed'}
-                  </span>
+                  </Badge>
                 )
               ) : (
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColors[effectiveTicket.status] || 'bg-gray-100 text-gray-700'}`}>
-                  {effectiveTicket.status}
-                </span>
+                <Badge variant={effectiveTicket.status === 'Open' ? 'sky' : effectiveTicket.status === 'In Progress' ? 'amber' : (effectiveTicket.status === 'Resolved' || effectiveTicket.status === 'Closed') ? 'emerald' : effectiveTicket.status === 'On Hold' ? 'amber' : 'default'}>
+                  {(effectiveTicket.status === 'Pending Assignment' || (effectiveTicket.status === 'Open' && !effectiveTicket.accepted && (effectiveTicket.assigned_employee || effectiveTicket.assigned_to))) ? 'Assigned' : effectiveTicket.status}
+                </Badge>
               )}
-              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${priorityColors[effectiveTicket.priority] || 'bg-gray-100 text-gray-700'}`}>
+              <Badge variant={effectiveTicket.priority === 'Critical' ? 'destructive' : effectiveTicket.priority === 'High' ? 'amber' : 'outline'}>
                 {effectiveTicket.priority}
-              </span>
+              </Badge>
               {effectiveTicket.is_internal && (
-                <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700">
+                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                   Internal
-                </span>
+                </Badge>
               )}
               {effectiveTicket.slaStatus && (
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  effectiveTicket.slaStatus === 'Violated' ? 'bg-red-100 text-red-800' :
-                  effectiveTicket.slaStatus === 'Near Violation' ? 'bg-amber-100 text-amber-800' :
-                  effectiveTicket.slaStatus === 'Achieved' ? 'bg-green-100 text-green-800' :
-                  'bg-blue-50 text-[#252578]'
-                }`}>
+                <Badge variant={
+                  effectiveTicket.slaStatus === 'Violated' ? 'destructive' :
+                  effectiveTicket.slaStatus === 'Near Violation' ? 'amber' :
+                  effectiveTicket.slaStatus === 'Achieved' ? 'emerald' :
+                  'outline'
+                }>
                   {effectiveTicket.slaStatus}
-                </span>
+                </Badge>
               )}
             </div>
-            <h2 className="mt-1 text-xl font-bold text-gray-900">{effectiveTicket.title}</h2>
+            <div className="mt-2">
+              <span className="text-xs font-bold text-slate-dark uppercase tracking-wider">Ticket Title</span>
+              <h2 className="mt-0.5 text-xl font-normal text-slate-dark">{effectiveTicket.title}</h2>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
+            className="rounded-lg p-1.5 text-slate-muted hover:bg-page hover:text-slate-dark transition-colors cursor-pointer"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -527,47 +556,47 @@ export default function CustomerTicketDetailModal({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2 min-w-0">
-              <p className="text-field-label uppercase text-gray-400">Description</p>
-              <p className="mt-1 rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Description</p>
+              <p className="mt-1 rounded-xl bg-page border border-border p-4 text-sm font-normal leading-6 text-slate-600 break-words whitespace-normal overflow-hidden break-all max-h-[180px] overflow-y-auto">
                 {effectiveTicket.description || 'No description available.'}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Requestor</p>
-              <p className="mt-1 text-field-value text-gray-800">{effectiveTicket.customer || effectiveTicket.requestor || effectiveTicket.created_by_name || customerName || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Requestor</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.customer || effectiveTicket.requestor || effectiveTicket.created_by_name || customerName || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Equipment / Machine</p>
-              <p className="mt-1 text-field-value text-gray-800">{effectiveTicket.equipment || effectiveTicket.machine_name || effectiveTicket.machine?.machine_name || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment / Machine</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.equipment || effectiveTicket.machine_name || effectiveTicket.machine?.machine_name || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Equipment Type</p>
-              <p className="mt-1 text-field-value text-gray-800">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Equipment Type</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">
                 {effectiveTicket.equipment_type || effectiveTicket.equipmentType || effectiveTicket.machine_category || effectiveTicket.machine?.category_name || (effectiveTicket.category ? `${effectiveTicket.category} Equipment` : 'Medical Equipment')}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Assigned Employee</p>
-              <p className="mt-1 text-field-value text-gray-800">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Assigned Employee</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">
                 {effectiveTicket.assigned_employee || effectiveTicket.assigned_employee_name || effectiveTicket.assigned_to_name || (effectiveTicket.assigned_employees?.[0]?.name) || (typeof effectiveTicket.assigned_to === 'string' ? effectiveTicket.assigned_to : null) || 'Unassigned'}
               </p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Category</p>
-              <p className="mt-1 text-field-value text-gray-800">{effectiveTicket.category || '—'}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Category</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{effectiveTicket.category || '—'}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Date Filed</p>
-              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(effectiveTicket.date_created || effectiveTicket.created_at || effectiveTicket.date)}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Date Filed</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{formatDisplayDate(effectiveTicket.date_created || effectiveTicket.created_at || effectiveTicket.date)}</p>
             </div>
             <div>
-              <p className="text-field-label uppercase text-gray-400">Last Updated</p>
-              <p className="mt-1 text-field-value text-gray-800">{formatDisplayDate(effectiveTicket.last_updated || effectiveTicket.updated_at || effectiveTicket.lastUpdate)}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Last Updated</p>
+              <p className="mt-1 text-sm font-normal text-slate-600">{formatDisplayDate(effectiveTicket.last_updated || effectiveTicket.updated_at || effectiveTicket.lastUpdate)}</p>
             </div>
             {(effectiveTicket.resolved_at || effectiveTicket.closed_at) && (
               <div>
-                <p className="text-field-label uppercase text-gray-400">Date Resolved / Closed</p>
-                <p className="mt-1 text-field-value text-green-700 font-semibold">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Date Resolved / Closed</p>
+                <p className="mt-1 text-sm font-semibold text-emerald-700">
                   {formatDisplayDate(effectiveTicket.resolved_at || effectiveTicket.closed_at)}
                 </p>
               </div>
@@ -575,7 +604,7 @@ export default function CustomerTicketDetailModal({
 
             {effectiveTicket.attachments && effectiveTicket.attachments.length > 0 && (
               <div className="md:col-span-2">
-                <p className="text-field-label uppercase text-gray-400">Attachments ({effectiveTicket.attachments.length})</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-muted">Attachments ({effectiveTicket.attachments.length})</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {effectiveTicket.attachments.map((file, idx) => {
                     const fName = getFileName(file);
@@ -609,11 +638,35 @@ export default function CustomerTicketDetailModal({
                           e.preventDefault();
                           setPreviewFile({ name: fName, url: fUrl });
                         }}
-                        className="flex items-center gap-1.5 rounded-xl border border-gray-150 bg-gray-50 px-3 py-2 text-badge text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        className="flex items-center gap-1.5 rounded-xl border border-border bg-page px-3 py-2 text-xs font-medium text-primary hover:text-accent hover:underline cursor-pointer transition-colors"
                       >
-                        <svg className="h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                        </svg>
+                        <Paperclip className="h-4 w-4 shrink-0 text-slate-muted" />
+                        <span className="truncate max-w-[220px]">{fName}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {((effectiveTicket.proofAttachments && effectiveTicket.proofAttachments.length > 0) || (effectiveTicket.proofFiles && effectiveTicket.proofFiles.length > 0)) && (
+              <div className="md:col-span-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Proof of Completion Files</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(effectiveTicket.proofAttachments || effectiveTicket.proofFiles).map((file, pIdx) => {
+                    const fName = getFileName(file);
+                    const fUrl = getFileUrl(file);
+                    return (
+                      <a
+                        key={file.id || file.attachment_id || pIdx}
+                        href={fUrl || '#'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreviewFile({ name: fName, url: fUrl });
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer transition-colors"
+                      >
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
                         <span className="truncate max-w-[220px]">{fName}</span>
                       </a>
                     );
@@ -624,25 +677,25 @@ export default function CustomerTicketDetailModal({
 
             {/* Remarks History */}
             {remarksList && remarksList.length > 0 && (
-              <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
+              <div className="md:col-span-2 border-t border-border pt-4 mt-2">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-field-label uppercase text-gray-500 font-bold flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#252578] inline-block" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-dark flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-primary inline-block" />
                     Remarks &amp; Reason History ({remarksList.length})
                   </h3>
                 </div>
                 <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
                   {remarksList.map((rem, idx) => (
-                    <div key={rem.id || idx} className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs shadow-xs">
-                      <div className="flex items-center justify-between text-gray-500 mb-1">
-                        <span className="font-bold text-[#252578] text-[11px] uppercase tracking-wide">
+                    <div key={rem.id || idx} className="rounded-xl border border-border bg-page p-3 text-xs shadow-xs">
+                      <div className="flex items-center justify-between text-slate-muted mb-1">
+                        <span className="font-bold text-primary text-[11px] uppercase tracking-wide">
                           {rem.author || 'Staff Member'}
                         </span>
-                        <span className="text-timestamp text-gray-400">
+                        <span className="text-[10px] text-slate-muted">
                           {formatDisplayDate(rem.timestamp)}
                         </span>
                       </div>
-                      <p className="text-gray-700 leading-relaxed break-words whitespace-pre-wrap font-medium">
+                      <p className="text-slate-dark leading-relaxed break-words whitespace-pre-wrap font-medium">
                         {rem.remark || rem.text}
                       </p>
                     </div>
@@ -652,46 +705,46 @@ export default function CustomerTicketDetailModal({
             )}
 
             {/* Timeline */}
-            <div className="md:col-span-2 border-t border-gray-150 pt-4 mt-2">
+            <div className="md:col-span-2 border-t border-border pt-4 mt-2">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-field-label uppercase text-gray-400">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-muted">
                   Ticket Timeline &amp; History
                 </h3>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setTimelineSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-                  className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-button text-gray-600 transition-colors hover:bg-gray-100 cursor-pointer"
+                  className="h-7 text-xs"
                 >
-                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l-4-4m4 4l4-4" />
-                  </svg>
+                  <ArrowUpDown className="h-3 w-3 mr-1" />
                   {timelineSortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
-                </button>
+                </Button>
               </div>
 
               {sortedTimelineEvents.length === 0 ? (
-                <p className="text-xs italic text-gray-400">No timeline events recorded.</p>
+                <p className="text-xs italic text-slate-muted">No timeline events recorded.</p>
               ) : (
-                <div className="relative ml-3 space-y-4 border-l-2 border-gray-100 py-1.5 pl-6">
+                <div className="relative ml-3 space-y-4 border-l-2 border-border py-1.5 pl-6">
                   {sortedTimelineEvents.map((evt, idx) => {
                     const dotColor =
                       evt.type === 'system'
-                        ? 'bg-[#252578]'
+                        ? 'bg-primary'
                         : evt.type === 'status'
-                          ? 'bg-blue-500'
+                          ? 'bg-accent'
                           : evt.type === 'internal_note'
-                            ? 'bg-red-400'
+                            ? 'bg-destructive'
                             : evt.type === 'remark'
-                              ? 'bg-green-500'
+                              ? 'bg-emerald-500'
                               : evt.type === 'reassign'
                                 ? 'bg-amber-500'
-                                : 'bg-gray-400';
+                                : 'bg-slate-400';
 
                     return (
                       <div key={evt.id || idx} className="relative text-xs">
                         <div className={`absolute top-1 h-3 w-3 rounded-full border-2 border-white shadow ${dotColor}`} style={{ left: '-31px' }} />
-                        <div className="mb-0.5 flex items-center justify-between text-timestamp text-gray-400">
-                          <span className="text-timestamp uppercase tracking-wide text-[#252578]">
+                        <div className="mb-0.5 flex items-center justify-between text-slate-muted">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
                             {evt.type === 'system'
                               ? 'System'
                               : evt.type === 'status'
@@ -704,10 +757,10 @@ export default function CustomerTicketDetailModal({
                                       ? 'Reassignment'
                                       : evt.type || 'Update'}
                           </span>
-                          <span>{formatDisplayDate(evt.timestamp)}</span>
+                          <span className="text-[10px] text-slate-muted">{formatDisplayDate(evt.timestamp)}</span>
                         </div>
                         <p
-                          className="rounded-lg border border-gray-100/50 bg-gray-50/50 p-2.5 font-semibold leading-relaxed text-gray-700 break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                          className="rounded-lg border border-border bg-page p-2.5 font-medium leading-relaxed text-slate-dark break-words whitespace-pre-wrap max-w-full overflow-hidden"
                           style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                         >
                           {evt.text}
@@ -732,10 +785,10 @@ export default function CustomerTicketDetailModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="border-t border-gray-100 bg-gray-50 px-6 py-4 shrink-0 space-y-3">
+        <div className="border-t border-border bg-card px-6 py-4 shrink-0 space-y-3">
           {/* Explanatory banner if reopen window is expired */}
           {isReopenExpired && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-xs text-amber-800 flex items-start gap-2.5 animate-fade-in">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-xs text-amber-800 flex items-start gap-2.5 animate-in fade-in duration-200">
               <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-bold text-amber-900">Reopen Window Expired</p>
@@ -751,8 +804,9 @@ export default function CustomerTicketDetailModal({
           <div className="flex flex-wrap items-center justify-end gap-3">
             {(isCS || onAssign || onViewTicket) ? (
               !isAlreadyAssigned ? (
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   onClick={() => {
                     if (onAssign) {
                       onAssign(effectiveTicket);
@@ -760,13 +814,13 @@ export default function CustomerTicketDetailModal({
                       onClose();
                     }
                   }}
-                  className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                 >
                   Assign
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   onClick={() => {
                     if (onViewTicket) {
                       onViewTicket(effectiveTicket);
@@ -776,80 +830,76 @@ export default function CustomerTicketDetailModal({
                       navigate(`/cs/history/${ticketId}`, { state: { ticket: effectiveTicket, backPath: window.location.pathname } });
                     }
                   }}
-                  className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                 >
                   View Ticket
-                </button>
+                </Button>
               )
             ) : (
               isEmployee && effectiveTicket?.status !== 'Closed' && effectiveTicket?.status !== 'Resolved' && (
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   onClick={() => {
                     onClose();
                     navigate('/employee/ticket-update', { state: { ticket: effectiveTicket } });
                   }}
-                  className="rounded-xl bg-[#252578] px-5 py-2 text-button text-white transition-colors hover:bg-[#1f1f66] cursor-pointer"
                 >
                   Update Ticket
-                </button>
+                </Button>
               )
             )}
 
             {/* Active Reopen Button (within allowed window) */}
             {canShowReopenAction && (
-              <button
+              <Button
                 type="button"
+                variant="default"
                 onClick={() => {
                   setReopenValidationError('');
                   setReopenError('');
                   setShowReopenModal(true);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] hover:bg-[#1f1f66] px-4 py-2 text-button text-white transition-all shadow-sm cursor-pointer"
+                className="gap-1.5"
               >
                 <RotateCcw size={14} />
                 Reopen Ticket
-              </button>
+              </Button>
             )}
 
             {/* Disabled Reopen Button (window expired) */}
             {isReopenExpired && (
-              <button
+              <Button
                 type="button"
                 disabled
+                variant="outline"
                 title={isReopenPolicyDisabled ? 'Reopen disabled by policy' : 'Reopen window expired'}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-gray-200 px-4 py-2 text-button text-gray-400 cursor-not-allowed border border-gray-300/50"
+                className="gap-1.5 opacity-60 cursor-not-allowed text-slate-muted"
               >
                 <RotateCcw size={14} />
                 Reopen Expired
-              </button>
+              </Button>
             )}
 
             {isExternalClosed && !isEmployee && (
-              <button
+              <Button
                 type="button"
+                variant={feedbackAlreadySubmitted || feedbackSubmitted ? 'default' : 'secondary'}
                 onClick={() => setShowFeedbackModal(true)}
-                className={`rounded-xl px-4 py-2 text-button text-white transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  feedbackAlreadySubmitted || feedbackSubmitted
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                    : 'bg-[#252578] hover:bg-[#1f1f66]'
-                }`}
+                className="gap-1.5"
               >
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
+                <Star className="h-4 w-4" />
                 {feedbackAlreadySubmitted || feedbackSubmitted ? 'View Feedback' : 'Give Feedback'}
-              </button>
+              </Button>
             )}
 
             {effectiveTicket.can_discard && effectiveTicket.status === 'Open' && (
-              <button
+              <Button
                 type="button"
+                variant="destructive"
                 onClick={() => onDiscard?.(effectiveTicket)}
-                className="rounded-xl bg-red-600 px-4 py-2 text-button text-white transition-colors hover:bg-red-700 cursor-pointer"
               >
                 Discard Ticket
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -865,19 +915,18 @@ export default function CustomerTicketDetailModal({
           }}
         />
       )}
-
       {/* Confirmation Modal for Reopening with Required Reason */}
       {showReopenModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 animate-scale-in">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-modal border border-border animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-[#252578] flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                   <RotateCcw size={18} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-gray-800">Reopen Ticket</h3>
-                  <p className="text-xs text-gray-500 font-mono">{effectiveTicket.id}</p>
+                  <h3 className="text-base font-bold text-slate-dark">Reopen Ticket</h3>
+                  <p className="text-xs text-slate-muted font-mono">{effectiveTicket.id}</p>
                 </div>
               </div>
               <button
@@ -888,20 +937,20 @@ export default function CustomerTicketDetailModal({
                   setReopenValidationError('');
                   setReopenError('');
                 }}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg cursor-pointer"
+                className="text-slate-muted hover:text-slate-dark p-1 rounded-lg cursor-pointer transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="py-4 space-y-3.5">
-              <p className="text-xs text-gray-600 leading-relaxed">
+              <p className="text-xs text-slate-600 leading-relaxed">
                 Reopening will transition this ticket back to active status for customer support intervention. Please describe what issue remains unresolved:
               </p>
 
               {/* Error Message if Reopen Action Fails */}
               {reopenError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-xs text-red-700 font-semibold animate-fade-in">
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-xs text-red-700 font-semibold animate-in fade-in duration-200">
                   <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-600" />
                   <span className="leading-relaxed">{reopenError}</span>
                 </div>
@@ -910,10 +959,10 @@ export default function CustomerTicketDetailModal({
               {/* Required Reason Input */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="reopen-reason-textarea" className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">
+                  <label htmlFor="reopen-reason-textarea" className="text-[11px] font-bold text-slate-dark uppercase tracking-wide">
                     Reason for Reopening <span className="text-red-500">*</span>
                   </label>
-                  <span className="text-[10px] text-gray-400 font-mono">
+                  <span className="text-[10px] text-slate-muted font-mono">
                     {reopenReason.trim().length} / 1000
                   </span>
                 </div>
@@ -928,42 +977,45 @@ export default function CustomerTicketDetailModal({
                   disabled={reopenSubmitting}
                   placeholder="Explain why this ticket needs to be reopened (minimum 3 characters)..."
                   rows={4}
-                  className={`w-full rounded-xl border p-3 text-xs text-gray-800 placeholder:text-gray-400 outline-none transition resize-none disabled:bg-gray-50 ${
+                  className={`w-full rounded-xl border p-3 text-xs text-slate-dark placeholder:text-slate-muted outline-none transition resize-none disabled:bg-muted ${
                     reopenValidationError
                       ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100 bg-red-50/20'
-                      : 'border-gray-200 focus:border-[#252578] focus:ring-2 focus:ring-[#252578]/10 bg-white'
+                      : 'border-border focus:border-primary focus:ring-2 focus:ring-primary/10 bg-card'
                   }`}
                 />
                 {reopenValidationError && (
-                  <p className="text-[11px] text-red-600 font-medium flex items-center gap-1 mt-1 animate-fade-in">
+                  <p className="text-[11px] text-red-600 font-medium flex items-center gap-1 mt-1 animate-in fade-in duration-200">
                     <AlertCircle size={12} /> {reopenValidationError}
                   </p>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
-              <button
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={reopenSubmitting}
                 onClick={() => {
                   setShowReopenModal(false);
                   setReopenValidationError('');
                   setReopenError('');
                 }}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="default"
+                size="sm"
                 disabled={reopenSubmitting}
                 onClick={handleExecuteReopen}
-                className="px-5 py-2 text-xs font-bold text-white bg-[#252578] hover:bg-[#1f1f66] rounded-xl transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                className="gap-1.5"
               >
                 <RotateCcw size={13} className={reopenSubmitting ? 'animate-spin' : ''} />
                 {reopenSubmitting ? 'Reopening...' : 'Confirm Reopen'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -48,25 +48,53 @@ const getMockUser = (email = 'frontend@example.com', mode = 'customer') => {
   };
 };
 
+export const resolveUserRole = (user) => {
+  if (!user) return '';
+  const profileRole = user.profile?.role
+    ? (typeof user.profile.role === 'object' ? user.profile.role.name : user.profile.role)
+    : '';
+  // If user has a specific profile role (like "Super Admin", "IT Admin", "Customer Service"), trust that over a generic "customer" fallback
+  if (profileRole && (!user.role || user.role === 'customer')) {
+    return profileRole;
+  }
+  if (typeof user.role === 'object' && user.role !== null) {
+    return user.role.name || '';
+  }
+  if (typeof user.role === 'string' && user.role) {
+    return user.role;
+  }
+  return profileRole || 'customer';
+};
+
+export const resolveUserDepartment = (user) => {
+  if (!user) return '';
+  if (typeof user.department === 'string' && user.department) return user.department;
+  if (typeof user.department === 'object' && user.department !== null) return user.department.name || '';
+  if (user.profile?.department) {
+    return typeof user.profile.department === 'object' ? user.profile.department.name : user.profile.department;
+  }
+  return '';
+};
+
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
 };
 
 const checkIsSuperAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
 };
 
 const checkIsAdmin = (user) => {
   if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
   return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
@@ -75,8 +103,8 @@ const checkIsEmployee = (user) => {
   if (checkIsCS(user)) return false;
   if (checkIsAdmin(user)) return false;
   if (checkIsSuperAdmin(user)) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
   return role === 'employee' || role.includes('service') || role.includes('engineer');
 };
@@ -84,8 +112,8 @@ const checkIsEmployee = (user) => {
 const normalizeUser = (userData) => {
   if (!userData) return null;
 
-  let firstName = userData.first_name;
-  let lastName = userData.last_name;
+  let firstName = userData.first_name || userData.profile?.first_name;
+  let lastName = userData.last_name || userData.profile?.last_name;
 
   if (!firstName && userData.client_name) {
     const parts = userData.client_name.split(' ');
@@ -93,19 +121,57 @@ const normalizeUser = (userData) => {
     lastName = parts.slice(1).join(' ');
   }
 
+  const role = resolveUserRole(userData);
+  const department = resolveUserDepartment(userData);
+
   return {
     ...userData,
     first_name: firstName || userData.name || '',
     last_name: lastName || '',
-    phone: userData.phone || userData.contact_number || '',
-    role: userData.role || 'customer',
+    phone: userData.phone || userData.contact_number || userData.profile?.phone || '',
+    department,
+    role,
   };
+};
+
+const persistStoredUser = (userData) => {
+  try {
+    if (!userData) {
+      sessionStorage.removeItem('user');
+      localStorage.removeItem('user');
+      return;
+    }
+    sessionStorage.setItem('user', JSON.stringify(userData));
+    if (checkIsSuperAdmin(userData) || checkIsEmployee(userData) || checkIsAdmin(userData)) {
+      localStorage.removeItem('user');
+    } else {
+      localStorage.setItem('user', JSON.stringify(userData));
+    }
+  } catch {}
+};
+
+const clearStoredUser = () => {
+  try {
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('user');
+  } catch {}
 };
 
 const readStoredUser = () => {
   try {
-    const stored = JSON.parse(localStorage.getItem('user'));
-    if (!stored) return null;
+    let raw = sessionStorage.getItem('user');
+    if (!raw) {
+      raw = localStorage.getItem('user');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (checkIsSuperAdmin(parsed) || checkIsEmployee(parsed) || checkIsAdmin(parsed)) {
+          sessionStorage.setItem('user', raw);
+          localStorage.removeItem('user');
+        }
+      }
+    }
+    if (!raw) return null;
+    const stored = JSON.parse(raw);
 
     const isCS = checkIsCS(stored);
     const isEmployee = checkIsEmployee(stored);
@@ -145,7 +211,7 @@ const ensureCsrfCookie = async () => {
 //logout cleanup 
 const applyUnauthenticated = (setUser, setIsAuthenticated) => {
   tokenStore.clearToken();
-  localStorage.removeItem('user');
+  clearStoredUser();
   setUser(null);
   setIsAuthenticated(false);
 };
@@ -199,7 +265,7 @@ export function AuthProvider({ children }) {
       if (userData) {
         const normalized = normalizeUser(userData);
         setUser(normalized);
-        localStorage.setItem('user', JSON.stringify(normalized));
+        persistStoredUser(normalized);
       }
       setIsAuthenticated(true);
       setIsFirstLogin(firstLogin);
@@ -227,7 +293,7 @@ export function AuthProvider({ children }) {
             } else {
               sessionStorage.removeItem('first_login_pending');
             }
-            if (normalized) localStorage.setItem('user', JSON.stringify(normalized));
+            if (normalized) persistStoredUser(normalized);
             return true;
           }
         } catch {
@@ -237,12 +303,8 @@ export function AuthProvider({ children }) {
         return false;
       }
 
-      const storedUser = readStoredUser();
-      if (storedUser) {
-        setUser(normalizeUser(storedUser));
-        setIsAuthenticated(true);
-        return true;
-      }
+      // Fail-closed principle: Any error during revalidation MUST deny access
+      applyUnauthenticated(setUser, setIsAuthenticated);
       return false;
     }
   }, []);
@@ -304,7 +366,7 @@ export function AuthProvider({ children }) {
         const userData = getMockUser(email, mode);
 
         tokenStore.setToken(MOCK_TOKEN);
-        localStorage.setItem('user', JSON.stringify(userData));
+        persistStoredUser(userData);
         setUser(userData);
         setIsAuthenticated(true);
         setIsFirstLogin(false);
@@ -333,7 +395,7 @@ export function AuthProvider({ children }) {
       // Store auth data in memory and set user
       const normalized = normalizeUser(userData);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
       setUser(normalized);
       setIsAuthenticated(true);
       setIsFirstLogin(Boolean(firstLogin));
@@ -400,7 +462,7 @@ export function AuthProvider({ children }) {
 
       const normalized = normalizeUser(newUser);
       tokenStore.setToken(token);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
 
       setUser(normalized);
       setIsAuthenticated(true);
@@ -444,7 +506,7 @@ export function AuthProvider({ children }) {
     } catch {
       // Background logout cleanup failed silently
     } finally {
-      localStorage.removeItem('user');
+      clearStoredUser();
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
       sessionStorage.removeItem('first_login_pending');
       tokenStore.clearToken();
@@ -457,7 +519,8 @@ export function AuthProvider({ children }) {
 
       if (typeof window !== 'undefined') {
         const isCustomerSite = user?.role === 'customer' || import.meta.env.VITE_APP_MODE === 'customer';
-        window.history.replaceState(null, '', isCustomerSite ? '/customer' : '/');
+        const targetUrl = isCustomerSite ? (import.meta.env.BASE_URL || '/') : '/';
+        window.history.replaceState(null, '', targetUrl);
       }
     }
 
@@ -480,7 +543,7 @@ export function AuthProvider({ children }) {
           ...userData,
         };
 
-        localStorage.setItem('user', JSON.stringify(updatedUser));
+        persistStoredUser(updatedUser);
         setUser(updatedUser);
 
         return { success: true, user: updatedUser };
@@ -490,7 +553,7 @@ export function AuthProvider({ children }) {
 
       const updatedUser = response.data.user;
       const normalized = normalizeUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(normalized));
+      persistStoredUser(normalized);
       setUser(normalized);
 
       return { success: true, user: normalized };

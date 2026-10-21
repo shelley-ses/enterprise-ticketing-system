@@ -205,6 +205,17 @@ class AuthController extends Controller
             $presenceKey = 'employee:presence:' . $employee->emp_id;
             $presence = $statusPresences[$presenceKey] ?? [];
 
+            $role = $employee->role ?? 'Technician';
+            $posLevel = 'L1 / Associate';
+            if (stripos($role, 'lead') !== false || stripos($role, 'manager') !== false) {
+                $posLevel = 'Lead / L3';
+            } elseif (stripos($role, 'senior') !== false || stripos($role, 'specialist') !== false) {
+                $posLevel = 'Senior / L2';
+            }
+
+            $isActive = (bool) data_get($presence, 'is_active', false);
+            $availability = $isActive ? 'Available' : 'Unavailable';
+
             return [
                 'id' => $employee->emp_id,
                 'emp_id' => $employee->emp_id,
@@ -212,9 +223,14 @@ class AuthController extends Controller
                 'name' => trim($employee->first_name . ' ' . $employee->last_name),
                 'first_name' => $employee->first_name,
                 'last_name' => $employee->last_name,
-                'role' => $employee->role,
+                'role' => $role,
+                'technical_role' => $role,
+                'position_level' => $posLevel,
+                'branch' => $employee->branch ?? 'Main',
                 'department' => $employee->department,
-                'is_active' => (bool) data_get($presence, 'is_active', false),
+                'is_active' => $isActive,
+                'availability' => $availability,
+                'availability_status' => $availability,
                 'last_seen_at' => data_get($presence, 'last_seen_at', optional($employee->last_seen_at)->toISOString()),
             ];
         });
@@ -575,14 +591,17 @@ class AuthController extends Controller
             'firstName' => 'sometimes|nullable|string|max:255',
             'lastName' => 'sometimes|nullable|string|max:255',
             'name' => 'sometimes|nullable|string|max:255',
-            'email' => 'required|email|max:255',
-            'phone' => 'nullable|string|min:7|max:20|regex:/^[0-9+\-\s()]+$/',
-            'address' => 'nullable|string|max:500',
+            'email' => 'required|string|email|max:255',
+            'phone' => 'required|string|min:7|max:20|regex:/^[0-9+\-\s()]+$/',
+            'address' => 'required|string|min:3|max:500',
         ], [
-            'email.required' => 'Email address cannot be left blank.',
+            'email.required' => 'Email address is required and cannot be empty.',
             'email.email' => 'Enter a valid email address.',
+            'phone.required' => 'Phone number is required.',
             'phone.regex' => 'Enter a valid phone number.',
             'phone.min' => 'Phone number must be at least 7 characters.',
+            'address.required' => 'Mailing / contact address is required.',
+            'address.min' => 'Address must be at least 3 characters.',
         ]);
 
         $newEmail = strtolower(trim($request->email));

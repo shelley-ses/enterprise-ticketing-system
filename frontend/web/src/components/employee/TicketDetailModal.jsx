@@ -263,13 +263,13 @@ export default function TicketDetailModal({
             {/* Ticket Information Details */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <p className="text-field-label uppercase text-gray-400 mb-0.5">Requestor</p>
-                <p className="text-field-value text-gray-800">{ticket.customer || 'Unknown Customer'}</p>
-                {ticket.facility && <p className="text-timestamp text-gray-500 mt-0.5">{ticket.facility}</p>}
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Requestor</p>
+                <p className="text-sm font-normal text-slate-600">{ticket.customer || 'Unknown Customer'}</p>
+                {ticket.facility && <p className="text-xs font-normal text-slate-400 mt-0.5">{ticket.facility}</p>}
               </div>
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <p className="text-field-label uppercase text-gray-400 mb-0.5">Date Filed</p>
-                <p className="text-field-value text-gray-800">{formatDisplayDate(ticket.date)}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Date Filed</p>
+                <p className="text-sm font-normal text-slate-600">{formatDisplayDate(ticket.date)}</p>
               </div>
             </div>
 

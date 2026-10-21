@@ -4,8 +4,10 @@ import StarRating from './StarRating';
 import ThankYouScreen from './ThankYouScreen';
 import { getEmployeeById, getTicketEmployees, saveFeedback } from '@/data/mockFeedbackData';
 import { getCategoryFeedbackQuestions } from '@/services/configurationService';
+import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function FeedbackModal({ ticket, onClose }) {
+  useLockBodyScroll(true);
   const [step, setStep] = useState('form');
   const [ratings, setRatings] = useState({});
   const [comments, setComments] = useState({});

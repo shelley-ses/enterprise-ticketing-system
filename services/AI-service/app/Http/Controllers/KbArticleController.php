@@ -56,32 +56,32 @@ class KbArticleController extends Controller
             } else {
                 $parts = explode('.', $token);
                 if (count($parts) === 3) {
-                $payloadB64 = $parts[1];
-                $remainder = strlen($payloadB64) % 4;
-                if ($remainder) {
-                    $payloadB64 .= str_repeat('=', 4 - $remainder);
-                }
-                $payloadJson = base64_decode(strtr($payloadB64, '-_', '+/'));
-                $payload = json_decode($payloadJson, true);
-
-                if (is_array($payload)) {
-                    $tokenRole = strtolower(str_replace([' ', '_', '-'], '', (string) ($payload['role'] ?? '')));
-                    $tokenDept = strtolower(str_replace([' ', '_', '-'], '', (string) ($payload['department'] ?? '')));
-                    $role = $tokenRole ?: 'employee';
-
-                    $isSuperAdmin = in_array($tokenRole, ['superadmin', 'systemadministrator', 'admin'])
-                        || in_array($tokenDept, ['superadmin', 'admin']);
-
-                    $tokenName = trim(($payload['first_name'] ?? '') . ' ' . ($payload['last_name'] ?? ''));
-                    if (empty($tokenName)) {
-                        $tokenName = $payload['name'] ?? $payload['email'] ?? null;
+                    $payloadB64 = $parts[1];
+                    $remainder = strlen($payloadB64) % 4;
+                    if ($remainder) {
+                        $payloadB64 .= str_repeat('=', 4 - $remainder);
                     }
-                    if (!empty($tokenName)) {
-                        $actorName = $tokenName;
+                    $payloadJson = base64_decode(strtr($payloadB64, '-_', '+/'));
+                    $payload = json_decode($payloadJson, true);
+
+                    if (is_array($payload)) {
+                        $tokenRole = strtolower(str_replace([' ', '_', '-'], '', (string) ($payload['role'] ?? '')));
+                        $tokenDept = strtolower(str_replace([' ', '_', '-'], '', (string) ($payload['department'] ?? '')));
+                        $role = $tokenRole ?: 'employee';
+
+                        $isSuperAdmin = in_array($tokenRole, ['superadmin', 'systemadministrator', 'admin'])
+                            || in_array($tokenDept, ['superadmin', 'admin']);
+
+                        $tokenName = trim(($payload['first_name'] ?? '') . ' ' . ($payload['last_name'] ?? ''));
+                        if (empty($tokenName)) {
+                            $tokenName = $payload['name'] ?? $payload['email'] ?? null;
+                        }
+                        if (!empty($tokenName)) {
+                            $actorName = $tokenName;
+                        }
                     }
                 }
             }
-        }
         } elseif ($user = (auth('api')->user() ?? $request->user())) {
             $userRole = strtolower(str_replace([' ', '_', '-'], '', (string) ($user->role ?? '')));
             $userDept = strtolower(str_replace([' ', '_', '-'], '', (string) ($user->department ?? '')));
@@ -329,6 +329,10 @@ class KbArticleController extends Controller
             'category' => 'sometimes|nullable|string|max:100',
             'machine' => 'sometimes|nullable|string|max:100',
             'version' => 'sometimes|nullable|string|max:20',
+            'file_type' => 'sometimes|nullable|string|max:20',
+            'file_path' => 'sometimes|nullable|string|max:255',
+            'size' => 'sometimes|nullable|string|max:50',
+            'processing_status' => 'sometimes|nullable|string|max:100',
             'tags' => 'sometimes|nullable|array',
             'description' => 'sometimes|nullable|string',
             'content' => 'sometimes|nullable|string',

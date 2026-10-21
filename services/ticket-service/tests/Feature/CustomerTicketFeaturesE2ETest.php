@@ -25,6 +25,97 @@ class CustomerTicketFeaturesE2ETest extends TestCase
         Http::fake([
             '*' => Http::response(['status' => 'success'], 200),
         ]);
+
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('PRAGMA foreign_keys = OFF');
+
+            if (!Schema::hasTable('clients')) {
+                Schema::create('clients', function ($t) {
+                    $t->increments('id');
+                    $t->string('client_name')->default('Test Client');
+                    $t->string('email')->nullable();
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('problem_categories')) {
+                Schema::create('problem_categories', function ($t) {
+                    $t->increments('problem_category_ID');
+                    $t->string('category_name');
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('machines')) {
+                Schema::create('machines', function ($t) {
+                    $t->increments('machine_ID');
+                    $t->string('machine_name');
+                    $t->string('serial_number')->nullable();
+                    $t->unsignedBigInteger('client_ID')->nullable();
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('ticket_statuses')) {
+                Schema::create('ticket_statuses', function ($t) {
+                    $t->increments('ticket_status_ID');
+                    $t->string('status_name');
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('priorities')) {
+                Schema::create('priorities', function ($t) {
+                    $t->increments('priority_ID');
+                    $t->string('priority_name');
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('ticket_priorities')) {
+                Schema::create('ticket_priorities', function ($t) {
+                    $t->increments('priority_ID');
+                    $t->string('priority_name');
+                    $t->string('color_code')->nullable();
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('ticket_types')) {
+                Schema::create('ticket_types', function ($t) {
+                    $t->increments('ticket_type_ID');
+                    $t->string('type_name');
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('tickets')) {
+                Schema::create('tickets', function ($t) {
+                    $t->increments('ticket_ID');
+                    $t->string('ticket_number')->nullable();
+                    $t->unsignedBigInteger('ticket_type_ID')->default(1);
+                    $t->unsignedBigInteger('created_by')->nullable();
+                    $t->unsignedBigInteger('machine_ID')->nullable();
+                    $t->unsignedBigInteger('problem_category_ID')->nullable();
+                    $t->unsignedBigInteger('ticket_status_ID')->default(1);
+                    $t->unsignedBigInteger('priority_ID')->default(1);
+                    $t->string('title');
+                    $t->text('description');
+                    $t->string('origin')->default('manual');
+                    $t->boolean('is_internal')->default(false);
+                    $t->timestamps();
+                });
+            }
+
+            if (!Schema::hasTable('departments')) {
+                Schema::create('departments', function ($t) {
+                    $t->increments('id');
+                    $t->string('name');
+                    $t->boolean('is_active')->default(true);
+                    $t->timestamps();
+                });
+            }
+        }
     }
 
     public function test_ts020_ticket_draft_lifecycle_and_limit()
@@ -117,6 +208,17 @@ class CustomerTicketFeaturesE2ETest extends TestCase
             'client_name' => 'Filter Test Client',
             'email' => 'filtertest@example.com',
         ]);
+
+        DB::table('problem_categories')->updateOrInsert(['problem_category_ID' => 1], ['category_name' => 'Hardware']);
+        DB::table('machines')->updateOrInsert(['machine_ID' => 1], [
+            'machine_name' => 'CGI Machine Pro',
+            'serial_number' => 'CGI-9988-AA',
+            'client_ID' => $testClientId,
+        ]);
+        DB::table('ticket_statuses')->updateOrInsert(['ticket_status_ID' => 1], ['status_name' => 'Open']);
+        DB::table('ticket_statuses')->updateOrInsert(['ticket_status_ID' => 2], ['status_name' => 'In Progress']);
+        DB::table('ticket_priorities')->updateOrInsert(['priority_ID' => 1], ['priority_name' => 'Low']);
+        DB::table('departments')->updateOrInsert(['id' => 1], ['name' => 'Service', 'is_active' => true]);
 
         // Seed a ticket for test customer
         DB::table('tickets')->insert([

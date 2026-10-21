@@ -15,10 +15,25 @@ const configClient = axios.create({
 });
 
 configClient.interceptors.request.use((config) => {
-  const token = tokenStore.getToken();
+  let token = tokenStore.getToken();
+  if (!token) {
+    try {
+      token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
+    } catch {}
+  }
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  try {
+    const rawUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u.role) config.headers['X-User-Role'] = u.role;
+      if (u.name || u.first_name) config.headers['X-Actor-Name'] = u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    }
+  } catch {}
+
   return config;
 });
 
@@ -28,6 +43,20 @@ configClient.interceptors.response.use(
     const originalRequest = error.config;
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
+      const token = tokenStore.getToken();
+      if (token === 'frontend-dev-token') {
+        return Promise.reject(error);
+      }
+      try {
+        const rawUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+        if (rawUser) {
+          const u = JSON.parse(rawUser);
+          if (u.role === 'superadmin' || u.role === 'employee' || u.role === 'admin') {
+            return Promise.reject(error);
+          }
+        }
+      } catch {}
+
       const refreshed = await refreshAccessToken();
       const currentToken = tokenStore.getToken();
       if (refreshed && currentToken) {

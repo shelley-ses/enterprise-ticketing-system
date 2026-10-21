@@ -14,10 +14,26 @@ const ticketClient = axios.create({
   },
 });
 
+const getStoredClientId = () => {
+  try {
+    const raw = sessionStorage.getItem('user') || localStorage.getItem('user');
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    return u?.client_ID || u?.client_id || u?.id || null;
+  } catch {
+    return null;
+  }
+};
+
 ticketClient.interceptors.request.use((config) => {
   const token = tokenStore.getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const clientId = getStoredClientId();
+  if (clientId) {
+    config.headers['X-Client-Id'] = String(clientId);
+    config.headers['X-User-Id'] = String(clientId);
   }
 
   return config;
@@ -134,41 +150,61 @@ export const uploadAttachments = async (files, isProof = false) => {
 
 const processPayloadAndUpload = async (payload, isProof = false) => {
   let files = [];
+  let existingAttachmentIds = [];
   let fields = {};
 
   if (payload instanceof FormData) {
     for (const [key, value] of payload.entries()) {
       if (key === 'attachments[]' || key === 'attachments') {
-        files.push(value);
+        if (value instanceof File || value instanceof Blob) {
+          files.push(value);
+        } else if (value !== null && value !== undefined && value !== '') {
+          const num = Number(value);
+          if (!isNaN(num) && num > 0) existingAttachmentIds.push(num);
+        }
       } else if (key === 'file' && value) {
-        files.push(value);
+        if (value instanceof File || value instanceof Blob) {
+          files.push(value);
+        }
       } else {
         fields[key] = value;
       }
     }
   } else if (payload && typeof payload === 'object') {
     fields = { ...payload };
-    if (Array.isArray(payload.attachments)) {
-      files = payload.attachments;
-      delete fields.attachments;
-    } else if (payload.attachments) {
-      files = [payload.attachments];
-      delete fields.attachments;
-    }
+    const rawAttachments = Array.isArray(payload.attachments)
+      ? payload.attachments
+      : payload.attachments !== undefined && payload.attachments !== null
+      ? [payload.attachments]
+      : [];
+
+    rawAttachments.forEach((item) => {
+      if (item instanceof File || item instanceof Blob) {
+        files.push(item);
+      } else if (item !== null && item !== undefined && item !== '') {
+        const num = Number(item);
+        if (!isNaN(num) && num > 0) existingAttachmentIds.push(num);
+      }
+    });
+    delete fields.attachments;
+
     if (payload.file) {
-      files.push(payload.file);
+      if (payload.file instanceof File || payload.file instanceof Blob) {
+        files.push(payload.file);
+      }
       delete fields.file;
     }
   } else {
     return payload;
   }
 
+  let uploadedIds = [];
   if (files.length > 0) {
     const uploaded = await uploadAttachments(files, isProof);
-    fields.attachments = uploaded.map((a) => a.id);
-  } else {
-    fields.attachments = [];
+    uploadedIds = (uploaded || []).map((a) => a.id || a.attachment_ID).filter(Boolean);
   }
+
+  fields.attachments = [...existingAttachmentIds, ...uploadedIds];
 
   return fields;
 };
@@ -255,13 +291,21 @@ const normalizeCustomerTicket = (ticket = {}) => {
   const assigned_to = ticket.assigned_to || details.assigned_to || null;
 
   const equipment_type = ticket.equipment_type || ticket.equipmentType || details.equipment_type || details.equipmentType || null;
-  const assigned_employee = ticket.assigned_employee || ticket.assigned_employee_name || ticket.assigned_to_name || details.assigned_employee || null;
+  const assigned_employee =
+    ticket.assigned_employee ||
+    ticket.assigned_employee_name ||
+    ticket.assigned_to_name ||
+    (Array.isArray(ticket.assigned_employees) && ticket.assigned_employees[0]?.name ? ticket.assigned_employees[0].name : null) ||
+    details.assigned_employee ||
+    (typeof assigned_to === 'string' && assigned_to.trim() && assigned_to.trim().toLowerCase() !== 'unassigned' ? assigned_to : null);
 
   return {
+    ...ticket,
     ticket_ID: ticket.ticket_ID || details.ticket_ID || Number(String(ticket.id || '').replace(/\D/g, '')) || null,
     id: ticket.id,
     title: ticket.title || details.title || 'Untitled ticket',
     category: ticket.category || details.category || 'General',
+    priority: ticket.priority || details.priority || 'Medium',
     status,
     machine_ID: ticket.machine_ID || details.machine_ID || null,
     machine_name: ticket.machine_name || details.machine_name || null,
@@ -275,6 +319,7 @@ const normalizeCustomerTicket = (ticket = {}) => {
     assigned_to,
     assigned_employee,
     assigned_employee_name: assigned_employee,
+    assigned_to_name: ticket.assigned_to_name || assigned_employee,
     resolved_at: ticket.resolved_at || details.resolved_at || null,
     closed_at: ticket.closed_at || details.closed_at || null,
     remarks: ticket.remarks || details.remarks || [],
@@ -402,7 +447,10 @@ export const saveTicketDraft = async (data) => {
     }
   }
 
+  let clientId = data.client_id || data.client_ID || data.created_by || getStoredClientId();
+
   const payload = {
+    client_id: clientId || undefined,
     draft_id: data.id || data.draft_id || undefined,
     title: data.title ?? '',
     description: data.description ?? '',
@@ -416,18 +464,41 @@ export const saveTicketDraft = async (data) => {
   return response.data;
 };
 
-export const getTicketDrafts = async () => {
-  const response = await ticketClient.get('/tickets/drafts');
-  return response.data?.drafts ?? [];
+export const getTicketDrafts = async (params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    const cid = getStoredClientId();
+    if (cid) query.client_id = cid;
+  }
+
+  try {
+    const response = await ticketClient.get('/tickets/drafts', { params: query });
+    return response.data?.drafts ?? [];
+  } catch (error) {
+    if (error.response?.status === 401) {
+      return [];
+    }
+    throw error;
+  }
 };
 
-export const getTicketDraft = async (id) => {
-  const response = await ticketClient.get(`/tickets/drafts/${id}`);
+export const getTicketDraft = async (id, params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    const cid = getStoredClientId();
+    if (cid) query.client_id = cid;
+  }
+  const response = await ticketClient.get(`/tickets/drafts/${id}`, { params: query });
   return response.data?.draft ?? response.data;
 };
 
-export const deleteTicketDraft = async (id) => {
-  const response = await ticketClient.delete(`/tickets/drafts/${id}`);
+export const deleteTicketDraft = async (id, params = {}) => {
+  let query = { ...params };
+  if (!query.client_id) {
+    const cid = getStoredClientId();
+    if (cid) query.client_id = cid;
+  }
+  const response = await ticketClient.delete(`/tickets/drafts/${id}`, { params: query });
   return response.data;
 };
 
@@ -1235,7 +1306,6 @@ export const deleteBranchSlaPolicy = async (branchId, payload) => {
   const response = await ticketClient.delete(branchSlaPolicyPath(branchId), { data: payload });
   return response.data;
 };
-
 
 // Escalation Handoff (TS027)
 export const getEscalateHandoff = async (conversationId) => {

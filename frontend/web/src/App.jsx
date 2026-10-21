@@ -3,13 +3,15 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 
 // Vite's BASE_URL is '/', '/ticketing/', or '/customer-service/' depending on context.
 const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthProvider, useAuth, resolveUserRole, resolveUserDepartment } from '@/context/AuthContext';
 import { BranchProvider } from '@/context/BranchContext';
 import PrivateRoute from '@/routes/PrivateRoute';
 import GuestRoute from '@/routes/GuestRoute';
 import AuthGate from '@/routes/AuthGate';
 import SkeletonLoader from '@/components/SkeletonLoader.jsx';
 import PageTitleUpdater from '@/components/PageTitleUpdater.jsx';
+import MaintenanceGate from '@/components/MaintenanceGate.jsx';
+import { ToastProvider } from '@/context/ToastContext';
 
 // Lazy loaded page and layout components
 const Loginpage = React.lazy(() => import('./pages/Loginpage.jsx'));
@@ -58,31 +60,32 @@ const ExternalFeedbackPage = React.lazy(() => import('./pages/ExternalFeedbackPa
 // ─── Role helpers (mirrors GuestRoute / PrivateRoute) ─────────────────────────
 const checkIsCS = (user) => {
   if (!user) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
   return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+};
+const checkIsSuperAdmin = (user) => {
+  if (!user) return false;
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
+};
+const checkIsAdmin = (user) => {
+  if (!user) return false;
+  const role = resolveUserRole(user).toLowerCase();
+  const dept = resolveUserDepartment(user).toLowerCase();
+  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 const checkIsEmployee = (user) => {
   if (!user) return false;
   if (checkIsCS(user)) return false;
   if (checkIsAdmin(user)) return false;
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
+  if (checkIsSuperAdmin(user)) return false;
+  const dept = resolveUserDepartment(user).toLowerCase();
+  const role = resolveUserRole(user).toLowerCase();
   if (dept === 'service' || dept.includes('engineer')) return true;
   return role === 'employee' || role.includes('service') || role.includes('engineer');
-};
-const checkIsSuperAdmin = (user) => {
-  if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  return role === 'superadmin' || role === 'super admin' || dept === 'superadmin' || dept === 'super admin';
-};
-const checkIsAdmin = (user) => {
-  if (!user) return false;
-  const role = (user.role || user.profile?.role?.name || '').toLowerCase();
-  const dept = (user.department || user.profile?.department?.name || '').toLowerCase();
-  return role === 'admin' || role === 'it admin' || (dept === 'admin' && role !== 'superadmin' && role !== 'super admin');
 };
 
 // ─── Employee Portal Gate ─────────────────────────────────────────────────────
@@ -115,7 +118,7 @@ function EmployeePortalGate() {
   const isCS         = checkIsCS(user);
   const isEmployee   = checkIsEmployee(user);
 
-  if (isSuperAdmin) return <Navigate to="/superadmin/ticket-config" replace />;
+  if (isSuperAdmin) return <Navigate to="/superadmin/config" replace />;
   if (isAdmin)      return <Navigate to="/admin/dashboard" replace />;
   if (isCS)         return <Navigate to="/cs/dashboard" replace />;
   if (isEmployee)   return <Navigate to="/employee/dashboard" replace />;
@@ -129,6 +132,7 @@ function App() {
   return (
     <AuthProvider>
       <BranchProvider>
+        <ToastProvider>
         <Router basename={routerBasename}>
         <PageTitleUpdater />
         <AuthGate>
@@ -263,7 +267,9 @@ function App() {
                 path="/ai-support"
                 element={
                   <PrivateRoute role="customer">
-                    <AISupportPage />
+                    <MaintenanceGate>
+                      <AISupportPage />
+                    </MaintenanceGate>
                   </PrivateRoute>
                 }
               />
@@ -299,8 +305,10 @@ function App() {
                   </PrivateRoute>
                 }
               >
-                <Route index element={<Navigate to="ticket-config" replace />} />
-                <Route path="ticket-config" element={<SuperAdminTicketConfig />} />
+                <Route index element={<Navigate to="config" replace />} />
+                <Route path="config" element={<SuperAdminTicketConfig />} />
+                <Route path="config/:subtab" element={<SuperAdminTicketConfig />} />
+                <Route path="ticket-config" element={<Navigate to="/superadmin/config" replace />} />
                 <Route path="ticket-config/:group" element={<SuperAdminTicketConfig />} />
                 <Route path="ticket-config/:group/:subtab" element={<SuperAdminTicketConfig />} />
                 <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
@@ -322,7 +330,7 @@ function App() {
               >
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
-                <Route path="employees" element={<AdminEmployees />} />
+                <Route path="employees" element={<Navigate to="dashboard" replace />} />
                 <Route path="reports" element={<AdminReports />} />
                 <Route path="settings" element={<AdminSettings />} />
                 <Route path="profile" element={<Profile />} />
@@ -342,6 +350,7 @@ function App() {
           </Suspense>
         </AuthGate>
       </Router>
+        </ToastProvider>
     </BranchProvider>
     </AuthProvider>
   );

@@ -7,6 +7,7 @@ import {
   LineElement, BarElement, Title, Tooltip, Legend, Filler,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import { MetricCard } from '@/components/ui/metric-card';
 import {
   TrendingUp, Cpu, ShieldAlert, Search,
   ChevronDown, ShieldCheck, Activity,
@@ -413,22 +414,53 @@ export default function PredictiveAnalytics({ selectedPreset = 'Last 7 Days', an
     <div id="predictive-analytics-report" className="space-y-4 animate-fadeSlideIn">
 
       {/* Sticky KPI Strip */}
-      <div className="sticky top-0 z-20 py-2 bg-[#f4f7fb] -mx-4 lg:-mx-12 px-4 lg:px-12">
+      <div className="sticky top-0 z-20 py-2 bg-page -mx-4 lg:-mx-12 px-4 lg:px-12">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {kpis.map((k) => {
-            const Icon = k.icon;
-            return (
-              <div key={k.label} className="bg-white rounded-xl shadow-md p-4 flex items-center gap-4 hover:shadow-lg transition-all">
-                <div className="w-14 h-14 bg-[#f1f5f9] rounded-lg flex items-center justify-center shrink-0 text-[#252578]">
-                  <Icon className="w-7 h-7" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-gray-500 truncate">{k.label}</p>
-                  <p className="text-2xl font-semibold text-gray-800">{k.value}</p>
-                </div>
-              </div>
-            );
-          })}
+          <MetricCard
+            title="Predicted Tickets"
+            value={summary.predTotal}
+            trend="+5.3%"
+            trendPositive={true}
+            subtitle="forecast volume"
+            icon={<TrendingUp className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
+          />
+          <MetricCard
+            title="Expected Escalations"
+            value={summary.escTotal}
+            trend="-1.2%"
+            trendPositive={true}
+            subtitle="risk events"
+            icon={<ShieldAlert className="w-5 h-5 text-amber-600" />}
+            iconBg="bg-amber-50 text-amber-600"
+            variant="amber"
+          />
+          <MetricCard
+            title="Critical Risk"
+            value={`${summary.critPct}%`}
+            trend="+0.4%"
+            trendPositive={false}
+            subtitle="severity rating"
+            icon={<ShieldCheck className="w-5 h-5 text-rose-600" />}
+            iconBg="bg-rose-50 text-rose-600"
+            variant="crimson"
+          />
+          <MetricCard
+            title="Top Issue"
+            value={summary.topCat}
+            subtitle="most frequent"
+            icon={<Search className="w-5 h-5 text-accent" />}
+            iconBg="bg-blue-50 text-accent"
+          />
+          <MetricCard
+            title="SLA Trend"
+            value="92%"
+            trend="+2.5%"
+            trendPositive={true}
+            subtitle="target: 90%"
+            icon={<Activity className="w-5 h-5 text-emerald-600" />}
+            iconBg="bg-emerald-50 text-emerald-600"
+          />
         </div>
       </div>
 

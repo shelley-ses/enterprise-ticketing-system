@@ -1,14 +1,39 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
   Book, Search, Filter, ChevronDown, X, Upload, FileText, Download,
   Trash2, Edit3, Eye, RefreshCw, Plus, FolderOpen, CheckCircle,
   AlertTriangle, Loader, File, FileSpreadsheet, Archive, ArrowUpDown,
-  Info, History, Globe, Copy, Check, AlertCircle, Wrench,
+  Info, History, Globe, MoreVertical, Copy, Check, AlertCircle, Wrench,
 } from 'lucide-react';
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL, KB_API_URL } from '@/config/api.config';
+import tokenStore from '@/auth/tokenStore';
 import echo from '@/services/echo';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+
+const aiKbClient = axios.create({
+  baseURL: AI_API_URL,
+  headers: {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json',
+  },
+});
+
+aiKbClient.interceptors.request.use((config) => {
+  const token = tokenStore.getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 function formatTimestamp(ts) {
   if (!ts) return '—';
@@ -204,34 +229,39 @@ const fileTypeIcons = {
 
 function StatCard({ icon: Icon, label, value, sub, bgClass }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 ${bgClass || 'bg-[#252578]/10 text-[#252578]'}`}>
-        <Icon size={22} />
+    <div className="bg-card rounded-xl border border-border shadow-xs p-4 flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 ${bgClass || 'bg-primary/10 text-primary'}`}>
+        <Icon size={20} />
       </div>
       <div>
-        <p className="text-2xl font-bold text-gray-800">{value}</p>
-        <p className="text-xs text-gray-500">{label}</p>
-        {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+        <p className="text-2xl font-bold text-slate-dark">{value}</p>
+        <p className="text-xs text-slate-muted">{label}</p>
+        {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
 }
 
-function EmptyState({ onUpload }) {
+function EmptyState({ onUpload, title, description }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-        <FolderOpen size={36} className="text-gray-300" />
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+        <FolderOpen size={30} className="text-slate-300" />
       </div>
-      <h3 className="text-lg font-bold text-gray-700 mb-1">No knowledge documents have been uploaded yet.</h3>
-      <p className="text-sm text-gray-400 mb-6">Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base.</p>
-      <button
+      <h3 className="text-sm font-bold text-dark-slate mb-1">
+        {title || "No knowledge documents have been uploaded yet."}
+      </h3>
+      <p className="text-xs text-muted-slate mb-5 max-w-sm">
+        {description || "Upload PDF, DOC, DOCX, or TXT files to build your AI knowledge base."}
+      </p>
+      <Button
         onClick={onUpload}
-        className="flex items-center gap-2 px-5 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1f1f66] transition-all cursor-pointer"
+        size="sm"
+        className="gap-2 text-xs"
       >
-        <Upload size={16} />
-        Upload First Document
-      </button>
+        <Upload size={14} />
+        Upload Document
+      </Button>
     </div>
   );
 }
@@ -595,6 +625,7 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
   const [uploadError, setUploadError] = useState('');
   const [isMalwareError, setIsMalwareError] = useState(false);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const fileInputRef = useRef(null);
 
   const reset = () => {
     setStep('form');
@@ -646,12 +677,12 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
   const handleFileValidateAndSet = (file) => {
     if (!file) return;
 
-    // Check extension: PDF, DOCX, CSV, TXT
+    // Check extension: PDF, DOCX, DOC, CSV, TXT supported
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'docx', 'csv', 'txt'].includes(ext)) {
+    if (!['pdf', 'docx', 'doc', 'csv', 'txt'].includes(ext)) {
       setErrors((prev) => ({
         ...prev,
-        file: 'Invalid file type. Supports PDF, DOCX, CSV, and TXT files.',
+        file: 'Invalid file type. Supported formats: PDF, DOCX, DOC, CSV, TXT.',
       }));
       setSelectedFile(null);
       return;
@@ -843,17 +874,24 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={handleFileDrop}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${dragOver
+                    onClick={() => {
+                      if (!selectedFile) {
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${
+                      !selectedFile ? 'cursor-pointer' : ''
+                    } ${dragOver
                         ? 'border-[#252578] bg-[#252578]/5'
                         : errors.file
                           ? 'border-red-400 bg-red-50/30'
                           : selectedFile
                             ? 'border-green-400 bg-green-50/20'
-                            : 'border-gray-200 hover:border-gray-300'
+                            : 'border-gray-200 hover:border-[#252578]/40 hover:bg-gray-50/50'
                       }`}
                   >
                     {selectedFile ? (
-                      <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-green-200 shadow-xs">
+                      <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-green-200 shadow-xs" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-2.5 min-w-0">
                           <FileText size={20} className="text-[#252578] shrink-0" />
                           <div className="text-left truncate">
@@ -863,7 +901,10 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                         </div>
                         <button
                           type="button"
-                          onClick={() => setSelectedFile(null)}
+                          onClick={() => {
+                            setSelectedFile(null);
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
                           className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer"
                         >
                           <X size={16} />
@@ -873,19 +914,28 @@ function ReplaceConfirmModal({ isOpen, doc, onClose, onReplaceComplete, onProces
                       <>
                         <Upload size={24} className="mx-auto text-gray-400 mb-1.5" />
                         <p className="text-xs font-medium text-gray-700">Drag & drop new file here, or click to browse</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF, DOCX, CSV, and TXT up to 10 MB</p>
-                        <label className="mt-2.5 inline-block px-3 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-[#1f1f66] transition-all cursor-pointer">
+                        <p className="text-[10px] text-gray-400 mt-0.5">Supports PDF, DOCX, DOC, CSV, and TXT up to 10 MB</p>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".pdf,.docx,.doc,.csv,.txt"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFileValidateAndSet(file);
+                            e.target.value = '';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fileInputRef.current?.click();
+                          }}
+                          className="mt-2.5 inline-block px-3 py-1.5 bg-[#252578] text-white text-xs font-semibold rounded-lg hover:bg-[#1f1f66] transition-all cursor-pointer shadow-xs"
+                        >
                           Browse File
-                          <input
-                            type="file"
-                            accept=".pdf,.docx,.csv,.txt"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileValidateAndSet(file);
-                            }}
-                          />
-                        </label>
+                        </button>
                       </>
                     )}
                   </div>
@@ -2411,7 +2461,7 @@ function DocumentDetailModal({ isOpen, doc, onClose, onPublish, onArchivePrompt,
   );
 }
 
-function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
+function EditMetadataModal({ isOpen, doc, onClose, onSave, onReplaceFile }) {
   const [form, setForm] = useState({ title: '', category: '', machine: '', version: '', description: '', tags: '' });
   const [errors, setErrors] = useState({});
   const [showDiscardModal, setShowDiscardModal] = useState(false);
@@ -2540,6 +2590,30 @@ function EditMetadataModal({ isOpen, doc, onClose, onSave }) {
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
               <textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] resize-none" />
             </div>
+
+            {/* Replace Existing File section */}
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/70 p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-[#252578] font-bold text-xs shadow-xs">
+                  {doc.fileType || 'PDF'}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">{doc.title}.{(doc.fileType || 'pdf').toLowerCase()}</p>
+                  <p className="text-[11px] text-gray-400">{doc.size || '1.0 MB'} · Uploaded by {doc.uploadedBy || 'Super Admin'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onReplaceFile) onReplaceFile(doc);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#252578]/20 bg-white text-xs font-semibold text-[#252578] hover:bg-[#252578]/5 transition cursor-pointer shadow-xs"
+              >
+                <RefreshCw size={12} />
+                Replace File
+              </button>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
             <button onClick={handleAttemptClose} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all cursor-pointer">Cancel</button>
@@ -2625,6 +2699,7 @@ function AIKnowledgeBase() {
     } catch { }
     return MOCK_DOCUMENTS;
   });
+  const [activeTab, setActiveTab] = useState('draft'); // 'draft' | 'published'
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
@@ -2649,51 +2724,52 @@ function AIKnowledgeBase() {
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get(`${AI_API_URL}/articles`, { baseURL: '' });
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped = res.data.data.map((item) => {
-          const publishState = item.status;
-          return {
-            id: item.id,
-            title: item.title,
-            category: item.category,
-            machine: item.machine || 'No Machine',
-            version: item.version || '1.0',
-            fileType: item.file_type || 'PDF',
-            size: item.size || item.file_size || '1.0 MB',
-            uploadedBy: item.uploaded_by || 'Super Admin',
-            uploadDate: item.created_at ? item.created_at.split('T')[0] : '2026-06-15',
-            status: publishState === 'Published' ? 'Ready' : publishState,
-            publishState,
-            processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
-            tags: Array.isArray(item.tags) ? item.tags : [],
-            description: item.description || '',
-            content: item.content || '',
-            file_path: item.file_path || null,
-            chunks_count: item.chunks_count ?? 0,
-            embeddings_count: item.embeddings_count ?? 0,
-            history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
-              {
-                id: item.id * 100 + 1,
-                type: 'created',
-                timestamp: item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '2026-06-15 09:00',
-                actor: item.uploaded_by || 'Super Admin',
-              },
-            ],
-          };
-        });
-        setDocuments(mapped);
-        try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
-      } else {
-        throw new Error('Invalid backend response');
+      try {
+        const res = await aiKbClient.get('/articles');
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          const mapped = res.data.data.map((item) => {
+            const publishState = item.status;
+            return {
+              id: item.id,
+              title: item.title,
+              category: item.category,
+              machine: item.machine || 'No Machine',
+              version: item.version || '1.0',
+              fileType: item.file_type || 'PDF',
+              size: item.size || item.file_size || '1.0 MB',
+              uploadedBy: item.uploaded_by || 'Super Admin',
+              uploadDate: item.created_at ? item.created_at.split('T')[0] : '2026-06-15',
+              status: publishState === 'Published' ? 'Ready' : publishState,
+              publishState,
+              processingStatus: item.processing_status || (publishState === 'Published' ? 'Ready for AI Search' : 'Ready'),
+              tags: Array.isArray(item.tags) ? item.tags : [],
+              description: item.description || '',
+              content: item.content || '',
+              file_path: item.file_path || null,
+              chunks_count: item.chunks_count ?? 0,
+              embeddings_count: item.embeddings_count ?? 0,
+              history: Array.isArray(item.history) && item.history.length > 0 ? item.history : [
+                {
+                  id: item.id * 100 + 1,
+                  type: 'created',
+                  timestamp: item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '2026-06-15 09:00',
+                  actor: item.uploaded_by || 'Super Admin',
+                },
+              ],
+            };
+          });
+          setDocuments(mapped);
+          try { localStorage.setItem('ai_kb_documents', JSON.stringify(mapped)); } catch { }
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
       }
-    } catch (err) {
-      console.warn('Could not fetch KB articles from AI-service API, using local fallback:', err);
+
       try {
         const stored = localStorage.getItem('ai_kb_documents');
         if (stored) {
-          const parsed = JSON.parse(stored);
-          setDocuments(Array.isArray(parsed) && parsed.length > 0 ? parsed : MOCK_DOCUMENTS);
+          setDocuments(normalizeDocs(JSON.parse(stored)));
         } else {
           setDocuments(MOCK_DOCUMENTS);
           localStorage.setItem('ai_kb_documents', JSON.stringify(MOCK_DOCUMENTS));
@@ -2738,8 +2814,21 @@ function AIKnowledgeBase() {
     }
   }, [fetchDocuments]);
 
+  const draftCount = useMemo(() => documents.filter(d => (d.publishState || d.status) !== 'Published' && d.status !== 'Ready').length, [documents]);
+  const publishedCount = useMemo(() => documents.filter(d => (d.publishState || d.status) === 'Published' || d.status === 'Ready').length, [documents]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setFilterStatus('');
+  };
+
   const filteredDocs = useMemo(() => {
     let docs = [...documents];
+    if (activeTab === 'published') {
+      docs = docs.filter(d => (d.publishState || d.status) === 'Published' || d.status === 'Ready');
+    } else {
+      docs = docs.filter(d => (d.publishState || d.status) !== 'Published' && d.status !== 'Ready');
+    }
     if (search) { const q = search.toLowerCase(); docs = docs.filter(d => d.title.toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q) || (d.tags || []).some(t => t.includes(q))); }
     if (filterCategory) docs = docs.filter(d => d.category === filterCategory);
     if (filterStatus) {
@@ -2753,7 +2842,7 @@ function AIKnowledgeBase() {
     if (filterFileType) docs = docs.filter(d => d.fileType === filterFileType);
     docs.sort((a, b) => sortOrder === 'newest' ? new Date(b.uploadDate) - new Date(a.uploadDate) : new Date(a.uploadDate) - new Date(b.uploadDate));
     return docs;
-  }, [documents, search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
+  }, [documents, activeTab, search, filterCategory, filterStatus, filterMachine, filterFileType, sortOrder]);
 
   const summary = useMemo(() => ({
     total: documents.length,
@@ -2792,7 +2881,7 @@ function AIKnowledgeBase() {
     });
 
     // Synchronize document creation and RAG indexing with AI-service backend
-    axiosInstance.post(`${AI_API_URL}/articles`, {
+    aiKbClient.post('/articles', {
       title: newDoc.title,
       category: newDoc.category,
       machine: newDoc.machine,
@@ -2891,7 +2980,7 @@ function AIKnowledgeBase() {
 
     // Synchronize publish state immediately to AI-service backend
     try {
-      const res = await axiosInstance.post(`${AI_API_URL}/articles/${doc.id}/publish`, {
+      const res = await aiKbClient.post(`/articles/${doc.id}/publish`, {
         actor: 'Super Admin',
       }, { baseURL: '' });
       if (res.data?.success && res.data?.data) {
@@ -2964,7 +3053,7 @@ function AIKnowledgeBase() {
 
     // Synchronize archive state immediately to AI-service backend
     try {
-      const res = await axiosInstance.post(`${AI_API_URL}/articles/${docToArchive.id}/archive`, {
+      const res = await aiKbClient.post(`/articles/${docToArchive.id}/archive`, {
         actor: 'Super Admin',
       }, { baseURL: '' });
       if (res.data?.success && res.data?.data) {
@@ -3034,7 +3123,7 @@ function AIKnowledgeBase() {
     setShowEditModal(false);
 
     // Sync metadata updates to AI-service backend
-    axiosInstance.put(`${AI_API_URL}/articles/${selectedDoc.id}`, {
+    aiKbClient.put(`/articles/${selectedDoc.id}`, {
       title: form.title.trim(),
       category: form.category,
       machine: form.machine,
@@ -3050,6 +3139,11 @@ function AIKnowledgeBase() {
   // Updates file details, upload date, processing status, and appends { type: 'file_replacement', ... } to history.
   const handleReplaceComplete = (docId, newFileOrData) => {
     const isBackendData = newFileOrData && typeof newFileOrData === 'object' && ('fileType' in newFileOrData || 'file_type' in newFileOrData);
+    if (!isBackendData) {
+      aiKbClient.post(`/articles/${docId}/reindex`, { actor: 'Super Admin' }).catch((err) => {
+        console.warn('Article reindex notice:', err);
+      });
+    }
     const now = new Date().toISOString();
 
     setDocuments((prev) => {
@@ -3106,14 +3200,33 @@ function AIKnowledgeBase() {
           history: newFileOrData.history || prev.history,
         };
       }
+      const historyEntry = {
+        id: Date.now(),
+        type: 'file_replacement',
+        timestamp: now,
+        actor: 'Super Admin',
+        fileName: newFileOrData?.name || 'replacement_file',
+        fileSize: newFileOrData?.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : prev.size,
+      };
       return {
         ...prev,
         fileType: newFileOrData?.name ? newFileOrData.name.split('.').pop()?.toUpperCase() : prev.fileType,
         size: newFileOrData?.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : prev.size,
         uploadDate: now.split('T')[0],
         processingStatus: 'Ready for AI Search',
+        history: [historyEntry, ...(prev.history || [])],
       };
     });
+
+    if (!isBackendData && newFileOrData?.name) {
+      aiKbClient.put(`/articles/${docId}`, {
+        file_type: newFileOrData.name.split('.').pop()?.toUpperCase() || 'PDF',
+        size: newFileOrData.size ? `${(newFileOrData.size / (1024 * 1024)).toFixed(1)} MB` : '1.0 MB',
+        processing_status: 'Ready for AI Search',
+      }).catch((err) => {
+        console.warn('Failed to sync replaced file metadata with AI service:', err);
+      });
+    }
 
     fetchDocuments();
   };
@@ -3152,8 +3265,7 @@ function AIKnowledgeBase() {
     setDeleteModalError('');
 
     try {
-      await axiosInstance.delete(`${AI_API_URL}/articles/${docToDelete.id}`, {
-        baseURL: '',
+      await aiKbClient.delete(`/articles/${docToDelete.id}`, {
         data: { actor: 'Super Admin' },
       });
 
@@ -3203,28 +3315,29 @@ function AIKnowledgeBase() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">AI Knowledge Base</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage documents for the AI Support Assistant</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowCategories(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:border-gray-300 transition-all cursor-pointer"
-          >
-            <FolderOpen size={16} />
-            Categories
-          </button>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#252578] text-white rounded-xl text-sm font-semibold hover:bg-[#1f1f66] transition-all cursor-pointer"
-          >
-            <Upload size={16} />
-            Upload Document
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        pattern="B"
+        title="AI Knowledge Base"
+        subtitle="Manage documents for the AI Support Assistant"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowCategories(true)}
+            >
+              <FolderOpen size={16} />
+              Categories
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => setShowUploadModal(true)}
+            >
+              <Upload size={16} />
+              Upload Document
+            </Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard icon={FileText} label="Total Documents" value={summary.total} bgClass="bg-purple-100 text-purple-700" sub={`${summary.published} published · ${summary.draft} draft`} />
@@ -3268,57 +3381,136 @@ function AIKnowledgeBase() {
 
       <div className="flex flex-col xl:flex-row gap-5 items-start">
         <div className="flex-1 min-w-0 w-full">
-          {loading ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex items-center justify-center py-20">
-              <Loader size={24} className="animate-spin text-[#252578]" />
-              <span className="ml-3 text-sm text-gray-500">Loading documents...</span>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Tabs: Draft & Published */}
+            <div className="flex border-b border-gray-200 px-4 pt-3 gap-2 bg-white">
+              <button
+                type="button"
+                onClick={() => handleTabChange('draft')}
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'draft'
+                    ? 'border-[#252578] text-[#252578]'
+                    : 'border-transparent text-muted-slate hover:text-dark-slate'
+                }`}
+              >
+                Draft
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-muted-slate'
+                }`}>
+                  {draftCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTabChange('published')}
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 -mb-px flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'published'
+                    ? 'border-[#252578] text-[#252578]'
+                    : 'border-transparent text-muted-slate hover:text-dark-slate'
+                }`}
+              >
+                Published
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'published' ? 'bg-[#252578]/10 text-[#252578]' : 'bg-slate-100 text-muted-slate'
+                }`}>
+                  {publishedCount}
+                </span>
+              </button>
             </div>
-          ) : filteredDocs.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-              <EmptyState onUpload={() => setShowUploadModal(true)} />
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100 space-y-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents..." className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]" />
-                  </div>
-                  <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Categories</option>
-                    {MOCK_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                  <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Statuses</option>
-                    {MOCK_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                  <select value={filterFileType} onChange={e => setFilterFileType(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white">
-                    <option value="">All Types</option>
-                    {allFileTypes.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                  <button onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-all cursor-pointer">
-                    <ArrowUpDown size={14} />
-                    {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
-                  </button>
-                </div>
-              </div>
 
+            {/* Filters Toolbar */}
+            <div className="p-4 border-b border-gray-100 space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search documents..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578]"
+                  />
+                </div>
+                <select
+                  value={filterCategory}
+                  onChange={e => setFilterCategory(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Categories</option>
+                  {MOCK_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Statuses</option>
+                  {activeTab === 'draft' ? (
+                    <>
+                      <option value="Draft">Draft</option>
+                      <option value="Processing">Processing</option>
+                      <option value="Archived">Archived</option>
+                    </>
+                  ) : (
+                    <option value="Published">Published</option>
+                  )}
+                </select>
+                <select
+                  value={filterFileType}
+                  onChange={e => setFilterFileType(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-transparent focus:ring-2 focus:ring-[#252578] bg-white text-dark-slate"
+                >
+                  <option value="">All Types</option>
+                  {allFileTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-all cursor-pointer"
+                >
+                  <ArrowUpDown size={13} />
+                  {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
+                </button>
+              </div>
+            </div>
+
+            {/* Table Area */}
+            {loading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader size={20} className="animate-spin text-[#252578]" />
+                <span className="ml-2.5 text-xs text-muted-slate">Loading documents...</span>
+              </div>
+            ) : filteredDocs.length === 0 ? (
+              <EmptyState
+                onUpload={() => setShowUploadModal(true)}
+                title={activeTab === 'draft' ? "No draft documents found" : "No published documents found"}
+                description={
+                  activeTab === 'draft'
+                    ? "There are currently no draft documents matching your filters."
+                    : "There are currently no published documents live for the AI chatbot."
+                }
+              />
+            ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider w-8">
-                        <input type="checkbox" onChange={e => setSelectedDocs(e.target.checked ? documents.map(d => d.id) : [])} checked={selectedDocs.length === documents.length && documents.length > 0} className="rounded border-gray-300" />
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider w-8">
+                        <input
+                          type="checkbox"
+                          onChange={e => setSelectedDocs(e.target.checked ? documents.map(d => d.id) : [])}
+                          checked={selectedDocs.length === documents.length && documents.length > 0}
+                          className="rounded border-gray-300"
+                        />
                       </th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider min-w-[160px]">Document Title</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Category</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Machine Model</th>
-                      <th className="text-center px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Version</th>
-                      <th className="text-center px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">File Type</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Upload Date</th>
-                      <th className="text-left px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Status</th>
-                      <th className="text-right px-3 py-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider min-w-[160px]">Document Title</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Category</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Machine Model</th>
+                      <th className="text-center px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Version</th>
+                      <th className="text-center px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">File Type</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Upload Date</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Status</th>
+                      <th className="text-right px-3 py-2.5 text-[11px] font-bold text-muted-slate uppercase tracking-wider whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3331,34 +3523,44 @@ function AIKnowledgeBase() {
 
                       return (
                         <tr key={doc.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-all">
-                          <td className="px-3 py-3 w-8"><input type="checkbox" checked={selectedDocs.includes(doc.id)} onChange={() => toggleSelectDoc(doc.id)} className="rounded border-gray-300" /></td>
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-2.5 w-8">
+                            <input
+                              type="checkbox"
+                              checked={selectedDocs.includes(doc.id)}
+                              onChange={() => toggleSelectDoc(doc.id)}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                          <td className="px-3 py-2.5">
                             <div className="flex items-center gap-2.5">
-                              <FileIcon size={16} className="text-gray-400 flex-shrink-0" />
-                              <span className="text-sm font-medium text-gray-800 truncate max-w-[200px] xl:max-w-none" title={doc.title}>{doc.title}</span>
+                              <FileIcon size={15} className="text-muted-slate flex-shrink-0" />
+                              <span className="text-xs font-semibold text-dark-slate truncate max-w-[200px] xl:max-w-none" title={doc.title}>
+                                {doc.title}
+                              </span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{doc.category}</td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{doc.machine}</td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap text-center">{doc.version || '—'}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-center"><span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{doc.fileType}</span></td>
-                          <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap font-medium">{doc.uploadDate}</td>
-                          <td className="px-3 py-3 whitespace-nowrap">
-                            {/* TS080: Distinct badges for Publish State & Processing Status */}
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap">{doc.category}</td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap">{doc.machine}</td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap text-center">{doc.version || '—'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-center">
+                            <span className="text-[10px] font-semibold text-muted-slate bg-gray-100 px-1.5 py-0.5 rounded">
+                              {doc.fileType}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-muted-slate whitespace-nowrap font-medium">{doc.uploadDate}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              {/* Publish State Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${publishStateColors[doc.publishState || 'Draft']}`}>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${publishStateColors[doc.publishState || 'Draft']}`}>
                                 {PublishIcon && <PublishIcon size={10} />}
                                 {doc.publishState || 'Draft'}
                               </span>
-
-                              {/* Processing Status Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isMidProcess
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                isMidProcess
                                   ? 'bg-blue-50 text-blue-700 border-blue-200'
                                   : doc.processingStatus === 'Failed'
                                     ? 'bg-red-50 text-red-700 border-red-200'
                                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                }`}>
+                              }`}>
                                 {isMidProcess ? (
                                   <Loader size={10} className="animate-spin" />
                                 ) : doc.processingStatus === 'Failed' ? (
@@ -3370,50 +3572,57 @@ function AIKnowledgeBase() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {/* TS080: Conditional Publish / Archive Action Button */}
-                              {isPublished ? (
+                          <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
                                 <button
-                                  onClick={() => handleArchivePrompt(doc)}
-                                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-all cursor-pointer"
-                                  title="Archive Article (remove from chatbot)"
+                                  type="button"
+                                  className="p-1 rounded-lg hover:bg-gray-100 text-muted-slate hover:text-dark-slate transition-all cursor-pointer"
+                                  title="Actions"
+                                  aria-label="Actions"
                                 >
-                                  <Archive size={15} />
+                                  <MoreVertical size={16} />
                                 </button>
-                              ) : (
-                                <button
-                                  onClick={() => handlePublish(doc)}
-                                  disabled={!canPublish}
-                                  className={`p-1.5 rounded-lg transition-all ${canPublish
-                                      ? 'hover:bg-gray-100 text-gray-400 hover:text-green-600 cursor-pointer'
-                                      : 'text-gray-300 cursor-not-allowed opacity-40'
-                                    }`}
-                                  title={
-                                    canPublish
-                                      ? "Publish Article (make active for chatbot)"
-                                      : "This article's content hasn't been successfully processed yet. Fix or replace the file before publishing."
-                                  }
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-36 bg-white">
+                                <DropdownMenuItem onClick={() => handleEdit(doc)} className="cursor-pointer text-xs">
+                                  <Edit3 size={13} className="mr-2 text-muted-slate" />
+                                  <span>Edit</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleView(doc)} className="cursor-pointer text-xs">
+                                  <Eye size={13} className="mr-2 text-muted-slate" />
+                                  <span>View</span>
+                                </DropdownMenuItem>
+                                {isPublished ? (
+                                  <DropdownMenuItem onClick={() => handleArchivePrompt(doc)} className="cursor-pointer text-xs text-amber-700">
+                                    <Archive size={13} className="mr-2 text-amber-600" />
+                                    <span>Unpublish</span>
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    onClick={() => handlePublish(doc)}
+                                    disabled={!canPublish}
+                                    className={`cursor-pointer text-xs ${canPublish ? 'text-emerald-700' : 'opacity-40'}`}
+                                  >
+                                    <Globe size={13} className="mr-2 text-emerald-600" />
+                                    <span>Publish</span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => handleReplace(doc)} className="cursor-pointer text-xs">
+                                  <RefreshCw size={13} className="mr-2 text-muted-slate" />
+                                  <span>Replace</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  destructive
+                                  onClick={() => handleDelete(doc)}
+                                  disabled={isMidProcess}
+                                  className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
                                 >
-                                  <Globe size={15} />
-                                </button>
-                              )}
-
-                              <button onClick={() => handleView(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#252578] transition-all cursor-pointer" title="View"><Eye size={15} /></button>
-                              <button onClick={() => handleEdit(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#252578] transition-all cursor-pointer" title="Edit Metadata"><Edit3 size={15} /></button>
-                              <button onClick={() => handleReplace(doc)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-amber-600 transition-all cursor-pointer" title="Replace File"><RefreshCw size={15} /></button>
-                              <button
-                                onClick={() => handleDelete(doc)}
-                                disabled={isMidProcess}
-                                className={`p-1.5 rounded-lg transition-all ${isMidProcess
-                                    ? 'text-gray-300 cursor-not-allowed opacity-40'
-                                    : 'hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer'
-                                  }`}
-                                title={isMidProcess ? "Cannot delete while this document is processing." : "Delete"}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            </div>
+                                  <Trash2 size={13} className="mr-2 text-red-500" />
+                                  <span>Delete</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </td>
                         </tr>
                       );
@@ -3421,13 +3630,13 @@ function AIKnowledgeBase() {
                   </tbody>
                 </table>
               </div>
+            )}
 
-              <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                <span>{filteredDocs.length} of {documents.length} documents</span>
-                {selectedDocs.length > 0 && <span>{selectedDocs.length} selected</span>}
-              </div>
+            <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-muted-slate">
+              <span>{filteredDocs.length} of {documents.length} documents</span>
+              {selectedDocs.length > 0 && <span>{selectedDocs.length} selected</span>}
             </div>
-          )}
+          </div>
         </div>
 
         <AISidePanel summary={summary} />
@@ -3446,7 +3655,17 @@ function AIKnowledgeBase() {
           setShowReplaceModal(true);
         }}
       />
-      <EditMetadataModal isOpen={showEditModal} doc={selectedDoc} onClose={() => setShowEditModal(false)} onSave={handleSaveEdit} />
+      <EditMetadataModal
+        isOpen={showEditModal}
+        doc={selectedDoc}
+        onClose={() => setShowEditModal(false)}
+        onSave={handleSaveEdit}
+        onReplaceFile={(docToReplace) => {
+          if (docToReplace) setSelectedDoc(docToReplace);
+          setShowEditModal(false);
+          setShowReplaceModal(true);
+        }}
+      />
       <DeleteConfirmModal
         isOpen={showDeleteModal}
         doc={selectedDoc}

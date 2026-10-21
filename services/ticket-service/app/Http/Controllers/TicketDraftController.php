@@ -18,15 +18,63 @@ class TicketDraftController extends Controller
     {
         $user = $request->user();
         if ($user) {
-            return (int) ($user->id ?? $user->client_id ?? $user->emp_id);
+            $val = $user->client_ID ?? $user->client_id ?? $user->id ?? $user->emp_id;
+            if ($val) {
+                return (int) $val;
+            }
         }
 
-        if ($request->filled('client_id')) {
-            return (int) $request->input('client_id');
+        foreach (['client_id', 'client_ID', 'clientId', 'created_by', 'user_id', 'id'] as $key) {
+            if ($request->filled($key)) {
+                return (int) $request->input($key);
+            }
         }
 
-        if ($request->filled('created_by')) {
-            return (int) $request->input('created_by');
+        if ($request->hasHeader('X-Client-Id')) {
+            $hVal = (int) $request->header('X-Client-Id');
+            if ($hVal > 0) return $hVal;
+        }
+
+        if ($request->hasHeader('X-User-Id')) {
+            $hVal = (int) $request->header('X-User-Id');
+            if ($hVal > 0) return $hVal;
+        }
+
+        // Try auth('api') guard
+        try {
+            $apiUser = auth('api')->user();
+            if ($apiUser) {
+                $val = $apiUser->client_ID ?? $apiUser->client_id ?? $apiUser->id ?? $apiUser->emp_id;
+                if ($val) {
+                    return (int) $val;
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        // Fallback: decode JWT bearer payload if present or inspect Sanctum token
+        $bearer = $request->bearerToken();
+        if ($bearer) {
+            if (str_contains($bearer, '.')) {
+                $parts = explode('.', $bearer);
+                if (count($parts) === 3) {
+                    $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $parts[1])), true);
+                    if (is_array($payload)) {
+                        foreach (['sub', 'client_id', 'client_ID', 'user_id', 'id'] as $claim) {
+                            if (!empty($payload[$claim])) {
+                                return (int) $payload[$claim];
+                            }
+                        }
+                    }
+                }
+            } elseif (str_contains($bearer, '|')) {
+                try {
+                    [$tokenId] = explode('|', $bearer, 2);
+                    $tokenRecord = \Illuminate\Support\Facades\DB::table('personal_access_tokens')->where('id', $tokenId)->first();
+                    if ($tokenRecord && !empty($tokenRecord->tokenable_id)) {
+                        return (int) $tokenRecord->tokenable_id;
+                    }
+                } catch (\Throwable $e) {}
+            }
         }
 
         return null;
