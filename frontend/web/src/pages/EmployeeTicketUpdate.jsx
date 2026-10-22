@@ -24,6 +24,8 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { useAuth } from '@/context/AuthContext';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import InternalNotesSection from '@/components/InternalNotesSection';
+import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,11 +73,46 @@ export default function EmployeeTicketUpdate() {
   const [savedWorkLogs, setSavedWorkLogs] = useState([]);
 
   const numericId = useMemo(() => {
-    if (ticket) {
-      return ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+    if (state?.ticketId) {
+      const parsed = Number(String(state.ticketId).replace(/\D/g, ''));
+      if (parsed) return parsed;
     }
-    return queryTicketId;
-  }, [ticket, queryTicketId]);
+    if (ticket) {
+      const parsed = ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+      if (parsed) return parsed;
+    }
+    if (queryTicketId) {
+      return queryTicketId;
+    }
+    try {
+      const saved = sessionStorage.getItem('current_employee_ticket_id');
+      if (saved) {
+        const parsed = Number(saved);
+        if (parsed) return parsed;
+      }
+    } catch {
+      // sessionStorage unavailable
+    }
+    return null;
+  }, [state?.ticketId, ticket, queryTicketId]);
+
+  // Persist current active numeric ticket ID into sessionStorage
+  useEffect(() => {
+    if (numericId) {
+      try {
+        sessionStorage.setItem('current_employee_ticket_id', String(numericId));
+      } catch {
+        // sessionStorage unavailable
+      }
+    }
+  }, [numericId]);
+
+  // Security: strip raw database ticket IDs from the browser address bar query parameters
+  useEffect(() => {
+    if (location.search && (location.search.includes('id=') || location.search.includes('ticketId='))) {
+      window.history.replaceState(location.state, document.title, location.pathname);
+    }
+  }, [location.pathname, location.search, location.state]);
 
   const loadTicketData = useCallback(async () => {
     if (!numericId) return;
@@ -107,12 +144,12 @@ export default function EmployeeTicketUpdate() {
   }, [numericId, statusDraft]);
 
   useEffect(() => {
-    if (!ticket && !queryTicketId) {
+    if (!numericId) {
       navigate('/employee/machine', { replace: true });
     } else {
       loadTicketData();
     }
-  }, [numericId, queryTicketId]);
+  }, [numericId]);
 
   useEffect(() => {
     if (ticket) {
@@ -934,6 +971,13 @@ export default function EmployeeTicketUpdate() {
                 ))}
               </div>
             </div>
+
+            {/* Customer Satisfaction Feedback */}
+            {(ticket.status === 'Resolved' || ticket.status === 'Closed' || hasFeedbackBeenSubmitted(ticket.id || ticket.ticket_ID)) && (
+              <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+                <TicketFeedbackSection ticket={ticket} readOnly={true} />
+              </div>
+            )}
           </div>
         </>
       )}

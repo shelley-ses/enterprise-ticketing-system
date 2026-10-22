@@ -1480,3 +1480,50 @@ export const getEmployeeFilterOptions = async () => {
   return response.data;
 };
 
+// Ticket SLA Reminder (TS-REMINDER)
+export const sendTicketReminder = async (ticketId, customMessage = '') => {
+  const response = await ticketClient.post(`/tickets/${ticketId}/reminders`, {
+    custom_message: customMessage,
+  });
+  return response.data;
+};
+
+// Customer Feedback Lifecycle (TS-FEEDBACK)
+export const getTicketFeedback = async (ticketId) => {
+  const response = await axiosInstance.get(`/api/ticketing/analytics/feedback/ticket/${ticketId}`);
+  return response.data?.feedback ?? response.data?.data ?? response.data;
+};
+
+export const submitTicketFeedback = async (ticketId, feedbackPayload) => {
+  const response = await axiosInstance.post('/api/ticketing/analytics/feedback', {
+    ticket_id: String(ticketId),
+    customer_id: feedbackPayload.customerId ? String(feedbackPayload.customerId) : null,
+    rating: feedbackPayload.rating,
+    comment: feedbackPayload.comment || '',
+    ratings: feedbackPayload.ratings || {},
+    comments: feedbackPayload.comments || {},
+    overall_comment: feedbackPayload.overallComment || feedbackPayload.comment || '',
+    question_answers: feedbackPayload.questionAnswers || {},
+    category_questions_snapshot: feedbackPayload.categoryQuestionsSnapshot || [],
+  });
+  return response.data;
+};
+
+export const updateTicketFeedback = async (ticketId, feedbackPayload) => {
+  const response = await axiosInstance.put(`/api/ticketing/analytics/feedback/ticket/${ticketId}`, {
+    rating: feedbackPayload.rating,
+    comment: feedbackPayload.comment || '',
+    ratings: feedbackPayload.ratings || {},
+    comments: feedbackPayload.comments || {},
+    overall_comment: feedbackPayload.overallComment || feedbackPayload.comment || '',
+    question_answers: feedbackPayload.questionAnswers || {},
+    category_questions_snapshot: feedbackPayload.categoryQuestionsSnapshot || [],
+  });
+  return response.data;
+};
+
+export const deleteTicketFeedback = async (ticketId) => {
+  const response = await axiosInstance.delete(`/api/ticketing/analytics/feedback/ticket/${ticketId}`);
+  return response.data;
+};
+

@@ -6,6 +6,8 @@ import {
   editTicketMessage,
   getMessageEditHistory,
   deleteTicketMessage,
+  pingThreadPresence,
+  clearThreadPresence,
 } from './messagingService';
 
 vi.mock('@/auth/tokenStore', () => ({
@@ -157,5 +159,52 @@ describe('messagingService', () => {
 
     expect(requestSpy).toHaveBeenCalled();
     expect(result.message).toBe('Message deleted for you successfully');
+  });
+
+  it('covers AC-4: pings thread presence with ticket id successfully', async () => {
+    const mockResponse = {
+      data: {
+        status: 'ok',
+        presence_key: 'ticket:presence:101:client:1',
+      },
+    };
+
+    const requestSpy = vi.spyOn(axios.Axios.prototype, 'request').mockResolvedValue(mockResponse);
+
+    const result = await pingThreadPresence(101);
+
+    expect(requestSpy).toHaveBeenCalled();
+    expect(result).toEqual(mockResponse.data);
+  });
+
+  it('covers AC-4: safely handles error when pinging thread presence fails', async () => {
+    vi.spyOn(axios.Axios.prototype, 'request').mockRejectedValue(new Error('Network timeout'));
+
+    const result = await pingThreadPresence(101);
+
+    expect(result).toBeNull();
+  });
+
+  it('covers AC-4: clears thread presence when leaving ticket thread', async () => {
+    const mockResponse = {
+      data: {
+        status: 'cleared',
+      },
+    };
+
+    const requestSpy = vi.spyOn(axios.Axios.prototype, 'request').mockResolvedValue(mockResponse);
+
+    const result = await clearThreadPresence(101);
+
+    expect(requestSpy).toHaveBeenCalled();
+    expect(result).toEqual(mockResponse.data);
+  });
+
+  it('covers AC-4: safely handles error when clearing thread presence fails', async () => {
+    vi.spyOn(axios.Axios.prototype, 'request').mockRejectedValue(new Error('Network timeout'));
+
+    const result = await clearThreadPresence(101);
+
+    expect(result).toBeNull();
   });
 });

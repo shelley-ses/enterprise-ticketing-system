@@ -17,6 +17,7 @@ import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Clock, AlertCircle, ShieldAlert } from 'lucide-react';
+import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
 
 export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
@@ -740,6 +741,13 @@ export default function EmployeeHistoryDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Customer Satisfaction Feedback */}
+      {ticket && (
+        <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+          <TicketFeedbackSection ticket={ticket} readOnly={true} />
         </div>
       )}
 

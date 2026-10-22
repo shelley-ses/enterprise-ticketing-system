@@ -11,6 +11,7 @@ use App\Http\Controllers\BranchCategoryController;
 use App\Http\Controllers\SLARuleController;
 use App\Http\Controllers\WorkflowEscalationController;
 use App\Http\Controllers\TicketDraftController;
+use App\Http\Controllers\TicketReminderController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,6 +36,14 @@ Route::delete('/tickets/drafts/{id}', [TicketDraftController::class, 'deleteDraf
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);
 Route::get('/cs-dashboard', [TicketDashboardController::class, 'csDashboard'])->middleware('no-cache');
 Route::get('/cs-incoming', [TicketDashboardController::class, 'csIncoming'])->middleware('no-cache');
+Route::match(['get', 'post'], '/tickets/check-sla-alerts', function (\App\Services\SLAService $slaService) {
+    $result = $slaService->checkAndNotifySlaAlerts();
+    return response()->json([
+        'status' => 'success',
+        'message' => 'SLA alerts checked and dispatched successfully.',
+        'data' => $result,
+    ]);
+});
 Route::get('/departments', function () {
     try {
         $resp = Illuminate\Support\Facades\Http::get('http://employee-service:8000/api/departments');
@@ -96,6 +105,9 @@ Route::middleware('auth.subsystem')->group(function () {
             ->post("http://employee-service:8000/api/tickets/{$ticketId}/assign", $request->all());
         return response($resp->body(), $resp->status())->header('Content-Type', 'application/json');
     });
+
+    Route::post('/tickets/{ticketId}/reminders', [TicketReminderController::class, 'sendReminder']);
+    Route::post('/tickets/{ticketId}/reminder', [TicketReminderController::class, 'sendReminder']);
 
     Route::get('/tickets/{ticketId}/eligible-employees', function (Request $request, $ticketId) {
         $token = $request->bearerToken();

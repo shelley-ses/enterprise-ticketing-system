@@ -129,6 +129,22 @@ class TicketNotificationService
             }
         }
 
+        // Check employee notification preferences if recipient is an employee
+        if ($recipientType === 'employee') {
+            try {
+                $empPrefs = \Illuminate\Support\Facades\Cache::store('redis')->get("employee:notification_preferences:{$recipientId}");
+            } catch (\Throwable $e) {
+                $empPrefs = null;
+            }
+            if (!$empPrefs) {
+                $empPrefs = \Illuminate\Support\Facades\Cache::get("employee:notification_preferences:{$recipientId}");
+            }
+            if ($empPrefs && isset($empPrefs['in_app']) && $empPrefs['in_app'] === false) {
+                Log::info("In-app notification for employee [{$recipientId}] skipped due to employee preferences.");
+                return;
+            }
+        }
+
         DB::table('notifications')->insert([
             'recipient_id'   => $recipientId,
             'recipient_type' => $recipientType,
@@ -381,6 +397,20 @@ class TicketNotificationService
     }
 
     /**
+     * Notify Super Administrators (for critical background failures or system alerts).
+     */
+    public function notifySuperAdmin(string $title, string $message, ?array $data = null): void
+    {
+        $admins = DB::table('employees')
+            ->whereRaw('LOWER(role) IN (?, ?, ?, ?)', ['super admin', 'superadmin', 'admin', 'administrator'])
+            ->pluck('emp_id');
+
+        foreach ($admins as $empId) {
+            $this->notifyRecipient((int) $empId, 'employee', $title, $message, null, $data, 'system_alert');
+        }
+    }
+
+    /**
      * Notify customer (and requested_by employee if internal).
      */
     public function notifyCustomer(int $customerId, string $title, string $message, ?int $ticketId = null, ?array $data = null, ?string $alertKey = null): void
@@ -475,6 +505,20 @@ class TicketNotificationService
         // If configured as 'in_app' only, skip email dispatch
         if ($channel === 'in_app') {
             Log::info("Email notification for alert [{$alertKey}] skipped due to 'in_app only' delivery channel setting.");
+            return;
+        }
+
+        // Check employee notification preferences
+        try {
+            $empPrefs = \Illuminate\Support\Facades\Cache::store('redis')->get("employee:notification_preferences:{$empId}");
+        } catch (\Throwable $e) {
+            $empPrefs = null;
+        }
+        if (!$empPrefs) {
+            $empPrefs = \Illuminate\Support\Facades\Cache::get("employee:notification_preferences:{$empId}");
+        }
+        if ($empPrefs && isset($empPrefs['email']) && $empPrefs['email'] === false) {
+            Log::info("Employee email notification for employee [{$empId}] skipped due to employee preferences.");
             return;
         }
 
@@ -605,7 +649,7 @@ class TicketNotificationService
 
         try {
             $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
-            $response = Http::timeout(6)->post("{$configUrl}/api/email/dispatch", [
+            $response = Http::timeout(6)->retry(3, 100)->post("{$configUrl}/api/email/dispatch", [
                 'to' => $recipientEmail,
                 'subject' => $mailable->subject ?? 'Ticket Notification',
                 'html' => $mailable->render(),

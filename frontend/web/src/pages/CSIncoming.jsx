@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, RotateCcw, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { Search, RotateCcw, SlidersHorizontal, Loader2, AlertTriangle } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
 import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
@@ -858,9 +858,24 @@ export default function CSIncoming() {
                       {t.category}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getStatusBadgeVariant(getDisplayStatus(t))}>
-                        {getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant={getStatusBadgeVariant(getDisplayStatus(t))}>
+                          {getDisplayStatus(t) === 'Reopen' ? 'Reopened' : getDisplayStatus(t)}
+                        </Badge>
+                        {(() => {
+                          const rawSla = t.sla_status || t.slaStatus || (t.sla_breached ? 'Breached' : null);
+                          const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                          if (normalized === 'breached' || normalized === 'violated') {
+                            return (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                                <span>Breached</span>
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {formatDisplayDate(t.date || t.created_at)}

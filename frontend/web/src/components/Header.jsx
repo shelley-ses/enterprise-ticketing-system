@@ -147,6 +147,37 @@ export default function Header({ sidebarHovered }) {
   const handleNotificationClick = async (n) => {
     setNotificationDropdownOpen(false);
     const ticketId = n.ticket_id;
+    const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
+
+    // Handle new message notification: navigate directly to messaging thread
+    const isNewMessage = parsed.type === 'new_message' ||
+      /new\s+message/i.test(n.title || '') ||
+      (parsed.link && parsed.link.includes('messages'));
+
+    if (isNewMessage) {
+      try {
+        await markNotificationRead(n.id);
+        setNotificationCount((prev) => Math.max(0, prev - 1));
+        setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, is_read: true, unread: false } : item)));
+        window.dispatchEvent(new Event('notifications:updated'));
+      } catch (err) {
+        console.warn('Failed to mark message notification as read:', err);
+      }
+
+      const userStr = localStorage.getItem('user');
+      let role = '';
+      try { role = JSON.parse(userStr)?.role || ''; } catch {}
+      let targetPath = parsed.link;
+      if (!targetPath) {
+        if (role === 'employee') targetPath = '/employee/messages';
+        else if (role === 'cs') targetPath = '/cs/messages';
+        else targetPath = '/messages';
+      }
+      const cleanPath = targetPath.startsWith('http') ? new URL(targetPath).pathname : targetPath;
+      navigate(cleanPath, { state: { selectedTicketId: ticketId } });
+      return;
+    }
+
     if (!ticketId) {
       const path = getNotificationPath(n);
       if (path) navigate(path);
@@ -155,7 +186,6 @@ export default function Header({ sidebarHovered }) {
     setActiveTicketLoading(true);
     setActiveNotificationId(n.id);
     try {
-      const parsed = (() => { try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; } })();
       const ticketNum = Number(String(ticketId).replace(/\D/g, ''));
       const full = await getTicketDetails(ticketNum).catch(() => null);
       const isReassignDenied = parsed.type === 'reassignment_denied' ||

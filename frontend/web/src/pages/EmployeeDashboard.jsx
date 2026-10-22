@@ -382,8 +382,11 @@ export default function EmployeeDashboard() {
     const CLOSED_STATUSES = ['Closed', 'Resolved'];
     const incomingCount = visible.filter((t) => !t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
     const assignedCount = visible.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
-    const completedCount = visible.filter((t) => CLOSED_STATUSES.includes(t.status)).length;
-    const slaBreachedCount = visible.filter((t) => t.status === 'Escalated').length;
+    const isBreachedTicket = (t) => {
+      const s = String(t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '').toLowerCase().replace(/[\s_-]+/g, '');
+      return s === 'breached' || s === 'violated' || Boolean(t.sla_breached);
+    };
+    const slaBreachedCount = visible.filter(isBreachedTicket).length;
     const escalatedCount = visible.filter((t) => t.priority === 'Critical' && !CLOSED_STATUSES.includes(t.status)).length;
 
     return [
@@ -602,9 +605,24 @@ export default function EmployeeDashboard() {
                       </TableCell>
                       <TableCell className="text-muted-slate truncate">{t.customer}</TableCell>
                       <TableCell>
-                        <Badge variant={getStatusBadgeVariant(t.proofRejected ? 'Rejected' : t.status)} dot>
-                          {t.proofRejected ? 'Proof Rejected' : t.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant={getStatusBadgeVariant(t.proofRejected ? 'Rejected' : t.status)} dot>
+                            {t.proofRejected ? 'Proof Rejected' : t.status}
+                          </Badge>
+                          {(() => {
+                            const rawSla = t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || (t.sla_breached ? 'Breached' : null);
+                            const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                            if (normalized === 'breached' || normalized === 'violated') {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                  <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                                  <span>Breached</span>
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span className="text-xs font-semibold text-muted-slate">{t.priority}</span>

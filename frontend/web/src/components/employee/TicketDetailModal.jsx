@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { AlertTriangle, Clock } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride, getInternalNotes, addInternalNote } from '@/services/ticketService';
@@ -6,6 +7,8 @@ import ProofCompletionModal from './ProofCompletionModal';
 import ReassignmentDisapprovalBanner from './ReassignmentDisapprovalBanner';
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import InternalNotesSection from '@/components/InternalNotesSection';
+import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved'];
@@ -234,6 +237,27 @@ export default function TicketDetailModal({
                   Pending Reassignment
                 </span>
               )}
+              {(() => {
+                const rawSla = ticket.sla_status || ticket.slaStatus || (ticket.sla_breached ? 'Breached' : null);
+                const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                if (normalized === 'breached' || normalized === 'violated') {
+                  return (
+                    <span className="text-badge px-3 py-1 bg-rose-100 text-rose-800 rounded-full border border-rose-200 font-semibold inline-flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                      <span>SLA Breached</span>
+                    </span>
+                  );
+                }
+                if (normalized === 'atrisk') {
+                  return (
+                    <span className="text-badge px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-200 font-semibold inline-flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>SLA At Risk</span>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
             </div>
             <p className="text-sm text-gray-500 mt-1">{ticket.equipment} · {ticket.category}</p>
           </div>
@@ -271,6 +295,17 @@ export default function TicketDetailModal({
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-dark mb-0.5">Date Filed</p>
                 <p className="text-sm font-normal text-slate-600">{formatDisplayDate(ticket.date)}</p>
               </div>
+              {(ticket.resolution_due_at || ticket.due_at || ticket.sla_due_date || ticket.sla?.resolution?.target) && (
+                <div className="col-span-2 bg-rose-50/50 border border-rose-100 rounded-xl p-4 text-sm">
+                  <p className="text-xs font-bold uppercase tracking-wider text-rose-900 mb-0.5 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-rose-600" />
+                    <span>SLA Resolution Target</span>
+                  </p>
+                  <p className="text-sm font-semibold text-rose-800">
+                    {formatDisplayDate(ticket.resolution_due_at || ticket.due_at || ticket.sla_due_date || ticket.sla?.resolution?.target)}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* ────────────────────────────────────────────────────────
@@ -527,6 +562,13 @@ export default function TicketDetailModal({
                   onAddNote={handleAddInternalNote}
                   isAdding={isAddingNote}
                 />
+
+                {/* Customer Satisfaction Feedback */}
+                {(ticket.status === 'Resolved' || ticket.status === 'Closed' || hasFeedbackBeenSubmitted(ticket.id || ticket.ticket_ID)) && (
+                  <div className="pt-2">
+                    <TicketFeedbackSection ticket={ticket} readOnly={true} />
+                  </div>
+                )}
 
                 {/* 5. Chronological History Timeline */}
                 <div className="space-y-3 text-left">

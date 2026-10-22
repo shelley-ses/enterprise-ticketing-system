@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Filter, Plus, Search, Eye, Inbox } from 'lucide-react';
+import { Filter, Plus, Search, Eye, Inbox, AlertTriangle } from 'lucide-react';
 import TicketModal from '@/components/TicketModal';
 import { AssignModal } from '@/components/CSModals';
 import { useAuth } from '@/context/AuthContext';
@@ -537,9 +537,24 @@ export default function EmployeeMyTickets({ roleContext }) {
                   {ticket.category}
                 </TableCell>
                 <TableCell>
-                  <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
-                    {ticket.status}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
+                      {ticket.status}
+                    </Badge>
+                    {(() => {
+                      const rawSla = ticket.sla_status || ticket.slaStatus || (ticket.sla_breached ? 'Breached' : null);
+                      const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                      if (normalized === 'breached' || normalized === 'violated') {
+                        return (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                            <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                            <span>Breached</span>
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                 </TableCell>
                 <TableCell className="text-muted-slate text-xs whitespace-nowrap">
                   {formatDate(ticket.date_created)}

@@ -40,8 +40,7 @@ import { getMaxOpenTicketsLimit, OPEN_STATUS_SET } from '@/data/ticketLimitConfi
 import { parseUTCDate } from '@/utils/dateUtils';
 import TitleCasingModal from '@/components/TitleCasingModal';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
-import { formatProperTitleCase, needsProperCasing } from '@/utils/titleCaseUtils';
-import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
+import { hasFeedbackBeenSubmitted, fetchFeedbackForTicket } from '@/data/mockFeedbackData';
 
 const ACTIVE_STATUSES = ['Open', 'Pending Assignment', 'In Progress', 'Pending', 'On Hold', 'Closed'];
 const HISTORY_STATUSES = ['Resolved', 'Closed', 'Discarded by Customer', 'Discarded'];
@@ -98,6 +97,7 @@ export default function MyTickets({ mode = 'all' }) {
   const [menuPos, setMenuPos] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState(location.state?.tab === 'drafts' ? 'drafts' : 'tickets'); // 'tickets' | 'drafts'
+  const [feedbackVersion, setFeedbackVersion] = useState(0);
   const [drafts, setDrafts] = useState([]);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [filterOptions, setFilterOptions] = useState({
@@ -158,7 +158,24 @@ export default function MyTickets({ mode = 'all' }) {
 
     try {
       const ticketsList = await getCustomerTickets({ createdBy: customerId, limit: 100, forceRefresh });
-      setTickets(ticketsList || []);
+      const seen = new Set();
+      const uniqueTickets = (ticketsList || []).filter((t) => {
+        const id = t.id || t.ticket_ID;
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      setTickets(uniqueTickets);
+
+      // Prefetch feedback for completed tickets so feedback status is immediately known
+      uniqueTickets.forEach((t) => {
+        if (t.status === 'Closed' || t.status === 'Resolved') {
+          const tId = t.id || t.ticket_ID;
+          if (tId && typeof fetchFeedbackForTicket === 'function') {
+            fetchFeedbackForTicket(tId).catch(() => {});
+          }
+        }
+      });
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load tickets.');
     } finally {
@@ -297,10 +314,15 @@ export default function MyTickets({ mode = 'all' }) {
         if (isClosedPendingFeedback) return false;
       } else {
         // Active "My Tickets"
-        if (ticket.status === 'Closed') {
-          if (!isClosedPendingFeedback) return false;
-        } else if (HISTORY_STATUSES.includes(ticket.status) || ['Resolved', 'Discarded', 'Discarded by Customer'].includes(ticket.status)) {
-          return false;
+        if (filters.status) {
+          // If the user explicitly selects a status filter like 'Closed' or 'Resolved', respect it
+          if (ticket.status !== filters.status) return false;
+        } else {
+          if (ticket.status === 'Closed') {
+            if (!isClosedPendingFeedback) return false;
+          } else if (HISTORY_STATUSES.includes(ticket.status) || ['Resolved', 'Discarded', 'Discarded by Customer'].includes(ticket.status)) {
+            return false;
+          }
         }
       }
 
@@ -1279,12 +1301,12 @@ export default function MyTickets({ mode = 'all' }) {
                     }
                   />
                 )}
-                {visibleTickets.map((ticket) => {
+                {visibleTickets.map((ticket, idx) => {
                   const assignedEmpDisplay = getTicketAssignedEmployee(ticket);
 
                   return (
                     <TableRow
-                      key={ticket.id}
+                      key={ticket.id || ticket.ticket_ID || `ticket-${idx}`}
                       className="cursor-pointer"
                       onClick={() => handleViewTicket(ticket)}
                     >
@@ -1304,9 +1326,16 @@ export default function MyTickets({ mode = 'all' }) {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
-                          {ticket.status}
-                        </Badge>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant={getStatusBadgeVariant(ticket.status)} dot>
+                            {ticket.status}
+                          </Badge>
+                          {(hasFeedbackBeenSubmitted(ticket.id) || hasFeedbackBeenSubmitted(ticket.ticket_ID)) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              ★ Rated
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-slate max-w-[150px] truncate" title={assignedEmpDisplay}>
                         <div className="flex items-center gap-1.5 text-xs">

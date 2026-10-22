@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, AlertTriangle, Clock, CheckCircle2, PauseCircle, HelpCircle } from 'lucide-react';
 import { sortTicketsByPriority } from '@/constants/employeeTickets';
 import TicketInfoModal from '@/components/employee/TicketInfoModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
@@ -42,6 +42,106 @@ const isInternalTicket = (ticket) => (
 
 const getTicketTypeLabel = (ticket) => (isInternalTicket(ticket) ? 'Internal' : 'External');
 
+const renderSlaBadge = (ticket) => {
+  const rawStatus = ticket.sla_status || ticket.slaStatus || (ticket.sla?.resolution?.status) || null;
+  const status = rawStatus ? String(rawStatus).toLowerCase().replace(/[\s_-]+/g, '') : null;
+  const dueAt = ticket.resolution_due_at || ticket.due_at || ticket.sla?.resolution?.target;
+  const formattedDue = dueAt ? formatDisplayDate(dueAt) : null;
+  const remainingMin = ticket.time_remaining_minutes !== undefined && ticket.time_remaining_minutes !== null
+    ? ticket.time_remaining_minutes
+    : null;
+
+  if (status === 'breached') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 w-fit"
+          title={formattedDue ? `Breached deadline: ${formattedDue}` : 'Resolution target breached'}
+        >
+          <AlertTriangle className="h-3 w-3 text-rose-600 shrink-0" />
+          <span>Breached</span>
+        </span>
+        {formattedDue && (
+          <span className="text-[10px] text-rose-600 font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (status === 'atrisk') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
+          title={formattedDue ? `Deadline: ${formattedDue}` : 'SLA resolution near breach'}
+        >
+          <Clock className="h-3 w-3 text-amber-600 shrink-0" />
+          <span>At Risk</span>
+        </span>
+        {remainingMin !== null && remainingMin > 0 ? (
+          <span className="text-[10px] text-amber-600 font-medium">
+            {remainingMin > 60 ? `${Math.round(remainingMin / 60)}h left` : `${remainingMin}m left`}
+          </span>
+        ) : formattedDue ? (
+          <span className="text-[10px] text-amber-600 font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === 'paused') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 w-fit"
+          title="SLA calculation clock paused while on hold"
+        >
+          <PauseCircle className="h-3 w-3 text-blue-600 shrink-0" />
+          <span>Paused</span>
+        </span>
+        <span className="text-[10px] text-muted-foreground font-medium">
+          On Hold
+        </span>
+      </div>
+    );
+  }
+
+  if (status === 'ontrack' || status === 'compliant') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit"
+          title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA targets'}
+        >
+          <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
+          <span>{status === 'compliant' ? 'Compliant' : 'On Track'}</span>
+        </span>
+        {formattedDue && (
+          <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200 w-fit"
+        title="No active SLA configuration applied"
+      >
+        <HelpCircle className="h-3 w-3 text-gray-400 shrink-0" />
+        <span>No SLA</span>
+      </span>
+    </div>
+  );
+};
+
 const selectClass =
   'text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer min-w-[8.5rem]';
 
@@ -55,6 +155,7 @@ export default function EmployeeMachine() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
+  const [slaFilter, setSlaFilter] = useState('All SLA');
   const [categoryFilter, setCategoryFilter] = useState('All Category');
   const [priorityFilter, setPriorityFilter] = useState('All Priority');
 
@@ -181,6 +282,17 @@ export default function EmployeeMachine() {
         if (isInternal) return false;
       }
 
+      if (slaFilter !== 'All SLA') {
+        const targetSla = slaFilter.toLowerCase().replace(/[\s_-]+/g, '');
+        const raw = t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '';
+        const norm = String(raw).toLowerCase().replace(/[\s_-]+/g, '');
+        if (targetSla === 'ontrack') {
+          if (norm !== 'ontrack' && norm !== 'compliant') return false;
+        } else if (norm !== targetSla) {
+          return false;
+        }
+      }
+
       if (categoryFilter !== 'All Category' && t.category !== categoryFilter) return false;
       if (priorityFilter !== 'All Priority' && t.priority !== priorityFilter) return false;
       if (q) {
@@ -192,7 +304,7 @@ export default function EmployeeMachine() {
 
     list = sortTicketsByPriority(list, 'desc');
     return list;
-  }, [tickets, search, assignedTab, statusFilter, categoryFilter, priorityFilter, typeFilter]);
+  }, [tickets, search, assignedTab, statusFilter, slaFilter, categoryFilter, priorityFilter, typeFilter]);
 
   const openTicketFlow = (t) => {
     setInfoTicket(t);
@@ -201,7 +313,7 @@ export default function EmployeeMachine() {
   const handleUpdateClick = (t) => {
     setInfoTicket(null);
     const tId = t.ticket_ID || t.id;
-    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: t } });
+    navigate('/employee/ticket-update', { state: { ticketId: tId, ticket: t } });
   };
 
   const handleReopenProgressTicket = (ticketId, reason) => {
@@ -345,6 +457,17 @@ export default function EmployeeMachine() {
             <option value="Reopened">Reopened</option>
           </select>
           <select
+            value={slaFilter}
+            onChange={(e) => setSlaFilter(e.target.value)}
+            className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
+          >
+            <option value="All SLA">All SLA</option>
+            <option value="Breached">Breached</option>
+            <option value="At Risk">At Risk</option>
+            <option value="On Track">On Track</option>
+            <option value="Paused">Paused</option>
+          </select>
+          <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="flex-1 min-w-[130px] rounded-xl border border-gray-200 bg-surface px-3 py-2 text-sm text-dark-slate outline-none focus:border-transparent focus:ring-2 focus:ring-brand-accent"
@@ -382,15 +505,16 @@ export default function EmployeeMachine() {
               <TableHead>Category</TableHead>
               <TableHead>Priority</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="w-[140px]">SLA Status</TableHead>
               <TableHead className="w-[150px]">Last Updated</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <DataTableSkeleton columns={8} rows={5} />
+              <DataTableSkeleton columns={9} rows={5} />
             ) : filtered.length === 0 ? (
               <DataTableEmptyState
-                colSpan={8}
+                colSpan={9}
                 message="No active accepted tickets found in your progress queue."
               />
             ) : (
@@ -456,6 +580,9 @@ export default function EmployeeMachine() {
                           </span>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {renderSlaBadge(t)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                       {formatDisplayDate(t.lastUpdate)}

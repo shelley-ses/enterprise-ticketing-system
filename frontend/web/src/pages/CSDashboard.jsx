@@ -82,7 +82,11 @@ export default function CSDashboard() {
         updated: t.updated_at ? formatDisplayDate(t.updated_at) : t.updated || 'Just now',
         priority: t.priority || 'Unassigned',
       }));
-      const slaBreachedCount = recentTickets.filter((t) => t.status === 'Escalated').length;
+      const isBreachedTicket = (t) => {
+        const s = String(t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '').toLowerCase().replace(/[\s_-]+/g, '');
+        return s === 'breached' || s === 'violated' || Boolean(t.sla_breached);
+      };
+      const slaBreachedCount = payload.summary?.sla_breached ?? payload.summary?.breached ?? recentTickets.filter(isBreachedTicket).length;
       const escalatedCount = recentTickets.filter(
         (t) => (t.priority === 'Critical' || t.priority === 'High') && t.status !== 'Resolved' && t.status !== 'Closed'
       ).length;
@@ -439,9 +443,24 @@ export default function CSDashboard() {
                         {r.customer}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={getStatusBadgeVariant(r.status)}>
-                          {r.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant={getStatusBadgeVariant(r.status)}>
+                            {r.status}
+                          </Badge>
+                          {(() => {
+                            const rawSla = r.sla_status || r.slaStatus || (r.sla?.resolution?.status) || (r.sla_breached ? 'Breached' : null);
+                            const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                            if (normalized === 'breached' || normalized === 'violated') {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                  <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                                  <span>Breached</span>
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge

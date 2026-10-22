@@ -328,6 +328,76 @@ class EmployeeReassignmentService
                         $categoryName,
                         $priorityName
                     );
+
+                    // If ticket is already breached, re-trigger immediate breach alert to newly assigned employee
+                    $isBreached = ($ticket->sla_status ?? '') === 'Breached' || ($ticket->resolution_due_at && \Carbon\Carbon::parse($ticket->resolution_due_at)->isPast());
+                    if ($isBreached) {
+                        $overdueMinutes = $ticket->resolution_due_at ? max(1, (int) \Carbon\Carbon::parse($ticket->resolution_due_at)->diffInMinutes(now())) : 0;
+                        $overdueDuration = $overdueMinutes >= 60
+                            ? round($overdueMinutes / 60, 1) . ' hours overdue'
+                            : "{$overdueMinutes} minutes overdue";
+
+                        $customerName = $customerId ? (DB::table('clients')->where('id', $customerId)->value('client_name') ?? 'Valued Customer') : 'Valued Customer';
+
+                        $breachData = [
+                            'type' => 'overdue_sla_breach',
+                            'ticket_id' => $ticketId,
+                            'ticket_ref' => $ticketRef,
+                            'title' => $title,
+                            'summary' => $title,
+                            'customer' => $customerName,
+                            'category' => $categoryName,
+                            'priority' => $priorityName,
+                            'overdue_duration' => $overdueDuration,
+                            'sla_status' => 'Breached',
+                            'due_at' => $ticket->resolution_due_at ? \Carbon\Carbon::parse($ticket->resolution_due_at)->toIso8601String() : null,
+                            'link' => "/ticketing/employee/machine",
+                            'deep_link' => "/ticketing/employee/machine",
+                            'is_reassignment' => true,
+                        ];
+
+                        $this->notificationService->notifyRecipient(
+                            $newEmpId,
+                            'employee',
+                            "SLA Alert: Reassigned Ticket {$ticketRef} Already Breached",
+                            "Urgent: You have been assigned Ticket {$ticketRef}: \"{$title}\" which has already breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.",
+                            $ticketId,
+                            $breachData,
+                            'overdue_sla_breach'
+                        );
+
+                        $this->notificationService->sendTicketEmail(
+                            $newEmpId,
+                            "SLA Alert: Reassigned Ticket {$ticketRef} Already Breached",
+                            "Urgent: You have been assigned Ticket {$ticketRef}: \"{$title}\" which has already breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.",
+                            $ticketId,
+                            $title,
+                            $categoryName,
+                            $priorityName,
+                            'overdue_sla_breach',
+                            [
+                                'customer_name' => $customerName,
+                                'sla_deadline' => $ticket->resolution_due_at,
+                                'overdue_duration' => $overdueDuration,
+                            ]
+                        );
+
+                        try {
+                            DB::table('ticket_audit_logs')->insert([
+                                'ticket_ID' => $ticketId,
+                                'action_type' => 'sla_breached_reassigned',
+                                'action_by_ID' => $csEmpId,
+                                'actor_type' => 'employee',
+                                'details' => json_encode([
+                                    'sla_status' => 'Breached',
+                                    'due_at' => $ticket->resolution_due_at,
+                                    'overdue_duration' => $overdueDuration,
+                                    'new_employee_id' => $newEmpId,
+                                ]),
+                                'created_at' => now(),
+                            ]);
+                        } catch (\Throwable $e) {}
+                    }
                 }
 
                 $this->notificationService->notifyCS(

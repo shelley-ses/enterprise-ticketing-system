@@ -493,6 +493,16 @@ class TicketDashboardService
                                 $q->whereNull('t.resolution_due_at')
                                    ->orWhereRaw('COALESCE(t.resolved_at, t.closed_at, NOW()) <= t.resolution_due_at');
                             });
+                    } elseif ($slaFilterVal === 'no_sla' || $slaFilterVal === 'no_sla_configured') {
+                        $query->where(function ($q) {
+                            $q->where('t.sla_status', 'No SLA Configured')
+                              ->orWhere(function ($sq) {
+                                  $sq->whereNull('t.resolution_due_at')
+                                     ->whereNull('t.sla_rule_id')
+                                     ->whereNull('t.sla_ID')
+                                     ->whereNull('t.branch_sla_policy_id');
+                              });
+                        });
                     }
                 }
             }

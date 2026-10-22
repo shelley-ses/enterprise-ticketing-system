@@ -9,6 +9,8 @@ import {
   editTicketMessage,
   getMessageEditHistory,
   deleteTicketMessage,
+  pingThreadPresence,
+  clearThreadPresence,
 } from '@/services/messagingService';
 import { getMessagingEcho } from '@/services/messagingEcho';
 import {
@@ -111,7 +113,8 @@ export default function MessagingPage() {
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
 
   const location = useLocation();
-  const initialTicketId = location.state?.selectedTicketId;
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const initialTicketId = location.state?.selectedTicketId || searchParams.get('selectedTicketId') || searchParams.get('ticketId');
   const [showDetailsSidebar, setShowDetailsSidebar] = useState(true);
 
   const [tickets, setTickets] = useState([]);
@@ -120,6 +123,24 @@ export default function MessagingPage() {
   const [csFilter, setCsFilter] = useState('external');
   const [conversationTab, setConversationTab] = useState('active'); // 'active' | 'archived'
   const [reopening, setReopening] = useState(false);
+
+  // Live presence heartbeat for currently active ticket thread (suppresses in-app notification alerts for viewer)
+  useEffect(() => {
+    if (!selectedContactId) return undefined;
+    const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
+    if (!numericTargetId) return undefined;
+
+    pingThreadPresence(numericTargetId);
+
+    const interval = setInterval(() => {
+      pingThreadPresence(numericTargetId);
+    }, 15000);
+
+    return () => {
+      clearInterval(interval);
+      clearThreadPresence(numericTargetId);
+    };
+  }, [selectedContactId]);
 
   // TS067: Message archival gate from Super Admin config
   // TEMPORARY: localStorage is used here only as a same-session demo bridge between
@@ -261,6 +282,18 @@ export default function MessagingPage() {
               setSelectedContactId(selectedId);
               // Clear location state so it doesn't keep resetting selection on refresh
               window.history.replaceState({}, document.title);
+            } else if (numericId) {
+              try {
+                const singleTicket = await getTicketDetails(numericId).catch(() => null);
+                if (singleTicket && active) {
+                  const sId = singleTicket.ticket_ID || singleTicket.id;
+                  setTickets(prev => [singleTicket, ...prev.filter(t => (t.ticket_ID || t.id) !== sId)]);
+                  setSelectedContactId(sId);
+                  window.history.replaceState({}, document.title);
+                }
+              } catch (e) {
+                console.warn('Could not load specific ticket for messaging deep link', e);
+              }
             }
           }
         }
@@ -305,12 +338,11 @@ export default function MessagingPage() {
       }
 
       const statusName = t.status || t.status_name || 'Open';
-      const isClosed = statusName === 'Closed';
+      const statusNormalized = String(statusName).trim().toLowerCase();
+      const isClosed = statusNormalized === 'closed' || Number(t.ticket_status_ID || t.status_id) === 4;
 
-      // TS067: Real behavior change — removed "Delegated" condition entirely.
-      // Threads now remain active throughout the active lifecycle (Open, Assigned, In Progress, On Hold, etc.).
-      // Archival only triggers when the ticket status is "Closed" AND the Super Admin toggle is ON.
-      const isArchived = isClosed && archiveOnClosureEnabled;
+      // Closed tickets route directly to the Archive tab
+      const isArchived = isClosed;
       const ticketTitle = t.title || t.subject || `Ticket #${ticketId}`;
 
       return {
@@ -358,6 +390,8 @@ export default function MessagingPage() {
       if (!selectedContactId || !displayedContacts.some(c => c.id === selectedContactId)) {
         setSelectedContactId(displayedContacts[0].id);
       }
+    } else {
+      setSelectedContactId(null);
     }
   }, [displayedContacts, selectedContactId]);
 

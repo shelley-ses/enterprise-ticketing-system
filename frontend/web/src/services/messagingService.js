@@ -104,3 +104,22 @@ export const deleteTicketMessage = async (ticketId, messageId) => {
   const response = await messagingClient.delete(`/tickets/${ticketId}/messages/${messageId}`);
   return response.data;
 };
+
+export const pingThreadPresence = async (ticketId) => {
+  try {
+    const response = await messagingClient.post(`/tickets/${ticketId}/presence`);
+    return response.data;
+  } catch (err) {
+    return null;
+  }
+};
+
+export const clearThreadPresence = async (ticketId) => {
+  try {
+    const response = await messagingClient.delete(`/tickets/${ticketId}/presence`);
+    return response.data;
+  } catch (err) {
+    return null;
+  }
+};
+
