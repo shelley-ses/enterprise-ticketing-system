@@ -2,19 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import EmployeeFeedbackCard from './EmployeeFeedbackCard';
 import StarRating from './StarRating';
 import ThankYouScreen from './ThankYouScreen';
-import { getEmployeeById, getTicketEmployees, saveFeedback } from '@/data/mockFeedbackData';
+import { getEmployeeById, getTicketEmployees, saveFeedback, updateFeedback } from '@/data/mockFeedbackData';
 import { getCategoryFeedbackQuestions } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
-export default function FeedbackModal({ ticket, onClose }) {
+export default function FeedbackModal({ ticket, onClose, existingFeedback = null, mode = 'create' }) {
   useLockBodyScroll(true);
+  const isEditMode = mode === 'edit' || Boolean(existingFeedback);
   const [step, setStep] = useState('form');
-  const [ratings, setRatings] = useState({});
-  const [comments, setComments] = useState({});
-  const [overallComment, setOverallComment] = useState('');
-  const [questionAnswers, setQuestionAnswers] = useState({});
-  const [questionsSnapshot, setQuestionsSnapshot] = useState([]);
-  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [ratings, setRatings] = useState(existingFeedback?.ratings || {});
+  const [comments, setComments] = useState(existingFeedback?.comments || {});
+  const [overallComment, setOverallComment] = useState(existingFeedback?.overallComment || existingFeedback?.comment || '');
+  const [questionAnswers, setQuestionAnswers] = useState(existingFeedback?.questionAnswers || existingFeedback?.question_answers || {});
+  const [questionsSnapshot, setQuestionsSnapshot] = useState(existingFeedback?.categoryQuestionsSnapshot || []);
+  const [questionsLoading, setQuestionsLoading] = useState(!existingFeedback?.categoryQuestionsSnapshot?.length);
   const [validationError, setValidationError] = useState('');
   const modalRef = useRef(null);
 
@@ -23,6 +24,11 @@ export default function FeedbackModal({ ticket, onClose }) {
 
   // Fetch enabled questions for category at form open time and freeze snapshot in state
   useEffect(() => {
+    if (existingFeedback?.categoryQuestionsSnapshot?.length > 0) {
+      setQuestionsSnapshot(existingFeedback.categoryQuestionsSnapshot);
+      setQuestionsLoading(false);
+      return;
+    }
     let isMounted = true;
     async function fetchQuestions() {
       try {
@@ -42,7 +48,7 @@ export default function FeedbackModal({ ticket, onClose }) {
     return () => {
       isMounted = false;
     };
-  }, [ticketCategory]);
+  }, [ticketCategory, existingFeedback]);
 
   useEffect(() => {
     modalRef.current?.focus();
@@ -79,17 +85,32 @@ export default function FeedbackModal({ ticket, onClose }) {
     }
     setIsSubmitting(true);
     try {
-      await saveFeedback(
-        ticket.id,
-        ratings,
-        comments,
-        overallComment,
-        ticket.customer_id || ticket.customer,
-        questionAnswers,
-        questionsSnapshot
-      );
+      if (isEditMode) {
+        await updateFeedback(
+          ticket.id,
+          ratings,
+          comments,
+          overallComment,
+          ticket.customer_id || ticket.customer,
+          questionAnswers,
+          questionsSnapshot
+        );
+      } else {
+        await saveFeedback(
+          ticket.id,
+          ratings,
+          comments,
+          overallComment,
+          ticket.customer_id || ticket.customer,
+          questionAnswers,
+          questionsSnapshot
+        );
+      }
     } catch (err) {
       console.error('Failed to submit feedback:', err);
+      setValidationError('Failed to save feedback. Please check your network and try again.');
+      setIsSubmitting(false);
+      return;
     } finally {
       setIsSubmitting(false);
       setStep('thankyou');
@@ -128,9 +149,13 @@ export default function FeedbackModal({ ticket, onClose }) {
         <div className="border-b border-gray-150 px-7 py-6 sm:px-8 shrink-0 bg-white">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl font-bold text-gray-900 tracking-tight">How was your support experience?</h2>
+              <h2 className="text-xl font-bold text-gray-900 tracking-tight">
+                {isEditMode ? 'Edit Your Support Feedback' : 'How was your support experience?'}
+              </h2>
               <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
-                Your feedback helps us recognize excellent support and improve our customer service.
+                {isEditMode
+                  ? 'Update your ratings and remarks within the 48-hour editing window.'
+                  : 'Your feedback helps us recognize excellent support and improve our customer service.'}
               </p>
             </div>
             <button
@@ -247,20 +272,6 @@ export default function FeedbackModal({ ticket, onClose }) {
             </div>
           )}
 
-          <div className="pt-2">
-            <label className="text-sm font-bold text-gray-800 block mb-2">Overall Experience (Optional)</label>
-            <textarea
-              value={overallComment}
-              onChange={(e) => setOverallComment(e.target.value)}
-              placeholder="Is there anything else you'd like to share about your overall support experience?"
-              rows={3}
-              maxLength={1000}
-              className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-800 outline-none transition-colors focus:border-[#252578]/40 focus:bg-white focus:ring-2 focus:ring-[#252578]/15 placeholder:text-gray-400"
-            />
-            <div className="mt-1.5 flex justify-end">
-              <span className="text-xs text-gray-400 font-medium">{overallComment.length}/1000</span>
-            </div>
-          </div>
         </div>
 
         <div className="border-t border-gray-150 px-7 py-5 sm:px-8 shrink-0 bg-gray-50/50">
@@ -281,7 +292,9 @@ export default function FeedbackModal({ ticket, onClose }) {
               disabled={!allRated || isSubmitting}
               className="rounded-xl bg-[#252578] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1f1f66] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shadow-xs"
             >
-              {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
+              {isSubmitting
+                ? (isEditMode ? 'Saving Changes...' : 'Submitting...')
+                : (isEditMode ? 'Save Changes' : 'Submit Feedback')}
             </button>
           </div>
         </div>

@@ -1,0 +1,215 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\SLAService;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class TicketReminderController extends Controller
+{
+    protected SLAService $slaService;
+
+    public function __construct(SLAService $slaService)
+    {
+        $this->slaService = $slaService;
+    }
+
+    /**
+     * Send a manual reminder to the assigned employee for an unresolved ticket.
+     * Restricted to Customer Service and Admin roles.
+     * Enforces a 60-minute anti-spam cooldown per ticket.
+     */
+    public function sendReminder(Request $request, int $ticketId): JsonResponse
+    {
+        // 1. Authorize: CS, Admin, Super Admin
+        $userRole = strtolower(trim((string) (
+            $request->header('X-User-Role')
+            ?? $request->input('user_role')
+            ?? $request->attributes->get('auth_role')
+            ?? ''
+        )));
+
+        // Also check decoded token / user object from request if available
+        $userObj = $request->input('user') ?? $request->attributes->get('auth_user');
+        if (is_array($userObj) && !empty($userObj['role'])) {
+            $userRole = strtolower(trim((string) $userObj['role']));
+        }
+
+        // Allow 'cs', 'customer support', 'admin', 'superadmin', 'super_admin'
+        $isCsOrAdmin = in_array(str_replace([' ', '_', '-'], '', $userRole), ['cs', 'customersupport', 'customerservice', 'admin', 'superadmin']);
+
+        // In development or when gateway passes authenticated employee token
+        $empId = (int) ($request->header('X-User-ID') ?? $request->input('emp_id') ?? $request->input('sender_id') ?? 1);
+        if (!$isCsOrAdmin) {
+            // Check employees table if role isn't explicitly in header
+            $dbRole = DB::table('employees')->where('emp_id', $empId)->value('role');
+            if ($dbRole) {
+                $cleanDbRole = strtolower(str_replace([' ', '_', '-'], '', $dbRole));
+                $isCsOrAdmin = in_array($cleanDbRole, ['cs', 'customersupport', 'customerservice', 'admin', 'superadmin']);
+            }
+        }
+
+        if (!$isCsOrAdmin) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthorized. Only Customer Service and Administrators can send ticket reminders.',
+            ], 403);
+        }
+
+        // 2. Fetch ticket with status and assigned employee
+        $ticket = DB::table('tickets as t')
+            ->leftJoin('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('clients as c', 'c.client_ID', '=', 't.client_ID')
+            ->where('t.ticket_ID', $ticketId)
+            ->select('t.*', 'ts.status_name', 'c.client_name')
+            ->first();
+
+        if (!$ticket) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Ticket not found.',
+            ], 404);
+        }
+
+        // 3. Validate ticket status: must not be resolved or closed
+        $statusName = strtolower(trim((string) ($ticket->status_name ?? '')));
+        if (in_array($statusName, ['resolved', 'closed', 'discarded', 'cancelled'])) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "Cannot send reminders for tickets in '{$ticket->status_name}' status.",
+            ], 422);
+        }
+
+        // 4. Validate assigned employee
+        $assignedEmpId = (int) ($ticket->assigned_to ?? 0);
+        if (!$assignedEmpId) {
+            // Check active ticket_assignments as fallback
+            $assignedEmpId = (int) DB::table('ticket_assignments')
+                ->where('ticket_ID', $ticketId)
+                ->whereNull('completed_at')
+                ->value('employee_ID');
+        }
+
+        if (!$assignedEmpId) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot send reminder: No active employee is currently assigned to this ticket.',
+            ], 422);
+        }
+
+        // 5. Anti-spam cooldown check: 60 minutes
+        $now = now();
+        if (!empty($ticket->last_reminder_sent_at)) {
+            $lastSent = Carbon::parse($ticket->last_reminder_sent_at);
+            $minutesSinceLast = $now->diffInMinutes($lastSent);
+            if ($minutesSinceLast < 60) {
+                $minutesRemaining = 60 - $minutesSinceLast;
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "A reminder was sent recently for this ticket. Please wait {$minutesRemaining} more minute(s) before sending another.",
+                    'cooldown_remaining_minutes' => $minutesRemaining,
+                    'last_reminder_sent_at' => $lastSent->toIso8601String(),
+                ], 429);
+            }
+        }
+
+        // 6. Build reminder payload
+        $customMessage = trim((string) $request->input('message', ''));
+        $slaMetrics = $this->slaService->computeTicketSlaMetrics($ticket);
+        $slaStatus = $slaMetrics['status'] ?? 'On Track';
+        $dueAt = $slaMetrics['due_at'] ?? $ticket->resolution_due_at;
+
+        $ticketTitle = $ticket->title ?: 'Ticket #' . $ticketId;
+        $customerName = $ticket->client_name ?: 'Customer';
+
+        // 7. Insert in-app notification in MySQL notifications table
+        $senderName = DB::table('employees')->where('emp_id', $empId)->select(DB::raw("CONCAT(first_name, ' ', last_name) as name"))->value('name') ?? 'Customer Service';
+
+        $notificationTitle = "Urgent Reminder: Action required on Ticket #{$ticketId}";
+        $notificationDesc = $customMessage !== ''
+            ? "{$senderName}: \"{$customMessage}\" (SLA: {$slaStatus})"
+            : "{$senderName} prompted an update on Ticket #{$ticketId} (SLA: {$slaStatus}).";
+
+        $notificationData = json_encode([
+            'type' => 'ticket_reminder',
+            'ticket_id' => $ticketId,
+            'sla_status' => $slaStatus,
+            'due_at' => $dueAt,
+            'custom_message' => $customMessage,
+            'sender_id' => $empId,
+            'sender_name' => $senderName,
+            'link' => "/employee/history/{$ticketId}",
+        ]);
+
+        try {
+            DB::table('notifications')->insert([
+                'recipient_id' => $assignedEmpId,
+                'recipient_type' => 'employee',
+                'title' => $notificationTitle,
+                'desc' => $notificationDesc,
+                'unread' => true,
+                'data' => $notificationData,
+                'time' => $now->toDateTimeString(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to insert in-app reminder notification for employee {$assignedEmpId}: " . $e->getMessage());
+        }
+
+        // 8. Attempt email dispatch via configuration-service / notification-service
+        try {
+            $assignedEmp = DB::table('employees')->where('emp_id', $assignedEmpId)->first();
+            if ($assignedEmp && !empty($assignedEmp->email)) {
+                $configServiceUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                Http::timeout(5)->post("{$configServiceUrl}/api/email/dispatch", [
+                    'to' => $assignedEmp->email,
+                    'subject' => "[Reminder] Action Pending: Ticket #{$ticketId} - {$ticketTitle}",
+                    'html' => "<p>Hello {$assignedEmp->first_name},</p><p>Customer Service has sent a reminder regarding <strong>Ticket #{$ticketId}: {$ticketTitle}</strong>.</p><p><strong>Current SLA Status:</strong> {$slaStatus}</p>" . ($dueAt ? "<p><strong>Due Date:</strong> {$dueAt}</p>" : "") . ($customMessage !== '' ? "<p><strong>Message:</strong> \"{$customMessage}\"</p>" : "") . "<p><a href=\"" . env('APP_URL', 'http://localhost:5006') . "/employee/history/{$ticketId}\">Click here to view the ticket</a>.</p>",
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::info("Email reminder dispatch bypassed or failed: " . $e->getMessage());
+        }
+
+        // 9. Record event in ticket_audit_logs
+        try {
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'reminder_sent',
+                'action_by_ID' => $empId,
+                'actor_type' => 'employee',
+                'details' => json_encode([
+                    'message' => $customMessage,
+                    'recipient_id' => $assignedEmpId,
+                    'recipient_name' => $assignedEmp->first_name ?? ('Employee #' . $assignedEmpId),
+                    'sla_status' => $slaStatus,
+                    'due_at' => $dueAt,
+                ]),
+                'created_at' => $now,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to record reminder_sent in ticket_audit_logs: " . $e->getMessage());
+        }
+
+        // 10. Update last_reminder_sent_at on ticket
+        DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+            'last_reminder_sent_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Reminder sent successfully to the assigned technician.',
+            'data' => [
+                'ticket_id' => $ticketId,
+                'assigned_to' => $assignedEmpId,
+                'last_reminder_sent_at' => $now->toIso8601String(),
+                'sla_status' => $slaStatus,
+            ],
+        ]);
+    }
+}

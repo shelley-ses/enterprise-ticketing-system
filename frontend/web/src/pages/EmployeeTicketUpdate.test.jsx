@@ -97,4 +97,28 @@ describe('EmployeeTicketUpdate Component Tests', () => {
       expect(screen.getByText(/Ticket not found or unauthorized/i)).toBeInTheDocument();
     });
   });
+
+  it('loads ticket details from state.ticketId without exposing ticket id in url query parameters', async () => {
+    ticketService.getTicketDetails.mockResolvedValueOnce({
+      id: 'TKTS-00015',
+      ticket_ID: 6,
+      title: 'State Loaded Secure Ticket',
+      status: 'In Progress',
+      priority: 'Medium',
+      description: 'Loaded purely via router state without URL query parameters',
+      timeline: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/employee/ticket-update', state: { ticketId: 6 } }]}>
+        <Routes>
+          <Route path="/employee/ticket-update" element={<EmployeeTicketUpdate />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('State Loaded Secure Ticket')).toBeInTheDocument();
+    });
+  });
 });

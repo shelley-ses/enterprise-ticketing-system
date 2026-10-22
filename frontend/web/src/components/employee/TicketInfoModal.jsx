@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -9,6 +9,8 @@ import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDis
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
 import { isReassignmentDenied } from '@/utils/reassignmentUtils';
 import { getTicketDetails } from '@/services/ticketService';
+import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 
 export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) {
@@ -50,7 +52,7 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
   const handleUpdate = () => {
     onClose();
     const tId = currentTicket.ticket_ID || currentTicket.id;
-    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: currentTicket } });
+    navigate('/employee/ticket-update', { state: { ticketId: tId, ticket: currentTicket } });
   };
 
   return (
@@ -82,6 +84,27 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
                 Proof Rejected
               </span>
             )}
+            {(() => {
+              const rawSla = currentTicket.sla_status || currentTicket.slaStatus || (currentTicket.sla_breached ? 'Breached' : null);
+              const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+              if (normalized === 'breached' || normalized === 'violated') {
+                return (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1 bg-rose-100 text-rose-800 rounded-full border border-rose-200">
+                    <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                    <span>SLA Breached</span>
+                  </span>
+                );
+              }
+              if (normalized === 'atrisk') {
+                return (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-200">
+                    <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span>SLA At Risk</span>
+                  </span>
+                );
+              }
+              return null;
+            })()}
           </div>
           <p className="text-sm text-gray-500 mt-1">
             {ticket.equipment && `${ticket.equipment}`}
@@ -124,6 +147,19 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
               <p className="text-sm font-normal text-slate-600">{ticket.lastUpdate ?? '—'}</p>
             </div>
           </div>
+
+          {/* SLA Target Resolution */}
+          {(currentTicket.resolution_due_at || currentTicket.due_at || currentTicket.sla_due_date || currentTicket.sla?.resolution?.target) && (
+            <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-rose-900 mb-0.5 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-rose-600" />
+                <span>SLA Resolution Target</span>
+              </p>
+              <p className="text-sm font-semibold text-rose-800">
+                {formatDisplayDate(currentTicket.resolution_due_at || currentTicket.due_at || currentTicket.sla_due_date || currentTicket.sla?.resolution?.target)}
+              </p>
+            </div>
+          )}
 
           {ticket.attachments && ticket.attachments.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3">
@@ -253,6 +289,13 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
                 <span className="font-bold">Reassignment Request Pending</span>
                 {currentTicket.reassignmentReason && `: "${currentTicket.reassignmentReason}"`}
               </div>
+            </div>
+          )}
+
+          {/* Customer Satisfaction Feedback */}
+          {(currentTicket.status === 'Resolved' || currentTicket.status === 'Closed' || hasFeedbackBeenSubmitted(currentTicket.id || currentTicket.ticket_ID)) && (
+            <div className="pt-2">
+              <TicketFeedbackSection ticket={currentTicket} readOnly={true} />
             </div>
           )}
         </div>

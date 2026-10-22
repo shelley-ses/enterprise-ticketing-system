@@ -15,13 +15,15 @@ import {
   Check,
   Clock,
   ShieldAlert,
+  AlertTriangle,
+  PauseCircle,
 } from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled } from '@/data/mockFeedbackData';
+import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled, fetchFeedbackForTicket } from '@/data/mockFeedbackData';
 import { getFeedbackFormStatus, getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { Button } from '@/components/ui/button';
@@ -64,6 +66,7 @@ export default function CustomerTicketDetailModal({
   const [reopenSuccessNotice, setReopenSuccessNotice] = useState('');
   const [previewFile, setPreviewFile] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [editingFeedback, setEditingFeedback] = useState(null);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackEnabled, setFeedbackEnabled] = useState(() => isFeedbackFormEnabled());
 
@@ -269,13 +272,29 @@ export default function CustomerTicketDetailModal({
     !effectiveTicket?.is_internal &&
     effectiveTicket?.ticket_type !== 'Internal' &&
     effectiveTicket?.type !== 'Internal';
-  const feedbackAlreadySubmitted = hasFeedbackBeenSubmitted(effectiveTicket?.id) || hasFeedbackBeenSubmitted(effectiveTicket?.ticket_ID);
+  const [feedbackAlreadySubmitted, setFeedbackAlreadySubmitted] = useState(() => (
+    hasFeedbackBeenSubmitted(effectiveTicket?.id) || hasFeedbackBeenSubmitted(effectiveTicket?.ticket_ID)
+  ));
 
   useEffect(() => {
-    if (feedbackEnabled && isExternalClosed && !feedbackAlreadySubmitted && !feedbackSubmitted) {
-      setShowFeedbackModal(true);
+    let isMounted = true;
+    const tId = effectiveTicket?.id || effectiveTicket?.ticket_ID;
+    if (!tId) return;
+    if (hasFeedbackBeenSubmitted(tId)) {
+      setFeedbackAlreadySubmitted(true);
+      return;
     }
-  }, [feedbackEnabled, isExternalClosed, feedbackAlreadySubmitted, feedbackSubmitted, effectiveTicket?.id, effectiveTicket?.ticket_ID]);
+    if (typeof fetchFeedbackForTicket === 'function') {
+      fetchFeedbackForTicket(tId).then((fb) => {
+        if (isMounted && fb && fb.submitted) {
+          setFeedbackAlreadySubmitted(true);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [effectiveTicket?.id, effectiveTicket?.ticket_ID]);
 
   const remarksList = useMemo(() => {
     if (!effectiveTicket) return [];
@@ -457,16 +476,48 @@ export default function CustomerTicketDetailModal({
                   Internal
                 </Badge>
               )}
-              {effectiveTicket.slaStatus && (
-                <Badge variant={
-                  effectiveTicket.slaStatus === 'Violated' ? 'destructive' :
-                  effectiveTicket.slaStatus === 'Near Violation' ? 'amber' :
-                  effectiveTicket.slaStatus === 'Achieved' ? 'emerald' :
-                  'outline'
-                }>
-                  {effectiveTicket.slaStatus}
-                </Badge>
-              )}
+              {(() => {
+                const rawSla = effectiveTicket.sla_status || effectiveTicket.slaStatus || (effectiveTicket.sla_breached ? 'Breached' : null);
+                if (!rawSla) return null;
+                const normalized = String(rawSla).toLowerCase().replace(/[\s_-]+/g, '');
+                if (normalized === 'breached' || normalized === 'violated') {
+                  return (
+                    <Badge variant="destructive" className="bg-rose-100 text-rose-800 border-rose-300 font-semibold flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                      <span>SLA Breached</span>
+                    </Badge>
+                  );
+                }
+                if (normalized === 'atrisk' || normalized === 'nearviolation') {
+                  return (
+                    <Badge variant="amber" className="bg-amber-100 text-amber-800 border-amber-300 font-semibold flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>SLA At Risk</span>
+                    </Badge>
+                  );
+                }
+                if (normalized === 'ontrack' || normalized === 'achieved' || normalized === 'compliant') {
+                  return (
+                    <Badge variant="emerald" className="bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>SLA On Track</span>
+                    </Badge>
+                  );
+                }
+                if (normalized === 'paused') {
+                  return (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold flex items-center gap-1">
+                      <PauseCircle className="w-3 h-3 text-blue-600 shrink-0" />
+                      <span>SLA Paused</span>
+                    </Badge>
+                  );
+                }
+                return (
+                  <Badge variant="outline">
+                    {rawSla}
+                  </Badge>
+                );
+              })()}
             </div>
             <div className="mt-2">
               <span className="text-xs font-bold text-slate-dark uppercase tracking-wider">Ticket Title</span>
@@ -593,6 +644,15 @@ export default function CustomerTicketDetailModal({
               <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">Last Updated</p>
               <p className="mt-1 text-sm font-normal text-slate-600">{formatDisplayDate(effectiveTicket.last_updated || effectiveTicket.updated_at || effectiveTicket.lastUpdate)}</p>
             </div>
+            {(effectiveTicket.resolution_due_at || effectiveTicket.due_at || effectiveTicket.sla_due_date || effectiveTicket.sla?.resolution?.target) && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-dark">SLA Target Resolution</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  {formatDisplayDate(effectiveTicket.resolution_due_at || effectiveTicket.due_at || effectiveTicket.sla_due_date || effectiveTicket.sla?.resolution?.target)}
+                </p>
+              </div>
+            )}
             {(effectiveTicket.resolved_at || effectiveTicket.closed_at) && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Date Resolved / Closed</p>
@@ -772,12 +832,19 @@ export default function CustomerTicketDetailModal({
               )}
             </div>
 
-            {isExternalClosed && (feedbackAlreadySubmitted || feedbackSubmitted || feedbackEnabled) && (
+            {(isExternalClosed || feedbackAlreadySubmitted) && (feedbackAlreadySubmitted || feedbackSubmitted || feedbackEnabled) && (
               <div className="md:col-span-2">
                 <TicketFeedbackSection
                   key={feedbackSubmitted ? 'submitted' : 'pending'}
                   ticket={effectiveTicket}
-                  onLeaveFeedback={() => setShowFeedbackModal(true)}
+                  onLeaveFeedback={() => {
+                    setEditingFeedback(null);
+                    setShowFeedbackModal(true);
+                  }}
+                  onEditFeedback={(fb) => {
+                    setEditingFeedback(fb);
+                    setShowFeedbackModal(true);
+                  }}
                 />
               </div>
             )}
@@ -842,7 +909,7 @@ export default function CustomerTicketDetailModal({
                   onClick={() => {
                     onClose();
                     const tId = effectiveTicket.ticket_ID || effectiveTicket.id;
-                    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: effectiveTicket } });
+                    navigate('/employee/ticket-update', { state: { ticketId: tId, ticket: effectiveTicket } });
                   }}
                 >
                   Update Ticket
@@ -909,8 +976,11 @@ export default function CustomerTicketDetailModal({
       {showFeedbackModal && (
         <FeedbackModal
           ticket={effectiveTicket}
+          existingFeedback={editingFeedback}
+          mode={editingFeedback ? 'edit' : 'create'}
           onClose={() => {
             setShowFeedbackModal(false);
+            setEditingFeedback(null);
             setFeedbackSubmitted(true);
             onFeedbackSubmitted?.(effectiveTicket);
           }}

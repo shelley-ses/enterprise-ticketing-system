@@ -29,8 +29,105 @@ class EmployeeAssignmentService
         $this->stateMachine = $stateMachine;
     }
 
-    public function slaLabel($createdAt): string
+    public function computeSlaMetrics($row): array
     {
+        $now = now();
+        $statusName = strtolower(trim((string) ($row->status_name ?? '')));
+        $isClosedOrResolved = in_array($statusName, ['closed', 'resolved']);
+        $isOnHold = in_array($statusName, ['on hold', 'on-hold', 'paused']);
+
+        $resDueAtRaw = $row->resolution_due_at ?? null;
+        $resDueAt = $resDueAtRaw ? Carbon::parse($resDueAtRaw) : null;
+        $createdAtRaw = $row->created_at ?? null;
+        $createdAt = $createdAtRaw ? Carbon::parse($createdAtRaw) : null;
+
+        // If explicitly stored sla_status is present and authoritative
+        if (!empty($row->sla_status) && in_array($row->sla_status, ['Breached', 'At Risk', 'On Track', 'Paused', 'No SLA Configured'])) {
+            $remainingMin = $resDueAt ? $now->diffInMinutes($resDueAt, false) : null;
+            return [
+                'status' => $row->sla_status,
+                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
+                'time_remaining_minutes' => $remainingMin !== null ? (int) $remainingMin : null,
+            ];
+        }
+
+        if ($isOnHold) {
+            return [
+                'status' => 'Paused',
+                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
+                'time_remaining_minutes' => $resDueAt ? max(0, (int) $now->diffInMinutes($resDueAt, false)) : null,
+            ];
+        }
+
+        if ($isClosedOrResolved) {
+            $isBreached = $resDueAt ? $now->gt($resDueAt) : false;
+            return [
+                'status' => $isBreached ? 'Breached' : 'Compliant',
+                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
+                'time_remaining_minutes' => 0,
+            ];
+        }
+
+        if ($resDueAt) {
+            $remainingMin = $now->diffInMinutes($resDueAt, false);
+            if ($remainingMin < 0) {
+                return [
+                    'status' => 'Breached',
+                    'due_at' => $resDueAt->toIso8601String(),
+                    'time_remaining_minutes' => 0,
+                ];
+            }
+            $isAtRisk = false;
+            if ($remainingMin <= 240) {
+                $isAtRisk = true;
+            } elseif ($createdAt) {
+                $totalMinutes = max(1, $createdAt->diffInMinutes($resDueAt, false));
+                if (($remainingMin / $totalMinutes) <= 0.25) {
+                    $isAtRisk = true;
+                }
+            }
+            return [
+                'status' => $isAtRisk ? 'At Risk' : 'On Track',
+                'due_at' => $resDueAt->toIso8601String(),
+                'time_remaining_minutes' => (int) $remainingMin,
+            ];
+        }
+
+        if ($createdAt) {
+            $hours = $now->diffInHours($createdAt);
+            if ($hours >= 48) {
+                return [
+                    'status' => 'Breached',
+                    'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                    'time_remaining_minutes' => 0,
+                ];
+            }
+            if ($hours >= 24) {
+                return [
+                    'status' => 'At Risk',
+                    'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                    'time_remaining_minutes' => max(0, (int) ((48 - $hours) * 60)),
+                ];
+            }
+            return [
+                'status' => 'On Track',
+                'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                'time_remaining_minutes' => max(0, (int) ((48 - $hours) * 60)),
+            ];
+        }
+
+        return [
+            'status' => 'On Track',
+            'due_at' => null,
+            'time_remaining_minutes' => null,
+        ];
+    }
+
+    public function slaLabel($createdAt, $row = null): string
+    {
+        if ($row) {
+            return $this->computeSlaMetrics($row)['status'];
+        }
         if (!$createdAt) {
             return 'On Track';
         }
@@ -45,6 +142,7 @@ class EmployeeAssignmentService
         }
         return 'On Track';
     }
+
 
     /**
      * Assign one or more employees to a ticket.
@@ -165,6 +263,13 @@ class EmployeeAssignmentService
                 'type' => 'ticket_assigned',
             ];
 
+            $slaMetrics = $this->computeSlaMetrics($ticket);
+            $isBreached = ($ticket->sla_status ?? '') === 'Breached' || $slaMetrics['status'] === 'Breached' || ($ticket->resolution_due_at && \Carbon\Carbon::parse($ticket->resolution_due_at)->isPast());
+            $overdueMinutes = $ticket->resolution_due_at ? max(1, (int) \Carbon\Carbon::parse($ticket->resolution_due_at)->diffInMinutes(now())) : 0;
+            $overdueDuration = $overdueMinutes >= 60
+                ? round($overdueMinutes / 60, 1) . ' hours overdue'
+                : "{$overdueMinutes} minutes overdue";
+
             foreach ($validated['employee_ids'] as $employeeId) {
                 $this->notificationService->notifyRecipient(
                     $employeeId,
@@ -184,6 +289,67 @@ class EmployeeAssignmentService
                     $categoryName,
                     $priorityName
                 );
+
+                // If ticket was already breached, trigger immediate breach alert to the assigned employee
+                if ($isBreached) {
+                    $breachData = [
+                        'type' => 'overdue_sla_breach',
+                        'ticket_id' => $ticketId,
+                        'ticket_ref' => $ticketRef,
+                        'title' => $title,
+                        'summary' => $title,
+                        'customer' => $customerId ? (DB::table('clients')->where('id', $customerId)->value('client_name') ?? 'Valued Customer') : 'Valued Customer',
+                        'category' => $categoryName,
+                        'priority' => $priorityName,
+                        'overdue_duration' => $overdueDuration,
+                        'sla_status' => 'Breached',
+                        'due_at' => $ticket->resolution_due_at ? \Carbon\Carbon::parse($ticket->resolution_due_at)->toIso8601String() : null,
+                        'link' => "/ticketing/employee/machine",
+                        'deep_link' => "/ticketing/employee/machine",
+                        'is_reassignment' => true,
+                    ];
+
+                    $this->notificationService->notifyRecipient(
+                        $employeeId,
+                        'employee',
+                        "SLA Alert: Assigned Ticket {$ticketRef} Breached",
+                        "Urgent: Assigned Ticket {$ticketRef}: \"{$title}\" has breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.",
+                        $ticketId,
+                        $breachData,
+                        'overdue_sla_breach'
+                    );
+
+                    $this->notificationService->sendTicketEmail(
+                        $employeeId,
+                        "SLA Alert: Assigned Ticket {$ticketRef} Breached",
+                        "Urgent: Assigned Ticket {$ticketRef}: \"{$title}\" has breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.",
+                        $ticketId,
+                        $title,
+                        $categoryName,
+                        $priorityName,
+                        'overdue_sla_breach',
+                        [
+                            'sla_deadline' => $ticket->resolution_due_at,
+                            'overdue_duration' => $overdueDuration,
+                        ]
+                    );
+
+                    try {
+                        DB::table('ticket_audit_logs')->insert([
+                            'ticket_ID' => $ticketId,
+                            'action_type' => 'sla_breached_reassigned',
+                            'action_by_ID' => $assignedBy,
+                            'actor_type' => 'employee',
+                            'details' => json_encode([
+                                'sla_status' => 'Breached',
+                                'due_at' => $ticket->resolution_due_at,
+                                'overdue_duration' => $overdueDuration,
+                                'new_employee_id' => $employeeId,
+                            ]),
+                            'created_at' => now(),
+                        ]);
+                    } catch (\Throwable $e) {}
+                }
             }
 
             $this->notificationService->notifyCustomer(
@@ -1027,6 +1193,9 @@ class EmployeeAssignmentService
                 'tp.priority_name',
                 't.created_at',
                 't.updated_at',
+                't.resolution_due_at',
+                't.response_due_at',
+                't.sla_status',
                 'm.machine_name',
                 'm.serial_number',
                 'c.client_name',
@@ -1080,6 +1249,7 @@ class EmployeeAssignmentService
 
             $createdAtObj = is_string($row->created_at) ? Carbon::parse($row->created_at) : $row->created_at;
             $updatedAtObj = is_string($row->updated_at) ? Carbon::parse($row->updated_at) : $row->updated_at;
+            $slaMetrics = $this->computeSlaMetrics($row);
 
             return [
                 'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
@@ -1092,7 +1262,11 @@ class EmployeeAssignmentService
                 'priority' => $row->priority_name ?? 'Low',
                 'category' => $row->category_name ?? 'General',
                 'date' => $createdAtObj ? $createdAtObj->format('Y-m-d') : now()->format('Y-m-d'),
-                'slaStatus' => $this->slaLabel($row->created_at),
+                'slaStatus' => $slaMetrics['status'],
+                'sla_status' => $slaMetrics['status'],
+                'resolution_due_at' => $slaMetrics['due_at'],
+                'due_at' => $slaMetrics['due_at'],
+                'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
                 'lastUpdate' => $updatedAtObj ? $updatedAtObj->format('M d, Y') : ($createdAtObj ? $createdAtObj->format('M d, Y') : now()->format('M d, Y')),
                 'accepted' => $row->assignment_status === 'accepted',
                 'escalated' => false,
@@ -1139,6 +1313,8 @@ class EmployeeAssignmentService
                 'tp.priority_name',
                 't.created_at',
                 't.updated_at',
+                't.resolution_due_at',
+                't.sla_status',
                 'm.machine_name',
                 'm.serial_number',
                 'c.client_name',
@@ -1147,6 +1323,7 @@ class EmployeeAssignmentService
             ->get();
 
         return $rows->map(function ($row) {
+            $slaMetrics = $this->computeSlaMetrics($row);
             return [
                 'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
                 'ticket_ID' => $row->ticket_ID,
@@ -1159,7 +1336,11 @@ class EmployeeAssignmentService
                 'equipment' => ($row->machine_name || $row->serial_number) ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : 'Unspecified Equipment',
                 'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
                 'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
-                'slaStatus' => $this->slaLabel($row->created_at),
+                'slaStatus' => $slaMetrics['status'],
+                'sla_status' => $slaMetrics['status'],
+                'resolution_due_at' => $slaMetrics['due_at'],
+                'due_at' => $slaMetrics['due_at'],
+                'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
                 'type' => $row->ticket_type ?? 'Internal',
                 'is_internal' => true,
                 'assigned_to' => $row->assigned_to,

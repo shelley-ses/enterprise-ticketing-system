@@ -32,6 +32,8 @@ vi.mock('@/services/messagingService', () => ({
   editTicketMessage: vi.fn(),
   getMessageEditHistory: vi.fn(),
   deleteTicketMessage: vi.fn(),
+  pingThreadPresence: vi.fn(() => Promise.resolve({ status: 'ok' })),
+  clearThreadPresence: vi.fn(() => Promise.resolve({ status: 'cleared' })),
 }));
 
 // Mock ticketService
@@ -94,6 +96,7 @@ vi.mock('@/api/axiosInstance', () => ({
 
 // Import mocked services to set return values per test
 import * as messagingService from '@/services/messagingService';
+import * as ticketService from '@/services/ticketService';
 
 describe('MessagingPage Component Tests (Acceptance Criteria)', () => {
   const initialMessages = [
@@ -530,6 +533,93 @@ describe('MessagingPage Component Tests (Acceptance Criteria)', () => {
     await waitFor(() => {
       expect(screen.getByTitle(/Download diagnostic_scan\.png/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Checking file for malware/i).length).toBe(1);
+    });
+  });
+
+  it('covers AC-4: pings thread presence on active ticket selection and clears presence on unmount', async () => {
+    const { unmount } = render(<MessagingPage />);
+
+    await waitFor(() => {
+      expect(messagingService.pingThreadPresence).toHaveBeenCalledWith(101);
+    });
+
+    unmount();
+
+    expect(messagingService.clearThreadPresence).toHaveBeenCalledWith(101);
+  });
+
+  it('covers AC-2 & AC-5: renders unified continuous thread with sender role labels and timestamps', async () => {
+    messagingService.getTicketMessages.mockResolvedValueOnce([
+      {
+        id: 'msg-prev-employee',
+        ticket_id: 101,
+        sender_id: 88,
+        sender_name: 'John Smith',
+        sender_role: 'Assigned Employee',
+        message: 'Replaced power supply unit',
+        created_at: '2026-10-22T08:00:00Z',
+      },
+      {
+        id: 'msg-cs-rep',
+        ticket_id: 101,
+        sender_id: 10,
+        sender_name: 'Maria Santos',
+        sender_role: 'Customer Support',
+        message: 'Checking in on ticket resolution',
+        created_at: '2026-10-22T08:15:00Z',
+      },
+    ]);
+
+    render(<MessagingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replaced power supply unit')).toBeInTheDocument();
+      expect(screen.getByText('Checking in on ticket resolution')).toBeInTheDocument();
+      expect(screen.getByText(/John Smith/i)).toBeInTheDocument();
+      expect(screen.getByText(/Maria Santos/i)).toBeInTheDocument();
+    });
+  });
+
+  it('accurately routes closed tickets to Archive tab and keeps active tickets in Active tab', async () => {
+    ticketService.getCSIncomingTickets.mockResolvedValueOnce([
+      {
+        ticket_ID: 201,
+        id: 201,
+        subject: 'Active ongoing ticket',
+        status: 'In Progress',
+        status_name: 'In Progress',
+        is_internal: false,
+        client: { client_name: 'Acme Corp' },
+      },
+      {
+        ticket_ID: 202,
+        id: 202,
+        subject: 'Finished and closed ticket',
+        status: 'Closed',
+        status_name: 'Closed',
+        is_internal: false,
+        client: { client_name: 'Beta LLC' },
+      },
+    ]);
+
+    render(<MessagingPage />);
+
+    await waitFor(() => {
+      // Active tab should be active by default and display the active ticket
+      expect(screen.getByText(/Active ongoing ticket/i)).toBeInTheDocument();
+      // Closed ticket should not appear under Active tab
+      expect(screen.queryByText(/Finished and closed ticket/i)).not.toBeInTheDocument();
+    });
+
+    // Switch to Archive tab
+    const archiveTabBtn = screen.getByRole('button', { name: /Archive/i });
+    fireEvent.click(archiveTabBtn);
+
+    await waitFor(() => {
+      // Under Archive tab, closed ticket must be displayed
+      expect(screen.getAllByText(/Finished and closed ticket/i).length).toBeGreaterThanOrEqual(1);
+      // Active ticket must not appear under Archive tab
+      expect(screen.queryByText(/Active ongoing ticket/i)).not.toBeInTheDocument();
     });
   });
 });

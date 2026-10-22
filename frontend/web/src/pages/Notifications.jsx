@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert } from 'lucide-react';
+import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert, MessageCircle, AlertTriangle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -160,7 +160,32 @@ export default function Notifications() {
       return;
     }
 
-    const ticketId = n.ticket_id;
+    const ticketId = n.ticket_id || parsedData?.ticket_id;
+
+    const isNewMessage = Boolean(
+      parsedData.type === 'new_message' ||
+      /new\s+message/i.test(n.title || '') ||
+      (parsedData.link && parsedData.link.includes('messages'))
+    );
+
+    if (isNewMessage) {
+      if (!n.is_read) {
+        handleMarkOneRead(n.id);
+      }
+      const userStr = localStorage.getItem('user');
+      let role = '';
+      try { role = JSON.parse(userStr)?.role || ''; } catch {}
+      let targetPath = parsedData.link;
+      if (!targetPath) {
+        if (role === 'employee') targetPath = '/employee/messages';
+        else if (role === 'cs') targetPath = '/cs/messages';
+        else targetPath = '/messages';
+      }
+      const cleanPath = targetPath.startsWith('http') ? new URL(targetPath).pathname : targetPath.split('?')[0];
+      navigate(cleanPath, { state: { selectedTicketId: ticketId } });
+      return;
+    }
+
     if (!ticketId) {
       const path = getNotificationPath(n);
       if (path) navigate(path);
@@ -185,10 +210,20 @@ export default function Notifications() {
           return match && match[1] ? match[1].trim() : '';
         })();
 
+      const isSlaBreachNotif = Boolean(
+        parsed.type === 'overdue_sla_breach' ||
+        parsed.sla_status === 'Breached' ||
+        /sla.*breach|breached/i.test(n.title || '') ||
+        /breached.*sla/i.test(n.message || '')
+      );
+
       const merged = {
         ...base,
         id: base.id || `TKT-${String(ticketId).padStart(4, '0')}`,
         ticket_ID: base.ticket_ID || ticketId,
+        sla_status: isSlaBreachNotif ? 'Breached' : (base.sla_status || parsed.sla_status || 'On Track'),
+        slaStatus: isSlaBreachNotif ? 'Breached' : (base.slaStatus || parsed.sla_status || 'On Track'),
+        sla_breached: isSlaBreachNotif || Boolean(base.sla_breached),
         reassignmentReason: isReassignDenied
           ? (base.reassignmentReason || '')
           : (base.reassignmentReason || parsed.reason || parsed.reassignmentReason || ''),
@@ -294,7 +329,18 @@ export default function Notifications() {
                     /security alert|malware/i.test(n.title || '') ||
                     /malware|quarantine/i.test(n.message || '')
                   );
-                  const isAutoClose = !isSecurityAlert && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+                  const isSlaBreach = !isSecurityAlert && Boolean(
+                    parsedData.type === 'overdue_sla_breach' ||
+                    parsedData.sla_status === 'Breached' ||
+                    /sla.*breach|breached/i.test(n.title || '') ||
+                    /breached.*sla/i.test(n.message || '')
+                  );
+                  const isAutoClose = !isSecurityAlert && !isSlaBreach && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+                  const isNewMessage = !isSecurityAlert && !isSlaBreach && !isAutoClose && Boolean(
+                    parsedData.type === 'new_message' ||
+                    /new\s+message/i.test(n.title || '') ||
+                    (parsedData.link && parsedData.link.includes('messages'))
+                  );
 
                   return (
                     <div
@@ -303,22 +349,34 @@ export default function Notifications() {
                       className={`bg-card rounded-xl border p-5 shadow-xs flex items-start gap-4 transition-all duration-200 cursor-pointer animate-fadeIn ${
                         isSecurityAlert
                           ? 'border-destructive/30 bg-destructive/5 hover:border-destructive/40 ' + (!n.is_read ? 'border-l-4 border-l-destructive pl-4' : '')
-                          : isAutoClose
-                            ? 'border-amber-200 bg-amber-50/20 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
-                            : 'border-border hover:border-slate-300 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                          : isSlaBreach
+                            ? 'border-red-200 bg-red-50/25 hover:border-red-300 ' + (!n.is_read ? 'border-l-4 border-l-red-600 pl-4' : '')
+                            : isAutoClose
+                              ? 'border-amber-200 bg-amber-50/20 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                              : isNewMessage
+                                ? 'border-indigo-200 bg-indigo-50/20 hover:border-indigo-300 ' + (!n.is_read ? 'border-l-4 border-l-indigo-600 pl-4' : '')
+                                : 'border-border hover:border-slate-300 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                         isSecurityAlert
                           ? 'bg-destructive/15 text-destructive'
-                          : isAutoClose
-                            ? 'bg-amber-100 text-amber-700'
-                            : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
+                          : isSlaBreach
+                            ? 'bg-red-100 text-red-600'
+                            : isAutoClose
+                              ? 'bg-amber-100 text-amber-700'
+                              : isNewMessage
+                                ? 'bg-indigo-100 text-indigo-700'
+                                : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
                       }`}>
                         {isSecurityAlert ? (
                           <ShieldAlert size={20} className="text-destructive" />
+                        ) : isSlaBreach ? (
+                          <AlertTriangle size={18} className="text-red-600" />
                         ) : isAutoClose ? (
                           <Clock size={18} />
+                        ) : isNewMessage ? (
+                          <MessageCircle size={18} />
                         ) : (
                           <Bell size={18} />
                         )}
@@ -327,11 +385,17 @@ export default function Notifications() {
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1 gap-4">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert ? 'text-destructive font-black' : 'text-dark-slate'}`}>{n.title}</h3>
+                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert || isSlaBreach ? 'text-red-950 font-black' : 'text-dark-slate'}`}>{n.title}</h3>
                             {isSecurityAlert && (
                               <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-ping inline-block" />
                                 Security Alert
+                              </span>
+                            )}
+                            {isSlaBreach && (
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-200 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping inline-block" />
+                                SLA Breached
                               </span>
                             )}
                             {isAutoClose && (
@@ -339,20 +403,37 @@ export default function Notifications() {
                                 Auto-Close Notice
                               </span>
                             )}
+                            {isNewMessage && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                                New Message
+                              </span>
+                            )}
                           </div>
                           <span className="text-[10px] text-muted-slate font-semibold whitespace-nowrap">{formatDisplayDate(n.created_at)}</span>
                         </div>
-                        <p className={`text-xs leading-relaxed font-medium ${isSecurityAlert ? 'text-destructive font-semibold' : 'text-muted-slate'}`}>{n.message}</p>
-                        {n.ticket_id && (
-                          <span className="inline-block text-[9px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-md mt-2">
-                            TKT-{String(n.ticket_id).padStart(4, '0')}
-                          </span>
-                        )}
-                        {isSecurityAlert && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-destructive hover:underline mt-2">
-                            Inspect Incident Details →
-                          </span>
-                        )}
+                        <p className={`text-xs leading-relaxed font-medium ${isSecurityAlert || isSlaBreach ? 'text-red-900 font-semibold' : 'text-muted-slate'}`}>{n.message}</p>
+                        <div className="flex items-center gap-3 flex-wrap mt-2">
+                          {n.ticket_id && (
+                            <span className="inline-block text-[9px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                              TKT-{String(n.ticket_id).padStart(4, '0')}
+                            </span>
+                          )}
+                          {isSecurityAlert && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-destructive hover:underline">
+                              Inspect Incident Details →
+                            </span>
+                          )}
+                          {isSlaBreach && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 hover:underline">
+                              View Breached Ticket →
+                            </span>
+                          )}
+                          {isNewMessage && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 hover:underline">
+                              Open Conversation →
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

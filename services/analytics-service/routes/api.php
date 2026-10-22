@@ -24,6 +24,8 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 // Direct routes matching Nginx gateway rewrite: /api/ticketing/analytics/(.*) -> /api/$1
 Route::post('/feedback', [FeedbackController::class, 'store']);
 Route::get('/feedback/ticket/{ticketId}', [FeedbackController::class, 'getByTicket']);
+Route::put('/feedback/ticket/{ticketId}', [FeedbackController::class, 'updateByTicket']);
+Route::delete('/feedback/ticket/{ticketId}', [FeedbackController::class, 'deleteByTicket']);
 Route::get('/csat-stats', [FeedbackController::class, 'csatStats']);
 Route::get('/predictive-metrics', [PredictiveAnalyticsController::class, 'getPredictiveMetrics']);
 
@@ -31,6 +33,8 @@ Route::get('/predictive-metrics', [PredictiveAnalyticsController::class, 'getPre
 Route::prefix('analytics')->group(function () {
     Route::post('/feedback', [FeedbackController::class, 'store']);
     Route::get('/feedback/ticket/{ticketId}', [FeedbackController::class, 'getByTicket']);
+    Route::put('/feedback/ticket/{ticketId}', [FeedbackController::class, 'updateByTicket']);
+    Route::delete('/feedback/ticket/{ticketId}', [FeedbackController::class, 'deleteByTicket']);
     Route::get('/csat-stats', [FeedbackController::class, 'csatStats']);
     Route::get('/predictive-metrics', [PredictiveAnalyticsController::class, 'getPredictiveMetrics']);
 });

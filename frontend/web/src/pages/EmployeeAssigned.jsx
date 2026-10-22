@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter, Inbox } from 'lucide-react';
+import { Search, Filter, Inbox, AlertTriangle } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
@@ -606,31 +606,46 @@ export default function EmployeeAssigned() {
                     <span className="text-xs font-semibold text-muted-slate">{t.priority}</span>
                   </TableCell>
                   <TableCell>
-                    {isReassignmentDenied(t) ? (
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                        Reassignment Failed
-                      </span>
-                    ) : hasPendingReassignment(t) ? (
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                        Pending Reassignment
-                      </span>
-                    ) : t.proofRejected ? (
-                      <div className="flex flex-col gap-1 items-start">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isReassignmentDenied(t) ? (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                          Reassignment Failed
+                        </span>
+                      ) : hasPendingReassignment(t) ? (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                          Pending Reassignment
+                        </span>
+                      ) : t.proofRejected ? (
+                        <div className="flex flex-col gap-1 items-start">
+                          <Badge variant={getStatusBadgeVariant(t.status)} dot>
+                            {t.status}
+                          </Badge>
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            Proof Rejected
+                          </span>
+                        </div>
+                      ) : (
                         <Badge variant={getStatusBadgeVariant(t.status)} dot>
                           {t.status}
                         </Badge>
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                          Proof Rejected
-                        </span>
-                      </div>
-                    ) : (
-                      <Badge variant={getStatusBadgeVariant(t.status)} dot>
-                        {t.status}
-                      </Badge>
-                    )}
+                      )}
+                      {(() => {
+                        const rawSla = t.sla_status || t.slaStatus || (t.sla_breached ? 'Breached' : null);
+                        const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
+                        if (normalized === 'breached' || normalized === 'violated') {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                              <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                              <span>Breached</span>
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-slate text-xs whitespace-nowrap">
                     {formatDisplayDate(t.lastUpdate)}

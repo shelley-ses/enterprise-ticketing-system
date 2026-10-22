@@ -17,6 +17,10 @@ import {
   Shield,
   ShieldAlert,
   Check,
+  AlertTriangle,
+  PauseCircle,
+  Bell,
+  Send,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
@@ -30,8 +34,11 @@ import {
   getTicketFormOptions,
   addInternalNote,
   getInternalNotes,
+  sendTicketReminder,
 } from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
+import TicketFeedbackSection from './feedback/TicketFeedbackSection';
+import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -433,6 +440,197 @@ export function ReclassifyConfirmModal({
   );
 }
 
+export const renderTicketSlaBadge = (rawStatus, dueAt) => {
+  const status = rawStatus ? String(rawStatus).toLowerCase().replace(/[\s_-]+/g, '') : null;
+  const formattedDue = dueAt ? formatDisplayDate(dueAt) : null;
+
+  if (status === 'breached') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200"
+        title={formattedDue ? `Breached deadline: ${formattedDue}` : 'Resolution target breached'}
+      >
+        <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+        <span>Breached</span>
+      </span>
+    );
+  }
+
+  if (status === 'atrisk') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+        title={formattedDue ? `Deadline: ${formattedDue}` : 'SLA resolution near breach'}
+      >
+        <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+        <span>At Risk</span>
+      </span>
+    );
+  }
+
+  if (status === 'paused') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200"
+        title="SLA clock paused while on hold"
+      >
+        <PauseCircle className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+        <span>Paused (On Hold)</span>
+      </span>
+    );
+  }
+
+  if (status === 'ontrack' || status === 'compliant') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+        title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA targets'}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+        <span>On Track</span>
+      </span>
+    );
+  }
+
+  if (status === 'unavailable' || status === 'slaunavailable') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+        title="SLA calculation unavailable due to system configuration failure"
+      >
+        <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+        <span>SLA Unavailable</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-50 text-slate-600 border border-slate-200"
+      title="No SLA rule configured for this category and priority"
+    >
+      <HelpCircle className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      <span>No SLA Configured</span>
+    </span>
+  );
+};
+
+export function SendReminderDialog({ isOpen, onClose, onConfirm, ticket, assignedEmployee, isSending = false, error = '' }) {
+  useLockBodyScroll(isOpen);
+  const [customMessage, setCustomMessage] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onConfirm(customMessage);
+  };
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px] animate-in fade-in duration-200">
+      <div className="bg-card border border-border rounded-xl w-full max-w-lg shadow-modal p-6 flex flex-col animate-in zoom-in-95 duration-200">
+        <div className="flex items-start justify-between pb-4 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Bell className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-slate-dark">Send Employee Reminder</h4>
+              <p className="text-xs text-slate-muted">Prompt the assigned employee to act before ticket breaches SLA.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSending}
+            className="text-slate-muted hover:text-slate-dark transition-colors p-1 rounded-md cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <div className="rounded-xl border border-border bg-page p-3.5 space-y-2 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-dark">Ticket ID:</span>
+              <span className="font-mono text-primary font-semibold">{ticket?.id || ticket?.ticket_ID}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-dark">Recipient:</span>
+              <span className="font-semibold text-slate-700">{assignedEmployee?.name || 'Assigned Support Specialist'}</span>
+            </div>
+            {ticket?.title && (
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-dark">Title:</span>
+                <span className="text-slate-600 truncate max-w-[260px]">{ticket.title}</span>
+              </div>
+            )}
+            {ticket?.due_at && (
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-dark">SLA Due Date:</span>
+                <span className="font-medium text-slate-700">{formatDisplayDate(ticket.due_at)}</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-dark mb-1.5">
+              Custom Message (Optional)
+            </label>
+            <textarea
+              value={customMessage}
+              onChange={(e) => setCustomMessage(e.target.value)}
+              placeholder="Add an urgent note or instructions for the employee..."
+              rows={3}
+              maxLength={500}
+              className="w-full resize-none rounded-xl border border-border bg-page p-3 text-xs text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent placeholder:text-muted-foreground"
+            />
+            <div className="mt-1 flex justify-end">
+              <span className="text-[10px] text-slate-muted">{customMessage.length}/500</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isSending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="default"
+              disabled={isSending}
+              className="flex items-center gap-1.5"
+            >
+              {isSending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Sending...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Reminder</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    TICKET SUMMARY VIEW (post-save / already assigned)
 ───────────────────────────────────────────── */
@@ -454,6 +652,22 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [currentStatus, setCurrentStatus] = useState(ticket?.status || 'Pending');
   const [currentHoldReason, setCurrentHoldReason] = useState(ticket?.hold_reason || '');
 
+  // Dynamic SLA Due Date & SLA Status states for instant in-place reflection
+  const [currentSlaDueDate, setCurrentSlaDueDate] = useState(
+    ticket?.resolution_due_at || ticket?.due_at || ticket?.sla_due_date || ticket?.sla?.resolution?.target || null
+  );
+  const [currentSlaStatus, setCurrentSlaStatus] = useState(
+    ticket?.sla_status || ticket?.slaStatus || ticket?.sla?.resolution?.status || (ticket?.status === 'On Hold' ? 'Paused' : null)
+  );
+  const [currentLastReminder, setCurrentLastReminder] = useState(
+    ticket?.last_reminder_sent_at || null
+  );
+
+  // Send Reminder state
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
+  const [reminderError, setReminderError] = useState('');
+
   // Hold action state
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [isHolding, setIsHolding] = useState(false);
@@ -474,6 +688,9 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     setCurrentPriority(ticket?.priority || 'Low');
     setCurrentStatus(ticket?.status || 'Pending');
     setCurrentHoldReason(ticket?.hold_reason || '');
+    setCurrentSlaDueDate(ticket?.resolution_due_at || ticket?.due_at || ticket?.sla_due_date || ticket?.sla?.resolution?.target || null);
+    setCurrentSlaStatus(ticket?.sla_status || ticket?.slaStatus || ticket?.sla?.resolution?.status || (ticket?.status === 'On Hold' ? 'Paused' : null));
+    setCurrentLastReminder(ticket?.last_reminder_sent_at || null);
 
     const ticketId = ticket?.ticket_ID || ticket?.id;
     if (ticketId) {
@@ -521,8 +738,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
       setCurrentStatus('On Hold');
       setCurrentHoldReason(reason);
+      setCurrentSlaStatus('Paused');
       ticket.status = 'On Hold';
       ticket.hold_reason = reason;
+      ticket.sla_status = 'Paused';
       if (!ticket.timeline) ticket.timeline = [];
       ticket.timeline.push(holdTimelineEvent);
 
@@ -566,8 +785,10 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
       setCurrentStatus(nextStatus);
       setCurrentHoldReason('');
+      setCurrentSlaStatus('On Track');
       ticket.status = nextStatus;
       ticket.hold_reason = null;
+      ticket.sla_status = 'On Track';
       if (!ticket.timeline) ticket.timeline = [];
       ticket.timeline.push(resumeTimelineEvent);
 
@@ -575,6 +796,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
         ...ticket,
         status: nextStatus,
         hold_reason: null,
+        sla_status: 'On Track',
         timeline: [...ticket.timeline],
       };
 
@@ -635,6 +857,17 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
       if (res?.data?.sla?.target_resolution) {
         ticket.sla = res.data.sla.target_resolution;
       }
+      if (res?.data?.ticket?.due_at || res?.data?.due_at || res?.ticket?.due_at) {
+        const newDue = res.data?.ticket?.due_at || res.data?.due_at || res.ticket?.due_at;
+        setCurrentSlaDueDate(newDue);
+        ticket.due_at = newDue;
+        ticket.resolution_due_at = newDue;
+      }
+      if (res?.data?.ticket?.sla_status || res?.data?.sla_status || res?.ticket?.sla_status) {
+        const newSlaStatus = res.data?.ticket?.sla_status || res.data?.sla_status || res.ticket?.sla_status;
+        setCurrentSlaStatus(newSlaStatus);
+        ticket.sla_status = newSlaStatus;
+      }
 
       const timelineText = `Ticket classification updated: Category changed from "${oldCat}" to "${reclassifyPendingValues.newCategory}", Priority changed from "${oldPri}" to "${reclassifyPendingValues.newPriority}".`;
       const reclassifyTimelineEvent = {
@@ -651,6 +884,8 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
         ...ticket,
         category: reclassifyPendingValues.newCategory,
         priority: reclassifyPendingValues.newPriority,
+        due_at: ticket.due_at,
+        sla_status: ticket.sla_status,
         timeline: [...ticket.timeline],
       };
 
@@ -672,6 +907,65 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
       setReclassifyError(err.response?.data?.message || 'Failed to update ticket classification. Please try again.');
     } finally {
       setIsReclassifying(false);
+    }
+  };
+
+  const isAuthorizedForReminder = useMemo(() => {
+    if (!user) return true;
+    const role = String(user.role || user.role_name || user.user_type || '').toLowerCase();
+    const dept = String(user.department || user.profile?.department?.name || '').toLowerCase();
+    return role.includes('cs') || role.includes('customer') || role.includes('admin') || dept.includes('customer service') || dept.includes('support') || dept.includes('admin');
+  }, [user]);
+
+  const isEligibleForReminder = Boolean(
+    isAuthorizedForReminder &&
+    (ticket?.assigned && ticket?.assigned.length > 0 || ticket?.assigned_to || ticket?.assigned_employee || ticket?.assigned_employees?.length > 0) &&
+    currentStatus !== 'Resolved' &&
+    currentStatus !== 'Closed'
+  );
+
+  const reminderCooldownMs = 60 * 60 * 1000;
+  const isReminderOnCooldown = useMemo(() => {
+    if (!currentLastReminder) return false;
+    const sentTime = new Date(currentLastReminder).getTime();
+    return !isNaN(sentTime) && (Date.now() - sentTime) < reminderCooldownMs;
+  }, [currentLastReminder]);
+
+  const cooldownMinutesRemaining = useMemo(() => {
+    if (!isReminderOnCooldown || !currentLastReminder) return 0;
+    const sentTime = new Date(currentLastReminder).getTime();
+    return Math.max(1, Math.ceil((reminderCooldownMs - (Date.now() - sentTime)) / (60 * 1000)));
+  }, [isReminderOnCooldown, currentLastReminder]);
+
+  const handleSendReminderConfirm = async (customMessage) => {
+    setIsSendingReminder(true);
+    setReminderError('');
+    try {
+      const ticketId = ticket.ticket_ID || ticket.id;
+      await sendTicketReminder(ticketId, customMessage);
+      const nowIso = new Date().toISOString();
+      setCurrentLastReminder(nowIso);
+      ticket.last_reminder_sent_at = nowIso;
+
+      const recipientName = (ticket.assigned && ticket.assigned[0]?.name) || ticket.assigned_employee || 'Assigned Support Specialist';
+      const reminderEvent = {
+        id: `reminder-${Date.now()}`,
+        type: 'reminder',
+        text: `Reminder dispatched to ${recipientName} by CS.${customMessage ? ` Custom message: "${customMessage}"` : ''}`,
+        timestamp: nowIso,
+      };
+      if (!ticket.timeline) ticket.timeline = [];
+      ticket.timeline.unshift(reminderEvent);
+
+      setShowReminderModal(false);
+      setActionSuccessNotice(`Reminder successfully sent to ${recipientName}.`);
+      setTimeout(() => setActionSuccessNotice(''), 6000);
+    } catch (err) {
+      console.error('Failed to send reminder:', err);
+      const msg = err.response?.data?.message || 'Failed to send reminder to assigned employee. Please try again.';
+      setReminderError(msg);
+    } finally {
+      setIsSendingReminder(false);
     }
   };
 
@@ -863,6 +1157,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                     )}
                   </div>
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">SLA Due Date</span>
+                    <span className="text-xs font-semibold text-slate-700">
+                      {currentSlaDueDate ? formatDisplayDate(currentSlaDueDate) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">SLA Status</span>
+                    {renderTicketSlaBadge(currentSlaStatus, currentSlaDueDate)}
+                  </div>
+                  {currentLastReminder && (
+                    <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                      <span className="text-xs font-bold text-slate-dark flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        Last Reminder Sent
+                      </span>
+                      <span className="text-xs font-semibold text-slate-700">
+                        {formatDisplayDate(currentLastReminder)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Date Filed</span>
                     <span className="text-xs font-normal text-slate-600">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
                   </div>
@@ -988,6 +1303,13 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Customer Satisfaction Feedback */}
+                  {(currentStatus === 'Resolved' || currentStatus === 'Closed' || ticket.status === 'Resolved' || ticket.status === 'Closed' || hasFeedbackBeenSubmitted(ticket.id || ticket.ticket_ID)) && (
+                    <div className="mt-4">
+                      <TicketFeedbackSection ticket={ticket} readOnly={true} />
                     </div>
                   )}
                 </div>
@@ -1146,6 +1468,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       </div>
                     )}
                   </div>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">SLA Due Date</span>
+                    <span className="text-xs font-semibold text-slate-700">
+                      {currentSlaDueDate ? formatDisplayDate(currentSlaDueDate) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                    <span className="text-xs font-bold text-slate-dark">SLA Status</span>
+                    {renderTicketSlaBadge(currentSlaStatus, currentSlaDueDate)}
+                  </div>
+                  {currentLastReminder && (
+                    <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
+                      <span className="text-xs font-bold text-slate-dark flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        Last Reminder Sent
+                      </span>
+                      <span className="text-xs font-semibold text-slate-700">
+                        {formatDisplayDate(currentLastReminder)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between bg-page border border-border rounded-xl px-4 py-3">
                     <span className="text-xs font-bold text-slate-dark">Date Filed</span>
                     <span className="text-xs font-normal text-slate-600">{ticket.date ? formatDisplayDate(ticket.date) : '—'}</span>
@@ -1491,6 +1834,13 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                 </div>
               )}
             </div>
+
+            {/* Customer Satisfaction Feedback */}
+            {(currentStatus === 'Resolved' || currentStatus === 'Closed' || ticket.status === 'Resolved' || ticket.status === 'Closed' || hasFeedbackBeenSubmitted(ticket.id || ticket.ticket_ID)) && (
+              <div className="mb-4">
+                <TicketFeedbackSection ticket={ticket} readOnly={true} />
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -1665,6 +2015,27 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               </button>
             )}
 
+            {/* Send Reminder button */}
+            {isEligibleForReminder && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isProcessing || isReminderOnCooldown}
+                onClick={() => {
+                  setReminderError('');
+                  setShowReminderModal(true);
+                }}
+                title={isReminderOnCooldown ? `Reminder sent recently (${cooldownMinutesRemaining}m cooldown remaining)` : 'Send a reminder prompt to the assigned employee'}
+                className="flex items-center gap-1.5 text-primary border-primary/20 hover:bg-primary/5 disabled:opacity-50"
+              >
+                <Bell className="w-3.5 h-3.5 text-primary" />
+                <span>Send Reminder</span>
+                {isReminderOnCooldown && (
+                  <span className="text-[10px] text-slate-muted font-normal ml-0.5">({cooldownMinutesRemaining}m)</span>
+                )}
+              </Button>
+            )}
+
             {!ticket.reassignmentRequested && ticket.status !== 'Closed' && ticket.status !== 'Resolved' && onEdit && (
               <Button
                 variant="outline"
@@ -1714,6 +2085,18 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           newPriority={reclassifyPendingValues.newPriority}
           isSaving={isReclassifying}
           error={reclassifyError}
+        />
+      )}
+
+      {showReminderModal && (
+        <SendReminderDialog
+          isOpen={showReminderModal}
+          onClose={() => setShowReminderModal(false)}
+          onConfirm={handleSendReminderConfirm}
+          ticket={ticket}
+          assignedEmployee={assignedEmployeesList[0]}
+          isSending={isSendingReminder}
+          error={reminderError}
         />
       )}
 

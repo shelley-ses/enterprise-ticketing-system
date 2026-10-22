@@ -435,7 +435,48 @@ class MessageController extends Controller
 
                 $recipients = []; // array of ['id' => X, 'type' => 'client'|'employee']
 
-                // Read active routing configuration at send time
+                // 1. Thread participant: Requester
+                if (!empty($ticket->is_internal) && !empty($ticket->requested_by)) {
+                    $recipients[] = ['id' => (int)$ticket->requested_by, 'type' => 'employee'];
+                } elseif (!empty($ticket->created_by)) {
+                    $recipients[] = ['id' => (int)$ticket->created_by, 'type' => 'client'];
+                }
+
+                // 2. Thread participant: Currently Assigned Employee(s) from MySQL at send-time
+                $assignedEmpIds = [];
+                if (!empty($ticket->assigned_to)) {
+                    $assignedEmpIds[] = (int)$ticket->assigned_to;
+                }
+                $dbAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                    ->table('ticket_assignments')
+                    ->where('ticket_ID', (int)$ticket_id)
+                    ->pluck('employee_ID')
+                    ->map(fn($id) => (int)$id)
+                    ->all();
+                $assignedEmpIds = array_unique(array_merge($assignedEmpIds, $dbAssigned));
+
+                foreach ($assignedEmpIds as $empId) {
+                    $recipients[] = ['id' => (int)$empId, 'type' => 'employee'];
+                }
+
+                // 3. Thread participants: Historical staff message authors from MongoDB for this ticket
+                try {
+                    $historicalStaffSenders = Message::where('ticket_id', (int)$ticket_id)
+                        ->whereIn('sender_type', ['cs', 'employee'])
+                        ->whereNotNull('sender_id')
+                        ->get(['sender_id', 'sender_type']);
+
+                    foreach ($historicalStaffSenders as $hSender) {
+                        $hId = (int)$hSender->sender_id;
+                        if ($hId > 0) {
+                            $recipients[] = ['id' => $hId, 'type' => 'employee'];
+                        }
+                    }
+                } catch (\Throwable $thSenders) {
+                    \Illuminate\Support\Facades\Log::warning("Could not fetch historical message senders: " . $thSenders->getMessage());
+                }
+
+                // 4. Configurable routing tokens from ticket_configurations
                 $routingTokens = ['contextual_assigned'];
                 try {
                     $routingRow = \Illuminate\Support\Facades\DB::connection('mysql')
@@ -450,61 +491,35 @@ class MessageController extends Controller
                     }
                 } catch (\Throwable $e) {}
 
-                // Get assigned employee IDs
-                $assignedEmpIds = [];
-                if ($ticket->assigned_to) {
-                    $assignedEmpIds[] = (int)$ticket->assigned_to;
-                }
-                $dbAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
-                    ->table('ticket_assignments')
-                    ->where('ticket_ID', (int)$ticket_id)
-                    ->pluck('employee_ID')
-                    ->map(fn($id) => (int)$id)
-                    ->all();
-                $assignedEmpIds = array_unique(array_merge($assignedEmpIds, $dbAssigned));
-
                 foreach ($routingTokens as $token) {
                     if ($token === 'contextual_assigned') {
                         if ($senderType === 'customer' && empty($assignedEmpIds)) {
                             // Fallback to CS if no employee assigned so customer message is never lost
                             $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                                 ->table('employees')
-                                ->where('role', 'customer service')
+                                ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
                                 ->pluck('emp_id')
                                 ->map(fn($id) => (int)$id)
                                 ->all();
                             foreach ($csIds as $empId) {
                                 $recipients[] = ['id' => $empId, 'type' => 'employee'];
                             }
-                        } else {
-                            foreach ($assignedEmpIds as $empId) {
-                                if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                    $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                                }
-                            }
                         }
                     } elseif ($token === 'contextual_requester') {
                         if ($ticket->is_internal) {
-                            $requesterId = (int)$ticket->requested_by;
-                            if (!($senderType !== 'customer' && (int)$senderId === $requesterId)) {
-                                $recipients[] = ['id' => $requesterId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => (int)$ticket->requested_by, 'type' => 'employee'];
                         } else {
-                            if ($senderType !== 'customer') {
-                                $recipients[] = ['id' => (int)$ticket->created_by, 'type' => 'client'];
-                            }
+                            $recipients[] = ['id' => (int)$ticket->created_by, 'type' => 'client'];
                         }
                     } elseif ($token === 'role_cs') {
                         $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                             ->table('employees')
-                            ->where('role', 'customer service')
+                            ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
                             ->pluck('emp_id')
                             ->map(fn($id) => (int)$id)
                             ->all();
                         foreach ($csIds as $empId) {
-                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => $empId, 'type' => 'employee'];
                         }
                     } elseif ($token === 'role_service') {
                         $svcIds = \Illuminate\Support\Facades\DB::connection('mysql')
@@ -514,9 +529,7 @@ class MessageController extends Controller
                             ->map(fn($id) => (int)$id)
                             ->all();
                         foreach ($svcIds as $empId) {
-                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => $empId, 'type' => 'employee'];
                         }
                     } elseif ($token === 'role_it_admin') {
                         $itIds = \Illuminate\Support\Facades\DB::connection('mysql')
@@ -526,9 +539,7 @@ class MessageController extends Controller
                             ->map(fn($id) => (int)$id)
                             ->all();
                         foreach ($itIds as $empId) {
-                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => $empId, 'type' => 'employee'];
                         }
                     } elseif ($token === 'role_superadmin') {
                         $adminIds = \Illuminate\Support\Facades\DB::connection('mysql')
@@ -538,9 +549,7 @@ class MessageController extends Controller
                             ->map(fn($id) => (int)$id)
                             ->all();
                         foreach ($adminIds as $empId) {
-                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => $empId, 'type' => 'employee'];
                         }
                     } elseif (str_starts_with($token, 'dept_')) {
                         $deptId = (int) substr($token, 5);
@@ -551,14 +560,12 @@ class MessageController extends Controller
                             ->map(fn($id) => (int)$id)
                             ->all();
                         foreach ($deptEmpIds as $empId) {
-                            if (!($senderType !== 'customer' && (int)$senderId === (int)$empId)) {
-                                $recipients[] = ['id' => $empId, 'type' => 'employee'];
-                            }
+                            $recipients[] = ['id' => $empId, 'type' => 'employee'];
                         }
                     }
                 }
 
-                // If sender is employee/CS and no recipients resolved, always ensure customer/requester gets notified
+                // Fallback: If sender is employee/CS and no recipients resolved, always ensure customer/requester gets notified
                 if ($senderType !== 'customer' && empty($recipients)) {
                     if ($ticket->is_internal) {
                         $recipients[] = ['id' => (int)$ticket->requested_by, 'type' => 'employee'];
@@ -567,28 +574,182 @@ class MessageController extends Controller
                     }
                 }
 
-                // Deduplicate recipients
-                $uniqueRecipients = [];
-                foreach ($recipients as $r) {
-                    $key = $r['type'] . ':' . $r['id'];
-                    $uniqueRecipients[$key] = $r;
+                // Fallback: If sender is customer and no recipients resolved (unassigned ticket), notify CS
+                if ($senderType === 'customer' && empty($recipients)) {
+                    $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
+                        ->table('employees')
+                        ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                        ->pluck('emp_id')
+                        ->map(fn($id) => (int)$id)
+                        ->all();
+                    foreach ($csIds as $empId) {
+                        $recipients[] = ['id' => $empId, 'type' => 'employee'];
+                    }
                 }
-                $recipients = array_values($uniqueRecipients);
 
-                // Insert notifications in MySQL DB
+                // 5. Filter out the sender and enforce strict scoping
+                $scopedRecipients = [];
+                foreach ($recipients as $r) {
+                    $rId = (int)($r['id'] ?? 0);
+                    $rType = $r['type'] ?? 'employee';
+
+                    // Internal ticket scoping: Never leak to clients
+                    if (!empty($ticket->is_internal) && $rType === 'client') {
+                        continue;
+                    }
+
+                    // Exclude message sender
+                    if ($senderType === 'customer' && $rType === 'client' && $rId === (int)$senderId) {
+                        continue;
+                    }
+                    if ($senderType !== 'customer' && $rType === 'employee' && $rId === (int)$senderId) {
+                        continue;
+                    }
+
+                    if ($rId > 0) {
+                        $scopedRecipients[$rType . ':' . $rId] = ['id' => $rId, 'type' => $rType];
+                    }
+                }
+                $recipients = array_values($scopedRecipients);
+
+                // 6. Check system delivery channel configuration for 'new_message'
+                $channel = 'both';
+                try {
+                    $chVal = \Illuminate\Support\Facades\DB::connection('mysql')
+                        ->table('notification_channels')
+                        ->where('alert_key', 'new_message')
+                        ->value('channel');
+                    if ($chVal && in_array($chVal, ['email', 'in_app', 'both'], true)) {
+                        $channel = $chVal;
+                    }
+                } catch (\Throwable $e) {}
+
+                // Build message preview and notification content
+                $previewText = !empty(trim($message->message ?? ''))
+                    ? \Illuminate\Support\Str::limit($message->message, 80)
+                    : ('Sent an attachment' . (!empty($message->attachments) && count($message->attachments) > 1 ? ' (' . count($message->attachments) . ' files)' : ''));
+                $notificationTitle = 'New Message on Ticket #' . $ticket_id;
+                $notificationBody = $senderName . ': ' . $previewText;
+
+                // 7. Deliver to each recipient, respecting preferences & live presence suppression
                 foreach ($recipients as $recipient) {
-                    \Illuminate\Support\Facades\DB::connection('mysql')
-                        ->table('notifications')
-                        ->insert([
-                            'recipient_id' => $recipient['id'],
-                            'recipient_type' => $recipient['type'],
-                            'title' => 'New Message on Ticket #' . $ticket_id,
-                            'message' => $senderName . ': ' . (!empty(trim($message->message ?? '')) ? \Illuminate\Support\Str::limit($message->message, 60) : 'Sent an attachment' . (!empty($message->attachments) && count($message->attachments) > 1 ? ' (' . count($message->attachments) . ' files)' : '')),
-                            'ticket_id' => (int)$ticket_id,
-                            'is_read' => false,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
+                    $inAppAllowed = ($channel !== 'email');
+                    $emailAllowed = ($channel !== 'in_app');
+
+                    // Check client notification preferences from Redis / Cache
+                    if ($recipient['type'] === 'client') {
+                        try {
+                            $clientPrefs = \Illuminate\Support\Facades\Cache::store('redis')->get("client:notification_preferences:{$recipient['id']}");
+                        } catch (\Throwable $e) {
+                            $clientPrefs = null;
+                        }
+                        if (!$clientPrefs) {
+                            try {
+                                $clientPrefs = \Illuminate\Support\Facades\Cache::get("client:notification_preferences:{$recipient['id']}");
+                            } catch (\Throwable $e) {}
+                        }
+                        if (is_array($clientPrefs)) {
+                            if (isset($clientPrefs['in_app']) && $clientPrefs['in_app'] === false) {
+                                $inAppAllowed = false;
+                            }
+                            if (isset($clientPrefs['email']) && $clientPrefs['email'] === false) {
+                                $emailAllowed = false;
+                            }
+                        }
+                    }
+
+                    // Check "already viewing live" thread presence in Redis
+                    $isViewingLive = false;
+                    if ($inAppAllowed) {
+                        $presenceKeys = ($recipient['type'] === 'client')
+                            ? ["ticket:presence:{$ticket_id}:customer:{$recipient['id']}", "ticket:presence:{$ticket_id}:client:{$recipient['id']}"]
+                            : ["ticket:presence:{$ticket_id}:employee:{$recipient['id']}", "ticket:presence:{$ticket_id}:cs:{$recipient['id']}"];
+                        foreach ($presenceKeys as $pkey) {
+                            try {
+                                if (\Illuminate\Support\Facades\Cache::store('redis')->has($pkey) || \Illuminate\Support\Facades\Cache::has($pkey)) {
+                                    $isViewingLive = true;
+                                    break;
+                                }
+                            } catch (\Throwable $e) {}
+                        }
+                    }
+
+                    // Resolve deep link
+                    if ($recipient['type'] === 'client') {
+                        $deepLink = '/messages?selectedTicketId=' . $ticket_id;
+                    } else {
+                        $empRole = '';
+                        try {
+                            $empRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('employees')
+                                ->where('emp_id', $recipient['id'])
+                                ->first();
+                            $dept = strtolower($empRow->department ?? '');
+                            $role = strtolower($empRow->role ?? '');
+                            if (str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs')) {
+                                $empRole = 'cs';
+                            }
+                        } catch (\Throwable $e) {}
+                        $deepLink = ($empRole === 'cs')
+                            ? ('/cs/messages?selectedTicketId=' . $ticket_id)
+                            : ('/employee/messages?selectedTicketId=' . $ticket_id);
+                    }
+
+                    // Insert in-app notification if allowed and not suppressed by live presence
+                    if ($inAppAllowed && !$isViewingLive) {
+                        try {
+                            \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('notifications')
+                                ->insert([
+                                    'recipient_id' => $recipient['id'],
+                                    'recipient_type' => $recipient['type'],
+                                    'title' => $notificationTitle,
+                                    'message' => $notificationBody,
+                                    'ticket_id' => (int)$ticket_id,
+                                    'data' => json_encode([
+                                        'type' => 'new_message',
+                                        'ticket_id' => (int)$ticket_id,
+                                        'ticketId' => (int)$ticket_id,
+                                        'sender_id' => $senderId,
+                                        'sender_name' => $senderName,
+                                        'sender_type' => $senderType,
+                                        'sender_role' => $senderRole,
+                                        'message_preview' => $previewText,
+                                        'link' => $deepLink,
+                                    ]),
+                                    'is_read' => false,
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
+                        } catch (\Throwable $insertErr) {
+                            \Illuminate\Support\Facades\Log::warning("Failed to insert notification for recipient {$recipient['type']}:{$recipient['id']}: " . $insertErr->getMessage());
+                        }
+                    }
+
+                    // Attempt transactional email delivery if enabled
+                    if ($emailAllowed) {
+                        try {
+                            $recipientEmail = null;
+                            if ($recipient['type'] === 'client') {
+                                $recipientEmail = \Illuminate\Support\Facades\DB::connection('mysql')->table('clients')->where('id', $recipient['id'])->value('email');
+                            } else {
+                                $recipientEmail = \Illuminate\Support\Facades\DB::connection('mysql')->table('employees')->where('emp_id', $recipient['id'])->value('email');
+                            }
+
+                            if ($recipientEmail) {
+                                $configServiceUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+                                \Illuminate\Support\Facades\Http::timeout(5)->retry(2, 100)->post("{$configServiceUrl}/api/email/dispatch", [
+                                    'to' => $recipientEmail,
+                                    'subject' => $notificationTitle,
+                                    'html' => "<p><strong>{$senderName}</strong> ({$senderRole}) posted a new message on ticket #{$ticket_id}:</p><blockquote>" . e($previewText) . "</blockquote><p><a href=\"" . url($deepLink) . "\">View ticket conversation</a></p>",
+                                    'alert_key' => 'new_message',
+                                    'event_key' => 'new_message',
+                                ]);
+                            }
+                        } catch (\Throwable $mailEx) {
+                            \Illuminate\Support\Facades\Log::warning("Email notification dispatch for recipient {$recipient['type']}:{$recipient['id']} failed: " . $mailEx->getMessage());
+                        }
+                    }
                 }
 
                 // Broadcast TicketChanged event to update frontend headers (port 6001) in real-time
@@ -885,6 +1046,59 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => 'Message deleted for you successfully'
+        ]);
+    }
+
+    /**
+     * Heartbeat ping to mark user presence on a ticket thread.
+     */
+    public function pingPresence(Request $request, $ticket_id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $userKey = $this->resolveUserKey($user);
+        $redisKey = "ticket:presence:{$ticket_id}:{$userKey}";
+
+        try {
+            \Illuminate\Support\Facades\Cache::store('redis')->put($redisKey, now()->toISOString(), 30);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Cache::put($redisKey, now()->toISOString(), 30);
+        }
+
+        return response()->json([
+            'status' => 'ok',
+            'ticket_id' => (int)$ticket_id,
+            'user_key' => $userKey,
+            'expires_in' => 30,
+        ]);
+    }
+
+    /**
+     * Clear user presence when navigating away or unmounting.
+     */
+    public function clearPresence(Request $request, $ticket_id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $userKey = $this->resolveUserKey($user);
+        $redisKey = "ticket:presence:{$ticket_id}:{$userKey}";
+
+        try {
+            \Illuminate\Support\Facades\Cache::store('redis')->forget($redisKey);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Cache::forget($redisKey);
+        }
+
+        return response()->json([
+            'status' => 'cleared',
+            'ticket_id' => (int)$ticket_id,
+            'user_key' => $userKey,
         ]);
     }
 

@@ -181,6 +181,75 @@ class SLAService
     }
 
     /**
+     * Calculate future due date considering working business hours (Monday-Friday 8AM-5PM).
+     * If business hours enforcement is disabled, falls back to a 24/7 calendar.
+     */
+    public function addBusinessHours(Carbon $start, int $minutes, array $config = []): Carbon
+    {
+        if ($minutes <= 0) {
+            return $start->copy();
+        }
+
+        $windowConfig = !empty($config) ? $config : TicketConfigurationService::getWindowConfig();
+        $enabled = (bool) ($windowConfig['businessHoursEnabled'] ?? true);
+
+        if (!$enabled) {
+            return $start->copy()->addMinutes($minutes);
+        }
+
+        $current = $start->copy();
+        $remainingMinutes = $minutes;
+
+        // Ensure current time is moved forward to start of business hours if outside
+        $current = $this->advanceToNextBusinessWindow($current);
+
+        while ($remainingMinutes > 0) {
+            $endOfDay = $current->copy()->setTime(17, 0, 0);
+            $availableToday = $current->diffInMinutes($endOfDay, false);
+
+            if ($remainingMinutes <= $availableToday) {
+                return $current->addMinutes($remainingMinutes);
+            }
+
+            $remainingMinutes -= $availableToday;
+            // Move to 08:00 of next day, then advance if weekend
+            $current = $current->addDay()->setTime(8, 0, 0);
+            $current = $this->advanceToNextBusinessWindow($current);
+        }
+
+        return $current;
+    }
+
+    /**
+     * Advance a timestamp to the next available working business window.
+     */
+    protected function advanceToNextBusinessWindow(Carbon $time): Carbon
+    {
+        $current = $time->copy();
+
+        while (true) {
+            // Saturday or Sunday
+            if ($current->isWeekend()) {
+                $current = $current->next(Carbon::MONDAY)->setTime(8, 0, 0);
+                continue;
+            }
+
+            // Before 08:00
+            if ($current->hour < 8) {
+                return $current->setTime(8, 0, 0);
+            }
+
+            // At or after 17:00
+            if ($current->hour >= 17) {
+                $current = $current->addDay()->setTime(8, 0, 0);
+                continue;
+            }
+
+            return $current;
+        }
+    }
+
+    /**
      * Dynamically determine and assign matching SLA rule and deadlines to a newly created ticket.
      */
     public function assignSlaToTicket(
@@ -196,8 +265,13 @@ class SLAService
 
         $resolved = $this->resolveSlaPolicy($departmentId, $categoryId, $priority, $branchId, $defaultSlaPolicy);
 
-        $responseDueAt = $createdAtObj->copy()->addMinutes($resolved['response_time_limit']);
-        $resolutionDueAt = $createdAtObj->copy()->addMinutes($resolved['resolution_time_limit']);
+        $responseDueAt = $this->addBusinessHours($createdAtObj, (int) $resolved['response_time_limit']);
+        $resolutionDueAt = $this->addBusinessHours($createdAtObj, (int) $resolved['resolution_time_limit']);
+
+        $slaStatus = 'On Track';
+        if (empty($resolved['sla_rule_id']) && empty($resolved['sla_ID']) && empty($resolved['branch_sla_policy_id']) && empty($resolved['branch_priority_override_id'])) {
+            $slaStatus = 'No SLA Configured';
+        }
 
         $update = [
             'branch_id' => $branchId,
@@ -209,6 +283,7 @@ class SLAService
             'sla_paused_total_seconds' => 0,
             'response_due_at' => $responseDueAt,
             'resolution_due_at' => $resolutionDueAt,
+            'sla_status' => $slaStatus,
             'updated_at' => now(),
         ];
 
@@ -224,6 +299,7 @@ class SLAService
             'response_time_limit' => $resolved['response_time_limit'],
             'resolution_time_limit' => $resolved['resolution_time_limit'],
             'is_fallback' => $resolved['is_fallback'],
+            'sla_status' => $slaStatus,
         ];
 
         if (!empty($resolved['is_branch_override'])) {
@@ -246,6 +322,7 @@ class SLAService
 
         DB::table('tickets')->where('ticket_ID', $ticketId)->update([
             'sla_paused_at' => now(),
+            'sla_status' => 'Paused',
             'updated_at' => now(),
         ]);
 
@@ -281,14 +358,27 @@ class SLAService
             ];
 
             // Shift resolution_due_at forward by paused seconds only if not yet resolved
+            $resDueAt = null;
             if ($ticket->resolution_due_at && empty($ticket->resolved_at)) {
-                $update['resolution_due_at'] = Carbon::parse($ticket->resolution_due_at)->addSeconds($pausedSeconds);
+                $resDueAt = Carbon::parse($ticket->resolution_due_at)->addSeconds($pausedSeconds);
+                $update['resolution_due_at'] = $resDueAt;
             }
 
             // Shift response_due_at forward by paused seconds only if first response not yet recorded
             if ($ticket->response_due_at && empty($ticket->first_response_at)) {
                 $update['response_due_at'] = Carbon::parse($ticket->response_due_at)->addSeconds($pausedSeconds);
             }
+
+            // Re-evaluate SLA status
+            $slaStatus = 'On Track';
+            if ($resDueAt) {
+                if ($now->gt($resDueAt)) {
+                    $slaStatus = 'Breached';
+                } elseif ($now->diffInMinutes($resDueAt, false) <= 240) {
+                    $slaStatus = 'At Risk';
+                }
+            }
+            $update['sla_status'] = $slaStatus;
 
             DB::table('tickets')->where('ticket_ID', $ticketId)->update($update);
 
@@ -332,9 +422,18 @@ class SLAService
 
             $pausedSeconds = (int) ($ticket->sla_paused_total_seconds ?? 0);
 
-            $newResolutionDueAt = $baseTime->copy()
-                ->addMinutes($resolvedPolicy['resolution_time_limit'])
+            $newResolutionDueAt = $this->addBusinessHours($baseTime, (int) $resolvedPolicy['resolution_time_limit'])
                 ->addSeconds($pausedSeconds);
+
+            $now = now();
+            $slaStatus = 'On Track';
+            if (empty($resolvedPolicy['sla_rule_id']) && empty($resolvedPolicy['sla_ID']) && empty($resolvedPolicy['branch_sla_policy_id']) && empty($resolvedPolicy['branch_priority_override_id'])) {
+                $slaStatus = 'No SLA Configured';
+            } elseif ($now->gt($newResolutionDueAt)) {
+                $slaStatus = 'Breached';
+            } elseif ($now->diffInMinutes($newResolutionDueAt, false) <= 240) {
+                $slaStatus = 'At Risk';
+            }
 
             $update = [
                 'problem_category_ID' => $categoryId,
@@ -344,21 +443,20 @@ class SLAService
                 'sla_rule_id' => $resolvedPolicy['sla_rule_id'] ?? null,
                 'sla_ID' => $resolvedPolicy['sla_ID'] ?? null,
                 'resolution_due_at' => $newResolutionDueAt,
+                'sla_status' => $slaStatus,
                 'updated_at' => now(),
             ];
 
             // Only update response_due_at if first_response_at is null
             $newResponseDueAt = $oldResponseDueAt;
             if (empty($ticket->first_response_at)) {
-                $newResponseDueAt = $baseTime->copy()
-                    ->addMinutes($resolvedPolicy['response_time_limit'])
+                $newResponseDueAt = $this->addBusinessHours($baseTime, (int) $resolvedPolicy['response_time_limit'])
                     ->addSeconds($pausedSeconds);
                 $update['response_due_at'] = $newResponseDueAt;
             }
 
             // Update live resolution SLA status if not resolved
             if (empty($ticket->resolved_at)) {
-                $now = now();
                 $update['resolution_sla_status'] = $now->gt($newResolutionDueAt) ? 'BREACHED' : 'PENDING';
             }
 
@@ -371,6 +469,7 @@ class SLAService
                 'old_resolution_due_at' => $oldResolutionDueAt,
                 'new_resolution_due_at' => $newResolutionDueAt->toDateTimeString(),
                 'resolved_policy' => $resolvedPolicy,
+                'sla_status' => $slaStatus,
             ];
         });
     }
@@ -585,6 +684,22 @@ class SLAService
         $createdAtRaw = $ticket->created_at ?? null;
         $createdAt = $createdAtRaw ? Carbon::parse($createdAtRaw) : null;
 
+        // Check for explicitly unconfigured SLA
+        if (
+            (isset($ticket->sla_status) && $ticket->sla_status === 'No SLA Configured') ||
+            (empty($resDueAt) && empty($ticket->sla_rule_id) && empty($ticket->sla_ID) && empty($ticket->branch_sla_policy_id) && empty($ticket->branch_priority_override_id))
+        ) {
+            return [
+                'status' => 'No SLA Configured',
+                'due_at' => null,
+                'time_remaining_minutes' => null,
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => false,
+                'is_unavailable' => true,
+            ];
+        }
+
         // 1. Paused / On Hold
         if ($isOnHold) {
             return [
@@ -690,5 +805,433 @@ class SLAService
             'is_at_risk' => false,
             'is_paused' => false,
         ];
+    }
+
+    /**
+     * Inspect all active tickets for SLA breach or at risk conditions.
+     * Dispatches notifications to CS and assigned employees with deduplication.
+     */
+    public function checkAndNotifySlaAlerts(): array
+    {
+        $now = now();
+        $notificationService = app(TicketNotificationService::class);
+
+        // Fetch unresolved tickets (excluding Closed, Resolved, Discarded, Cancelled)
+        $activeTickets = DB::table('tickets as t')
+            ->leftJoin('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->where(function ($q) {
+                $q->whereNull('ts.status_name')
+                  ->orWhereNotIn(DB::raw('LOWER(ts.status_name)'), ['closed', 'resolved', 'discarded', 'cancelled']);
+            })
+            ->select('t.*', 'ts.status_name', 'c.client_name')
+            ->get();
+
+        $breachNotifiedCount = 0;
+        $riskNotifiedCount = 0;
+        $evaluatedCount = 0;
+        $cadenceMinutes = $this->getSlaBreachRealertInterval();
+
+        foreach ($activeTickets as $ticket) {
+            $evaluatedCount++;
+            $ticketId = (int) $ticket->ticket_ID;
+            $metrics = $this->computeTicketSlaMetrics($ticket);
+            $status = $metrics['status'];
+
+            // 1. Check Breached
+            if ($status === 'Breached') {
+                $lastAlert = $ticket->last_sla_breach_alert_at ?: $ticket->sla_breach_notified_at;
+                $shouldAlert = empty($ticket->sla_breach_notified_at);
+                if (!$shouldAlert && $lastAlert && Carbon::parse($lastAlert)->diffInMinutes($now) >= $cadenceMinutes) {
+                    $shouldAlert = true;
+                }
+
+                if ($shouldAlert) {
+                    $this->dispatchSlaBreachAlert($ticket, $metrics, $notificationService);
+                    DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                        'sla_status' => 'Breached',
+                        'sla_breach_notified_at' => $ticket->sla_breach_notified_at ?: $now,
+                        'last_sla_breach_alert_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                    $breachNotifiedCount++;
+                } elseif (($ticket->sla_status ?? '') !== 'Breached') {
+                    DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                        'sla_status' => 'Breached',
+                        'updated_at' => $now,
+                    ]);
+                }
+                continue;
+            }
+
+            // 2. Check At Risk
+            if ($status === 'At Risk') {
+                if (empty($ticket->sla_risk_notified_at)) {
+                    $this->dispatchSlaRiskAlert($ticket, $metrics, $notificationService);
+                    DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                        'sla_status' => 'At Risk',
+                        'sla_risk_notified_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                    $riskNotifiedCount++;
+                } elseif (($ticket->sla_status ?? '') !== 'At Risk') {
+                    DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                        'sla_status' => 'At Risk',
+                        'updated_at' => $now,
+                    ]);
+                }
+                continue;
+            }
+
+            // 3. Status is On Track, Paused, or No SLA Configured
+            if (($ticket->sla_status ?? '') !== $status) {
+                DB::table('tickets')->where('ticket_ID', $ticketId)->update([
+                    'sla_status' => $status,
+                    'updated_at' => $now,
+                ]);
+            }
+        }
+
+        return [
+            'evaluated_tickets' => $evaluatedCount,
+            'breach_notifications_sent' => $breachNotifiedCount,
+            'risk_notifications_sent' => $riskNotifiedCount,
+        ];
+    }
+
+    /**
+     * Get the cadence interval in minutes for recurring breach alerts from configuration.
+     */
+    public function getSlaBreachRealertInterval(): int
+    {
+        try {
+            $configService = app(TicketConfigurationService::class);
+            $interval = $configService->get('sla_breach_realert_interval_minutes');
+            if ($interval && is_numeric($interval) && (int) $interval > 0) {
+                return (int) $interval;
+            }
+        } catch (\Throwable $e) {
+            // fallback if configuration service is unavailable
+        }
+        return 240; // Default 4 hours cadence
+    }
+
+    /**
+     * Dispatch alert notifications to CS and assigned employees for an SLA breach.
+     */
+    protected function dispatchSlaBreachAlert($ticket, array $metrics, TicketNotificationService $notificationService): void
+    {
+        $ticketId = (int) $ticket->ticket_ID;
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketTitle = $ticket->title ?: 'Ticket #' . $ticketId;
+        $dueAt = $metrics['due_at'] ?? $ticket->resolution_due_at;
+
+        // Fetch Category name
+        $categoryName = !empty($ticket->problem_category_ID)
+            ? DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name')
+            : 'General';
+
+        // Fetch Priority name
+        $priorityName = !empty($ticket->priority_ID)
+            ? DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID)->value('priority_name')
+            : 'Medium';
+
+        // Fetch Customer name
+        $customerName = $ticket->client_name ?: (
+            !empty($ticket->created_by) ? DB::table('clients')->where('id', $ticket->created_by)->value('client_name') : 'Valued Customer'
+        );
+
+        // Compute overdue duration
+        $overdueMinutes = $dueAt ? max(1, (int) Carbon::parse($dueAt)->diffInMinutes(now())) : 0;
+        $overdueDuration = $overdueMinutes >= 60
+            ? round($overdueMinutes / 60, 1) . ' hours overdue'
+            : "{$overdueMinutes} minutes overdue";
+
+        // Collect assigned employee IDs
+        $assignedEmpIds = DB::table('ticket_assignments')
+            ->where('ticket_ID', $ticketId)
+            ->whereNull('completed_at')
+            ->pluck('employee_ID')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        if (!empty($ticket->assigned_to)) {
+            $assignedEmpIds[] = (int) $ticket->assigned_to;
+        }
+        $assignedEmpIds = array_values(array_unique(array_filter($assignedEmpIds)));
+
+        $notificationData = [
+            'type' => 'overdue_sla_breach',
+            'ticket_id' => $ticketId,
+            'ticket_ref' => $ticketRef,
+            'title' => $ticketTitle,
+            'summary' => $ticketTitle,
+            'customer' => $customerName,
+            'category' => $categoryName,
+            'priority' => $priorityName,
+            'overdue_duration' => $overdueDuration,
+            'sla_status' => 'Breached',
+            'due_at' => $dueAt,
+            'link' => "/ticketing/employee/machine",
+            'deep_link' => "/ticketing/employee/machine",
+        ];
+
+        $csTitle = "SLA Alert: Ticket {$ticketRef} Breached";
+        $csMessage = "Ticket {$ticketRef}: \"{$ticketTitle}\" has breached its resolution SLA deadline ({$overdueDuration}).";
+        $notificationService->notifyCS($csTitle, $csMessage, $ticketId, $notificationData, null, 'overdue_sla_breach');
+
+        $empTitle = "SLA Alert: Assigned Ticket {$ticketRef} Breached";
+        $empMessage = "Urgent: Assigned Ticket {$ticketRef}: \"{$ticketTitle}\" has breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.";
+        foreach ($assignedEmpIds as $empId) {
+            $notificationService->notifyRecipient(
+                $empId,
+                'employee',
+                $empTitle,
+                $empMessage,
+                $ticketId,
+                $notificationData,
+                'overdue_sla_breach'
+            );
+
+            // Also send email alert respecting preferences and retry logic
+            $notificationService->sendTicketEmail(
+                $empId,
+                $empTitle,
+                $empMessage,
+                $ticketId,
+                $ticketTitle,
+                $categoryName,
+                $priorityName,
+                'overdue_sla_breach',
+                [
+                    'customer_name' => $customerName,
+                    'sla_deadline' => $dueAt,
+                    'overdue_duration' => $overdueDuration,
+                ]
+            );
+        }
+
+        // Broadcast real-time change
+        $notificationService->broadcastTicketChange('sla_breach', $ticketId, [
+            'ticket_id' => $ticketId,
+            'sla_status' => 'Breached',
+            'employee_ids' => $assignedEmpIds,
+            'overdue_duration' => $overdueDuration,
+        ]);
+
+        // Audit log entry
+        $systemEmpId = DB::table('employees')->value('emp_id') ?? 1;
+        try {
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'sla_breached',
+                'action_by_ID' => $systemEmpId,
+                'actor_type' => 'system',
+                'details' => json_encode([
+                    'sla_status' => 'Breached',
+                    'due_at' => $dueAt,
+                    'overdue_duration' => $overdueDuration,
+                    'customer' => $customerName,
+                    'category' => $categoryName,
+                    'priority' => $priorityName,
+                    'assigned_employees' => $assignedEmpIds,
+                ]),
+                'created_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to record sla_breached audit log for ticket #{$ticketId}: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Dispatch an urgent breach alert to a newly assigned employee when a ticket is already breached.
+     */
+    public function dispatchReassignmentBreachAlert(int $ticketId, int $newEmployeeId): void
+    {
+        $ticket = DB::table('tickets as t')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
+            ->where('t.ticket_ID', $ticketId)
+            ->select('t.*', 'c.client_name')
+            ->first();
+
+        if (!$ticket) {
+            return;
+        }
+
+        $metrics = $this->computeTicketSlaMetrics($ticket);
+        if ($metrics['status'] !== 'Breached') {
+            return;
+        }
+
+        $notificationService = app(TicketNotificationService::class);
+        $dueAt = $metrics['due_at'] ?? $ticket->resolution_due_at;
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketTitle = $ticket->title ?: 'Ticket #' . $ticketId;
+
+        $categoryName = !empty($ticket->problem_category_ID)
+            ? DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name')
+            : 'General';
+        $priorityName = !empty($ticket->priority_ID)
+            ? DB::table('ticket_priorities')->where('priority_ID', $ticket->priority_ID)->value('priority_name')
+            : 'Medium';
+        $customerName = $ticket->client_name ?: (
+            !empty($ticket->created_by) ? DB::table('clients')->where('id', $ticket->created_by)->value('client_name') : 'Valued Customer'
+        );
+
+        $overdueMinutes = $dueAt ? max(1, (int) Carbon::parse($dueAt)->diffInMinutes(now())) : 0;
+        $overdueDuration = $overdueMinutes >= 60
+            ? round($overdueMinutes / 60, 1) . ' hours overdue'
+            : "{$overdueMinutes} minutes overdue";
+
+        $notificationData = [
+            'type' => 'overdue_sla_breach',
+            'ticket_id' => $ticketId,
+            'ticket_ref' => $ticketRef,
+            'title' => $ticketTitle,
+            'summary' => $ticketTitle,
+            'customer' => $customerName,
+            'category' => $categoryName,
+            'priority' => $priorityName,
+            'overdue_duration' => $overdueDuration,
+            'sla_status' => 'Breached',
+            'due_at' => $dueAt,
+            'link' => "/ticketing/employee/machine",
+            'deep_link' => "/ticketing/employee/machine",
+            'is_reassignment' => true,
+        ];
+
+        $empTitle = "SLA Alert: Reassigned Ticket {$ticketRef} Already Breached";
+        $empMessage = "Urgent: You have been assigned Ticket {$ticketRef}: \"{$ticketTitle}\" which has already breached its resolution SLA deadline ({$overdueDuration}). Immediate action required.";
+
+        $notificationService->notifyRecipient(
+            $newEmployeeId,
+            'employee',
+            $empTitle,
+            $empMessage,
+            $ticketId,
+            $notificationData,
+            'overdue_sla_breach'
+        );
+
+        $notificationService->sendTicketEmail(
+            $newEmployeeId,
+            $empTitle,
+            $empMessage,
+            $ticketId,
+            $ticketTitle,
+            $categoryName,
+            $priorityName,
+            'overdue_sla_breach',
+            [
+                'customer_name' => $customerName,
+                'sla_deadline' => $dueAt,
+                'overdue_duration' => $overdueDuration,
+            ]
+        );
+
+        // Audit log entry for reassignment breach alert
+        $systemEmpId = DB::table('employees')->value('emp_id') ?? 1;
+        try {
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'sla_breached_reassigned',
+                'action_by_ID' => $systemEmpId,
+                'actor_type' => 'system',
+                'details' => json_encode([
+                    'sla_status' => 'Breached',
+                    'due_at' => $dueAt,
+                    'overdue_duration' => $overdueDuration,
+                    'new_employee_id' => $newEmployeeId,
+                    'customer' => $customerName,
+                    'category' => $categoryName,
+                    'priority' => $priorityName,
+                ]),
+                'created_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to record sla_breached_reassigned audit log: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Dispatch alert notifications to CS and assigned employees for an at-risk ticket.
+     */
+    protected function dispatchSlaRiskAlert($ticket, array $metrics, TicketNotificationService $notificationService): void
+    {
+        $ticketId = (int) $ticket->ticket_ID;
+        $ticketRef = 'TKT-' . str_pad((string) $ticketId, 4, '0', STR_PAD_LEFT);
+        $ticketTitle = $ticket->title ?: 'Ticket #' . $ticketId;
+        $dueAt = $metrics['due_at'] ?? $ticket->resolution_due_at;
+        $remainingMin = $metrics['time_remaining_minutes'] ?? 0;
+        $remainingText = $remainingMin > 60 ? round($remainingMin / 60, 1) . ' hours' : "{$remainingMin} minutes";
+
+        // Collect assigned employee IDs
+        $assignedEmpIds = DB::table('ticket_assignments')
+            ->where('ticket_ID', $ticketId)
+            ->whereNull('completed_at')
+            ->pluck('employee_ID')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        if (!empty($ticket->assigned_to)) {
+            $assignedEmpIds[] = (int) $ticket->assigned_to;
+        }
+        $assignedEmpIds = array_values(array_unique(array_filter($assignedEmpIds)));
+
+        $notificationData = [
+            'type' => 'sla_breach_warning',
+            'ticket_id' => $ticketId,
+            'ticket_ref' => $ticketRef,
+            'title' => $ticketTitle,
+            'sla_status' => 'At Risk',
+            'due_at' => $dueAt,
+            'time_remaining_minutes' => $remainingMin,
+            'link' => "/ticketing/employee/machine",
+        ];
+
+        $csTitle = "SLA Warning: Ticket {$ticketRef} At Risk";
+        $csMessage = "Ticket {$ticketRef}: \"{$ticketTitle}\" is at risk of breaching SLA deadline ({$remainingText} remaining).";
+        $notificationService->notifyCS($csTitle, $csMessage, $ticketId, $notificationData, null, 'sla_breach_warning');
+
+        $empTitle = "SLA Warning: Assigned Ticket {$ticketRef} At Risk";
+        $empMessage = "Warning: Assigned Ticket {$ticketRef}: \"{$ticketTitle}\" has {$remainingText} remaining before SLA breach. Please take prompt action.";
+        foreach ($assignedEmpIds as $empId) {
+            $notificationService->notifyRecipient(
+                $empId,
+                'employee',
+                $empTitle,
+                $empMessage,
+                $ticketId,
+                $notificationData,
+                'sla_breach_warning'
+            );
+        }
+
+        // Broadcast real-time change
+        $notificationService->broadcastTicketChange('sla_at_risk', $ticketId, [
+            'ticket_id' => $ticketId,
+            'sla_status' => 'At Risk',
+            'employee_ids' => $assignedEmpIds,
+        ]);
+
+        // Audit log entry
+        $systemEmpId = DB::table('employees')->value('emp_id') ?? 1;
+        try {
+            DB::table('ticket_audit_logs')->insert([
+                'ticket_ID' => $ticketId,
+                'action_type' => 'sla_at_risk',
+                'action_by_ID' => $systemEmpId,
+                'actor_type' => 'system',
+                'details' => json_encode([
+                    'sla_status' => 'At Risk',
+                    'due_at' => $dueAt,
+                    'time_remaining_minutes' => $remainingMin,
+                    'assigned_employees' => $assignedEmpIds,
+                ]),
+                'created_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // Silently continue if audit log table structure varies
+        }
     }
 }

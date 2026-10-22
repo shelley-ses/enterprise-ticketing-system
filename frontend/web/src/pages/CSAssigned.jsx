@@ -175,19 +175,34 @@ const renderSlaBadge = (ticket) => {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 w-fit"
-        title="No department SLA configured for this ticket category"
-      >
-        <HelpCircle className="h-3 w-3 text-slate-400 shrink-0" />
-        <span>N/A</span>
-      </span>
-      <span className="text-[10px] text-muted-foreground">Standard</span>
-    </div>
-  );
-};
+    if (status === 'unavailable' || status === 'slaunavailable') {
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
+            title="SLA calculation unavailable due to configuration failure"
+          >
+            <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
+            <span>SLA Unavailable</span>
+          </span>
+          <span className="text-[10px] text-muted-foreground">Config Error</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 w-fit"
+          title="No department SLA configured for this ticket category"
+        >
+          <HelpCircle className="h-3 w-3 text-slate-400 shrink-0" />
+          <span>N/A</span>
+        </span>
+        <span className="text-[10px] text-muted-foreground">Standard</span>
+      </div>
+    );
+  };
 
 export default function CSAssigned() {
   const { user } = useAuth();
@@ -408,7 +423,7 @@ export default function CSAssigned() {
     return ['All Departments', ...Array.from(new Set([...fromDeps, ...fromTickets])).sort()];
   }, [departments, tickets]);
 
-  const slaOptions = ['All SLA Statuses', 'Breached', 'At Risk', 'On Track', 'Paused'];
+  const slaOptions = ['All SLA Statuses', 'Breached', 'At Risk', 'On Track', 'Paused', 'No SLA Configured', 'SLA Unavailable'];
 
   const hasActiveFilters = Boolean(
     search.trim() ||
@@ -455,6 +470,8 @@ export default function CSAssigned() {
         if (targetSla === 'atrisk' && rawSla !== 'atrisk') return false;
         if (targetSla === 'ontrack' && rawSla !== 'ontrack' && rawSla !== 'compliant') return false;
         if (targetSla === 'paused' && rawSla !== 'paused') return false;
+        if (targetSla === 'noslaconfigured' && rawSla !== 'noslaconfigured' && rawSla !== 'nosla' && rawSla !== 'na' && rawSla !== '') return false;
+        if (targetSla === 'slaunavailable' && rawSla !== 'unavailable' && rawSla !== 'slaunavailable') return false;
       }
 
       if (typeFilter === 'internal') {
