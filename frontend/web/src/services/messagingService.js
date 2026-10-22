@@ -51,9 +51,29 @@ export const getTicketMessages = async (ticketId) => {
   }));
 };
 
-export const sendTicketMessage = async (ticketId, messageText) => {
-  const response = await messagingClient.post(`/tickets/${ticketId}/messages`, {
-    message: messageText,
+export const sendTicketMessage = async (ticketId, messageText, attachments = []) => {
+  let payload;
+  let headers = {};
+
+  if (Array.isArray(attachments) && attachments.length > 0 && (attachments[0] instanceof File || attachments[0] instanceof Blob)) {
+    const formData = new FormData();
+    if (messageText !== undefined && messageText !== null) {
+      formData.append('message', messageText);
+    }
+    attachments.forEach((file) => {
+      formData.append('attachments[]', file);
+    });
+    payload = formData;
+    headers['Content-Type'] = 'multipart/form-data';
+  } else {
+    payload = {
+      message: messageText || '',
+      attachments: attachments || [],
+    };
+  }
+
+  const response = await messagingClient.post(`/tickets/${ticketId}/messages`, payload, {
+    headers,
   });
   const data = response.data?.data;
   if (data) {

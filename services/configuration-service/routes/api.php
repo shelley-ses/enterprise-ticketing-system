@@ -80,6 +80,16 @@ $registerRoutes = function () {
     Route::put('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
     Route::patch('/windows', [\App\Http\Controllers\TicketConfigurationController::class, 'updateWindows']);
 
+    Route::get('/ticket-configurations/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'showMessaging']);
+    Route::put('/ticket-configurations/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'updateMessaging']);
+    Route::patch('/ticket-configurations/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'updateMessaging']);
+    Route::get('/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'showMessaging']);
+    Route::put('/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'updateMessaging']);
+    Route::patch('/messaging', [\App\Http\Controllers\TicketConfigurationController::class, 'updateMessaging']);
+    Route::post('/ticket-configurations/messaging/reset', function () {
+        return app(\App\Http\Controllers\TicketConfigurationController::class)->reset('messaging');
+    });
+
     Route::get('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'showRouting']);
     Route::put('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'updateRouting']);
     Route::patch('/ticket-configurations/routing', [\App\Http\Controllers\TicketConfigurationController::class, 'updateRouting']);

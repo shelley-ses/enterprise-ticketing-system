@@ -200,7 +200,8 @@ export default function EmployeeMachine() {
 
   const handleUpdateClick = (t) => {
     setInfoTicket(null);
-    navigate('/employee/ticket-update', { state: { ticket: t } });
+    const tId = t.ticket_ID || t.id;
+    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: t } });
   };
 
   const handleReopenProgressTicket = (ticketId, reason) => {

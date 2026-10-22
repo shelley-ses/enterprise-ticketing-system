@@ -555,4 +555,140 @@ class SLAService
             'resolution_sla_status' => $resolutionStatus,
         ];
     }
+
+    /**
+     * Compute comprehensive SLA metrics (status, due date, minutes remaining) for ticket monitoring.
+     * Consistently used by CS queue and ticket detail view.
+     */
+    public function computeTicketSlaMetrics($ticket): array
+    {
+        if (!$ticket) {
+            return [
+                'status' => 'On Track',
+                'due_at' => null,
+                'time_remaining_minutes' => null,
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => false,
+            ];
+        }
+
+        $now = now();
+        $statusName = strtolower(trim((string) ($ticket->status_name ?? $ticket->status ?? '')));
+        $isClosedOrResolved = in_array($statusName, ['closed', 'resolved']);
+        $isOnHold = in_array($statusName, ['on hold', 'on-hold', 'paused']) || ((int) ($ticket->ticket_status_ID ?? 0) === 11);
+
+        $resDueAtRaw = $ticket->resolution_due_at ?? null;
+        $resDueAt = $resDueAtRaw ? Carbon::parse($resDueAtRaw) : null;
+        $resolvedAtRaw = $ticket->resolved_at ?? $ticket->closed_at ?? null;
+        $resolvedAt = $resolvedAtRaw ? Carbon::parse($resolvedAtRaw) : null;
+        $createdAtRaw = $ticket->created_at ?? null;
+        $createdAt = $createdAtRaw ? Carbon::parse($createdAtRaw) : null;
+
+        // 1. Paused / On Hold
+        if ($isOnHold) {
+            return [
+                'status' => 'Paused',
+                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
+                'time_remaining_minutes' => $resDueAt ? max(0, $now->diffInMinutes($resDueAt, false)) : null,
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => true,
+            ];
+        }
+
+        // 2. Closed / Resolved
+        if ($isClosedOrResolved) {
+            $isBreached = false;
+            if ($resDueAt) {
+                $evalTime = $resolvedAt ?: $now;
+                $isBreached = $evalTime->gt($resDueAt);
+            }
+            return [
+                'status' => $isBreached ? 'Breached' : 'Compliant',
+                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
+                'time_remaining_minutes' => 0,
+                'is_breached' => $isBreached,
+                'is_at_risk' => false,
+                'is_paused' => false,
+            ];
+        }
+
+        // 3. Active Ticket with resolution_due_at
+        if ($resDueAt) {
+            $minutesRemaining = $now->diffInMinutes($resDueAt, false);
+            if ($minutesRemaining < 0) {
+                return [
+                    'status' => 'Breached',
+                    'due_at' => $resDueAt->toIso8601String(),
+                    'time_remaining_minutes' => 0,
+                    'is_breached' => true,
+                    'is_at_risk' => false,
+                    'is_paused' => false,
+                ];
+            }
+
+            // At risk if <= 4 hours (240 mins) remaining or <= 25% of total time if createdAt is available
+            $isAtRisk = false;
+            if ($minutesRemaining <= 240) {
+                $isAtRisk = true;
+            } elseif ($createdAt) {
+                $totalMinutes = max(1, $createdAt->diffInMinutes($resDueAt, false));
+                if (($minutesRemaining / $totalMinutes) <= 0.25) {
+                    $isAtRisk = true;
+                }
+            }
+
+            return [
+                'status' => $isAtRisk ? 'At Risk' : 'On Track',
+                'due_at' => $resDueAt->toIso8601String(),
+                'time_remaining_minutes' => (int) $minutesRemaining,
+                'is_breached' => false,
+                'is_at_risk' => $isAtRisk,
+                'is_paused' => false,
+            ];
+        }
+
+        // 4. Active Ticket fallback without resolution_due_at: use age from createdAt
+        if ($createdAt) {
+            $hours = $now->diffInHours($createdAt);
+            if ($hours >= 48) {
+                return [
+                    'status' => 'Breached',
+                    'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                    'time_remaining_minutes' => 0,
+                    'is_breached' => true,
+                    'is_at_risk' => false,
+                    'is_paused' => false,
+                ];
+            }
+            if ($hours >= 24) {
+                return [
+                    'status' => 'At Risk',
+                    'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                    'time_remaining_minutes' => max(0, (48 - $hours) * 60),
+                    'is_breached' => false,
+                    'is_at_risk' => true,
+                    'is_paused' => false,
+                ];
+            }
+            return [
+                'status' => 'On Track',
+                'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
+                'time_remaining_minutes' => max(0, (48 - $hours) * 60),
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => false,
+            ];
+        }
+
+        return [
+            'status' => 'On Track',
+            'due_at' => null,
+            'time_remaining_minutes' => null,
+            'is_breached' => false,
+            'is_at_risk' => false,
+            'is_paused' => false,
+        ];
+    }
 }

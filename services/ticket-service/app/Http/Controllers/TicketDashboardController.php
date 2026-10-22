@@ -64,6 +64,9 @@ class TicketDashboardController extends Controller
             'machine_id' => $request->query('machine_id'),
             'customer' => $request->query('customer'),
             'customer_id' => $request->query('customer_id'),
+            'sla_status' => $request->query('sla_status') ?? $request->query('sla'),
+            'sort_by' => $request->query('sort_by'),
+            'sort_dir' => $request->query('sort_dir', 'desc'),
         ];
 
         $forceRefresh = filter_var($request->query('forceRefresh', $request->query('force_refresh', false)), FILTER_VALIDATE_BOOLEAN);

@@ -35,12 +35,21 @@ class FeedbackQuestion extends Model
      */
     public function toApiResponse(): array
     {
+        $options = $this->options;
+        if ($this->response_type === 'Yes / No') {
+            $options = !empty($this->options) ? $this->options : ['Yes', 'No'];
+        } elseif (in_array($this->response_type, ['Multiple Choice', 'Checkbox'], true)) {
+            $options = is_array($this->options) ? array_values($this->options) : [];
+        } else {
+            $options = null;
+        }
+
         return [
             'id'            => (string) $this->id,
             'category'      => $this->category,
             'text'          => $this->text,
             'responseType'  => $this->response_type,
-            'options'       => $this->options ?? ($this->response_type === 'Multiple Choice' ? ['Yes', 'No'] : null),
+            'options'       => $options,
             'isEnabled'     => (bool) $this->is_enabled,
             'orderPosition' => (int) $this->order_position,
             'isDefault'     => (bool) $this->is_default,

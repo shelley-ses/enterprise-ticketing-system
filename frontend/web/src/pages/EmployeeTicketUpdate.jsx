@@ -35,8 +35,15 @@ const STATUS_OPTIONS = ['In Progress', 'Pending', 'Resolved', 'On Hold'];
 
 export default function EmployeeTicketUpdate() {
   const navigate = useNavigate();
-  const { state } = useLocation();
+  const location = useLocation();
+  const state = location.state;
   const { user } = useAuth();
+
+  const queryTicketId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const val = params.get('ticketId') || params.get('id');
+    return val ? Number(String(val).replace(/\D/g, '')) : null;
+  }, [location.search]);
 
   const [ticket, setTicket] = useState(state?.ticket ?? null);
   const [statusDraft, setStatusDraft] = useState(state?.ticket?.status ?? '');
@@ -64,13 +71,16 @@ export default function EmployeeTicketUpdate() {
   const [savedWorkLogs, setSavedWorkLogs] = useState([]);
 
   const numericId = useMemo(() => {
-    if (!ticket) return null;
-    return ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
-  }, [ticket]);
+    if (ticket) {
+      return ticket.ticket_ID || Number(String(ticket.id).replace(/\D/g, ''));
+    }
+    return queryTicketId;
+  }, [ticket, queryTicketId]);
 
   const loadTicketData = useCallback(async () => {
     if (!numericId) return;
     setLoading(true);
+    setErrorMessage('');
     try {
       const details = await getTicketDetails(numericId);
       setTicket((prev) => ({
@@ -85,23 +95,24 @@ export default function EmployeeTicketUpdate() {
       if (Array.isArray(details?.worklogs)) {
         setSavedWorkLogs(details.worklogs);
       }
-      if (!statusDraft) {
+      if (!statusDraft && details?.status) {
         setStatusDraft(details.status);
       }
-    } catch {
-      setErrorMessage('Failed to load ticket details.');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Failed to load ticket details.';
+      setErrorMessage(msg);
     } finally {
       setLoading(false);
     }
   }, [numericId, statusDraft]);
 
   useEffect(() => {
-    if (!ticket) {
+    if (!ticket && !queryTicketId) {
       navigate('/employee/machine', { replace: true });
     } else {
       loadTicketData();
     }
-  }, [numericId]);
+  }, [numericId, queryTicketId]);
 
   useEffect(() => {
     if (ticket) {

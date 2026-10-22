@@ -93,6 +93,9 @@ import {
   getFileLimitsConfig,
   updateFileLimitsConfig,
   resetFileLimitsConfig,
+  getMessagingConfiguration,
+  updateMessagingConfiguration,
+  resetMessagingConfiguration,
 } from '@/services/configurationService';
 import EmailVisualEditor from '@/components/EmailVisualEditor';
 
@@ -139,6 +142,7 @@ export const TAB_WINDOWS = 'windows';
 export const TAB_NOTIFICATIONS = 'notifications';
 export const TAB_ESCALATION = 'escalation';
 export const TAB_FEEDBACK = 'feedback';
+export const TAB_MESSAGING = 'messaging';
 
 export const BRANCH_SUBTAB_CATEGORIES = 'categories';
 export const BRANCH_SUBTAB_PRIORITIES = 'priorities-sla';
@@ -172,6 +176,7 @@ export const GROUPS_CONFIG = [
       { id: TAB_TRANSITIONS, label: 'Transition Matrix' },
       { id: TAB_WINDOWS, label: 'Closure Windows' },
       { id: TAB_FEEDBACK, label: 'Feedback Form' },
+      { id: TAB_MESSAGING, label: 'Messaging' },
     ],
   },
   {
@@ -251,6 +256,10 @@ export const SUBTAB_METADATA = {
   [TAB_FEEDBACK]: {
     icon: Star,
     subtitle: 'CSAT rating questions & feedback triggers',
+  },
+  [TAB_MESSAGING]: {
+    icon: MessageSquare,
+    subtitle: 'Ticket messaging participant rules & delegation access',
   },
 
   // SLA & Escalations
@@ -355,7 +364,7 @@ export const TS094_DATE_OPTIONS = [
 // Category source is provisional — pending confirmation with PM on whether this should map to the Departments API or remain a dedicated Feedback Form category concept. Do not assume these values match items.departments.
 export const FEEDBACK_CATEGORIES = ['IT', 'Service', 'Others'];
 
-export const TS104_RESPONSE_TYPES = ['Star Rating', 'Multiple Choice', 'Free Text'];
+export const TS104_RESPONSE_TYPES = ['Star Rating', 'Yes / No', 'Multiple Choice', 'Checkbox', 'Free Text'];
 
 export const TS104_DEFAULT_QUESTIONS = {
   'IT': [
@@ -1210,6 +1219,34 @@ export default function SuperAdminTicketConfig() {
             reopenWindowDays: Number(cfg.reopenWindowDays ?? 2),
             autoCloseEnabled: Boolean(cfg.autoCloseEnabled ?? true),
             autoCloseWindowDays: Number(cfg.autoCloseWindowDays ?? 2),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const [messagingConfig, setMessagingConfig] = useState({
+    default_participants: 'customer_cs',
+    allow_delegated_employee: true,
+    allow_full_history: true,
+    notify_on_employee_join: true,
+  });
+  const [messagingSaving, setMessagingSaving] = useState(false);
+
+  // Fast independent fetch for messaging participation configuration
+  useEffect(() => {
+    let isMounted = true;
+    getMessagingConfiguration()
+      .then((cfg) => {
+        if (isMounted && cfg) {
+          setMessagingConfig({
+            default_participants: cfg.default_participants || 'customer_cs',
+            allow_delegated_employee: Boolean(cfg.allow_delegated_employee ?? true),
+            allow_full_history: Boolean(cfg.allow_full_history ?? true),
+            notify_on_employee_join: Boolean(cfg.notify_on_employee_join ?? true),
           });
         }
       })
@@ -2556,6 +2593,47 @@ export default function SuperAdminTicketConfig() {
     }
   };
 
+  const handleSaveMessagingConfig = async () => {
+    try {
+      setMessagingSaving(true);
+      const updated = await updateMessagingConfiguration(messagingConfig);
+      if (updated) {
+        setMessagingConfig((prev) => ({
+          ...prev,
+          default_participants: updated.default_participants ?? prev.default_participants,
+          allow_delegated_employee: Boolean(updated.allow_delegated_employee ?? prev.allow_delegated_employee),
+          allow_full_history: Boolean(updated.allow_full_history ?? prev.allow_full_history),
+          notify_on_employee_join: Boolean(updated.notify_on_employee_join ?? prev.notify_on_employee_join),
+        }));
+      }
+      showSuccess('Settings Saved', 'Ticket messaging participation configuration updated and saved successfully.');
+    } catch (err) {
+      showError('Save Error', err.response?.data?.message || 'Failed to save messaging configuration.');
+    } finally {
+      setMessagingSaving(false);
+    }
+  };
+
+  const handleResetMessagingConfig = async () => {
+    try {
+      setMessagingSaving(true);
+      const res = await resetMessagingConfiguration();
+      if (res) {
+        setMessagingConfig({
+          default_participants: res.default_participants || 'customer_cs',
+          allow_delegated_employee: Boolean(res.allow_delegated_employee ?? true),
+          allow_full_history: Boolean(res.allow_full_history ?? true),
+          notify_on_employee_join: Boolean(res.notify_on_employee_join ?? true),
+        });
+      }
+      showSuccess('Reset Complete', 'Ticket messaging configuration has been reset to system defaults.');
+    } catch (err) {
+      showError('Reset Error', err.response?.data?.message || 'Failed to reset messaging configuration.');
+    } finally {
+      setMessagingSaving(false);
+    }
+  };
+
   // TS099: Compute full recipient options combining contextual actors, static roles, and dynamic departments
   const ts099RecipientOptions = useMemo(() => {
     const deptList = (items.departments && items.departments.length > 0)
@@ -3499,14 +3577,22 @@ export default function SuperAdminTicketConfig() {
       category: activeFeedbackCategory,
       text: '',
       responseType: 'Star Rating',
+      options: null,
       isEnabled: true,
     });
   };
 
   const handleEditFeedbackQuestion = (question) => {
     setFeedbackInlineError('');
+    let opts = question.options;
+    if (question.responseType === 'Yes / No') {
+      opts = ['Yes', 'No'];
+    } else if (question.responseType === 'Multiple Choice' || question.responseType === 'Checkbox') {
+      opts = Array.isArray(opts) && opts.length > 0 ? opts : ['Option 1', 'Option 2'];
+    }
     setEditingQuestion({
       ...question,
+      options: opts,
       category: activeFeedbackCategory,
     });
   };
@@ -3515,14 +3601,27 @@ export default function SuperAdminTicketConfig() {
     if (!editingQuestion || !editingQuestion.text.trim()) return;
     const trimmedText = editingQuestion.text.trim();
     const cat = editingQuestion.category || activeFeedbackCategory;
+    const resType = editingQuestion.responseType || 'Star Rating';
+
+    let options = null;
+    if (resType === 'Yes / No') {
+      options = ['Yes', 'No'];
+    } else if (resType === 'Multiple Choice' || resType === 'Checkbox') {
+      options = Array.isArray(editingQuestion.options)
+        ? editingQuestion.options.map((o) => String(o).trim()).filter(Boolean)
+        : ['Option 1', 'Option 2'];
+      if (options.length === 0) {
+        options = ['Option 1', 'Option 2'];
+      }
+    }
 
     try {
       if (editingQuestion.id === null || String(editingQuestion.id).startsWith('custom-')) {
         const res = await createFeedbackQuestion({
           category: cat,
           text: trimmedText,
-          responseType: editingQuestion.responseType || 'Star Rating',
-          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
+          responseType: resType,
+          options,
           isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
         });
         const created = res.question;
@@ -3535,8 +3634,8 @@ export default function SuperAdminTicketConfig() {
         const res = await updateFeedbackQuestion(editingQuestion.id, {
           category: cat,
           text: trimmedText,
-          responseType: editingQuestion.responseType,
-          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
+          responseType: resType,
+          options,
           isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
         });
         const updated = res.question;
@@ -6175,9 +6274,13 @@ export default function SuperAdminTicketConfig() {
                 const typeBadgeClass =
                   q.responseType === 'Star Rating'
                     ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : q.responseType === 'Multiple Choice'
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    : q.responseType === 'Yes / No'
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : q.responseType === 'Multiple Choice'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : q.responseType === 'Checkbox'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200';
 
                 return (
                   <div
@@ -6207,6 +6310,21 @@ export default function SuperAdminTicketConfig() {
                         <h4 className="mt-3 text-sm sm:text-base font-semibold text-gray-900 leading-snug break-words">
                           {q.text}
                         </h4>
+
+                        {/* Options preview for Multiple Choice or Checkbox */}
+                        {Array.isArray(q.options) && q.options.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-semibold text-gray-400 mr-1">Choices:</span>
+                            {q.options.map((opt, optIdx) => (
+                              <span
+                                key={optIdx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700 border border-gray-200"
+                              >
+                                {opt}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Controls & actions */}
@@ -6286,7 +6404,7 @@ export default function SuperAdminTicketConfig() {
           {/* TS104 Create / Edit Question Modal */}
           {editingQuestion !== null && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-start justify-between border-b border-gray-150 pb-4">
                   <div>
                     <h2 className="text-lg font-bold text-gray-900">
@@ -6328,7 +6446,18 @@ export default function SuperAdminTicketConfig() {
                     </label>
                     <select
                       value={editingQuestion.responseType}
-                      onChange={(e) => setEditingQuestion({ ...editingQuestion, responseType: e.target.value })}
+                      onChange={(e) => {
+                        const newType = e.target.value;
+                        let newOptions = editingQuestion.options;
+                        if (newType === 'Yes / No') {
+                          newOptions = ['Yes', 'No'];
+                        } else if (newType === 'Multiple Choice' || newType === 'Checkbox') {
+                          newOptions = Array.isArray(newOptions) && newOptions.length > 0 ? newOptions : ['Option 1', 'Option 2'];
+                        } else {
+                          newOptions = null;
+                        }
+                        setEditingQuestion({ ...editingQuestion, responseType: newType, options: newOptions });
+                      }}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-3 text-sm font-semibold text-gray-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-[#252578]"
                     >
                       {TS104_RESPONSE_TYPES.map((t) => (
@@ -6337,12 +6466,73 @@ export default function SuperAdminTicketConfig() {
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1.5 text-xs text-gray-400">
+                    <p className="mt-1.5 text-xs text-gray-400 leading-relaxed">
                       {editingQuestion.responseType === 'Star Rating' && 'Presents an interactive 1–5 star rating scale to the customer.'}
-                      {editingQuestion.responseType === 'Multiple Choice' && 'Offers selectable pre-configured options or Yes/No answer choices.'}
+                      {editingQuestion.responseType === 'Yes / No' && 'Presents a dedicated Yes or No binary choice to the customer.'}
+                      {editingQuestion.responseType === 'Multiple Choice' && 'Offers single select customizable answer choices.'}
+                      {editingQuestion.responseType === 'Checkbox' && 'Offers multi select customizable checkbox choices.'}
                       {editingQuestion.responseType === 'Free Text' && 'Provides an open-ended multiline text area for written suggestions.'}
                     </p>
                   </div>
+
+                  {/* Choices Manager for Multiple Choice and Checkbox */}
+                  {(editingQuestion.responseType === 'Multiple Choice' || editingQuestion.responseType === 'Checkbox') && (
+                    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-3.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Custom Choices ({editingQuestion.responseType === 'Multiple Choice' ? 'Single Select' : 'Multi Select'}) <span className="text-red-500">*</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = Array.isArray(editingQuestion.options) ? editingQuestion.options : [];
+                            const nextOpts = [...current, `Option ${current.length + 1}`];
+                            setEditingQuestion({ ...editingQuestion, options: nextOpts });
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#252578] hover:underline cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add Choice</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                        {(editingQuestion.options || ['Option 1', 'Option 2']).map((opt, optIdx) => (
+                          <div key={optIdx} className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-400 w-5 text-center">{optIdx + 1}.</span>
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => {
+                                const current = Array.isArray(editingQuestion.options) ? [...editingQuestion.options] : ['Option 1', 'Option 2'];
+                                current[optIdx] = e.target.value;
+                                setEditingQuestion({ ...editingQuestion, options: current });
+                              }}
+                              placeholder={`Choice ${optIdx + 1}`}
+                              className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-900 outline-none focus:ring-2 focus:ring-[#252578]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const current = Array.isArray(editingQuestion.options) ? editingQuestion.options : ['Option 1', 'Option 2'];
+                                if (current.length <= 2) return;
+                                const nextOpts = current.filter((_, i) => i !== optIdx);
+                                setEditingQuestion({ ...editingQuestion, options: nextOpts });
+                              }}
+                              disabled={(editingQuestion.options || []).length <= 2}
+                              className="p-1.5 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:text-gray-400 cursor-pointer rounded-lg hover:bg-red-50"
+                              title="Delete choice"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        At least 2 choices required. Choices will be rendered on the customer satisfaction survey form.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Modal Actions: Cancel & Save immediately */}
@@ -7591,6 +7781,255 @@ export default function SuperAdminTicketConfig() {
               </div>
             </div>
           ) : null}
+        </div>
+      ) : tab === TAB_MESSAGING ? (
+        <div className="flex flex-col gap-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">Ticket Messaging Configuration</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                  <CheckCircle2 size={12} className="shrink-0 text-emerald-600" />
+                  <span>Database Connected</span>
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                Configure who participates in ticket messaging and define whether delegated employees can join customer conversations.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={handleResetMessagingConfig}
+                disabled={messagingSaving}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#252578] transition-all shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw size={13} className={messagingSaving ? 'animate-spin' : ''} />
+                <span>Reset to Defaults</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveMessagingConfig}
+                disabled={messagingSaving}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#252578] px-3.5 py-2 text-xs font-semibold text-white transition-all hover:bg-[#1f1f63] hover:shadow-md shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                <Save size={13} />
+                <span>{messagingSaving ? 'Saving...' : 'Save Settings'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card 1: Default Channel Baseline */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#252578] flex items-center justify-center font-bold">
+                      <Users size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">Baseline Participants</h3>
+                      <p className="text-xs text-gray-500">Core ticket chat channel</p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#252578] border border-blue-200">
+                    <Lock size={11} />
+                    System Core
+                  </span>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    By default, ticket messaging connects the ticket creator and Customer Service. This core baseline channel ensures all customer requests receive immediate initial triage.
+                  </p>
+
+                  <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        Customer / Requester
+                      </span>
+                      <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                        Always Connected
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#252578]"></span>
+                        Customer Support (CS)
+                      </span>
+                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                        Always Connected
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                Default direction: Customer &harr; Customer Support
+              </div>
+            </div>
+
+            {/* Card 2: Delegated Employee Participation */}
+            <div className={`rounded-2xl border p-6 shadow-xs flex flex-col justify-between transition-all ${
+              messagingConfig.allow_delegated_employee ? 'border-[#252578]/30 bg-white ring-1 ring-[#252578]/10' : 'border-gray-200 bg-gray-50/40'
+            }`}>
+              <div>
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                      <MessageSquare size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">Employee Delegation</h3>
+                      <p className="text-xs text-gray-500">Field staff &amp; technician access</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    {messagingConfig.allow_delegated_employee ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                        <CheckCircle2 size={11} />
+                        Enabled
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 border border-gray-200">
+                        Disabled
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={messagingConfig.allow_delegated_employee}
+                      onClick={() => setMessagingConfig(prev => ({
+                        ...prev,
+                        allow_delegated_employee: !prev.allow_delegated_employee
+                      }))}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer ${
+                        messagingConfig.allow_delegated_employee ? 'bg-emerald-600' : 'bg-gray-300'
+                      }`}
+                      title="Toggle delegated employee messaging participation"
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
+                          messagingConfig.allow_delegated_employee ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    When enabled, if a ticket is delegated or assigned to an employee or engineer, that ticket automatically appears in their employee messages list at <code className="text-[#252578] font-semibold bg-gray-100 px-1 py-0.5 rounded">/employee/messages</code>.
+                  </p>
+
+                  <div className="space-y-3 pt-1">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={messagingConfig.allow_full_history}
+                        disabled={!messagingConfig.allow_delegated_employee}
+                        onChange={(e) => setMessagingConfig(prev => ({
+                          ...prev,
+                          allow_full_history: e.target.checked
+                        }))}
+                        className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                      />
+                      <div>
+                        <span className="text-xs font-semibold text-gray-800 block">
+                          Full Conversation History Access
+                        </span>
+                        <span className="text-[11px] text-gray-500 block leading-tight">
+                          Delegated employees can read prior customer support messages to gain diagnostic context.
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={messagingConfig.notify_on_employee_join}
+                        disabled={!messagingConfig.allow_delegated_employee}
+                        onChange={(e) => setMessagingConfig(prev => ({
+                          ...prev,
+                          notify_on_employee_join: e.target.checked
+                        }))}
+                        className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                      />
+                      <div>
+                        <span className="text-xs font-semibold text-gray-800 block">
+                          Notify Participants on Employee Activity
+                        </span>
+                        <span className="text-[11px] text-gray-500 block leading-tight">
+                          Broadcast real-time notification alerts to CS and Customer when the employee joins the discussion.
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                Connected route: <code className="text-gray-600">/ticketing/employee/messages</code>
+              </div>
+            </div>
+
+            {/* Card 3: Architecture & Flow Status */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
+                  <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                    <Layers size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">How Messages Flow</h3>
+                    <p className="text-xs text-gray-500">Three party conversation map</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2">
+                    <div className="flex items-center justify-between text-slate-700">
+                      <span className="font-semibold">Message Store</span>
+                      <span className="font-mono text-[11px] text-slate-500">MongoDB 7 / messages</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-700">
+                      <span className="font-semibold">Real-Time Engine</span>
+                      <span className="font-mono text-[11px] text-slate-500">Laravel Reverb :6002</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-700">
+                      <span className="font-semibold">Cache Layer</span>
+                      <span className="font-mono text-[11px] text-slate-500">Redis SCAN chunking</span>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-gray-500 space-y-2 leading-relaxed">
+                    <p className="flex items-start gap-1.5">
+                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                      <span><strong>Historical Message Safety:</strong> Configuration updates only govern future messages. All previous chat messages remain permanently preserved and are never deleted or destroyed.</span>
+                    </p>
+                    <p className="flex items-start gap-1.5">
+                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Employee replies appear in the shared ticket timeline with a <strong className="text-purple-700">Staff / Engineer</strong> badge.</span>
+                    </p>
+                    <p className="flex items-start gap-1.5">
+                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Archival policies configured in <strong className="text-gray-700">Closure Windows</strong> apply uniformly across all participants upon closure.</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                Policy updates apply instantly to new messages without server restart.
+              </div>
+            </div>
+          </div>
         </div>
       ) : tab === TAB_DEFAULTS ? (
         <div className="flex flex-col gap-6">

@@ -669,3 +669,32 @@ export async function resetFileLimitsConfig() {
   return response.data?.value || response.data;
 }
 
+// ---------------------------------------------------------------------------
+// Ticket Messaging Participation Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch ticket messaging participation configuration.
+ * Returns { default_participants: string, allow_delegated_employee: boolean, allow_full_history: boolean, notify_on_employee_join: boolean }
+ */
+export async function getMessagingConfiguration() {
+  const response = await configClient.get('/ticket-configurations/messaging');
+  return response.data?.value || response.data;
+}
+
+/**
+ * Update ticket messaging participation configuration.
+ */
+export async function updateMessagingConfiguration(payload) {
+  const response = await configClient.put('/ticket-configurations/messaging', payload);
+  return response.data?.value || response.data;
+}
+
+/**
+ * Reset ticket messaging participation configuration to factory defaults.
+ */
+export async function resetMessagingConfiguration() {
+  const response = await configClient.post('/ticket-configurations/messaging/reset');
+  return response.data?.value || response.data;
+}
+

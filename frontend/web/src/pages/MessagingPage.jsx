@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw, X, Info, History, Sparkles, Bot, Clock } from 'lucide-react';
+import { MessageCircle, Send, Users, User, AlertCircle, MoreVertical, Edit2, Trash2, Archive, RotateCcw, X, Info, History, Sparkles, Bot, Clock, Paperclip, FileText, Download, ShieldAlert, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import {
   getTicketMessages,
@@ -15,9 +15,11 @@ import {
   getCustomerTickets,
   getCSIncomingTickets,
   getEmployeeInternalTickets,
+  getEmployeeAssignedTickets,
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
+import { getMessagingConfiguration } from '@/services/configurationService';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -77,7 +79,8 @@ const checkIsEmployee = (user) => {
 
 function Avatar({ name, size = 'md' }) {
   const sizeClasses = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm';
-  const initials = (name || 'User').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const rawStr = typeof name === 'string' ? name : (name?.name || (name ? String(name) : 'User'));
+  const initials = rawStr.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
   return (
     <div className={`${sizeClasses} rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold shrink-0`}>
       {initials}
@@ -145,6 +148,10 @@ export default function MessagingPage() {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadError, setUploadError] = useState(null);
+  const [isSending, setIsSending] = useState(false);
+  const fileInputRef = useRef(null);
   const [lastMessageIdOnLoad, setLastMessageIdOnLoad] = useState(null);
   const [sidebarTab, setSidebarTab] = useState('info'); // 'info' | 'history' | 'ai'
   const [ticketHistory, setTicketHistory] = useState(null);
@@ -188,13 +195,56 @@ export default function MessagingPage() {
         setLoading(true);
         let list = [];
         if (isCS) {
-          list = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+          const res = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+          list = Array.isArray(res) ? res : (res?.tickets || res?.list || []);
         } else if (isEmployee) {
-          const res = await getEmployeeInternalTickets();
-          list = res?.tickets || [];
+          let internalList = [];
+          try {
+            const res = await getEmployeeInternalTickets();
+            internalList = res?.tickets || [];
+          } catch (e) {
+            console.warn('Failed loading employee internal tickets', e);
+          }
+
+          let assignedList = [];
+          try {
+            const msgConfig = await getMessagingConfiguration().catch(() => null);
+            const allowDelegated = Boolean(msgConfig?.allow_delegated_employee ?? true);
+            if (allowDelegated) {
+              const assigned = await getEmployeeAssignedTickets({ employeeEmail: user?.email, forceRefresh: true }).catch(() => []);
+              assignedList = Array.isArray(assigned) ? assigned : (assigned?.tickets || []);
+            }
+          } catch (e) {
+            console.warn('Failed loading assigned tickets for employee messaging', e);
+          }
+
+          const seen = new Set();
+          const merged = [];
+          for (const item of [...assignedList, ...internalList]) {
+            const tid = item.ticket_ID || item.id;
+            if (tid && !seen.has(tid)) {
+              seen.add(tid);
+              merged.push(item);
+            }
+          }
+          list = merged;
         } else {
-          list = await getCustomerTickets({ createdBy: user?.id, limit: 100, forceRefresh: true });
+          const res = await getCustomerTickets({ createdBy: user?.id, limit: 100, forceRefresh: true });
+          list = Array.isArray(res) ? res : (res?.tickets || res?.list || []);
         }
+
+        // Deduplicate tickets by unique ticket ID to prevent duplicate React keys
+        const seen = new Set();
+        const dedupedList = [];
+        for (const item of list) {
+          const tid = item.ticket_ID || item.id;
+          if (tid && !seen.has(tid)) {
+            seen.add(tid);
+            dedupedList.push(item);
+          }
+        }
+        list = dedupedList;
+
         if (active) {
           setTickets(list);
 
@@ -232,14 +282,26 @@ export default function MessagingPage() {
       let contactRole = '';
       let type = 'external';
 
+      const rawCustomer = typeof t.customer === 'string' ? t.customer : (t.customer?.name || t.client?.client_name || t.client_name || t.created_by_name || null);
       if (isCS) {
-        contactName = t.customer || t.client_name || t.created_by_name || 'Client';
+        contactName = rawCustomer || 'Client';
         contactRole = t.is_internal ? 'Employee' : 'Customer';
         type = t.is_internal ? 'internal' : 'external';
+      } else if (isEmployee) {
+        const isDelegatedToMe = !t.is_internal || (t.requested_by != user?.emp_id && t.requested_by != user?.id);
+        if (isDelegatedToMe) {
+          contactName = rawCustomer || 'Customer & Support';
+          contactRole = t.is_internal ? 'Internal Ticket' : 'Customer & Support';
+          type = t.is_internal ? 'internal' : 'external';
+        } else {
+          contactName = 'Customer Support';
+          contactRole = 'Representative';
+          type = 'internal';
+        }
       } else {
         contactName = 'Customer Support';
         contactRole = 'Representative';
-        type = isEmployee ? 'internal' : 'external';
+        type = 'external';
       }
 
       const statusName = t.status || t.status_name || 'Open';
@@ -249,13 +311,14 @@ export default function MessagingPage() {
       // Threads now remain active throughout the active lifecycle (Open, Assigned, In Progress, On Hold, etc.).
       // Archival only triggers when the ticket status is "Closed" AND the Super Admin toggle is ON.
       const isArchived = isClosed && archiveOnClosureEnabled;
+      const ticketTitle = t.title || t.subject || `Ticket #${ticketId}`;
 
       return {
         id: ticketId,
         ticket_ID: t.ticket_ID || Number(String(ticketId).replace(/\D/g, '')),
         created_by: t.created_by || t.client_id || t.user_id || (isCS ? null : user?.id),
-        name: `${contactName} (${t.title})`,
-        displayTitle: t.title,
+        name: `${contactName} (${ticketTitle})`,
+        displayTitle: ticketTitle,
         subtitle: contactName,
         role: contactRole,
         type,
@@ -342,7 +405,7 @@ export default function MessagingPage() {
         }
         setMessages(prev => {
           const msgId = e.id || e._id;
-          if (prev.some(m => m.id === msgId || m._id === msgId)) {
+          if (prev.some(m => (m.id && (m.id === msgId || m.id === e.id || m.id === e._id)) || (m._id && (m._id === msgId || m._id === e.id || m._id === e._id)))) {
             return prev;
           }
           return [...prev, {
@@ -352,7 +415,9 @@ export default function MessagingPage() {
             sender_id: e.sender_id,
             sender_name: e.sender_name,
             sender_type: e.sender_type,
-            message: e.message,
+            sender_role: e.sender_role,
+            message: e.message || '',
+            attachments: e.attachments || [],
             created_at: e.created_at,
           }];
         });
@@ -553,37 +618,146 @@ export default function MessagingPage() {
 
   // 6. Scroll to bottom of message logs
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages.length, selectedContactId]);
 
   const handleSelectContact = useCallback((contactId) => {
     setSelectedContactId(contactId);
   }, []);
 
+  const handleFileSelect = useCallback((e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setUploadError(null);
+
+    if (selectedFiles.length + files.length > 5) {
+      setUploadError("You can attach a maximum of 5 files per message.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const allowedExtensions = ['PDF', 'DOCX', 'DOC', 'JPG', 'JPEG', 'PNG', 'TXT', 'LOG', 'CSV', 'XLSX'];
+    const maxSizeBytes = 15 * 1024 * 1024;
+    for (const f of files) {
+      const ext = (f.name.split('.').pop() || '').toUpperCase();
+      if (!allowedExtensions.includes(ext)) {
+        setUploadError(`File '${f.name}' has an unsupported file format (.${ext.toLowerCase()}). Allowed formats: ${allowedExtensions.join(', ')}.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      if (f.size > maxSizeBytes) {
+        setUploadError(`File '${f.name}' exceeds the maximum allowed size of 15 MB.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    }
+
+    setSelectedFiles(prev => [...prev, ...files]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [selectedFiles.length]);
+
+  const handleRemoveFile = useCallback((indexToRemove) => {
+    setSelectedFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    setUploadError(null);
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = messageInput.trim();
-    if (!text || !selectedContactId) return;
+    if (!text && selectedFiles.length === 0) return;
+    if (!selectedContactId) return;
     if (selectedContact?.isArchived) return;
 
+    setIsSending(true);
+    setUploadError(null);
+
+    const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
+    const filesToUpload = [...selectedFiles];
+    const textToSend = text;
+
+    // TS084: Add optimistic pending message so the user immediately sees the sending / malware scan state
+    const tempOptimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const optimisticMessage = {
+      id: tempOptimisticId,
+      _id: tempOptimisticId,
+      ticket_id: numericTargetId,
+      sender_id: userId,
+      sender_name: user?.name || (user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (isCustomer ? 'Customer' : 'You')),
+      sender_type: userType,
+      sender_role: isCustomer ? 'Customer' : (isCS ? 'Customer Support' : 'Staff / Engineer'),
+      message: textToSend,
+      attachments: filesToUpload.map((f, idx) => ({
+        id: `opt-att-${idx}`,
+        name: f.name,
+        file_size: f.size,
+        file_type: f.type,
+        scan_status: 'pending', // Currently scanning for malware
+        isScanning: true,
+      })),
+      created_at: new Date().toISOString(),
+      isPending: true,
+    };
+
+    setMessages(prev => [...prev, optimisticMessage]);
     setMessageInput('');
+    setSelectedFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
 
     try {
-      const newMsg = await sendTicketMessage(selectedContactId, text);
-      const numericTargetId = Number(String(selectedContactId).replace(/\D/g, ''));
+      const newMsg = await sendTicketMessage(selectedContactId, textToSend, filesToUpload);
       setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== tempOptimisticId && m._id !== tempOptimisticId);
         if (newMsg.ticket_id && Number(newMsg.ticket_id) !== numericTargetId) {
-          return prev;
+          return filtered;
         }
-        if (prev.some(m => m.id === newMsg.id || m._id === newMsg._id)) {
-          return prev;
+        if (filtered.some(m => (m.id && (m.id === newMsg.id || m.id === newMsg._id)) || (m._id && (m._id === newMsg.id || m._id === newMsg._id)))) {
+          return filtered;
         }
-        return [...prev, newMsg];
+        return [...filtered, newMsg];
       });
     } catch (err) {
       console.error("Failed to send message", err);
-      window.alert(err?.response?.data?.message || "Failed to send message. Please try again.");
+      // Remove optimistic message on failure and restore user input/files
+      setMessages(prev => prev.filter(m => m.id !== tempOptimisticId && m._id !== tempOptimisticId));
+      setMessageInput(textToSend);
+      setSelectedFiles(filesToUpload);
+      const serverMsg = err?.response?.data?.message || err?.response?.data?.errors?.attachments?.[0] || err?.response?.data?.errors?.message?.[0] || "Failed to send message. Please try again.";
+      setUploadError(serverMsg);
+    } finally {
+      setIsSending(false);
     }
-  }, [messageInput, selectedContactId, selectedContact?.isArchived]);
+  }, [messageInput, selectedFiles, selectedContactId, selectedContact?.isArchived, userId, userType, user, isCustomer, isCS]);
+
+  const isWithinEditWindow = useCallback((msg) => {
+    if (!msg?.created_at) return true;
+    const sentTime = new Date(msg.created_at).getTime();
+    const diffMinutes = (Date.now() - sentTime) / (1000 * 60);
+    return diffMinutes <= 15;
+  }, []);
+
+  const renderRoleBadge = useCallback((msg) => {
+    const roleText = msg.sender_role || (msg.sender_type === 'cs' ? 'Customer Support' : (msg.sender_type === 'employee' ? 'Staff / Engineer' : 'Customer'));
+    const lower = roleText.toLowerCase();
+
+    let badgeClass = 'bg-slate-100 text-slate-700 border-slate-200';
+    if (lower.includes('customer support') || lower.includes('cs') || msg.sender_type === 'cs') {
+      badgeClass = 'bg-blue-100 text-blue-700 border-blue-200';
+    } else if (lower.includes('super admin') || lower.includes('superadmin')) {
+      badgeClass = 'bg-amber-100 text-amber-800 border-amber-200';
+    } else if (lower.includes('it admin') || lower.includes('admin')) {
+      badgeClass = 'bg-indigo-100 text-indigo-800 border-indigo-200';
+    } else if (lower.includes('engineer') || lower.includes('technician') || lower.includes('service') || msg.sender_type === 'employee') {
+      badgeClass = 'bg-purple-100 text-purple-700 border-purple-200';
+    } else if (lower.includes('customer') || msg.sender_type === 'customer') {
+      badgeClass = 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    }
+
+    return (
+      <span className={`px-1.5 py-0.5 rounded-full font-semibold text-[9px] border ${badgeClass}`}>
+        {roleText}
+      </span>
+    );
+  }, []);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -833,9 +1007,9 @@ export default function MessagingPage() {
                 )}
               </div>
             ) : (
-              displayedContacts.map(contact => (
+              displayedContacts.map((contact, cIdx) => (
                 <button
-                  key={contact.id}
+                  key={contact.id ? `contact-${contact.id}` : `contact-idx-${cIdx}`}
                   onClick={() => handleSelectContact(contact.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-gray-50 border-b border-gray-50 cursor-pointer ${
                     selectedContactId === contact.id ? 'bg-[#252578]/5' : ''
@@ -920,7 +1094,7 @@ export default function MessagingPage() {
                   </div>
                 ) : (
                   currentTicketMessages.map((msg, idx) => {
-                    const msgId = msg.id || msg._id;
+                    const msgId = msg.id || msg._id || `msg-${idx}`;
                     const isMine = (msg.sender_type === userType && Number(msg.sender_id) === Number(userId)) ||
                                    (msg.sender_type === 'cs' && userType === 'cs');
                     const isAuthor = msg.sender_type === userType && Number(msg.sender_id) === Number(userId);
@@ -928,7 +1102,7 @@ export default function MessagingPage() {
 
                     if (msg.sender_type === 'system' || msg.sender_name === 'System') {
                       return (
-                        <React.Fragment key={msgId}>
+                        <React.Fragment key={msg.id ? `sys-${msg.id}` : (msg._id ? `sys-${msg._id}` : `sys-idx-${idx}`)}>
                           {showNewMessagesBanner && (
                             <div className="flex items-center my-4 select-none">
                               <div className="flex-1 border-t border-gray-200"></div>
@@ -950,7 +1124,7 @@ export default function MessagingPage() {
                     }
 
                     return (
-                      <React.Fragment key={msgId}>
+                      <React.Fragment key={msg.id ? `msg-${msg.id}` : (msg._id ? `msg-${msg._id}` : `msg-idx-${idx}`)}>
                         {showNewMessagesBanner && (
                           <div className="flex items-center my-4 select-none">
                             <div className="flex-1 border-t border-gray-200"></div>
@@ -963,23 +1137,9 @@ export default function MessagingPage() {
                         )}
                         <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} group/msg`}>
                           <div className="max-w-[75%] flex flex-col">
-                          <div className="text-[10px] text-slate-muted mb-0.5 px-1 flex items-center gap-1.5 flex-wrap">
+                          <div className={`text-[10px] text-slate-muted mb-0.5 px-1 flex items-center gap-1.5 flex-wrap ${isMine ? 'justify-end' : 'justify-start'}`}>
                             <span className="font-semibold text-slate-700">{msg.sender_name}</span>
-                            {msg.sender_type === 'cs' && (
-                              <span className="px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold text-[9px]">
-                                Customer Support
-                              </span>
-                            )}
-                            {msg.sender_type === 'employee' && (
-                              <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-semibold text-[9px]">
-                                Staff / Engineer
-                              </span>
-                            )}
-                            {msg.sender_type === 'customer' && !isMine && (
-                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold text-[9px]">
-                                Customer
-                              </span>
-                            )}
+                            {renderRoleBadge(msg)}
                           </div>
                           
                           <div className={`flex items-center gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -1039,7 +1199,107 @@ export default function MessagingPage() {
                                   </div>
                                 </div>
                               ) : (
-                                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.message}</p>
+                                <>
+                                  {msg.message && (
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.message}</p>
+                                  )}
+                                  {/* Fallback if message has no text and no attachments so it never renders a blank blue rectangle */}
+                                  {!msg.message && (!msg.attachments || msg.attachments.length === 0) && (
+                                    <p className="text-xs italic opacity-75">Message has no content</p>
+                                  )}
+                                  {/* Inline Attachments */}
+                                  {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                                    <div className={`flex flex-col gap-1.5 ${msg.message ? 'mt-2 pt-2 border-t' : ''} ${isMine ? 'border-primary-foreground/20' : 'border-border'}`}>
+                                      {msg.attachments.map((att, attIdx) => {
+                                        const isQuarantined = att.scan_status === 'quarantined' || Boolean(att.threat_alert);
+                                        const isScanning = att.scan_status === 'pending' || Boolean(att.isScanning);
+                                        const formattedSize = att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : '';
+                                        const fileUrl = att.url || (att.file_path ? `/storage/${att.file_path}` : null);
+
+                                        if (isQuarantined) {
+                                          return (
+                                            <div
+                                              key={attIdx}
+                                              className="flex items-start gap-2 p-2 rounded-lg bg-red-50 text-red-900 border border-red-200 text-xs text-left"
+                                            >
+                                              <ShieldAlert size={16} className="text-red-600 shrink-0 mt-0.5" />
+                                              <div className="flex-1 min-w-0">
+                                                <p className="font-semibold truncate">{att.name || 'Quarantined File'}</p>
+                                                <p className="text-[10px] text-red-600 leading-tight">
+                                                  {att.threat_alert || 'File was flagged as a security threat and blocked.'}
+                                                </p>
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+
+                                        if (isScanning) {
+                                          return (
+                                            <div
+                                              key={attIdx}
+                                              className={`flex items-center gap-2.5 p-2.5 rounded-xl text-xs text-left transition-all ${
+                                                isMine
+                                                  ? 'bg-white/15 text-white border border-white/25 shadow-xs'
+                                                  : 'bg-amber-50 text-amber-950 border border-amber-200 shadow-xs'
+                                              }`}
+                                            >
+                                              <Loader2 size={16} className={`animate-spin shrink-0 ${isMine ? 'text-amber-300' : 'text-amber-600'}`} />
+                                              <div className="flex-1 min-w-0">
+                                                <p className="font-semibold truncate">{att.name || 'Attachment'}</p>
+                                                <p className={`text-[10px] font-medium flex items-center gap-1 ${isMine ? 'text-amber-200' : 'text-amber-700'}`}>
+                                                  <span>Scanning for threats... (Checking file for malware)</span>
+                                                </p>
+                                              </div>
+                                              <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${
+                                                isMine ? 'bg-amber-400/25 text-amber-200 border border-amber-300/30' : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                              }`}>
+                                                Scanning
+                                              </span>
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
+                                          <a
+                                            key={attIdx}
+                                            href={fileUrl || '#'}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={`flex items-center gap-2 p-2 rounded-lg transition-colors group/att ${
+                                              isMine
+                                                ? 'bg-white/10 hover:bg-white/20 text-white'
+                                                : 'bg-gray-50 hover:bg-gray-100 text-slate-800 border border-gray-200'
+                                            }`}
+                                            title={`Download ${att.name || 'file'}`}
+                                          >
+                                            <FileText size={16} className="shrink-0 opacity-80 group-hover/att:opacity-100" />
+                                            <div className="flex-1 min-w-0 text-left">
+                                              <p className="text-xs font-semibold truncate leading-tight">{att.name || 'attachment'}</p>
+                                              {formattedSize && (
+                                                <p className={`text-[10px] ${isMine ? 'text-white/70' : 'text-slate-400'}`}>
+                                                  {formattedSize}
+                                                </p>
+                                              )}
+                                            </div>
+                                            <Download size={14} className="shrink-0 opacity-70 group-hover/att:opacity-100" />
+                                          </a>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {/* Optimistic sending / scanning indicator */}
+                                  {msg.isPending && (
+                                    <div className={`mt-2 pt-1.5 border-t flex items-center justify-between text-[10px] ${
+                                      isMine ? 'border-white/15 text-white/70' : 'border-gray-200 text-slate-400'
+                                    }`}>
+                                      <span className="flex items-center gap-1 font-medium">
+                                        <Loader2 size={11} className="animate-spin" />
+                                        Scanning file for malware (ClamAV)...
+                                      </span>
+                                      <span className="italic opacity-80">Sending</span>
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
 
@@ -1055,7 +1315,7 @@ export default function MessagingPage() {
                                 </button>
                                 {activeMenuMsgId === msgId && (
                                   <div className={`absolute bottom-6 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-32 text-left text-xs ${isMine ? 'right-0' : 'left-0'}`}>
-                                    {isAuthor && (
+                                    {isAuthor && isWithinEditWindow(msg) && (
                                       <button
                                         onClick={() => handleStartEdit(msg)}
                                         className="w-full px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 cursor-pointer font-medium whitespace-nowrap"
@@ -1082,7 +1342,7 @@ export default function MessagingPage() {
 
                           {/* Footer / Edit Indicator & History Trigger */}
                           <div className={`flex items-center gap-1.5 mt-1 text-[10px] text-gray-400 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                            <span>{formatTime(msg.created_at)}</span>
+                            <span title={formatDisplayDate(msg.created_at)}>{formatTime(msg.created_at)}</span>
                             {(msg.is_edited || msg.edited || (msg.edit_history && msg.edit_history.length > 0)) && (
                               <button
                                 type="button"
@@ -1120,22 +1380,92 @@ export default function MessagingPage() {
                 </div>
               ) : (
                 <div className="px-6 py-4 border-t border-border bg-card shrink-0">
-                  <div className="flex items-center gap-3">
+                  {/* Inline upload error banner with retry guidance */}
+                  {uploadError && (
+                    <div className="flex items-start gap-2 mb-3 p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl animate-in fade-in">
+                      <AlertCircle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                      <div className="flex-1">
+                        <p className="font-semibold">{uploadError}</p>
+                        <p className="text-[11px] text-red-600/80">Your message text and attachments were preserved. You can edit them and retry sending.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUploadError(null)}
+                        className="text-red-400 hover:text-red-600 p-0.5 cursor-pointer"
+                        title="Dismiss"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Attached files preview chips */}
+                  {selectedFiles.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 mb-3 p-2 bg-gray-50 border border-gray-200 rounded-xl">
+                      {selectedFiles.map((file, fIdx) => (
+                        <div
+                          key={fIdx}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-xs shadow-xs"
+                        >
+                          <FileText size={14} className="text-primary shrink-0" />
+                          <span className="font-medium text-slate-700 max-w-[140px] truncate">{file.name}</span>
+                          <span className="text-[10px] text-slate-400">({(file.size / 1024).toFixed(0)} KB)</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(fIdx)}
+                            disabled={isSending}
+                            className="text-slate-400 hover:text-red-500 transition-colors ml-1 p-0.5 rounded cursor-pointer disabled:opacity-50"
+                            title="Remove file"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Composer Input controls */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      accept=".pdf,.docx,.doc,.jpg,.jpeg,.png"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isSending || selectedFiles.length >= 5}
+                      className="p-2.5 text-slate-500 hover:text-primary hover:bg-slate-100 rounded-xl transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                      title="Attach files (max 5, up to 15MB each)"
+                      aria-label="Attach files"
+                    >
+                      <Paperclip size={18} />
+                    </button>
                     <input
                       type="text"
                       value={messageInput}
                       onChange={e => setMessageInput(e.target.value)}
                       onKeyDown={handleKeyDown}
                       onFocus={handleInputFocus}
-                      placeholder="Type a message..."
+                      disabled={isSending}
+                      placeholder={selectedFiles.length > 0 ? "Add an optional caption..." : "Type a message..."}
                       className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
                     />
                     <button
                       onClick={handleSend}
-                      disabled={!messageInput.trim()}
-                      className="bg-primary text-primary-foreground rounded-xl px-4 py-2.5 transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      disabled={(!messageInput.trim() && selectedFiles.length === 0) || isSending}
+                      className="bg-primary text-primary-foreground rounded-xl px-4 py-2.5 transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center shrink-0"
+                      title="Send message"
+                      aria-label="Send message"
                     >
-                      <Send size={18} />
+                      {isSending ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <Send size={18} />
+                      )}
                     </button>
                   </div>
                 </div>

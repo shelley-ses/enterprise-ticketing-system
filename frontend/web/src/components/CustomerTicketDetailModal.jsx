@@ -841,7 +841,8 @@ export default function CustomerTicketDetailModal({
                   variant="default"
                   onClick={() => {
                     onClose();
-                    navigate('/employee/ticket-update', { state: { ticket: effectiveTicket } });
+                    const tId = effectiveTicket.ticket_ID || effectiveTicket.id;
+                    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: effectiveTicket } });
                   }}
                 >
                   Update Ticket

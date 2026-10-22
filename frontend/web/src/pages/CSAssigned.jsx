@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, SlidersHorizontal, Loader2, Filter, RotateCcw, X } from 'lucide-react';
+import { Search, SlidersHorizontal, Loader2, Filter, RotateCcw, X, AlertTriangle, Clock, CheckCircle2, PauseCircle, HelpCircle, ArrowUpDown } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -90,6 +90,105 @@ const buildTicketSearchString = (t) => {
     .toLowerCase();
 };
 
+const renderSlaBadge = (ticket) => {
+  const rawStatus = ticket.sla_status || ticket.slaStatus || (ticket.sla?.resolution?.status) || null;
+  const status = rawStatus ? String(rawStatus).toLowerCase().replace(/[\s_-]+/g, '') : null;
+  const dueAt = ticket.resolution_due_at || ticket.due_at || ticket.sla?.resolution?.target;
+  const formattedDue = dueAt ? formatDisplayDate(dueAt) : null;
+  const remainingMin = ticket.time_remaining_minutes !== undefined ? ticket.time_remaining_minutes : null;
+
+  if (status === 'breached') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 w-fit"
+          title={formattedDue ? `Breached deadline: ${formattedDue}` : 'Resolution target breached'}
+        >
+          <AlertTriangle className="h-3 w-3 text-rose-600 shrink-0" />
+          <span>Breached</span>
+        </span>
+        {formattedDue && (
+          <span className="text-[10px] text-rose-600 font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (status === 'atrisk') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
+          title={formattedDue ? `Deadline: ${formattedDue}` : 'SLA resolution near breach'}
+        >
+          <Clock className="h-3 w-3 text-amber-600 shrink-0" />
+          <span>At Risk</span>
+        </span>
+        {remainingMin !== null && remainingMin > 0 ? (
+          <span className="text-[10px] text-amber-600 font-medium">
+            {remainingMin > 60 ? `${Math.round(remainingMin / 60)}h left` : `${remainingMin}m left`}
+          </span>
+        ) : formattedDue ? (
+          <span className="text-[10px] text-amber-600 font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === 'paused') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 w-fit"
+          title="SLA calculation clock paused while on hold"
+        >
+          <PauseCircle className="h-3 w-3 text-blue-600 shrink-0" />
+          <span>Paused</span>
+        </span>
+        <span className="text-[10px] text-muted-foreground font-medium">
+          On Hold
+        </span>
+      </div>
+    );
+  }
+
+  if (status === 'ontrack' || status === 'compliant') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit"
+          title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA targets'}
+        >
+          <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
+          <span>{status === 'compliant' ? 'Compliant' : 'On Track'}</span>
+        </span>
+        {formattedDue && (
+          <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[130px]">
+            Due: {formattedDue}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 w-fit"
+        title="No department SLA configured for this ticket category"
+      >
+        <HelpCircle className="h-3 w-3 text-slate-400 shrink-0" />
+        <span>N/A</span>
+      </span>
+      <span className="text-[10px] text-muted-foreground">Standard</span>
+    </div>
+  );
+};
+
 export default function CSAssigned() {
   const { user } = useAuth();
   const location = useLocation();
@@ -101,12 +200,21 @@ export default function CSAssigned() {
   const [modalLoading, setModalLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [customerFilter, setCustomerFilter] = useState('All Customers');
+  const [slaFilter, setSlaFilter] = useState('All SLA Statuses');
   const [category, setCategory] = useState('All Categories');
-  // const [slaFilter, setSlaFilter] = useState('All SLA');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [departmentFilter, setDepartmentFilter] = useState('All Departments');
   const [statusFilter, setStatusFilter] = useState('All Statuses');
+  const [sortBy, setSortBy] = useState('updated_at'); // 'updated_at' | 'sla_due_date' | 'sla_status'
+  const [sortDir, setSortDir] = useState('desc'); // 'asc' | 'desc'
+  const [slaSummary, setSlaSummary] = useState({
+    total: 0,
+    breached: 0,
+    at_risk: 0,
+    on_track: 0,
+    paused: 0,
+    compliant: 0,
+  });
   const [csFilterOptions, setCsFilterOptions] = useState({
     departments: [],
     statuses: [],
@@ -122,12 +230,14 @@ export default function CSAssigned() {
 
   const resetFilters = useCallback(() => {
     setSearch('');
-    setCustomerFilter('All Customers');
+    setSlaFilter('All SLA Statuses');
     setCategory('All Categories');
     setMachineFilter('All Machines');
     setDepartmentFilter('All Departments');
     setStatusFilter('All Statuses');
     setTypeFilter('all');
+    setSortBy('updated_at');
+    setSortDir('desc');
   }, []);
 
   const clearFilter = useCallback((key) => {
@@ -135,8 +245,8 @@ export default function CSAssigned() {
       case 'search':
         setSearch('');
         break;
-      case 'customer':
-        setCustomerFilter('All Customers');
+      case 'sla':
+        setSlaFilter('All SLA Statuses');
         break;
       case 'machine':
         setMachineFilter('All Machines');
@@ -202,6 +312,21 @@ export default function CSAssigned() {
       );
       
       setTickets(assignedTickets);
+
+      if (incoming.slaSummary) {
+        setSlaSummary(incoming.slaSummary);
+      } else {
+        const summary = { total: assignedTickets.length, breached: 0, at_risk: 0, on_track: 0, paused: 0, compliant: 0 };
+        assignedTickets.forEach((t) => {
+          const s = String(t.sla_status || t.slaStatus || '').toLowerCase().replace(/[\s_-]+/g, '');
+          if (s === 'breached') summary.breached++;
+          else if (s === 'atrisk') summary.at_risk++;
+          else if (s === 'paused') summary.paused++;
+          else if (s === 'compliant' || s === 'resolved' || s === 'closed') summary.compliant++;
+          else summary.on_track++;
+        });
+        setSlaSummary(summary);
+      }
       
       setEmployees(
         assignees.map((row) => ({
@@ -260,11 +385,6 @@ export default function CSAssigned() {
     deferRefresh: false,
   });
 
-  const customers = useMemo(() => {
-    const list = Array.from(new Set(tickets.map((t) => t.customer || t.requestor || t.created_by_name).filter(Boolean)));
-    return ['All Customers', ...list.sort()];
-  }, [tickets]);
-
   const categories = useMemo(
     () => ['All Categories', ...Array.from(new Set(tickets.map((t) => t.category).filter(Boolean)))],
     [tickets]
@@ -288,17 +408,17 @@ export default function CSAssigned() {
     return ['All Departments', ...Array.from(new Set([...fromDeps, ...fromTickets])).sort()];
   }, [departments, tickets]);
 
+  const slaOptions = ['All SLA Statuses', 'Breached', 'At Risk', 'On Track', 'Paused'];
+
   const hasActiveFilters = Boolean(
     search.trim() ||
-    customerFilter !== 'All Customers' ||
+    slaFilter !== 'All SLA Statuses' ||
     machineFilter !== 'All Machines' ||
     statusFilter !== 'All Statuses' ||
     departmentFilter !== 'All Departments' ||
     category !== 'All Categories' ||
     typeFilter !== 'all'
   );
-
-  // const slaOptions = ['All SLA', 'On Track', 'At Risk', 'Breached', 'Closed'];
 
   const counts = useMemo(() => {
     let all = 0;
@@ -322,12 +442,20 @@ export default function CSAssigned() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return tickets.filter((t) => {
+    const list = tickets.filter((t) => {
       if (category !== 'All Categories' && t.category !== category) return false;
-      if (customerFilter !== 'All Customers' && (t.customer || t.requestor || t.created_by_name || '') !== customerFilter) return false;
       if (machineFilter !== 'All Machines' && (t.equipment || t.machine_name || '') !== machineFilter) return false;
       if (departmentFilter !== 'All Departments' && (t.department || '').trim().toLowerCase() !== departmentFilter.trim().toLowerCase()) return false;
       if (statusFilter !== 'All Statuses' && (t.status || '').trim().toLowerCase() !== statusFilter.trim().toLowerCase()) return false;
+
+      if (slaFilter !== 'All SLA Statuses') {
+        const rawSla = String(t.sla_status || t.slaStatus || t.sla?.resolution?.status || '').toLowerCase().replace(/[\s_-]+/g, '');
+        const targetSla = slaFilter.toLowerCase().replace(/[\s_-]+/g, '');
+        if (targetSla === 'breached' && rawSla !== 'breached') return false;
+        if (targetSla === 'atrisk' && rawSla !== 'atrisk') return false;
+        if (targetSla === 'ontrack' && rawSla !== 'ontrack' && rawSla !== 'compliant') return false;
+        if (targetSla === 'paused' && rawSla !== 'paused') return false;
+      }
 
       if (typeFilter === 'internal') {
         const isInternal = t.title?.startsWith('[Internal]') || t.is_internal || t.ticket_type === 'Internal' || t.type === 'Internal';
@@ -353,11 +481,21 @@ export default function CSAssigned() {
     });
 
     return [...list].sort((a, b) => {
+      if (sortBy === 'sla_due_date') {
+        const dateA = new Date(a.due_at || a.resolution_due_at || a.sla?.resolution?.target || 0).getTime();
+        const dateB = new Date(b.due_at || b.resolution_due_at || b.sla?.resolution?.target || 0).getTime();
+        return sortDir === 'asc' ? dateA - dateB : dateB - dateA;
+      }
+      if (sortBy === 'sla_status') {
+        const sA = String(a.sla_status || a.slaStatus || a.sla?.resolution?.status || '');
+        const sB = String(b.sla_status || b.slaStatus || b.sla?.resolution?.status || '');
+        return sortDir === 'asc' ? sA.localeCompare(sB) : sB.localeCompare(sA);
+      }
       const timeA = new Date(a.updated_at || a.last_update || a.lastUpdate || a.date || a.created_at || 0).getTime();
       const timeB = new Date(b.updated_at || b.last_update || b.lastUpdate || b.date || b.created_at || 0).getTime();
       return timeB - timeA;
     });
-  }, [tickets, search, customerFilter, machineFilter, departmentFilter, statusFilter, category, typeFilter, assignedTab]);
+  }, [tickets, search, slaFilter, machineFilter, departmentFilter, statusFilter, category, typeFilter, assignedTab, sortBy, sortDir]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -502,6 +640,81 @@ export default function CSAssigned() {
         </div>
       )}
 
+      {/* SLA Compliance Summary Metrics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full shrink-0">
+        <button
+          type="button"
+          onClick={() => { setSlaFilter(slaFilter === 'Breached' ? 'All SLA Statuses' : 'Breached'); setPage(1); }}
+          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+            slaFilter === 'Breached'
+              ? 'border-rose-400 bg-rose-50 shadow-xs ring-2 ring-rose-400/20'
+              : 'border-border bg-card hover:border-rose-200 hover:bg-rose-50/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-rose-600 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-rose-600" /> Breached
+            </span>
+            <span className="text-xl font-bold text-rose-700">{slaSummary.breached}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">Resolution overdue</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setSlaFilter(slaFilter === 'At Risk' ? 'All SLA Statuses' : 'At Risk'); setPage(1); }}
+          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+            slaFilter === 'At Risk'
+              ? 'border-amber-400 bg-amber-50 shadow-xs ring-2 ring-amber-400/20'
+              : 'border-border bg-card hover:border-amber-200 hover:bg-amber-50/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-600 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-amber-600" /> At Risk
+            </span>
+            <span className="text-xl font-bold text-amber-700">{slaSummary.at_risk}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">Near threshold (&le;4h)</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setSlaFilter(slaFilter === 'On Track' ? 'All SLA Statuses' : 'On Track'); setPage(1); }}
+          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+            slaFilter === 'On Track'
+              ? 'border-emerald-400 bg-emerald-50 shadow-xs ring-2 ring-emerald-400/20'
+              : 'border-border bg-card hover:border-emerald-200 hover:bg-emerald-50/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> On Track
+            </span>
+            <span className="text-xl font-bold text-emerald-700">{slaSummary.on_track}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">Compliant with SLA</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setSlaFilter(slaFilter === 'Paused' ? 'All SLA Statuses' : 'Paused'); setPage(1); }}
+          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+            slaFilter === 'Paused'
+              ? 'border-blue-400 bg-blue-50 shadow-xs ring-2 ring-blue-400/20'
+              : 'border-border bg-card hover:border-blue-200 hover:bg-blue-50/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
+              <PauseCircle className="h-3.5 w-3.5 text-blue-600" /> Paused
+            </span>
+            <span className="text-xl font-bold text-blue-700">{slaSummary.paused}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">Clock paused on hold</p>
+        </button>
+      </div>
+
       {/* Filter toolbar */}
       <div className="w-full space-y-3 shrink-0">
         <div className="relative w-full">
@@ -509,18 +722,31 @@ export default function CSAssigned() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tickets, customers..."
+            placeholder="Search tickets, customers, departments..."
             className="w-full rounded-lg border border-border bg-card pl-9 pr-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
         <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
+          {/* SLA Compliance Status Filter dropdown */}
           <select
-            value={customerFilter}
-            onChange={(e) => setCustomerFilter(e.target.value)}
-            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            value={slaFilter}
+            onChange={(e) => { setSlaFilter(e.target.value); setPage(1); }}
+            className={`flex-1 min-w-[150px] rounded-lg border px-3 py-2 text-sm font-semibold outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors ${
+              slaFilter === 'Breached'
+                ? 'border-rose-300 bg-rose-50 text-rose-700'
+                : slaFilter === 'At Risk'
+                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                : slaFilter === 'On Track'
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                : slaFilter === 'Paused'
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-border bg-card text-foreground'
+            }`}
           >
-            {customers.map((c) => (
-              <option key={c} value={c}>{c}</option>
+            {slaOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
             ))}
           </select>
           <select
@@ -559,6 +785,25 @@ export default function CSAssigned() {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+
+          {/* Sort Control */}
+          <select
+            value={`${sortBy}:${sortDir}`}
+            onChange={(e) => {
+              const [sb, sd] = e.target.value.split(':');
+              setSortBy(sb);
+              setSortDir(sd);
+              setPage(1);
+            }}
+            className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground outline-none focus:border-accent shrink-0"
+            title="Sort tickets queue"
+          >
+            <option value="updated_at:desc">Sort: Latest Update</option>
+            <option value="sla_due_date:asc">Sort: SLA Due Soonest</option>
+            <option value="sla_due_date:desc">Sort: SLA Due Latest</option>
+            <option value="sla_status:asc">Sort: SLA Status (A-Z)</option>
+          </select>
+
           {hasActiveFilters && (
             <Button
               type="button"
@@ -668,6 +913,24 @@ export default function CSAssigned() {
               <TableHead>Title</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="w-[160px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sortBy === 'sla_status') {
+                      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortBy('sla_status');
+                      setSortDir('asc');
+                    }
+                    setPage(1);
+                  }}
+                  className="flex items-center gap-1 font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <span>SLA Compliance</span>
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </TableHead>
               <TableHead className="min-w-[180px]">Assignees</TableHead>
               <TableHead className="w-[150px]">Last Update</TableHead>
               <TableHead className="w-[80px] text-center">Action</TableHead>
@@ -675,10 +938,10 @@ export default function CSAssigned() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <DataTableSkeleton columns={9} rows={6} />
+              <DataTableSkeleton columns={10} rows={6} />
             ) : filtered.length === 0 ? (
               <DataTableEmptyState
-                colSpan={9}
+                colSpan={10}
                 message="No tickets found in this assigned queue."
               />
             ) : (
@@ -751,6 +1014,9 @@ export default function CSAssigned() {
                       <Badge variant={getStatusBadgeVariant(isReassignmentReq ? 'Pending Reassignment' : t.status)}>
                         {isReassignmentReq ? 'Pending Reassignment' : (t.status === 'Reopen' ? 'Reopened' : t.status)}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {renderSlaBadge(t)}
                     </TableCell>
                     <TableCell className="max-w-[16rem]">
                       {(() => {

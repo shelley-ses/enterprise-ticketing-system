@@ -49,7 +49,8 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
 
   const handleUpdate = () => {
     onClose();
-    navigate('/employee/ticket-update', { state: { ticket: currentTicket } });
+    const tId = currentTicket.ticket_ID || currentTicket.id;
+    navigate(`/employee/ticket-update?id=${tId}`, { state: { ticket: currentTicket } });
   };
 
   return (
