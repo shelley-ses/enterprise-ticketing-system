@@ -58,8 +58,12 @@ class TicketService
     /**
      * Compute human-readable SLA label based on creation time.
      */
-    public function slaLabel($createdAt): string
+    public function slaLabel($createdAt, $ticket = null): string
     {
+        if ($ticket) {
+            return $this->slaService->computeTicketSlaMetrics($ticket)['status'];
+        }
+
         if (!$createdAt) {
             return 'On Track';
         }
@@ -614,6 +618,7 @@ class TicketService
             ->leftJoin('ticket_types as tt', 'tt.ticket_type_ID', '=', 't.ticket_type_ID')
             ->select(
                 't.ticket_ID',
+                't.ticket_number',
                 't.title',
                 't.description',
                 't.problem_category_ID',
@@ -641,7 +646,12 @@ class TicketService
                 'tt.type_name as ticket_type',
                 't.ticket_status_ID',
                 't.in_progress_owner',
-                't.previous_in_progress_owner'
+                't.previous_in_progress_owner',
+                't.resolution_due_at',
+                't.response_due_at',
+                't.first_response_at',
+                't.response_sla_status',
+                't.resolution_sla_status'
             )
             ->where('t.ticket_ID', $ticketId)
             ->first();
@@ -1202,7 +1212,11 @@ class TicketService
             'updated_at' => $updatedAtIso,
             'date_created' => $createdAtIso,
             'last_updated' => $updatedAtIso,
-            'slaStatus' => $this->slaLabel($ticket->created_at),
+            'slaStatus' => $this->slaLabel($ticket->created_at, $ticket),
+            'sla' => $this->slaLabel($ticket->created_at, $ticket),
+            'sla_status' => $this->slaLabel($ticket->created_at, $ticket),
+            'resolution_due_at' => (!empty($ticket->resolution_due_at)) ? Carbon::parse($ticket->resolution_due_at)->toIso8601String() : null,
+            'sla_metrics' => $this->slaService->computeTicketSlaMetrics($ticket),
             'equipment' => $ticket->machine_name ? ($ticket->machine_name . ($ticket->serial_number ? ' - ' . $ticket->serial_number : '')) : ($ticket->serial_number ?: 'Not specified'),
             'customer' => (bool) $ticket->is_internal
                 ? (($ticket->requester_employee_name !== '' && $ticket->requester_employee_name !== null)

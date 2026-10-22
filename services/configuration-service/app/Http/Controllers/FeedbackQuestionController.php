@@ -260,8 +260,8 @@ class FeedbackQuestionController extends Controller
         $validated = $request->validate([
             'category'      => 'required|string|max:50',
             'text'          => 'required|string|max:1000',
-            'response_type' => 'nullable|string|in:Star Rating,Multiple Choice,Free Text',
-            'responseType'  => 'nullable|string|in:Star Rating,Multiple Choice,Free Text',
+            'response_type' => 'nullable|string|in:Star Rating,Yes / No,Multiple Choice,Checkbox,Free Text',
+            'responseType'  => 'nullable|string|in:Star Rating,Yes / No,Multiple Choice,Checkbox,Free Text',
             'options'       => 'nullable|array',
             'is_enabled'    => 'nullable|boolean',
             'isEnabled'     => 'nullable|boolean',
@@ -271,7 +271,15 @@ class FeedbackQuestionController extends Controller
         $text = trim($validated['text']);
         $responseType = $validated['response_type'] ?? $validated['responseType'] ?? 'Star Rating';
         $isEnabled = $validated['is_enabled'] ?? $validated['isEnabled'] ?? true;
-        $options = $validated['options'] ?? ($responseType === 'Multiple Choice' ? ['Yes', 'No'] : null);
+
+        if ($responseType === 'Yes / No') {
+            $options = ['Yes', 'No'];
+        } elseif (in_array($responseType, ['Multiple Choice', 'Checkbox'], true)) {
+            $rawOptions = $validated['options'] ?? [];
+            $options = is_array($rawOptions) ? array_values(array_filter(array_map('trim', $rawOptions), fn($opt) => $opt !== '')) : [];
+        } else {
+            $options = null;
+        }
 
         $maxOrder = (int) FeedbackQuestion::where('category', $category)->max('order_position');
 
@@ -381,8 +389,8 @@ class FeedbackQuestionController extends Controller
         $validated = $request->validate([
             'category'      => 'nullable|string|max:50',
             'text'          => 'nullable|string|max:1000',
-            'response_type' => 'nullable|string|in:Star Rating,Multiple Choice,Free Text',
-            'responseType'  => 'nullable|string|in:Star Rating,Multiple Choice,Free Text',
+            'response_type' => 'nullable|string|in:Star Rating,Yes / No,Multiple Choice,Checkbox,Free Text',
+            'responseType'  => 'nullable|string|in:Star Rating,Yes / No,Multiple Choice,Checkbox,Free Text',
             'options'       => 'nullable|array',
             'is_enabled'    => 'nullable|boolean',
             'isEnabled'     => 'nullable|boolean',
@@ -394,7 +402,16 @@ class FeedbackQuestionController extends Controller
             $text = trim($validated['text'] ?? 'Customer Satisfaction Question');
             $responseType = $validated['response_type'] ?? $validated['responseType'] ?? 'Star Rating';
             $isEnabled = $validated['is_enabled'] ?? $validated['isEnabled'] ?? true;
-            $options = $validated['options'] ?? ($responseType === 'Multiple Choice' ? ['Yes', 'No'] : null);
+
+            if ($responseType === 'Yes / No') {
+                $options = ['Yes', 'No'];
+            } elseif (in_array($responseType, ['Multiple Choice', 'Checkbox'], true)) {
+                $rawOptions = $validated['options'] ?? [];
+                $options = is_array($rawOptions) ? array_values(array_filter(array_map('trim', $rawOptions), fn($opt) => $opt !== '')) : [];
+            } else {
+                $options = null;
+            }
+
             $maxOrder = (int) FeedbackQuestion::where('category', $cat)->max('order_position');
 
             $question = FeedbackQuestion::create([
@@ -449,13 +466,19 @@ class FeedbackQuestionController extends Controller
         if ($resType) {
             $updates['response_type'] = $resType;
         }
-        if (array_key_exists('options', $validated)) {
-            $updates['options'] = $validated['options'] ?? ($resType === 'Multiple Choice' ? ['Yes', 'No'] : null);
-        } elseif ($resType === 'Multiple Choice' && empty($question->options)) {
+
+        $effectiveType = $resType ?? $question->response_type;
+        if ($effectiveType === 'Yes / No') {
             $updates['options'] = ['Yes', 'No'];
-        } elseif ($resType && $resType !== 'Multiple Choice') {
+        } elseif (in_array($effectiveType, ['Multiple Choice', 'Checkbox'], true)) {
+            if (array_key_exists('options', $validated)) {
+                $rawOptions = $validated['options'] ?? [];
+                $updates['options'] = is_array($rawOptions) ? array_values(array_filter(array_map('trim', $rawOptions), fn($opt) => $opt !== '')) : [];
+            }
+        } else {
             $updates['options'] = null;
         }
+
         if (isset($validated['is_enabled']) || isset($validated['isEnabled'])) {
             $updates['is_enabled'] = (bool) $newIsEnabled;
         }

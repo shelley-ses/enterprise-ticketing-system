@@ -537,18 +537,19 @@ const fetchIncomingTickets = async ({ limit = 50, page = 1, forceRefresh = false
   const response = await ticketClient.get('/cs-incoming', { params });
   const data = response.data?.incoming_tickets ?? [];
   const pagination = response.data?.pagination ?? null;
+  const slaSummary = response.data?.sla_summary ?? null;
 
   const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
   if (!hasFilters) {
-    incomingTicketsCache = { list: data, pagination };
+    incomingTicketsCache = { list: data, pagination, slaSummary };
     incomingTicketsCacheAt = Date.now();
   }
-  return { list: data, pagination };
+  return { list: data, pagination, slaSummary };
 };
 
 export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = false, forceRefresh = false, ...filters } = {}) => {
   const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== '' && v !== null);
-  let result = { list: [], pagination: null };
+  let result = { list: [], pagination: null, slaSummary: null };
   try {
     if (!hasFilters && !forceRefresh && incomingTicketsCache && (Date.now() - incomingTicketsCacheAt) < INCOMING_TICKETS_CACHE_TTL_MS) {
       result = incomingTicketsCache;
@@ -568,11 +569,15 @@ export const getCSIncomingTickets = async ({ limit = 50, page = 1, paginate = fa
 
   const rawList = Array.isArray(result) ? result : (result?.list ?? []);
   const pagination = Array.isArray(result) ? null : (result?.pagination ?? null);
+  const slaSummary = Array.isArray(result) ? null : (result?.slaSummary ?? null);
 
-  const list = rawList;
+  const list = [...rawList];
+  if (slaSummary) {
+    list.slaSummary = slaSummary;
+  }
 
   if (paginate) {
-    return { tickets: list, pagination };
+    return { tickets: list, pagination, sla_summary: slaSummary };
   }
   return list;
 };

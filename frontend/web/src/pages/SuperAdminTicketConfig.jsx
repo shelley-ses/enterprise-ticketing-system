@@ -364,7 +364,7 @@ export const TS094_DATE_OPTIONS = [
 // Category source is provisional — pending confirmation with PM on whether this should map to the Departments API or remain a dedicated Feedback Form category concept. Do not assume these values match items.departments.
 export const FEEDBACK_CATEGORIES = ['IT', 'Service', 'Others'];
 
-export const TS104_RESPONSE_TYPES = ['Star Rating', 'Multiple Choice', 'Free Text'];
+export const TS104_RESPONSE_TYPES = ['Star Rating', 'Yes / No', 'Multiple Choice', 'Checkbox', 'Free Text'];
 
 export const TS104_DEFAULT_QUESTIONS = {
   'IT': [
@@ -3577,14 +3577,22 @@ export default function SuperAdminTicketConfig() {
       category: activeFeedbackCategory,
       text: '',
       responseType: 'Star Rating',
+      options: null,
       isEnabled: true,
     });
   };
 
   const handleEditFeedbackQuestion = (question) => {
     setFeedbackInlineError('');
+    let opts = question.options;
+    if (question.responseType === 'Yes / No') {
+      opts = ['Yes', 'No'];
+    } else if (question.responseType === 'Multiple Choice' || question.responseType === 'Checkbox') {
+      opts = Array.isArray(opts) && opts.length > 0 ? opts : ['Option 1', 'Option 2'];
+    }
     setEditingQuestion({
       ...question,
+      options: opts,
       category: activeFeedbackCategory,
     });
   };
@@ -3593,14 +3601,27 @@ export default function SuperAdminTicketConfig() {
     if (!editingQuestion || !editingQuestion.text.trim()) return;
     const trimmedText = editingQuestion.text.trim();
     const cat = editingQuestion.category || activeFeedbackCategory;
+    const resType = editingQuestion.responseType || 'Star Rating';
+
+    let options = null;
+    if (resType === 'Yes / No') {
+      options = ['Yes', 'No'];
+    } else if (resType === 'Multiple Choice' || resType === 'Checkbox') {
+      options = Array.isArray(editingQuestion.options)
+        ? editingQuestion.options.map((o) => String(o).trim()).filter(Boolean)
+        : ['Option 1', 'Option 2'];
+      if (options.length === 0) {
+        options = ['Option 1', 'Option 2'];
+      }
+    }
 
     try {
       if (editingQuestion.id === null || String(editingQuestion.id).startsWith('custom-')) {
         const res = await createFeedbackQuestion({
           category: cat,
           text: trimmedText,
-          responseType: editingQuestion.responseType || 'Star Rating',
-          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
+          responseType: resType,
+          options,
           isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
         });
         const created = res.question;
@@ -3613,8 +3634,8 @@ export default function SuperAdminTicketConfig() {
         const res = await updateFeedbackQuestion(editingQuestion.id, {
           category: cat,
           text: trimmedText,
-          responseType: editingQuestion.responseType,
-          options: editingQuestion.responseType === 'Multiple Choice' ? ['Yes', 'No'] : null,
+          responseType: resType,
+          options,
           isEnabled: editingQuestion.isEnabled !== undefined ? editingQuestion.isEnabled : true,
         });
         const updated = res.question;
@@ -6253,9 +6274,13 @@ export default function SuperAdminTicketConfig() {
                 const typeBadgeClass =
                   q.responseType === 'Star Rating'
                     ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : q.responseType === 'Multiple Choice'
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    : q.responseType === 'Yes / No'
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : q.responseType === 'Multiple Choice'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : q.responseType === 'Checkbox'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200';
 
                 return (
                   <div
@@ -6285,6 +6310,21 @@ export default function SuperAdminTicketConfig() {
                         <h4 className="mt-3 text-sm sm:text-base font-semibold text-gray-900 leading-snug break-words">
                           {q.text}
                         </h4>
+
+                        {/* Options preview for Multiple Choice or Checkbox */}
+                        {Array.isArray(q.options) && q.options.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-semibold text-gray-400 mr-1">Choices:</span>
+                            {q.options.map((opt, optIdx) => (
+                              <span
+                                key={optIdx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700 border border-gray-200"
+                              >
+                                {opt}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Controls & actions */}
@@ -6364,7 +6404,7 @@ export default function SuperAdminTicketConfig() {
           {/* TS104 Create / Edit Question Modal */}
           {editingQuestion !== null && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-start justify-between border-b border-gray-150 pb-4">
                   <div>
                     <h2 className="text-lg font-bold text-gray-900">
@@ -6406,7 +6446,18 @@ export default function SuperAdminTicketConfig() {
                     </label>
                     <select
                       value={editingQuestion.responseType}
-                      onChange={(e) => setEditingQuestion({ ...editingQuestion, responseType: e.target.value })}
+                      onChange={(e) => {
+                        const newType = e.target.value;
+                        let newOptions = editingQuestion.options;
+                        if (newType === 'Yes / No') {
+                          newOptions = ['Yes', 'No'];
+                        } else if (newType === 'Multiple Choice' || newType === 'Checkbox') {
+                          newOptions = Array.isArray(newOptions) && newOptions.length > 0 ? newOptions : ['Option 1', 'Option 2'];
+                        } else {
+                          newOptions = null;
+                        }
+                        setEditingQuestion({ ...editingQuestion, responseType: newType, options: newOptions });
+                      }}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-3 text-sm font-semibold text-gray-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-[#252578]"
                     >
                       {TS104_RESPONSE_TYPES.map((t) => (
@@ -6415,12 +6466,73 @@ export default function SuperAdminTicketConfig() {
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1.5 text-xs text-gray-400">
+                    <p className="mt-1.5 text-xs text-gray-400 leading-relaxed">
                       {editingQuestion.responseType === 'Star Rating' && 'Presents an interactive 1–5 star rating scale to the customer.'}
-                      {editingQuestion.responseType === 'Multiple Choice' && 'Offers selectable pre-configured options or Yes/No answer choices.'}
+                      {editingQuestion.responseType === 'Yes / No' && 'Presents a dedicated Yes or No binary choice to the customer.'}
+                      {editingQuestion.responseType === 'Multiple Choice' && 'Offers single select customizable answer choices.'}
+                      {editingQuestion.responseType === 'Checkbox' && 'Offers multi select customizable checkbox choices.'}
                       {editingQuestion.responseType === 'Free Text' && 'Provides an open-ended multiline text area for written suggestions.'}
                     </p>
                   </div>
+
+                  {/* Choices Manager for Multiple Choice and Checkbox */}
+                  {(editingQuestion.responseType === 'Multiple Choice' || editingQuestion.responseType === 'Checkbox') && (
+                    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-3.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Custom Choices ({editingQuestion.responseType === 'Multiple Choice' ? 'Single Select' : 'Multi Select'}) <span className="text-red-500">*</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = Array.isArray(editingQuestion.options) ? editingQuestion.options : [];
+                            const nextOpts = [...current, `Option ${current.length + 1}`];
+                            setEditingQuestion({ ...editingQuestion, options: nextOpts });
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#252578] hover:underline cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add Choice</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                        {(editingQuestion.options || ['Option 1', 'Option 2']).map((opt, optIdx) => (
+                          <div key={optIdx} className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-400 w-5 text-center">{optIdx + 1}.</span>
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => {
+                                const current = Array.isArray(editingQuestion.options) ? [...editingQuestion.options] : ['Option 1', 'Option 2'];
+                                current[optIdx] = e.target.value;
+                                setEditingQuestion({ ...editingQuestion, options: current });
+                              }}
+                              placeholder={`Choice ${optIdx + 1}`}
+                              className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-900 outline-none focus:ring-2 focus:ring-[#252578]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const current = Array.isArray(editingQuestion.options) ? editingQuestion.options : ['Option 1', 'Option 2'];
+                                if (current.length <= 2) return;
+                                const nextOpts = current.filter((_, i) => i !== optIdx);
+                                setEditingQuestion({ ...editingQuestion, options: nextOpts });
+                              }}
+                              disabled={(editingQuestion.options || []).length <= 2}
+                              className="p-1.5 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:text-gray-400 cursor-pointer rounded-lg hover:bg-red-50"
+                              title="Delete choice"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        At least 2 choices required. Choices will be rendered on the customer satisfaction survey form.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Modal Actions: Cancel & Save immediately */}

@@ -42,11 +42,50 @@ export default function ExternalFeedbackPage() {
           if (isMounted) setIsMasterEnabled(masterOn);
         }
 
-        // Check if already submitted
-        if (hasFeedbackBeenSubmitted(effectiveTicketId)) {
+        // Check for existing submitted feedback
+        const localFb = getTicketFeedback(effectiveTicketId);
+        if (localFb && localFb.submitted) {
           if (isMounted) {
             setAlreadySubmitted(true);
             setStep('already_submitted');
+            if (localFb.ratings) setRatings(localFb.ratings);
+            if (localFb.comments) setComments(localFb.comments);
+            if (localFb.overallComment) setOverallComment(localFb.overallComment);
+            if (localFb.questionAnswers) setQuestionAnswers(localFb.questionAnswers);
+            if (Array.isArray(localFb.categoryQuestionsSnapshot) && localFb.categoryQuestionsSnapshot.length > 0) {
+              setQuestionsSnapshot(localFb.categoryQuestionsSnapshot);
+            }
+          }
+        } else {
+          try {
+            const apiRes = await fetch(`/api/ticketing/analytics/feedback/ticket/${effectiveTicketId}`);
+            if (apiRes.ok) {
+              const apiJson = await apiRes.json();
+              if (apiJson.data && isMounted) {
+                const d = apiJson.data;
+                const rMap = {};
+                const cMap = {};
+                if (Array.isArray(d.employee_ratings)) {
+                  d.employee_ratings.forEach((er) => {
+                    if (er.employee_id) {
+                      rMap[er.employee_id] = er.rating;
+                      cMap[er.employee_id] = er.comment;
+                    }
+                  });
+                }
+                setRatings(rMap);
+                setComments(cMap);
+                setOverallComment(d.overall_comment || '');
+                if (d.question_answers) setQuestionAnswers(d.question_answers);
+                if (Array.isArray(d.category_questions_snapshot) && d.category_questions_snapshot.length > 0) {
+                  setQuestionsSnapshot(d.category_questions_snapshot);
+                }
+                setAlreadySubmitted(true);
+                setStep('already_submitted');
+              }
+            }
+          } catch {
+            // Ignore API errors
           }
         }
 
@@ -228,10 +267,16 @@ export default function ExternalFeedbackPage() {
               <p className="text-sm text-slate-700 mt-1 italic">"{existingFeedback.overallComment}"</p>
             </div>
           )}
-          <div className="mt-6">
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => setStep('form')}
+              className="flex-1 py-3 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[#252578] font-semibold transition-colors cursor-pointer shadow-xs"
+            >
+              Edit Feedback
+            </button>
             <button
               onClick={() => navigate('/')}
-              className="w-full py-3 px-4 rounded-xl bg-[#252578] hover:bg-[#1e1e62] text-white font-medium transition-colors"
+              className="flex-1 py-3 px-4 rounded-xl bg-[#252578] hover:bg-[#1e1e62] text-white font-medium transition-colors"
             >
               Back to Home
             </button>
@@ -350,9 +395,31 @@ export default function ExternalFeedbackPage() {
                           </div>
                         )}
 
+                        {q.responseType === 'Yes / No' && (
+                          <div className="flex items-center gap-2 pt-1">
+                            {['Yes', 'No'].map((opt) => {
+                              const isSelected = val === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => handleQuestionAnswerChange(q.id, opt)}
+                                  className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                    isSelected
+                                      ? 'bg-[#252578] text-white border-[#252578] shadow-sm'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         {q.responseType === 'Multiple Choice' && (
                           <div className="flex items-center gap-2 flex-wrap pt-1">
-                            {(q.options || ['Yes', 'No']).map((opt) => {
+                            {(q.options && q.options.length > 0 ? q.options : ['Option 1', 'Option 2']).map((opt) => {
                               const isSelected = val === opt;
                               return (
                                 <button
@@ -367,6 +434,38 @@ export default function ExternalFeedbackPage() {
                                 >
                                   {opt}
                                 </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {q.responseType === 'Checkbox' && (
+                          <div className="flex flex-col gap-2 pt-1">
+                            {(q.options && q.options.length > 0 ? q.options : ['Option 1', 'Option 2']).map((opt) => {
+                              const currentSelected = Array.isArray(val) ? val : [];
+                              const isChecked = currentSelected.includes(opt);
+                              return (
+                                <label
+                                  key={opt}
+                                  className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-medium cursor-pointer transition-all ${
+                                    isChecked
+                                      ? 'bg-blue-50/60 border-[#252578] text-[#252578]'
+                                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      const next = isChecked
+                                        ? currentSelected.filter((x) => x !== opt)
+                                        : [...currentSelected, opt];
+                                      handleQuestionAnswerChange(q.id, next);
+                                    }}
+                                    className="rounded border-slate-300 text-[#252578] focus:ring-[#252578] h-4 w-4"
+                                  />
+                                  <span>{opt}</span>
+                                </label>
                               );
                             })}
                           </div>

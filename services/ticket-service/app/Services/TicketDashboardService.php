@@ -8,8 +8,19 @@ use Illuminate\Support\Facades\DB;
 
 class TicketDashboardService
 {
-    public function slaLabel($createdAt): string
+    protected ?SLAService $slaService;
+
+    public function __construct(?SLAService $slaService = null)
     {
+        $this->slaService = $slaService ?? app(SLAService::class);
+    }
+
+    public function slaLabel($createdAt, $ticket = null): string
+    {
+        if ($ticket) {
+            return $this->slaService->computeTicketSlaMetrics($ticket)['status'];
+        }
+
         if (!$createdAt) {
             return 'On Track';
         }
@@ -138,8 +149,10 @@ class TicketDashboardService
             }
 
             return $query->orderByDesc('t.created_at')
-                ->limit($limit)
+                ->limit($limit * 2)
                 ->get()
+                ->unique('ticket_ID')
+                ->take($limit)
                 ->map(fn ($row) => [
                     'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'ticket_ID' => $row->ticket_ID,
@@ -331,6 +344,14 @@ class TicketDashboardService
                     't.description',
                     't.is_internal',
                     't.requested_by',
+                    't.ticket_status_ID',
+                    't.resolution_due_at',
+                    't.response_due_at',
+                    't.resolved_at',
+                    't.closed_at',
+                    't.first_response_at',
+                    't.resolution_sla_status',
+                    't.response_sla_status',
                     'pc.category_name',
                     'ts.status_name',
                     'tp.priority_name',
@@ -395,8 +416,100 @@ class TicketDashboardService
                 });
             }
 
-            $paginated = $query->orderByDesc(DB::raw('COALESCE(t.updated_at, t.created_at)'))
-                ->paginate($perPage, ['*'], 'page', $page);
+            // Calculate SLA summary counts across this filtered scope before SLA filter
+            $summaryScope = (clone $query)->select(
+                't.ticket_ID',
+                't.ticket_status_ID',
+                'ts.status_name',
+                't.resolution_due_at',
+                't.resolved_at',
+                't.closed_at',
+                't.created_at'
+            )->get();
+
+            $slaSummary = [
+                'total' => $summaryScope->count(),
+                'breached' => 0,
+                'at_risk' => 0,
+                'on_track' => 0,
+                'paused' => 0,
+                'compliant' => 0,
+            ];
+
+            foreach ($summaryScope as $st) {
+                $m = $this->slaService->computeTicketSlaMetrics($st);
+                $stKey = strtolower(str_replace(' ', '_', $m['status']));
+                if (isset($slaSummary[$stKey])) {
+                    $slaSummary[$stKey]++;
+                }
+            }
+
+            // Filter by SLA status if requested
+            if (!empty($filters['sla_status'])) {
+                $slaFilterVal = strtolower(trim($filters['sla_status']));
+                if (!in_array($slaFilterVal, ['all', 'all sla', 'all sla statuses'])) {
+                    if ($slaFilterVal === 'breached') {
+                        $query->where(function ($q) {
+                            $q->where(function ($sq) {
+                                $sq->whereNotNull('t.resolution_due_at')
+                                   ->where('t.resolution_due_at', '<', now());
+                            })->orWhere(function ($sq) {
+                                $sq->whereNull('t.resolution_due_at')
+                                   ->where('t.created_at', '<=', now()->subHours(48));
+                            });
+                        })->whereNotIn('ts.status_name', ['Closed', 'Resolved', 'On Hold']);
+                    } elseif ($slaFilterVal === 'at_risk' || $slaFilterVal === 'at risk') {
+                        $query->whereNotIn('ts.status_name', ['Closed', 'Resolved', 'On Hold'])
+                            ->where(function ($q) {
+                                $q->where(function ($sq) {
+                                    $sq->whereNotNull('t.resolution_due_at')
+                                       ->where('t.resolution_due_at', '>=', now())
+                                       ->where('t.resolution_due_at', '<=', now()->addHours(4));
+                                })->orWhere(function ($sq) {
+                                    $sq->whereNull('t.resolution_due_at')
+                                       ->where('t.created_at', '<=', now()->subHours(24))
+                                       ->where('t.created_at', '>', now()->subHours(48));
+                                });
+                            });
+                    } elseif ($slaFilterVal === 'paused') {
+                        $query->where(function ($q) {
+                            $q->where('ts.status_name', 'On Hold')
+                               ->orWhere('t.ticket_status_ID', 11);
+                        });
+                    } elseif ($slaFilterVal === 'on_track' || $slaFilterVal === 'on track') {
+                        $query->whereNotIn('ts.status_name', ['Closed', 'Resolved', 'On Hold'])
+                            ->where(function ($q) {
+                                $q->where(function ($sq) {
+                                    $sq->whereNotNull('t.resolution_due_at')
+                                       ->where('t.resolution_due_at', '>', now()->addHours(4));
+                                })->orWhere(function ($sq) {
+                                    $sq->whereNull('t.resolution_due_at')
+                                       ->where('t.created_at', '>', now()->subHours(24));
+                                });
+                            });
+                    } elseif ($slaFilterVal === 'compliant') {
+                        $query->whereIn('ts.status_name', ['Closed', 'Resolved'])
+                            ->where(function ($q) {
+                                $q->whereNull('t.resolution_due_at')
+                                   ->orWhereRaw('COALESCE(t.resolved_at, t.closed_at, NOW()) <= t.resolution_due_at');
+                            });
+                    }
+                }
+            }
+
+            // Sorting
+            $sortBy = $filters['sort_by'] ?? null;
+            $sortDir = strtolower($filters['sort_dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+
+            if ($sortBy === 'sla_due_date' || $sortBy === 'resolution_due_at' || $sortBy === 'due_date') {
+                $query->orderBy(DB::raw('COALESCE(t.resolution_due_at, DATE_ADD(t.created_at, INTERVAL 48 HOUR))'), $sortDir);
+            } elseif ($sortBy === 'sla_status') {
+                $query->orderByRaw("CASE WHEN ts.status_name = 'On Hold' THEN 4 WHEN COALESCE(t.resolution_due_at, DATE_ADD(t.created_at, INTERVAL 48 HOUR)) < NOW() THEN 1 WHEN COALESCE(t.resolution_due_at, DATE_ADD(t.created_at, INTERVAL 48 HOUR)) <= DATE_ADD(NOW(), INTERVAL 4 HOUR) THEN 2 ELSE 3 END " . ($sortDir === 'asc' ? 'ASC' : 'DESC'));
+            } else {
+                $query->orderByDesc(DB::raw('COALESCE(t.updated_at, t.created_at)'));
+            }
+
+            $paginated = $query->paginate($perPage, ['*'], 'page', $page);
 
             $rows = collect($paginated->items());
             $ticketIds = $rows->pluck('ticket_ID')->toArray();
@@ -459,6 +572,8 @@ class TicketDashboardService
 
                 $equipment = $row->machine_name ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : ($row->serial_number ?: 'Not specified');
 
+                $slaMetrics = $this->slaService->computeTicketSlaMetrics($row);
+
                 return [
                     'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
                     'ticket_ID' => (int) $row->ticket_ID,
@@ -476,7 +591,15 @@ class TicketDashboardService
                     'equipmentType' => $row->equipment_type ?: 'Medical Equipment',
                     'machine_name' => $row->machine_name,
                     'serial_number' => $row->serial_number,
-                    'sla' => $this->slaLabel($createdAtObj),
+                    'sla' => $slaMetrics['status'],
+                    'sla_status' => $slaMetrics['status'],
+                    'slaStatus' => $slaMetrics['status'],
+                    'resolution_due_at' => $slaMetrics['due_at'],
+                    'due_at' => $slaMetrics['due_at'],
+                    'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
+                    'is_breached' => $slaMetrics['is_breached'],
+                    'is_at_risk' => $slaMetrics['is_at_risk'],
+                    'is_paused' => $slaMetrics['is_paused'],
                     'date' => $createdAtObj ? $createdAtObj->toIso8601String() : now()->toIso8601String(),
                     'created_at' => $createdAtObj ? $createdAtObj->toIso8601String() : null,
                     'updated_at' => $updatedAtObj ? $updatedAtObj->toIso8601String() : ($createdAtObj ? $createdAtObj->toIso8601String() : null),
@@ -502,6 +625,7 @@ class TicketDashboardService
 
             return [
                 'incoming_tickets' => $incomingTickets,
+                'sla_summary' => $slaSummary,
                 'pagination' => [
                     'total' => $paginated->total(),
                     'per_page' => $paginated->perPage(),

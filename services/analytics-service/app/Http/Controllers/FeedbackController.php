@@ -61,19 +61,43 @@ class FeedbackController extends Controller
             ];
         }
 
-        $feedback = CustomerFeedback::create([
-            'ticket_id'        => $validated['ticket_id'],
-            'customer_id'      => $validated['customer_id'] ?? null,
-            'overall_rating'   => round($avgRating, 2),
-            'overall_comment'  => $validated['overall_comment'] ?? '',
-            'employee_ratings' => $employeeRatings,
-        ]);
+        $feedback = CustomerFeedback::updateOrCreate(
+            ['ticket_id' => $validated['ticket_id']],
+            [
+                'customer_id'                 => $validated['customer_id'] ?? null,
+                'overall_rating'              => round($avgRating, 2),
+                'overall_comment'             => $validated['overall_comment'] ?? '',
+                'employee_ratings'            => $employeeRatings,
+                'question_answers'            => $validated['question_answers'] ?? [],
+                'category_questions_snapshot' => $validated['category_questions_snapshot'] ?? [],
+            ]
+        );
 
         return response()->json([
             'status'  => 'success',
             'message' => 'Customer feedback stored successfully.',
             'data'    => $feedback,
         ], 201);
+    }
+
+    /**
+     * Get feedback record for a specific ticket.
+     */
+    public function getByTicket($ticketId)
+    {
+        $feedback = CustomerFeedback::where('ticket_id', $ticketId)->first();
+        if (!$feedback) {
+            return response()->json([
+                'status'  => 'not_found',
+                'message' => 'No feedback recorded for this ticket.',
+                'data'    => null,
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data'   => $feedback,
+        ]);
     }
 
     /**

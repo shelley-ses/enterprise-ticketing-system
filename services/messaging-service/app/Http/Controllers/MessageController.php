@@ -83,6 +83,45 @@ class MessageController extends Controller
             ->orderBy('created_at', 'asc')
             ->get();
 
+        // Gating attachments by scan status (Pending/Clean/Quarantined) and ensuring sender_role
+        $messages = $messages->map(function ($msg) {
+            // Ensure sender_role is populated for historical records
+            if (empty($msg->sender_role)) {
+                if ($msg->sender_type === 'cs') {
+                    $msg->sender_role = 'Customer Support';
+                } elseif ($msg->sender_type === 'employee') {
+                    $msg->sender_role = 'Staff / Engineer';
+                } else {
+                    $msg->sender_role = 'Customer';
+                }
+            }
+
+            // Gating attachments: hide URLs for quarantined or pending scans
+            if (!empty($msg->attachments) && is_array($msg->attachments)) {
+                $gated = [];
+                foreach ($msg->attachments as $att) {
+                    $status = strtolower($att['scan_status'] ?? 'clean');
+                    if ($status === 'quarantined' || !empty($att['virus_detected'])) {
+                        $att['url'] = null;
+                        $att['file_path'] = null;
+                        $att['scan_status'] = 'quarantined';
+                        $att['threat_alert'] = 'This file was flagged as a security threat and blocked.';
+                    } elseif ($status === 'pending') {
+                        $att['url'] = null;
+                        $att['scan_status'] = 'pending';
+                    } else {
+                        $att['scan_status'] = 'clean';
+                    }
+                    $gated[] = $att;
+                }
+                $msg->attachments = $gated;
+            } else {
+                $msg->attachments = [];
+            }
+
+            return $msg;
+        });
+
         return response()->json([
             'messages' => $messages
         ]);
@@ -131,34 +170,159 @@ class MessageController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $request->validate([
-            'message' => 'required|string|max:5000',
-        ]);
+        $rawMessage = $request->input('message');
+        $hasText = is_string($rawMessage) && trim($rawMessage) !== '';
+        $hasUploadFiles = $request->hasFile('attachments');
+        $hasJsonAttachments = is_array($request->input('attachments')) && count($request->input('attachments')) > 0;
 
-        // Resolve sender information
+        if (!$hasText && !$hasUploadFiles && !$hasJsonAttachments) {
+            return response()->json([
+                'message' => 'Please provide either a message or an attachment.',
+                'code' => 'EMPTY_CONTENT',
+                'errors' => [
+                    'message' => ['At least message text or an attached file is required.']
+                ]
+            ], 422);
+        }
+
+        if ($hasText && mb_strlen($rawMessage) > 5000) {
+            return response()->json([
+                'message' => 'Message exceeds maximum length of 5000 characters.',
+                'code' => 'CONTENT_TOO_LONG',
+                'errors' => [
+                    'message' => ['The message must not exceed 5000 characters.']
+                ]
+            ], 422);
+        }
+
+        // Resolve sender information and capture immutable sender_role snapshot at time of send
         $senderId = null;
         $senderName = '';
         $senderType = '';
+        $senderRole = 'Customer';
 
         if ($user instanceof \App\Models\Employee) {
             $senderId = $user->emp_id;
-            $senderName = trim($user->first_name . ' ' . $user->last_name);
+            $senderName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
             
             $dept = strtolower($user->department ?? '');
             $role = strtolower($user->role ?? '');
+            $rawRole = trim($user->role ?? '');
+            $rawDept = trim($user->department ?? '');
+
             if (str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs')) {
                 $senderType = 'cs';
+                $senderRole = 'Customer Support';
             } else {
                 $senderType = 'employee';
+                $cleanRole = str_replace([' ', '_', '-'], '', $role);
+                if (in_array($cleanRole, ['superadmin', 'super_admin'])) {
+                    $senderRole = 'Super Admin';
+                } elseif (in_array($cleanRole, ['admin', 'itadmin', 'it_admin'])) {
+                    $senderRole = 'IT Admin';
+                } elseif (!empty($rawRole)) {
+                    $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawRole));
+                } elseif (!empty($rawDept)) {
+                    $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawDept));
+                } else {
+                    $senderRole = 'Staff / Engineer';
+                }
             }
         } elseif ($user instanceof \App\Models\Client) {
             $senderId = $user->id;
-            $senderName = $user->client_name;
+            $senderName = $user->client_name ?? 'Customer';
             $senderType = 'customer';
+            $senderRole = 'Customer';
         } else {
             $senderId = $user->id;
-            $senderName = $user->name ?? 'Unknown';
+            $senderName = $user->name ?? 'User';
             $senderType = 'customer';
+            $senderRole = 'Customer';
+        }
+
+        // Process attachments: either proxy uploaded files to attachment-service or use verified payload
+        $processedAttachments = [];
+
+        if ($hasUploadFiles) {
+            $files = $request->file('attachments');
+            if (!is_array($files)) {
+                $files = [$files];
+            }
+
+            try {
+                $attachmentUrl = env('ATTACHMENT_SERVICE_URL', 'http://attachment-service:8000');
+                $httpRequest = \Illuminate\Support\Facades\Http::timeout(30);
+
+                if ($request->bearerToken()) {
+                    $httpRequest = $httpRequest->withToken($request->bearerToken());
+                }
+
+                foreach ($files as $file) {
+                    $httpRequest = $httpRequest->attach(
+                        'attachments[]',
+                        file_get_contents($file->getRealPath()),
+                        $file->getClientOriginalName()
+                    );
+                }
+
+                $uploadResponse = $httpRequest->post("{$attachmentUrl}/api/upload", [
+                    'ticket_id' => (int)$ticket_id,
+                ]);
+
+                if ($uploadResponse->status() === 422) {
+                    $errData = $uploadResponse->json();
+                    return response()->json([
+                        'message' => $errData['message'] ?? 'Attachment validation failed.',
+                        'code' => !empty($errData['virus_detected']) ? 'MALWARE_DETECTED' : 'ATTACHMENT_VALIDATION_FAILED',
+                        'errors' => $errData['errors'] ?? ['attachments' => [$errData['message'] ?? 'Validation failed']],
+                        'quarantined' => $errData['quarantined'] ?? [],
+                    ], 422);
+                }
+
+                if (!$uploadResponse->successful()) {
+                    return response()->json([
+                        'message' => 'Failed to process attachments: ' . ($uploadResponse->json('message') ?? 'Attachment service error'),
+                        'code' => 'ATTACHMENT_SERVICE_ERROR',
+                    ], 500);
+                }
+
+                $uploadData = $uploadResponse->json();
+                $uploadedList = $uploadData['attachments'] ?? [];
+                foreach ($uploadedList as $u) {
+                    $processedAttachments[] = [
+                        'id' => $u['id'] ?? null,
+                        'name' => $u['name'] ?? 'attachment',
+                        'url' => $u['url'] ?? '',
+                        'file_path' => !empty($u['url']) ? ltrim(str_replace('/storage/', '', $u['url']), '/') : '',
+                        'file_type' => $u['file_type'] ?? null,
+                        'file_size' => $u['file_size'] ?? null,
+                        'scan_status' => 'clean',
+                    ];
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Error uploading message attachments: ' . $e->getMessage());
+                return response()->json([
+                    'message' => 'Attachment service is temporarily unavailable. Please try again.',
+                    'code' => 'ATTACHMENT_SERVICE_UNAVAILABLE',
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+        } elseif ($hasJsonAttachments) {
+            $rawAtts = $request->input('attachments');
+            foreach ($rawAtts as $att) {
+                if (is_array($att)) {
+                    $scanStatus = $att['scan_status'] ?? (!empty($att['virus_detected']) ? 'quarantined' : 'clean');
+                    $processedAttachments[] = [
+                        'id' => $att['id'] ?? null,
+                        'name' => $att['name'] ?? $att['file_name'] ?? 'attachment',
+                        'url' => $att['url'] ?? '',
+                        'file_path' => $att['file_path'] ?? '',
+                        'file_type' => $att['file_type'] ?? null,
+                        'file_size' => $att['file_size'] ?? $att['size'] ?? null,
+                        'scan_status' => $scanStatus,
+                    ];
+                }
+            }
         }
 
         // Check ticket status and delegation state for archiving restriction
@@ -230,13 +394,15 @@ class MessageController extends Controller
             }
         }
 
-        // Create the message in MongoDB
+        // Create the message in MongoDB with sender_role snapshot, attachments, and accurate timestamp
         $message = Message::create([
             'ticket_id' => (int)$ticket_id,
             'sender_id' => $senderId,
             'sender_name' => $senderName,
             'sender_type' => $senderType,
-            'message' => $request->input('message'),
+            'sender_role' => $senderRole,
+            'message' => $rawMessage ? trim($rawMessage) : '',
+            'attachments' => $processedAttachments,
         ]);
 
         // Broadcast to Reverb (port 6002) for real-time messaging
@@ -417,7 +583,7 @@ class MessageController extends Controller
                             'recipient_id' => $recipient['id'],
                             'recipient_type' => $recipient['type'],
                             'title' => 'New Message on Ticket #' . $ticket_id,
-                            'message' => $senderName . ': ' . \Illuminate\Support\Str::limit($message->message, 60),
+                            'message' => $senderName . ': ' . (!empty(trim($message->message ?? '')) ? \Illuminate\Support\Str::limit($message->message, 60) : 'Sent an attachment' . (!empty($message->attachments) && count($message->attachments) > 1 ? ' (' . count($message->attachments) . ' files)' : '')),
                             'ticket_id' => (int)$ticket_id,
                             'is_read' => false,
                             'created_at' => now(),
