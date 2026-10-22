@@ -15,9 +15,11 @@ import {
   getCustomerTickets,
   getCSIncomingTickets,
   getEmployeeInternalTickets,
+  getEmployeeAssignedTickets,
   getTicketDetails,
   updateTicket,
 } from '@/services/ticketService';
+import { getMessagingConfiguration } from '@/services/configurationService';
 import axiosInstance from '@/api/axiosInstance';
 import { AI_API_URL } from '@/config/api.config';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -190,8 +192,36 @@ export default function MessagingPage() {
         if (isCS) {
           list = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
         } else if (isEmployee) {
-          const res = await getEmployeeInternalTickets();
-          list = res?.tickets || [];
+          let internalList = [];
+          try {
+            const res = await getEmployeeInternalTickets();
+            internalList = res?.tickets || [];
+          } catch (e) {
+            console.warn('Failed loading employee internal tickets', e);
+          }
+
+          let assignedList = [];
+          try {
+            const msgConfig = await getMessagingConfiguration().catch(() => null);
+            const allowDelegated = Boolean(msgConfig?.allow_delegated_employee ?? true);
+            if (allowDelegated) {
+              const assigned = await getEmployeeAssignedTickets({ employeeEmail: user?.email, forceRefresh: true }).catch(() => []);
+              assignedList = Array.isArray(assigned) ? assigned : (assigned?.tickets || []);
+            }
+          } catch (e) {
+            console.warn('Failed loading assigned tickets for employee messaging', e);
+          }
+
+          const seen = new Set();
+          const merged = [];
+          for (const item of [...assignedList, ...internalList]) {
+            const tid = item.ticket_ID || item.id;
+            if (tid && !seen.has(tid)) {
+              seen.add(tid);
+              merged.push(item);
+            }
+          }
+          list = merged;
         } else {
           list = await getCustomerTickets({ createdBy: user?.id, limit: 100, forceRefresh: true });
         }
@@ -236,10 +266,21 @@ export default function MessagingPage() {
         contactName = t.customer || t.client_name || t.created_by_name || 'Client';
         contactRole = t.is_internal ? 'Employee' : 'Customer';
         type = t.is_internal ? 'internal' : 'external';
+      } else if (isEmployee) {
+        const isDelegatedToMe = !t.is_internal || (t.requested_by != user?.emp_id && t.requested_by != user?.id);
+        if (isDelegatedToMe) {
+          contactName = t.customer || t.client_name || t.created_by_name || 'Customer & Support';
+          contactRole = t.is_internal ? 'Internal Ticket' : 'Customer & Support';
+          type = t.is_internal ? 'internal' : 'external';
+        } else {
+          contactName = 'Customer Support';
+          contactRole = 'Representative';
+          type = 'internal';
+        }
       } else {
         contactName = 'Customer Support';
         contactRole = 'Representative';
-        type = isEmployee ? 'internal' : 'external';
+        type = 'external';
       }
 
       const statusName = t.status || t.status_name || 'Open';

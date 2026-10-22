@@ -137,6 +137,12 @@ class TicketConfigurationController extends Controller
         'log_level' => [
             'level' => 'Info',
         ],
+        'messaging' => [
+            'default_participants' => 'customer_cs',
+            'allow_delegated_employee' => true,
+            'allow_full_history' => true,
+            'notify_on_employee_join' => true,
+        ],
     ];
 
     /**
@@ -383,6 +389,27 @@ class TicketConfigurationController extends Controller
     public function updateWindows(Request $request): JsonResponse
     {
         return $this->update($request, 'windows');
+    }
+
+    /**
+     * Dedicated endpoint to view ticket messaging participation configuration.
+     */
+    public function showMessaging(): JsonResponse
+    {
+        $value = TicketConfiguration::getByKey('messaging', $this->defaults['messaging']);
+
+        return response()->json(array_merge([
+            'key' => 'messaging',
+            'value' => $value,
+        ], is_array($value) ? $value : []));
+    }
+
+    /**
+     * Dedicated endpoint to update ticket messaging participation configuration independently.
+     */
+    public function updateMessaging(Request $request): JsonResponse
+    {
+        return $this->update($request, 'messaging');
     }
 
     /**
@@ -1088,6 +1115,48 @@ class TicketConfigurationController extends Controller
                     'key' => 'log_level',
                     'value' => $record->value,
                     'level' => $newLevel,
+                ]);
+
+            case 'messaging':
+                $validator = Validator::make($payload, [
+                    'default_participants' => 'sometimes|string',
+                    'allow_delegated_employee' => 'sometimes|boolean',
+                    'allow_full_history' => 'sometimes|boolean',
+                    'notify_on_employee_join' => 'sometimes|boolean',
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'Validation Error: Invalid messaging configuration values.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $validated = $validator->validated();
+                $current = TicketConfiguration::getByKey('messaging', $this->defaults['messaging']);
+                if (!is_array($current)) {
+                    $current = $this->defaults['messaging'];
+                }
+
+                $value = array_merge($current, $validated);
+                $record = TicketConfiguration::setByKey('messaging', $value);
+                $this->clearConfigCache('messaging');
+
+                $this->logAudit(
+                    $request,
+                    'config_update',
+                    'Ticket Messaging Configuration',
+                    'Messaging Participation',
+                    'Updated ticket messaging participation rules (allow_delegated_employee: ' . (!empty($value['allow_delegated_employee']) ? 'true' : 'false') . ')',
+                    $current,
+                    $value
+                );
+
+                return response()->json([
+                    'message' => 'Ticket messaging configuration updated successfully.',
+                    'key' => 'messaging',
+                    'value' => $record->value,
+                    'data' => $record->value,
                 ]);
 
             default:

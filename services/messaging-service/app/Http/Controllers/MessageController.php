@@ -21,6 +21,59 @@ class MessageController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
+        // Check employee access authorization on the ticket
+        if ($user instanceof \App\Models\Employee) {
+            $dept = strtolower($user->department ?? '');
+            $role = strtolower($user->role ?? '');
+            $isCS = str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs');
+            $isAdmin = in_array(str_replace([' ', '_', '-'], '', $role), ['superadmin', 'admin']);
+
+            if (!$isCS && !$isAdmin) {
+                $empId = (int)$user->emp_id;
+                $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
+                    ->table('tickets')
+                    ->where('ticket_ID', (int)$ticket_id)
+                    ->first();
+
+                if ($ticketRecord) {
+                    $isRequester = ((int)$ticketRecord->requested_by === $empId);
+                    if (!$isRequester) {
+                        $isAssigned = ((int)$ticketRecord->assigned_to === $empId);
+                        if (!$isAssigned) {
+                            $isAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('ticket_assignments')
+                                ->where('ticket_ID', (int)$ticket_id)
+                                ->where('employee_ID', $empId)
+                                ->exists();
+                        }
+
+                        if (!$isAssigned) {
+                            return response()->json(['message' => 'You are not assigned to this ticket.'], 403);
+                        }
+
+                        // Check if delegated employee messaging is enabled in ticket_configurations
+                        $allowDelegated = true;
+                        try {
+                            $msgConfigRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('ticket_configurations')
+                                ->where('key', 'messaging')
+                                ->value('value');
+                            if ($msgConfigRow) {
+                                $parsedMsgConfig = is_string($msgConfigRow) ? json_decode($msgConfigRow, true) : $msgConfigRow;
+                                if (is_array($parsedMsgConfig) && isset($parsedMsgConfig['allow_delegated_employee'])) {
+                                    $allowDelegated = (bool)$parsedMsgConfig['allow_delegated_employee'];
+                                }
+                            }
+                        } catch (\Throwable $e) {}
+
+                        if (!$allowDelegated) {
+                            return response()->json(['message' => 'Delegated employee messaging is disabled by system policy.'], 403);
+                        }
+                    }
+                }
+            }
+        }
+
         $userKey = $this->resolveUserKey($user);
 
         // Fetch messages for the ticket ordered by created_at ascending,
@@ -118,6 +171,45 @@ class MessageController extends Controller
             $statusId = (int)$ticketRecord->ticket_status_ID;
             if ($senderType === 'cs' && (int)$ticketRecord->requested_by === (int)$senderId) {
                 return response()->json(['message' => 'You cannot message on a ticket you created.'], 403);
+            }
+
+            if ($senderType === 'employee') {
+                $isRequester = ((int)$ticketRecord->requested_by === (int)$senderId);
+                if (!$isRequester) {
+                    $isAssigned = ((int)$ticketRecord->assigned_to === (int)$senderId);
+                    if (!$isAssigned) {
+                        $isAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('ticket_assignments')
+                            ->where('ticket_ID', (int)$ticket_id)
+                            ->where('employee_ID', (int)$senderId)
+                            ->exists();
+                    }
+
+                    if (!$isAssigned) {
+                        return response()->json(['message' => 'You are not assigned to this ticket.'], 403);
+                    }
+
+                    // Check if delegated employee messaging is enabled in ticket_configurations
+                    $allowDelegated = true;
+                    try {
+                        $msgConfigRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                            ->table('ticket_configurations')
+                            ->where('key', 'messaging')
+                            ->value('value');
+                        if ($msgConfigRow) {
+                            $parsedMsgConfig = is_string($msgConfigRow) ? json_decode($msgConfigRow, true) : $msgConfigRow;
+                            if (is_array($parsedMsgConfig) && isset($parsedMsgConfig['allow_delegated_employee'])) {
+                                $allowDelegated = (bool)$parsedMsgConfig['allow_delegated_employee'];
+                            }
+                        }
+                    } catch (\Throwable $e) {}
+
+                    if (!$allowDelegated) {
+                        return response()->json([
+                            'message' => 'Delegated employee messaging is disabled by system policy.'
+                        ], 403);
+                    }
+                }
             }
 
             $hasAssignment = !empty($ticketRecord->assigned_to);
