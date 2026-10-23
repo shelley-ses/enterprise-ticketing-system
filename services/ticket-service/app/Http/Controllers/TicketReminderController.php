@@ -64,7 +64,7 @@ class TicketReminderController extends Controller
         // 2. Fetch ticket with status and assigned employee
         $ticket = DB::table('tickets as t')
             ->leftJoin('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
-            ->leftJoin('clients as c', 'c.client_ID', '=', 't.client_ID')
+            ->leftJoin('clients as c', 'c.id', '=', 't.created_by')
             ->where('t.ticket_ID', $ticketId)
             ->select('t.*', 'ts.status_name', 'c.client_name')
             ->first();
@@ -119,7 +119,7 @@ class TicketReminderController extends Controller
         }
 
         // 6. Build reminder payload
-        $customMessage = trim((string) $request->input('message', ''));
+        $customMessage = trim((string) ($request->input('custom_message') ?? $request->input('message', '')));
         $slaMetrics = $this->slaService->computeTicketSlaMetrics($ticket);
         $slaStatus = $slaMetrics['status'] ?? 'On Track';
         $dueAt = $slaMetrics['due_at'] ?? $ticket->resolution_due_at;
@@ -148,13 +148,15 @@ class TicketReminderController extends Controller
 
         try {
             DB::table('notifications')->insert([
-                'recipient_id' => $assignedEmpId,
+                'recipient_id'   => $assignedEmpId,
                 'recipient_type' => 'employee',
-                'title' => $notificationTitle,
-                'desc' => $notificationDesc,
-                'unread' => true,
-                'data' => $notificationData,
-                'time' => $now->toDateTimeString(),
+                'title'          => $notificationTitle,
+                'message'        => $notificationDesc,
+                'ticket_id'      => $ticketId,
+                'data'           => $notificationData,
+                'is_read'        => false,
+                'created_at'     => $now,
+                'updated_at'     => $now,
             ]);
         } catch (\Throwable $e) {
             Log::warning("Failed to insert in-app reminder notification for employee {$assignedEmpId}: " . $e->getMessage());
@@ -200,6 +202,24 @@ class TicketReminderController extends Controller
             'last_reminder_sent_at' => $now,
             'updated_at' => $now,
         ]);
+
+        // Invalidate caches and broadcast update
+        try {
+            app(\App\Services\TicketCacheService::class)->clearTicketCaches();
+        } catch (\Throwable $e) {
+            Log::warning("Failed to clear ticket caches after reminder: " . $e->getMessage());
+        }
+
+        try {
+            \App\Events\TicketChanged::dispatch([
+                'action' => 'reminder_sent',
+                'ticket_id' => $ticketId,
+                'last_reminder_sent_at' => $now->toIso8601String(),
+                'assigned_to' => $assignedEmpId,
+            ]);
+        } catch (\Throwable $e) {
+            Log::info("Broadcast reminder_sent bypassed: " . $e->getMessage());
+        }
 
         return response()->json([
             'status' => 'success',

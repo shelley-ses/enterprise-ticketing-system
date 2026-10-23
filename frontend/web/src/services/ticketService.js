@@ -1482,8 +1482,10 @@ export const getEmployeeFilterOptions = async () => {
 
 // Ticket SLA Reminder (TS-REMINDER)
 export const sendTicketReminder = async (ticketId, customMessage = '') => {
-  const response = await ticketClient.post(`/tickets/${ticketId}/reminders`, {
+  const numericId = typeof ticketId === 'number' ? ticketId : Number(String(ticketId).replace(/\D/g, ''));
+  const response = await ticketClient.post(`/tickets/${numericId}/reminders`, {
     custom_message: customMessage,
+    message: customMessage,
   });
   return response.data;
 };

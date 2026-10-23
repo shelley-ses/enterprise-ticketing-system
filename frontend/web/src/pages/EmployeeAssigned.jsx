@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Filter, Inbox, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Inbox, AlertTriangle, Bell } from 'lucide-react';
 import {
   statusColors,
   priorityColors,
@@ -645,6 +645,12 @@ export default function EmployeeAssigned() {
                         }
                         return null;
                       })()}
+                      {(t.last_reminder_sent_at || t.lastReminderSentAt) && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title={`Reminder sent by CS: ${formatDisplayDate(t.last_reminder_sent_at || t.lastReminderSentAt)}`}>
+                          <Bell className="h-2.5 w-2.5 text-indigo-600 shrink-0" />
+                          <span>Reminder</span>
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-slate text-xs whitespace-nowrap">
