@@ -41,42 +41,58 @@ class EmployeeAssignmentService
         $createdAtRaw = $row->created_at ?? null;
         $createdAt = $createdAtRaw ? Carbon::parse($createdAtRaw) : null;
 
-        // If explicitly stored sla_status is present and authoritative
-        if (!empty($row->sla_status) && in_array($row->sla_status, ['Breached', 'At Risk', 'On Track', 'Paused', 'No SLA Configured'])) {
-            $remainingMin = $resDueAt ? $now->diffInMinutes($resDueAt, false) : null;
-            return [
-                'status' => $row->sla_status,
-                'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
-                'time_remaining_minutes' => $remainingMin !== null ? (int) $remainingMin : null,
-            ];
-        }
-
+        // 1. Paused / On Hold
         if ($isOnHold) {
             return [
                 'status' => 'Paused',
                 'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
                 'time_remaining_minutes' => $resDueAt ? max(0, (int) $now->diffInMinutes($resDueAt, false)) : null,
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => true,
             ];
         }
 
+        // 2. Closed / Resolved
         if ($isClosedOrResolved) {
-            $isBreached = $resDueAt ? $now->gt($resDueAt) : false;
+            $evalTime = !empty($row->resolved_at) ? Carbon::parse($row->resolved_at) : (!empty($row->closed_at) ? Carbon::parse($row->closed_at) : $now);
+            $isBreached = $resDueAt ? $evalTime->gt($resDueAt) : false;
             return [
                 'status' => $isBreached ? 'Breached' : 'Compliant',
                 'due_at' => $resDueAt ? $resDueAt->toIso8601String() : null,
                 'time_remaining_minutes' => 0,
+                'is_breached' => $isBreached,
+                'is_at_risk' => false,
+                'is_paused' => false,
             ];
         }
 
+        // 3. Explicitly unconfigured SLA
+        if (($row->sla_status ?? '') === 'No SLA Configured') {
+            return [
+                'status' => 'No SLA Configured',
+                'due_at' => null,
+                'time_remaining_minutes' => null,
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => false,
+            ];
+        }
+
+        // 4. Active Ticket with resolution_due_at
         if ($resDueAt) {
             $remainingMin = $now->diffInMinutes($resDueAt, false);
-            if ($remainingMin < 0) {
+            if ($remainingMin < 0 || ($row->sla_status ?? '') === 'Breached') {
                 return [
                     'status' => 'Breached',
                     'due_at' => $resDueAt->toIso8601String(),
                     'time_remaining_minutes' => 0,
+                    'is_breached' => true,
+                    'is_at_risk' => false,
+                    'is_paused' => false,
                 ];
             }
+
             $isAtRisk = false;
             if ($remainingMin <= 240) {
                 $isAtRisk = true;
@@ -86,20 +102,28 @@ class EmployeeAssignmentService
                     $isAtRisk = true;
                 }
             }
+
             return [
                 'status' => $isAtRisk ? 'At Risk' : 'On Track',
                 'due_at' => $resDueAt->toIso8601String(),
                 'time_remaining_minutes' => (int) $remainingMin,
+                'is_breached' => false,
+                'is_at_risk' => $isAtRisk,
+                'is_paused' => false,
             ];
         }
 
+        // 5. Active Ticket fallback without resolution_due_at: use age from createdAt
         if ($createdAt) {
             $hours = $now->diffInHours($createdAt);
-            if ($hours >= 48) {
+            if ($hours >= 48 || ($row->sla_status ?? '') === 'Breached') {
                 return [
                     'status' => 'Breached',
                     'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
                     'time_remaining_minutes' => 0,
+                    'is_breached' => true,
+                    'is_at_risk' => false,
+                    'is_paused' => false,
                 ];
             }
             if ($hours >= 24) {
@@ -107,19 +131,28 @@ class EmployeeAssignmentService
                     'status' => 'At Risk',
                     'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
                     'time_remaining_minutes' => max(0, (int) ((48 - $hours) * 60)),
+                    'is_breached' => false,
+                    'is_at_risk' => true,
+                    'is_paused' => false,
                 ];
             }
             return [
                 'status' => 'On Track',
                 'due_at' => $createdAt->copy()->addHours(48)->toIso8601String(),
                 'time_remaining_minutes' => max(0, (int) ((48 - $hours) * 60)),
+                'is_breached' => false,
+                'is_at_risk' => false,
+                'is_paused' => false,
             ];
         }
 
         return [
-            'status' => 'On Track',
+            'status' => ($row->sla_status ?? '') === 'Breached' ? 'Breached' : 'On Track',
             'due_at' => null,
             'time_remaining_minutes' => null,
+            'is_breached' => ($row->sla_status ?? '') === 'Breached',
+            'is_at_risk' => false,
+            'is_paused' => false,
         ];
     }
 
@@ -1196,6 +1229,7 @@ class EmployeeAssignmentService
                 't.resolution_due_at',
                 't.response_due_at',
                 't.sla_status',
+                't.last_reminder_sent_at',
                 'm.machine_name',
                 'm.serial_number',
                 'c.client_name',
@@ -1209,6 +1243,7 @@ class EmployeeAssignmentService
         $ticketIds = $rows->pluck('ticket_ID')->toArray();
         $pendingReassigns = collect();
         $deniedReassigns = collect();
+        $ticketTimelines = collect();
 
         if (!empty($ticketIds)) {
             $latestRequests = DB::table('reassignment_requests')
@@ -1220,6 +1255,68 @@ class EmployeeAssignmentService
 
             $pendingReassigns = $latestRequests->filter(fn($r) => $r->status === 'pending');
             $deniedReassigns = $latestRequests->filter(fn($r) => $r->status === 'denied');
+
+            try {
+                $auditLogs = DB::table('ticket_audit_logs as tal')
+                    ->leftJoin('employees as e', 'e.emp_id', '=', 'tal.action_by_ID')
+                    ->whereIn('tal.ticket_ID', $ticketIds)
+                    ->select(
+                        'tal.*',
+                        DB::raw("TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) as actor_name")
+                    )
+                    ->orderBy('tal.created_at', 'asc')
+                    ->get()
+                    ->groupBy('ticket_ID');
+
+                foreach ($auditLogs as $tId => $logs) {
+                    $events = [];
+                    foreach ($logs as $log) {
+                        $details = json_decode($log->details ?? '{}', true) ?? [];
+                        $actor = $log->actor_name ?: ($log->actor_type === 'customer' ? 'Customer' : 'Staff');
+                        $time = $log->created_at ? Carbon::parse($log->created_at)->toIso8601String() : null;
+                        $type = 'system';
+                        $text = '';
+
+                        if ($log->action_type === 'reminder_sent') {
+                            $type = 'reminder';
+                            $recipient = $details['recipient_name'] ?? 'assigned technician';
+                            $msg = trim($details['message'] ?? '');
+                            $text = "Reminder sent to {$recipient} by {$actor}." . ($msg !== '' ? " Message: \"{$msg}\"" : '');
+                        } elseif ($log->action_type === 'create') {
+                            $text = "Ticket created by {$actor}.";
+                        } elseif ($log->action_type === 'accept') {
+                            $text = "Assignment accepted by {$actor}.";
+                        } elseif ($log->action_type === 'reassign_request') {
+                            $type = 'reassign';
+                            $reason = $details['reason'] ?? '';
+                            $text = "Reassignment request submitted by {$actor}. Reason: \"{$reason}\"";
+                        } elseif ($log->action_type === 'reassign_deny' || $log->action_type === 'reassign_reject') {
+                            $type = 'reassign';
+                            $reason = $details['reason'] ?? '';
+                            $text = "Reassignment request denied by {$actor}." . ($reason !== '' ? " Reason: \"{$reason}\"." : '');
+                        } elseif ($log->action_type === 'status_change') {
+                            $type = 'status';
+                            $text = "Status updated to \"" . ($details['status'] ?? '') . "\" by {$actor}.";
+                        } elseif ($log->action_type === 'hold') {
+                            $text = "Ticket placed on hold by {$actor}." . (!empty($details['reason']) ? " Reason: \"" . $details['reason'] . "\"" : '');
+                        } elseif ($log->action_type === 'resume') {
+                            $text = "Ticket resumed from hold by {$actor}.";
+                        }
+
+                        if ($text !== '') {
+                            $events[] = [
+                                'id' => 'audit-' . $log->log_ID,
+                                'type' => $type,
+                                'text' => $text,
+                                'timestamp' => $time,
+                            ];
+                        }
+                    }
+                    $ticketTimelines->put($tId, $events);
+                }
+            } catch (\Throwable $e) {
+                // Non-blocking fallback
+            }
         }
 
         $deniedAuditReasons = collect();
@@ -1267,6 +1364,9 @@ class EmployeeAssignmentService
                 'resolution_due_at' => $slaMetrics['due_at'],
                 'due_at' => $slaMetrics['due_at'],
                 'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
+                'is_breached' => $slaMetrics['is_breached'],
+                'is_at_risk' => $slaMetrics['is_at_risk'],
+                'is_paused' => $slaMetrics['is_paused'],
                 'lastUpdate' => $updatedAtObj ? $updatedAtObj->format('M d, Y') : ($createdAtObj ? $createdAtObj->format('M d, Y') : now()->format('M d, Y')),
                 'accepted' => $row->assignment_status === 'accepted',
                 'escalated' => false,
@@ -1280,6 +1380,8 @@ class EmployeeAssignmentService
                 'type' => $row->ticket_type ?? 'External',
                 'ticket_type' => $row->ticket_type ?? 'External',
                 'is_internal' => ($row->ticket_type ?? '') === 'Internal',
+                'last_reminder_sent_at' => $row->last_reminder_sent_at ? Carbon::parse($row->last_reminder_sent_at)->toIso8601String() : null,
+                'timeline' => $ticketTimelines->get($row->ticket_ID, []),
             ];
         })->values()->all();
     }
@@ -1315,6 +1417,7 @@ class EmployeeAssignmentService
                 't.updated_at',
                 't.resolution_due_at',
                 't.sla_status',
+                't.last_reminder_sent_at',
                 'm.machine_name',
                 'm.serial_number',
                 'c.client_name',
@@ -1341,9 +1444,13 @@ class EmployeeAssignmentService
                 'resolution_due_at' => $slaMetrics['due_at'],
                 'due_at' => $slaMetrics['due_at'],
                 'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
+                'is_breached' => $slaMetrics['is_breached'],
+                'is_at_risk' => $slaMetrics['is_at_risk'],
+                'is_paused' => $slaMetrics['is_paused'],
                 'type' => $row->ticket_type ?? 'Internal',
                 'is_internal' => true,
                 'assigned_to' => $row->assigned_to,
+                'last_reminder_sent_at' => $row->last_reminder_sent_at ? Carbon::parse($row->last_reminder_sent_at)->toIso8601String() : null,
             ];
         })->values()->all();
     }

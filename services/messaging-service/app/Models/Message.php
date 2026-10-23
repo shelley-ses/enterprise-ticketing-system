@@ -22,6 +22,8 @@ class Message extends Model
         'edited',
         'edited_at',
         'deleted_by',
+        'is_internal',
+        'exclude_ai',
     ];
 
     /**

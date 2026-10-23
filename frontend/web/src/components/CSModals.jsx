@@ -1371,6 +1371,21 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   </div>
                 )}
 
+                {/* Reminder banner */}
+                {currentLastReminder && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 mb-4 text-xs text-indigo-900 flex items-start gap-2.5 shadow-xs">
+                    <div className="w-6 h-6 rounded-full bg-indigo-200 text-indigo-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <Bell className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-indigo-900 mb-0.5">Employee Reminder Dispatched</p>
+                      <p className="text-indigo-800 leading-relaxed">
+                        A reminder prompt was dispatched to the assigned technician on {formatDisplayDate(currentLastReminder)}.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <h3 className="text-xl font-bold text-slate-dark mb-4">
                   Ticket Summary
                 </h3>
@@ -1817,19 +1832,32 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                   {(!ticket.timeline || ticket.timeline.length === 0) ? (
                     <div className="text-xs text-gray-400 italic py-2">No timeline events recorded.</div>
                   ) : (
-                    ticket.timeline.map((event, idx) => (
-                      <div key={event.id || idx} className="bg-white border border-gray-100 rounded-lg p-2.5 text-xs">
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="font-semibold text-gray-800 uppercase text-[10px] tracking-wide">
-                            {event.type || 'Event'}
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            {event.timestamp ? new Date(event.timestamp).toLocaleString() : ''}
-                          </span>
+                    ticket.timeline.map((event, idx) => {
+                      const isReminder = event.type === 'reminder';
+                      return (
+                        <div
+                          key={event.id || idx}
+                          className={`rounded-lg p-2.5 text-xs border ${
+                            isReminder
+                              ? 'bg-indigo-50/80 border-indigo-200 text-indigo-950'
+                              : 'bg-white border-gray-100 text-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className={`uppercase text-[10px] tracking-wide flex items-center gap-1 font-semibold ${
+                              isReminder ? 'text-indigo-700 font-bold' : 'text-gray-800'
+                            }`}>
+                              {isReminder && <Bell className="w-3 h-3 text-indigo-600 inline" />}
+                              {isReminder ? 'CS Reminder' : (event.type || 'Event')}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {event.timestamp ? formatDisplayDate(event.timestamp) : ''}
+                            </span>
+                          </div>
+                          <p className={`leading-relaxed ${isReminder ? 'text-indigo-900 font-medium' : 'text-gray-700'}`}>{event.text}</p>
                         </div>
-                        <p className="text-gray-700 leading-relaxed">{event.text}</p>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}

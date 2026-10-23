@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, AlertTriangle, Clock } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Clock, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { formatDisplayDate } from '@/utils/dateUtils';
@@ -158,6 +158,21 @@ export default function TicketInfoModal({ ticket, onClose, onReassignSuccess }) 
               <p className="text-sm font-semibold text-rose-800">
                 {formatDisplayDate(currentTicket.resolution_due_at || currentTicket.due_at || currentTicket.sla_due_date || currentTicket.sla?.resolution?.target)}
               </p>
+            </div>
+          )}
+
+          {/* Customer Service Reminder Prompt Alert */}
+          {(currentTicket.last_reminder_sent_at || currentTicket.lastReminderSentAt) && (
+            <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 text-xs text-indigo-900 shadow-2xs">
+              <div className="w-6 h-6 rounded-full bg-indigo-200 text-indigo-800 flex items-center justify-center shrink-0 mt-0.5">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1">
+                <span className="font-bold text-indigo-950 block text-xs">Customer Service Reminder Dispatched</span>
+                <p className="text-indigo-800 text-xs mt-0.5 leading-relaxed">
+                  A reminder prompt was dispatched on {formatDisplayDate(currentTicket.last_reminder_sent_at || currentTicket.lastReminderSentAt)}. Please review and provide a progress update.
+                </p>
+              </div>
             </div>
           )}
 

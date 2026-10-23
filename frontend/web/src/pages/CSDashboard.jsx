@@ -83,10 +83,17 @@ export default function CSDashboard() {
         priority: t.priority || 'Unassigned',
       }));
       const isBreachedTicket = (t) => {
+        if (['Resolved', 'Closed', 'Discarded'].includes(t.status)) return false;
         const s = String(t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '').toLowerCase().replace(/[\s_-]+/g, '');
-        return s === 'breached' || s === 'violated' || Boolean(t.sla_breached);
+        if (s === 'breached' || s === 'violated' || Boolean(t.sla_breached) || Boolean(t.is_breached)) return true;
+        if (t.resolution_due_at && new Date(t.resolution_due_at) < new Date()) return true;
+        if (t.due_at && new Date(t.due_at) < new Date()) return true;
+        return false;
       };
       const slaBreachedCount = payload.summary?.sla_breached ?? payload.summary?.breached ?? recentTickets.filter(isBreachedTicket).length;
+      const highPriorityCount = payload.summary?.high_priority ?? payload.summary?.highPriority ?? recentTickets.filter(
+        (t) => (t.priority === 'Critical' || t.priority === 'High') && t.status !== 'Resolved' && t.status !== 'Closed'
+      ).length;
       const escalatedCount = recentTickets.filter(
         (t) => (t.priority === 'Critical' || t.priority === 'High') && t.status !== 'Resolved' && t.status !== 'Closed'
       ).length;
@@ -94,7 +101,7 @@ export default function CSDashboard() {
         unassigned: payload.summary?.open ?? MOCK_STATS.unassigned,
         pending: payload.summary?.in_progress ?? MOCK_STATS.pending,
         assigned: payload.summary?.resolved ?? MOCK_STATS.assigned,
-        highPriority: 0,
+        highPriority: highPriorityCount,
         slaBreached: slaBreachedCount,
         escalated: escalatedCount,
       });

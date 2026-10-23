@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Clock, AlertCircle, ShieldAlert } from 'lucide-react';
 import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
+import InternalTicketMessageThread from '@/components/InternalTicketMessageThread';
 
 export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
@@ -742,6 +743,15 @@ export default function EmployeeHistoryDetail() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Internal Ticket Discussion Thread */}
+      {numericId && (
+        <InternalTicketMessageThread
+          ticketId={numericId}
+          ticket={ticket}
+          isClosed={ticket?.status === 'Closed' || Number(ticket?.ticket_status_ID) === 4}
+        />
       )}
 
       {/* Customer Satisfaction Feedback */}
