@@ -70,7 +70,7 @@ class EmployeeDirectoryController extends Controller
         $role = strtolower(trim((string) ($emp->role ?? '')));
 
         // Customer service or customer or superadmin cannot be regular assignees
-        if (in_array($role, ['customer service', 'customer support', 'cs', 'customer'], true)) {
+        if (in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'customer'], true)) {
             return [
                 'eligible' => false,
                 'reason' => 'Customer service and customer users cannot be assigned to tickets.',
@@ -144,7 +144,7 @@ class EmployeeDirectoryController extends Controller
 
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
@@ -203,7 +203,7 @@ class EmployeeDirectoryController extends Controller
 
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs'])
             ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer']);
 
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {

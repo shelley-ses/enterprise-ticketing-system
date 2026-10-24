@@ -21,6 +21,7 @@ import {
   PauseCircle,
   Bell,
   Send,
+  ArrowUpRight,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
@@ -35,6 +36,8 @@ import {
   addInternalNote,
   getInternalNotes,
   sendTicketReminder,
+  updateTicket,
+  acceptTicket,
 } from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
@@ -42,6 +45,7 @@ import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import EscalateTicketModal from './cs/EscalateTicketModal';
 
 /* Helper functions for robust file attachment handling */
 const isQuarantinedFile = (file) => {
@@ -663,6 +667,11 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
     ticket?.last_reminder_sent_at || null
   );
 
+  const isBreached = useMemo(() => {
+    const normalized = currentSlaStatus ? String(currentSlaStatus).toLowerCase().replace(/[\s_-]+/g, '') : '';
+    return normalized === 'breached' || normalized === 'violated' || Boolean(ticket?.sla_breached);
+  }, [currentSlaStatus, ticket?.sla_breached]);
+
   // Send Reminder state
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
@@ -681,6 +690,73 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [reclassifyError, setReclassifyError] = useState('');
   const [reassignmentNotice, setReassignmentNotice] = useState('');
   const [actionSuccessNotice, setActionSuccessNotice] = useState('');
+
+  // Escalation state (TS032)
+  const [showEscalateModal, setShowEscalateModal] = useState(false);
+  const [isEscalating, setIsEscalating] = useState(false);
+  const [escalateError, setEscalateError] = useState('');
+
+  const handleConfirmEscalate = async ({ targetEmployee, reason, categoryType, categoryName }) => {
+    setIsEscalating(true);
+    setEscalateError('');
+    try {
+      const ticketId = ticket.ticket_ID || ticket.id;
+      const targetEmpId = targetEmployee?.id || targetEmployee?.emp_id;
+
+      // Update status to Escalated (status ID 5)
+      await updateTicket({
+        ticketId,
+        statusId: 5,
+        assignedByEmail: user?.email,
+      });
+
+      // Assign to the computed escalation target
+      if (targetEmpId) {
+        await acceptTicket({
+          ticketId,
+          employeeIds: [targetEmpId],
+          assignedByEmail: user?.email,
+        }).catch((e) => console.warn('Could not reassign on escalate:', e));
+      }
+
+      // Add escalation handoff note to internal notes
+      const noteText = `[Escalation (${categoryType.toUpperCase()})]: Escalated to ${targetEmployee?.name || 'specialist'} (${targetEmployee?.role || 'Specialist'}, ${targetEmployee?.department || 'Operations'}). Reason: "${reason}"`;
+      await addInternalNote(ticketId, noteText).catch(() => {});
+
+      const refreshedNotes = await getInternalNotes(ticketId).catch(() => null);
+      if (Array.isArray(refreshedNotes)) {
+        setInternalNotesList(refreshedNotes);
+      }
+
+      setCurrentStatus('Escalated');
+      setActionSuccessNotice(`Ticket successfully escalated to ${targetEmployee?.name || 'specialist'}.`);
+      setShowEscalateModal(false);
+
+      if (typeof onStatusUpdate === 'function') {
+        const timestamp = new Date().toLocaleString('en-US');
+        onStatusUpdate({
+          id: ticket.id,
+          status: 'Escalated',
+          assigned_to: targetEmpId,
+          assigned: targetEmpId ? [targetEmpId] : [],
+          timeline: [
+            ...(ticket.timeline || []),
+            {
+              id: `escalate-${Date.now()}`,
+              type: 'escalation',
+              text: `Ticket escalated to ${targetEmployee?.name} per ${categoryType.toUpperCase()} escalation rules. Reason: "${reason}"`,
+              timestamp,
+            }
+          ]
+        });
+      }
+    } catch (err) {
+      console.error('Failed to escalate ticket:', err);
+      setEscalateError('Failed to escalate ticket. Please check your network connection and try again.');
+    } finally {
+      setIsEscalating(false);
+    }
+  };
 
   useEffect(() => {
     setInternalNotesList(ticket?.internalNotes || []);
@@ -1090,6 +1166,19 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 
             {readOnly ? (
               <>
+                {isBreached && (
+                  <div className="bg-rose-50 border border-rose-300 rounded-xl p-3.5 mb-4 text-xs text-rose-900 flex items-start gap-2.5 shadow-xs">
+                    <div className="w-6 h-6 rounded-full bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-rose-900 mb-0.5">SLA Target Breached</p>
+                      <p className="text-rose-800 leading-relaxed">
+                        This ticket has exceeded its target resolution deadline ({currentSlaDueDate ? formatDisplayDate(currentSlaDueDate) : 'Overdue'}). Prioritize immediate resolution or escalation.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 {/* Ticket card at top for read-only */}
                 <div className="bg-primary text-white rounded-xl p-5 mb-5 shadow-sm space-y-3">
                   <div>
@@ -1366,6 +1455,21 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                       <p className="text-amber-800 leading-relaxed">
                         The SLA timer is temporarily paused while awaiting external information.
                         {currentHoldReason ? ` Reason: "${currentHoldReason}"` : ''}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* SLA Breached banner */}
+                {isBreached && (
+                  <div className="bg-rose-50 border border-rose-300 rounded-xl p-3.5 mb-4 text-xs text-rose-900 flex items-start gap-2.5 shadow-xs">
+                    <div className="w-6 h-6 rounded-full bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-rose-900 mb-0.5">SLA Target Breached</p>
+                      <p className="text-rose-800 leading-relaxed">
+                        This ticket has exceeded its target resolution deadline ({currentSlaDueDate ? formatDisplayDate(currentSlaDueDate) : 'Overdue'}). Prioritize immediate resolution or escalation.
                       </p>
                     </div>
                   </div>
@@ -2064,6 +2168,23 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
               </Button>
             )}
 
+            {/* Escalate button (TS032) */}
+            {currentStatus !== 'Closed' && currentStatus !== 'Resolved' && currentStatus !== 'Discarded' && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isProcessing || isEscalating}
+                onClick={() => {
+                  setEscalateError('');
+                  setShowEscalateModal(true);
+                }}
+                className="flex items-center gap-1.5 text-rose-700 border-rose-200 hover:bg-rose-50 cursor-pointer"
+              >
+                <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+                <span>Escalate Ticket</span>
+              </Button>
+            )}
+
             {!ticket.reassignmentRequested && ticket.status !== 'Closed' && ticket.status !== 'Resolved' && onEdit && (
               <Button
                 variant="outline"
@@ -2077,6 +2198,16 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
           </div>
         </div>
       </div>
+
+      {/* TS032 Escalate Modal */}
+      <EscalateTicketModal
+        isOpen={showEscalateModal}
+        onClose={() => setShowEscalateModal(false)}
+        ticket={{ ...ticket, category: currentCategory, status: currentStatus }}
+        employees={employees}
+        onConfirmEscalate={handleConfirmEscalate}
+        isEscalating={isEscalating}
+      />
 
       {showHoldModal && (
         <HoldTicketDialog
@@ -2183,7 +2314,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
     const list = employees.filter((e) => {
       const empDept = (e.department || '').toLowerCase().trim();
       const empRole = (e.role || '').toLowerCase().trim();
-      if (['customer service', 'customer support', 'cs'].includes(empDept) || ['customer service', 'customer support', 'cs'].includes(empRole)) {
+      if (['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service'].includes(empDept) || ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service'].includes(empRole)) {
         return false;
       }
       if (!department) return true;

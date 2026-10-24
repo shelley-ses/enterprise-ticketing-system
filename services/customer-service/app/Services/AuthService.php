@@ -237,7 +237,7 @@
 
         public function logoutEmployee(Employee $employee): void
         {
-            if ($employee->role === 'customer service') {
+            if (in_array($employee->role, ['customer service', 'head of cs', 'head of customer service', 'cs'])) {
                 return;
             }
 

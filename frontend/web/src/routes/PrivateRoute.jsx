@@ -9,7 +9,14 @@ export const checkIsCS = (user) => {
   const dept = resolveUserDepartment(user).toLowerCase();
   const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
-  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+  return (
+    role.includes('customer service') ||
+    role.includes('customer-service') ||
+    role.includes('head of cs') ||
+    role.includes('head of customer service') ||
+    role === 'cs' ||
+    role === 'head cs'
+  );
 };
 
 export const checkIsSuperAdmin = (user) => {
@@ -191,7 +198,9 @@ export default function PrivateRoute({ children, role }) {
       if (
         (normalizedRole === 'cs' ||
           normalizedRole === 'customer service' ||
-          normalizedRole === 'customer-service') &&
+          normalizedRole === 'customer-service' ||
+          normalizedRole === 'head of cs' ||
+          normalizedRole === 'head of customer service') &&
         !isCS
       ) {
         if (isAdmin) return <Navigate to="/admin/dashboard" replace />;

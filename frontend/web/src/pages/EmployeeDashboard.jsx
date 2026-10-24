@@ -392,7 +392,7 @@ export default function EmployeeDashboard() {
       return false;
     };
     const slaBreachedCount = visible.filter(isBreachedTicket).length;
-    const escalatedCount = visible.filter((t) => (t.priority === 'Critical' || t.priority === 'High') && !CLOSED_STATUSES.includes(t.status)).length;
+    const escalatedCount = visible.filter((t) => (t.status === 'Escalated' || t.escalated || t.priority === 'Critical' || t.priority === 'High') && !CLOSED_STATUSES.includes(t.status)).length;
 
     return [
       { label: 'Incoming Tickets', value: incomingCount, sub: 'Awaiting acceptance', icon: Inbox, variant: 'default' },

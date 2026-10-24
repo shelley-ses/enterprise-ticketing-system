@@ -41,7 +41,7 @@ export default function CustomerInfoPanel({
   const isAuthorized = useMemo(() => {
     if (!user) return true;
     const role = String(user.role || '').toLowerCase().trim();
-    const isCSOrAdmin = ['cs', 'customer support', 'customer service', 'admin', 'superadmin', 'super admin'].includes(role);
+    const isCSOrAdmin = ['cs', 'customer support', 'customer service', 'head of cs', 'head of customer service', 'admin', 'superadmin', 'super admin'].includes(role);
     if (isCSOrAdmin) return true;
 
     const empId = user.emp_id || user.id;
