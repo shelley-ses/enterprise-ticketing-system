@@ -16,6 +16,7 @@ import {
   respondReassignment,
 } from '@/services/ticketService';
 import { TicketSummary, AssignModal } from '@/components/CSModals';
+import SlaStatusBadge from '@/components/sla/SlaStatusBadge';
 import { formatDisplayDate, parseUTCDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
 import { PageHeader } from '@/components/ui/page-header';
@@ -90,119 +91,7 @@ const buildTicketSearchString = (t) => {
     .toLowerCase();
 };
 
-const renderSlaBadge = (ticket) => {
-  const rawStatus = ticket.sla_status || ticket.slaStatus || (ticket.sla?.resolution?.status) || null;
-  const status = rawStatus ? String(rawStatus).toLowerCase().replace(/[\s_-]+/g, '') : null;
-  const dueAt = ticket.resolution_due_at || ticket.due_at || ticket.sla?.resolution?.target;
-  const formattedDue = dueAt ? formatDisplayDate(dueAt) : null;
-  const remainingMin = ticket.time_remaining_minutes !== undefined ? ticket.time_remaining_minutes : null;
-
-  if (status === 'breached') {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 w-fit"
-          title={formattedDue ? `Breached deadline: ${formattedDue}` : 'Resolution target breached'}
-        >
-          <AlertTriangle className="h-3 w-3 text-rose-600 shrink-0" />
-          <span>Breached</span>
-        </span>
-        {formattedDue && (
-          <span className="text-[10px] text-rose-600 font-medium truncate max-w-[130px]">
-            Due: {formattedDue}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  if (status === 'atrisk') {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
-          title={formattedDue ? `Deadline: ${formattedDue}` : 'SLA resolution near breach'}
-        >
-          <Clock className="h-3 w-3 text-amber-600 shrink-0" />
-          <span>At Risk</span>
-        </span>
-        {remainingMin !== null && remainingMin > 0 ? (
-          <span className="text-[10px] text-amber-600 font-medium">
-            {remainingMin > 60 ? `${Math.round(remainingMin / 60)}h left` : `${remainingMin}m left`}
-          </span>
-        ) : formattedDue ? (
-          <span className="text-[10px] text-amber-600 font-medium truncate max-w-[130px]">
-            Due: {formattedDue}
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (status === 'paused') {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 w-fit"
-          title="SLA calculation clock paused while on hold"
-        >
-          <PauseCircle className="h-3 w-3 text-blue-600 shrink-0" />
-          <span>Paused</span>
-        </span>
-        <span className="text-[10px] text-muted-foreground font-medium">
-          On Hold
-        </span>
-      </div>
-    );
-  }
-
-  if (status === 'ontrack' || status === 'compliant') {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit"
-          title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA targets'}
-        >
-          <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
-          <span>{status === 'compliant' ? 'Compliant' : 'On Track'}</span>
-        </span>
-        {formattedDue && (
-          <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[130px]">
-            Due: {formattedDue}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-    if (status === 'unavailable' || status === 'slaunavailable') {
-      return (
-        <div className="flex flex-col gap-0.5">
-          <span
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
-            title="SLA calculation unavailable due to configuration failure"
-          >
-            <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
-            <span>SLA Unavailable</span>
-          </span>
-          <span className="text-[10px] text-muted-foreground">Config Error</span>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 w-fit"
-          title="No department SLA configured for this ticket category"
-        >
-          <HelpCircle className="h-3 w-3 text-slate-400 shrink-0" />
-          <span>N/A</span>
-        </span>
-        <span className="text-[10px] text-muted-foreground">Standard</span>
-      </div>
-    );
-  };
+const renderSlaBadge = (ticket) => <SlaStatusBadge ticket={ticket} />;
 
 export default function CSAssigned() {
   const { user } = useAuth();
@@ -219,7 +108,6 @@ export default function CSAssigned() {
   const [category, setCategory] = useState('All Categories');
   const [machineFilter, setMachineFilter] = useState('All Machines');
   const [departmentFilter, setDepartmentFilter] = useState('All Departments');
-  const [statusFilter, setStatusFilter] = useState('All Statuses');
   const [sortBy, setSortBy] = useState('updated_at'); // 'updated_at' | 'sla_due_date' | 'sla_status'
   const [sortDir, setSortDir] = useState('desc'); // 'asc' | 'desc'
   const [slaSummary, setSlaSummary] = useState({
@@ -249,7 +137,6 @@ export default function CSAssigned() {
     setCategory('All Categories');
     setMachineFilter('All Machines');
     setDepartmentFilter('All Departments');
-    setStatusFilter('All Statuses');
     setTypeFilter('all');
     setSortBy('updated_at');
     setSortDir('desc');
@@ -429,10 +316,11 @@ export default function CSAssigned() {
     search.trim() ||
     slaFilter !== 'All SLA Statuses' ||
     machineFilter !== 'All Machines' ||
-    statusFilter !== 'All Statuses' ||
     departmentFilter !== 'All Departments' ||
     category !== 'All Categories' ||
-    typeFilter !== 'all'
+    typeFilter !== 'all' ||
+    sortBy !== 'updated_at' ||
+    sortDir !== 'desc'
   );
 
   const counts = useMemo(() => {
@@ -461,7 +349,6 @@ export default function CSAssigned() {
       if (category !== 'All Categories' && t.category !== category) return false;
       if (machineFilter !== 'All Machines' && (t.equipment || t.machine_name || '') !== machineFilter) return false;
       if (departmentFilter !== 'All Departments' && (t.department || '').trim().toLowerCase() !== departmentFilter.trim().toLowerCase()) return false;
-      if (statusFilter !== 'All Statuses' && (t.status || '').trim().toLowerCase() !== statusFilter.trim().toLowerCase()) return false;
 
       if (slaFilter !== 'All SLA Statuses') {
         const rawSla = String(t.sla_status || t.slaStatus || t.sla?.resolution?.status || '').toLowerCase().replace(/[\s_-]+/g, '');
@@ -512,7 +399,7 @@ export default function CSAssigned() {
       const timeB = new Date(b.updated_at || b.last_update || b.lastUpdate || b.date || b.created_at || 0).getTime();
       return timeB - timeA;
     });
-  }, [tickets, search, slaFilter, machineFilter, departmentFilter, statusFilter, category, typeFilter, assignedTab, sortBy, sortDir]);
+  }, [tickets, search, slaFilter, machineFilter, departmentFilter, category, typeFilter, assignedTab, sortBy, sortDir]);
 
   const ITEMS_PER_PAGE = 10;
   const [page, setPage] = useState(1);
@@ -617,7 +504,7 @@ export default function CSAssigned() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full">
       <PageHeader
         title="Assigned Tickets"
         subtitle="Manage and track ongoing assigned support tickets"
@@ -743,12 +630,12 @@ export default function CSAssigned() {
             className="w-full rounded-lg border border-border bg-card pl-9 pr-4 py-2.5 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full">
+        <div className="flex flex-wrap items-center gap-2.5 w-full">
           {/* SLA Compliance Status Filter dropdown */}
           <select
             value={slaFilter}
             onChange={(e) => { setSlaFilter(e.target.value); setPage(1); }}
-            className={`flex-1 min-w-[150px] rounded-lg border px-3 py-2 text-sm font-semibold outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors ${
+            className={`h-10 flex-1 min-w-[140px] rounded-lg border px-3 text-xs font-semibold outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors ${
               slaFilter === 'Breached'
                 ? 'border-rose-300 bg-rose-50 text-rose-700'
                 : slaFilter === 'At Risk'
@@ -759,6 +646,7 @@ export default function CSAssigned() {
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-border bg-card text-foreground'
             }`}
+            title="Filter by SLA status"
           >
             {slaOptions.map((opt) => (
               <option key={opt} value={opt}>
@@ -768,26 +656,19 @@ export default function CSAssigned() {
           </select>
           <select
             value={machineFilter}
-            onChange={(e) => setMachineFilter(e.target.value)}
-            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            onChange={(e) => { setMachineFilter(e.target.value); setPage(1); }}
+            className="h-10 flex-1 min-w-[140px] rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
+            title="Filter by machine"
           >
             {machines.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          >
-            {statuses.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <select
             value={departmentFilter}
-            onChange={(e) => setDepartmentFilter(e.target.value)}
-            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
+            className="h-10 flex-1 min-w-[140px] rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
+            title="Filter by department"
           >
             {departmentOptions.map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -795,8 +676,9 @@ export default function CSAssigned() {
           </select>
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="flex-1 min-w-[130px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+            className="h-10 flex-1 min-w-[140px] rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
+            title="Filter by category"
           >
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -812,7 +694,7 @@ export default function CSAssigned() {
               setSortDir(sd);
               setPage(1);
             }}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground outline-none focus:border-accent shrink-0"
+            className="h-10 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none focus:border-accent focus:ring-1 focus:ring-accent shrink-0 transition-colors"
             title="Sort tickets queue"
           >
             <option value="updated_at:desc">Sort: Latest Update</option>
@@ -827,9 +709,9 @@ export default function CSAssigned() {
               variant="outline"
               size="sm"
               onClick={resetFilters}
-              className="gap-1.5 text-xs text-muted-foreground hover:text-destructive shrink-0"
+              className="h-10 gap-1.5 text-xs text-muted-foreground hover:text-destructive shrink-0"
             >
-              <RotateCcw className="h-3 w-3" /> Reset
+              <RotateCcw className="h-3.5 w-3.5" /> Reset
             </Button>
           )}
         </div>
@@ -920,8 +802,8 @@ export default function CSAssigned() {
       </div>
 
       {/* Table Card */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
-        <Table>
+      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-xs w-full min-w-0 max-w-full">
+        <Table className="min-w-[960px] w-full">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[140px]">Ticket ID</TableHead>

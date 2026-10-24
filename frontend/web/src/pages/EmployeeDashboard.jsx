@@ -382,12 +382,13 @@ export default function EmployeeDashboard() {
     const CLOSED_STATUSES = ['Closed', 'Resolved'];
     const incomingCount = visible.filter((t) => !t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
     const assignedCount = visible.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
+    const completedCount = visible.filter((t) => CLOSED_STATUSES.includes(t.status)).length;
     const isBreachedTicket = (t) => {
       const s = String(t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '').toLowerCase().replace(/[\s_-]+/g, '');
       return s === 'breached' || s === 'violated' || Boolean(t.sla_breached);
     };
     const slaBreachedCount = visible.filter(isBreachedTicket).length;
-    const escalatedCount = visible.filter((t) => t.priority === 'Critical' && !CLOSED_STATUSES.includes(t.status)).length;
+    const escalatedCount = visible.filter((t) => (t.status === 'Escalated' || t.escalated || t.priority === 'Critical') && !CLOSED_STATUSES.includes(t.status)).length;
 
     return [
       { label: 'Incoming Tickets', value: incomingCount, sub: 'Awaiting acceptance', icon: Inbox, variant: 'default' },

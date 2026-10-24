@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert, MessageCircle, AlertTriangle } from 'lucide-react';
+import {
+  Bell,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Clock,
+  ShieldAlert,
+  MessageCircle,
+  AlertTriangle,
+  Database,
+  KeyRound,
+  Terminal,
+  AlertOctagon,
+} from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +31,7 @@ import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { TicketSummary } from '@/components/CSModals';
 import { respondReassignment } from '@/services/ticketService';
 import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
+import SystemAlertModal from '@/components/security/SystemAlertModal';
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -32,6 +46,7 @@ export default function Notifications() {
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [activeTicketLoading, setActiveTicketLoading] = useState(false);
   const [activeSecurityIncident, setActiveSecurityIncident] = useState(null);
+  const [activeSystemAlert, setActiveSystemAlert] = useState(null);
 
   const loadData = useCallback(async ({ source = 'manual' } = {}) => {
     if (source !== 'websocket' && source !== 'poll') {
@@ -157,6 +172,22 @@ export default function Notifications() {
         handleMarkOneRead(n.id);
       }
       setActiveSecurityIncident({ ...n, data: parsedData });
+      return;
+    }
+
+    // TS072: Super Admin System-level issues (Application Errors, Failed Logins, SQL Errors, Unusual Logins)
+    const isSystemIssue = Boolean(
+      parsedData.alert_type === 'system_issue' ||
+      parsedData.event === 'system_error' ||
+      parsedData.category === 'system_alert' ||
+      /failed login|sql error|database error|application error|unusual login|unhandled exception|system error/i.test((n.title || '') + ' ' + (n.message || ''))
+    );
+
+    if (isSystemIssue) {
+      if (!n.is_read) {
+        handleMarkOneRead(n.id);
+      }
+      setActiveSystemAlert({ ...n, data: parsedData });
       return;
     }
 
@@ -323,20 +354,23 @@ export default function Notifications() {
                   const parsedData = (() => {
                     try { return typeof n.data === 'string' ? JSON.parse(n.data) : n.data || {}; } catch { return {}; }
                   })();
-                  const isSecurityAlert = Boolean(
-                    parsedData.alert_type === 'security_alert' ||
-                    parsedData.event === 'malware_detected' ||
-                    /security alert|malware/i.test(n.title || '') ||
-                    /malware|quarantine/i.test(n.message || '')
+                  const isSystemIssue = !isSecurityAlert && Boolean(
+                    parsedData.alert_type === 'system_issue' ||
+                    parsedData.event === 'system_error' ||
+                    parsedData.category === 'system_alert' ||
+                    /failed login|sql error|database error|application error|unusual login|unhandled exception|system error/i.test((n.title || '') + ' ' + (n.message || ''))
                   );
-                  const isSlaBreach = !isSecurityAlert && Boolean(
+                  const isSqlError = isSystemIssue && /sql|database/i.test((n.title || '') + ' ' + (n.message || ''));
+                  const isLoginIssue = isSystemIssue && /login|brute/i.test((n.title || '') + ' ' + (n.message || ''));
+
+                  const isSlaBreach = !isSecurityAlert && !isSystemIssue && Boolean(
                     parsedData.type === 'overdue_sla_breach' ||
                     parsedData.sla_status === 'Breached' ||
                     /sla.*breach|breached/i.test(n.title || '') ||
                     /breached.*sla/i.test(n.message || '')
                   );
-                  const isAutoClose = !isSecurityAlert && !isSlaBreach && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
-                  const isNewMessage = !isSecurityAlert && !isSlaBreach && !isAutoClose && Boolean(
+                  const isAutoClose = !isSecurityAlert && !isSystemIssue && !isSlaBreach && /auto-close|auto close|inactivity/i.test((n.title || '') + ' ' + (n.message || ''));
+                  const isNewMessage = !isSecurityAlert && !isSystemIssue && !isSlaBreach && !isAutoClose && Boolean(
                     parsedData.type === 'new_message' ||
                     /new\s+message/i.test(n.title || '') ||
                     (parsedData.link && parsedData.link.includes('messages'))
@@ -349,28 +383,44 @@ export default function Notifications() {
                       className={`bg-card rounded-xl border p-5 shadow-xs flex items-start gap-4 transition-all duration-200 cursor-pointer animate-fadeIn ${
                         isSecurityAlert
                           ? 'border-destructive/30 bg-destructive/5 hover:border-destructive/40 ' + (!n.is_read ? 'border-l-4 border-l-destructive pl-4' : '')
-                          : isSlaBreach
-                            ? 'border-red-200 bg-red-50/25 hover:border-red-300 ' + (!n.is_read ? 'border-l-4 border-l-red-600 pl-4' : '')
-                            : isAutoClose
-                              ? 'border-amber-200 bg-amber-50/20 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
-                              : isNewMessage
-                                ? 'border-indigo-200 bg-indigo-50/20 hover:border-indigo-300 ' + (!n.is_read ? 'border-l-4 border-l-indigo-600 pl-4' : '')
-                                : 'border-border hover:border-slate-300 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                          : isSystemIssue
+                            ? 'border-amber-300 bg-amber-50/25 hover:border-amber-400 ' + (!n.is_read ? 'border-l-4 border-l-amber-600 pl-4' : '')
+                            : isSlaBreach
+                              ? 'border-red-200 bg-red-50/25 hover:border-red-300 ' + (!n.is_read ? 'border-l-4 border-l-red-600 pl-4' : '')
+                              : isAutoClose
+                                ? 'border-amber-200 bg-amber-50/20 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
+                                : isNewMessage
+                                  ? 'border-indigo-200 bg-indigo-50/20 hover:border-indigo-300 ' + (!n.is_read ? 'border-l-4 border-l-indigo-600 pl-4' : '')
+                                  : 'border-border hover:border-slate-300 ' + (!n.is_read ? 'border-l-4 border-l-accent pl-4' : '')
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                         isSecurityAlert
                           ? 'bg-destructive/15 text-destructive'
-                          : isSlaBreach
-                            ? 'bg-red-100 text-red-600'
-                            : isAutoClose
+                          : isSystemIssue
+                            ? isSqlError
+                              ? 'bg-purple-100 text-purple-700'
+                              : isLoginIssue
                               ? 'bg-amber-100 text-amber-700'
-                              : isNewMessage
-                                ? 'bg-indigo-100 text-indigo-700'
-                                : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
+                              : 'bg-rose-100 text-rose-700'
+                            : isSlaBreach
+                              ? 'bg-red-100 text-red-600'
+                              : isAutoClose
+                                ? 'bg-amber-100 text-amber-700'
+                                : isNewMessage
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
                       }`}>
                         {isSecurityAlert ? (
                           <ShieldAlert size={20} className="text-destructive" />
+                        ) : isSystemIssue ? (
+                          isSqlError ? (
+                            <Database size={18} className="text-purple-700" />
+                          ) : isLoginIssue ? (
+                            <KeyRound size={18} className="text-amber-700" />
+                          ) : (
+                            <Terminal size={18} className="text-rose-700" />
+                          )
                         ) : isSlaBreach ? (
                           <AlertTriangle size={18} className="text-red-600" />
                         ) : isAutoClose ? (
@@ -385,11 +435,17 @@ export default function Notifications() {
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1 gap-4">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert || isSlaBreach ? 'text-red-950 font-black' : 'text-dark-slate'}`}>{n.title}</h3>
+                            <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert || isSlaBreach || isSystemIssue ? 'text-dark-slate font-black' : 'text-dark-slate'}`}>{n.title}</h3>
                             {isSecurityAlert && (
                               <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-ping inline-block" />
                                 Security Alert
+                              </span>
+                            )}
+                            {isSystemIssue && (
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-ping inline-block" />
+                                {isSqlError ? 'SQL Error' : isLoginIssue ? 'Auth Alert' : 'System Issue'}
                               </span>
                             )}
                             {isSlaBreach && (
@@ -421,6 +477,11 @@ export default function Notifications() {
                           {isSecurityAlert && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-destructive hover:underline">
                               Inspect Incident Details →
+                            </span>
+                          )}
+                          {isSystemIssue && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 dark:text-amber-300 hover:underline">
+                              Inspect System Context &amp; Logs →
                             </span>
                           )}
                           {isSlaBreach && (
@@ -457,6 +518,18 @@ export default function Notifications() {
           onNavigateAuditLogs={() => {
             setActiveSecurityIncident(null);
             navigate('/superadmin/audit-logs');
+          }}
+        />
+      )}
+
+      {activeSystemAlert && (
+        <SystemAlertModal
+          isOpen={Boolean(activeSystemAlert)}
+          onClose={() => setActiveSystemAlert(null)}
+          alert={activeSystemAlert}
+          onNavigateToLogs={(targetUrl) => {
+            setActiveSystemAlert(null);
+            navigate(targetUrl);
           }}
         />
       )}

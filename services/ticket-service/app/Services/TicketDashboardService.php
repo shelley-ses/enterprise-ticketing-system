@@ -224,7 +224,7 @@ class TicketDashboardService
             ->get();
 
         $employees = DB::table('employees')
-            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?)', ['customer service', 'superadmin'])
+            ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?, ?, ?)', ['customer service', 'head of cs', 'head of customer service', 'superadmin'])
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
             ->orderBy('first_name')
             ->get();

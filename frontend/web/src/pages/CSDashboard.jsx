@@ -23,6 +23,7 @@ import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import CustomerTicketDetailModal from '@/components/CustomerTicketDetailModal';
 import { AssignModal } from '@/components/CSModals';
+import SlaStatusBadge from '@/components/sla/SlaStatusBadge';
 import { DashboardHeader } from '@/components/ui/page-header';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
@@ -328,7 +329,7 @@ export default function CSDashboard() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full">
       {/* Pattern A Header */}
       <DashboardHeader
         greeting="Welcome back"
@@ -376,6 +377,8 @@ export default function CSDashboard() {
           icon={<AlertTriangle className="w-5 h-5 text-rose-600" />}
           variant="crimson"
           loading={loading}
+          onClick={() => navigate('/ticketing/cs/incoming?sla=Breached')}
+          className="cursor-pointer hover:shadow-md transition-shadow"
         />
         <MetricCard
           title="Escalated Tickets"
@@ -403,15 +406,16 @@ export default function CSDashboard() {
                 <TableHead>Title</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-[150px]">SLA Target</TableHead>
                 <TableHead>Priority</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <DataTableSkeleton columns={5} rows={4} />
+                <DataTableSkeleton columns={6} rows={4} />
               ) : tickets.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground text-sm">
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground text-sm">
                     No tickets found.
                   </TableCell>
                 </TableRow>
@@ -443,24 +447,12 @@ export default function CSDashboard() {
                         {r.customer}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <Badge variant={getStatusBadgeVariant(r.status)}>
-                            {r.status}
-                          </Badge>
-                          {(() => {
-                            const rawSla = r.sla_status || r.slaStatus || (r.sla?.resolution?.status) || (r.sla_breached ? 'Breached' : null);
-                            const normalized = rawSla ? String(rawSla).toLowerCase().replace(/[\s_-]+/g, '') : '';
-                            if (normalized === 'breached' || normalized === 'violated') {
-                              return (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                                  <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
-                                  <span>Breached</span>
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
+                        <Badge variant={getStatusBadgeVariant(r.status)}>
+                          {r.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <SlaStatusBadge ticket={r} />
                       </TableCell>
                       <TableCell>
                         <Badge

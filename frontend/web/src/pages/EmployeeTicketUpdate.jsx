@@ -13,11 +13,19 @@ import {
   ArrowUpDown,
   AlertTriangle,
   Loader2,
+  Share2,
+  Pin,
+  MessageSquare,
+  History,
+  UserCheck,
+  Download,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
-import { getTicketDetails, updateEmployeeTicket, saveWorkLog } from '@/services/ticketService';
+import { getTicketDetails, updateEmployeeTicket, saveWorkLog, getAssignableEmployees, acceptTicket } from '@/services/ticketService';
+import { getTicketMessages } from '@/services/messagingService';
 import ProofCompletionModal from '@/components/employee/ProofCompletionModal';
 import ReassignmentModal from '@/components/employee/ReassignmentModal';
+import DelegateTicketModal from '@/components/employee/DelegateTicketModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -57,6 +65,12 @@ export default function EmployeeTicketUpdate() {
 
   const [showProofModal, setShowProofModal] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
+  const [showDelegateModal, setShowDelegateModal] = useState(false);
+  const [assignableEmployees, setAssignableEmployees] = useState([]);
+  const [isDelegating, setIsDelegating] = useState(false);
+  const [conversationMessages, setConversationMessages] = useState([]);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [conversationError, setConversationError] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -135,6 +149,19 @@ export default function EmployeeTicketUpdate() {
       if (!statusDraft && details?.status) {
         setStatusDraft(details.status);
       }
+
+      // TS040: Automatically load complete customer and support conversation thread
+      try {
+        setConversationLoading(true);
+        const msgs = await getTicketMessages(numericId);
+        setConversationMessages(Array.isArray(msgs) ? msgs : []);
+        setConversationError('');
+      } catch (cErr) {
+        console.warn('Could not load real-time conversation messages:', cErr);
+        setConversationError('Unable to load customer conversation messages.');
+      } finally {
+        setConversationLoading(false);
+      }
     } catch (err) {
       const msg = err?.response?.data?.message || 'Failed to load ticket details.';
       setErrorMessage(msg);
@@ -212,6 +239,106 @@ export default function EmployeeTicketUpdate() {
     });
     return sorted;
   }, [timelineEvents, timelineSortOrder]);
+
+  // TS040: Prominently surfaced pinned delegation / escalation handoff context
+  const pinnedHandoffNote = useMemo(() => {
+    if (!ticket) return null;
+    if (ticket.delegation_note) {
+      return {
+        text: ticket.delegation_note,
+        author: ticket.delegated_by_name || 'Escalation Recipient',
+        date: ticket.delegated_at ? formatDisplayDate(ticket.delegated_at) : 'Recent',
+      };
+    }
+    const notes = ticket.internalNotes || ticket.internal_notes || [];
+    const match = notes.find((n) => {
+      const text = String(n.text || n.note || '');
+      return text.includes('[Delegation Handoff Note]') || text.includes('[Escalation Context]');
+    });
+    if (match) {
+      return {
+        text: String(match.text || match.note || '').replace(/^\[(Delegation Handoff Note|Escalation Context)\]\s*/i, ''),
+        author: match.author || 'Escalation Recipient',
+        date: match.timestamp ? formatDisplayDate(match.timestamp) : 'Recent',
+      };
+    }
+    return null;
+  }, [ticket]);
+
+  // TS034: Check if current ticket is in escalated state
+  const isEscalated = Boolean(
+    ticket?.escalated ||
+    ticket?.is_escalated ||
+    ticket?.status === 'Escalated' ||
+    String(ticket?.ticket_status_ID) === '5'
+  );
+
+  const handleOpenDelegateModal = async () => {
+    setErrorMessage('');
+    try {
+      const emps = await getAssignableEmployees();
+      const list = Array.isArray(emps) ? emps : emps?.data || [];
+      const normalized = list.map((e) => ({
+        id: Number(e.id || e.emp_id),
+        name: e.name || `${e.first_name || ''} ${e.last_name || ''}`.trim() || e.email,
+        email: e.email,
+        role: e.role || e.position || 'Specialist',
+        department: e.department || e.dept || 'Engineering',
+        activeTickets: Number(e.active_tickets_count ?? e.open_tickets_count ?? e.activeTickets ?? 0),
+        status: e.is_active === false ? 'offline' : 'available',
+      }));
+      setAssignableEmployees(normalized);
+      setShowDelegateModal(true);
+    } catch (err) {
+      setErrorMessage('Failed to load eligible delegate candidates. Please try again.');
+    }
+  };
+
+  const handleConfirmDelegate = async ({ employee, note }) => {
+    if (!employee || !numericId) return;
+    setIsDelegating(true);
+    setErrorMessage('');
+    try {
+      await acceptTicket({
+        ticketId: numericId,
+        employeeIds: [Number(employee.id)],
+        assignedByEmail: user?.email,
+      });
+
+      const actorName = `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.name || 'Escalation Recipient';
+      const actorRole = user?.role || 'Lead Specialist';
+      const targetName = employee.name || 'Assigned Specialist';
+      const targetRole = employee.role || 'Specialist';
+
+      const handoffNote = `[Delegation Handoff Note] Delegated from ${actorName} (${actorRole}) to ${targetName} (${targetRole})${note ? `: "${note}"` : '.'}`;
+
+      const noteFormData = new FormData();
+      noteFormData.append('internal_note', handoffNote);
+      await updateEmployeeTicket(numericId, noteFormData).catch(() => {});
+
+      setSuccessMessage(`Ticket successfully delegated to ${targetName}.`);
+      setShowDelegateModal(false);
+      await loadTicketData();
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to delegate ticket. Ticket assignment remains unchanged.';
+      setErrorMessage(msg);
+      throw err;
+    } finally {
+      setIsDelegating(false);
+    }
+  };
+
+  const currentAssignedName = ticket?.assigned_to_name || ticket?.assigned_employee || ticket?.employee_name || '';
+
+  const isPreviousEmployee = (authorName, authorRole) => {
+    if (!authorName) return false;
+    const isTechRole = /technician|specialist|engineer|employee|staff/i.test(authorRole || '');
+    const isDifferentFromCurrent = currentAssignedName && !authorName.toLowerCase().includes(currentAssignedName.toLowerCase());
+    const isMentionedInTimelineReassign = sortedTimelineEvents.some((evt) =>
+      evt.text && evt.text.toLowerCase().includes(authorName.toLowerCase()) && /reassign|delegat|transfer|escalat/i.test(evt.text)
+    );
+    return isMentionedInTimelineReassign || (isTechRole && isDifferentFromCurrent);
+  };
 
   const validateFiles = (files) => {
     const ALLOWED = ['pdf', 'png', 'docx', 'doc'];
@@ -394,17 +521,28 @@ export default function EmployeeTicketUpdate() {
               >
                 {ticket.priority}
               </Badge>
-              {ticket.escalated && (
+              {isEscalated && (
                 <Badge variant="destructive">
                   Escalated
                 </Badge>
+              )}
+              {isEscalated && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenDelegateModal}
+                  className="bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 text-xs font-semibold gap-1.5 ml-auto cursor-pointer"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                  Delegate Escalated Ticket
+                </Button>
               )}
               {isReassignmentDenied(ticket) && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setShowReassignModal(true)}
-                  className="border-destructive/30 text-destructive hover:bg-destructive/10 text-xs ml-auto font-medium"
+                  className={`border-destructive/30 text-destructive hover:bg-destructive/10 text-xs font-medium ${!isEscalated ? 'ml-auto' : 'ml-2'}`}
                 >
                   Request Reassignment Again
                 </Button>
@@ -806,6 +944,133 @@ export default function EmployeeTicketUpdate() {
               </div>
             )}
 
+            {/* TS040: Prominently Surfaced Pinned Delegation / Escalation Handoff Note */}
+            {pinnedHandoffNote && (
+              <div className="rounded-xl border-2 border-accent/40 bg-accent/5 p-5 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-accent text-white flex items-center justify-center shrink-0">
+                    <Pin className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-accent uppercase tracking-wider">
+                          Pinned Delegation Handoff Context
+                        </span>
+                        <Badge variant="outline" className="text-[10px] bg-accent/10 text-accent border-accent/30 font-semibold">
+                          Surfaced for Immediate Context
+                        </Badge>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {pinnedHandoffNote.date}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-foreground whitespace-pre-wrap leading-relaxed bg-card/60 p-3 rounded-lg border border-accent/20">
+                      {pinnedHandoffNote.text}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Handoff context recorded by <span className="font-semibold text-foreground">{pinnedHandoffNote.author}</span>. No need to ask the requestor to repeat themselves.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TS040: Complete Customer & Support Conversation History */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  Customer Conversation History ({conversationMessages.length})
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  Unified thread across Customer, CS &amp; Assigned Employees
+                </span>
+              </div>
+
+              {conversationLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-16 w-full rounded-lg" />
+                  <Skeleton className="h-16 w-full rounded-lg" />
+                </div>
+              ) : conversationError ? (
+                <div className="rounded-lg bg-destructive/10 border border-destructive/20 text-destructive p-3 text-xs flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{conversationError}</span>
+                </div>
+              ) : conversationMessages.length === 0 ? (
+                <div className="text-center py-6 border border-dashed border-border rounded-lg bg-muted/20">
+                  <p className="text-xs text-muted-foreground">No customer-facing messages exchanged yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {conversationMessages.map((msg, idx) => {
+                    const senderName = msg.sender_name || msg.user_name || msg.sender?.name || msg.author || 'User';
+                    const senderRole = msg.sender_role || msg.user_role || msg.sender?.role || 'Customer';
+                    const isPriorEmp = isPreviousEmployee(senderName, senderRole);
+                    const isCustomer = /customer|client/i.test(senderRole);
+
+                    return (
+                      <div
+                        key={msg.id || msg._id || idx}
+                        className={`rounded-lg border p-4 text-xs transition-colors ${
+                          isCustomer
+                            ? 'bg-muted/30 border-border'
+                            : 'bg-primary/5 border-primary/20'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-foreground">
+                              {senderName}
+                            </span>
+                            {isPriorEmp ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded-md border border-amber-300">
+                                {senderName} (previous Assigned Employee)
+                              </span>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] py-0">
+                                {senderRole}
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-muted-foreground">
+                            {formatDisplayDate(msg.created_at || msg.timestamp || msg.date)}
+                          </span>
+                        </div>
+
+                        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed mt-1">
+                          {msg.message || msg.text || msg.body}
+                        </p>
+
+                        {/* Attachments within message */}
+                        {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-border/50">
+                            {msg.attachments.map((att, aIdx) => {
+                              const attName = typeof att === 'string' ? att.split('/').pop() : (att.name || att.file_name || `Attachment-${aIdx + 1}`);
+                              const attUrl = typeof att === 'string' ? att : (att.url || att.file_path || '');
+                              return (
+                                <button
+                                  key={aIdx}
+                                  type="button"
+                                  onClick={() => setPreviewFile({ name: attName, url: attUrl })}
+                                  className="inline-flex items-center gap-1.5 text-xs bg-card hover:bg-muted text-primary font-medium px-2.5 py-1 rounded-md border border-border transition-colors cursor-pointer"
+                                >
+                                  <Paperclip className="h-3 w-3 text-muted-foreground" />
+                                  <span>{attName}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Staff-Only Internal Notes */}
             <InternalNotesSection
               notes={ticket.internalNotes}
@@ -1024,6 +1289,18 @@ export default function EmployeeTicketUpdate() {
           }}
         />
       )}
+
+      {showDelegateModal && (
+        <DelegateTicketModal
+          isOpen={showDelegateModal}
+          onClose={() => setShowDelegateModal(false)}
+          ticket={ticket}
+          employees={assignableEmployees}
+          onConfirmDelegate={handleConfirmDelegate}
+          isDelegating={isDelegating}
+        />
+      )}
+
       {previewFile && (
         <FilePreviewModal
           file={previewFile}

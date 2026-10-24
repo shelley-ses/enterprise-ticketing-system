@@ -63,7 +63,14 @@ const checkIsCS = (user) => {
   const dept = resolveUserDepartment(user).toLowerCase();
   const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
-  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+  return (
+    role.includes('customer service') ||
+    role.includes('customer-service') ||
+    role.includes('head of cs') ||
+    role.includes('head of customer service') ||
+    role === 'cs' ||
+    role === 'head cs'
+  );
 };
 const checkIsSuperAdmin = (user) => {
   if (!user) return false;
@@ -138,17 +145,17 @@ function App() {
         <AuthGate>
           <Suspense fallback={
             <div className="min-h-screen flex flex-col justify-start p-8 bg-gray-50/50 space-y-6">
-              <div className="flex justify-between items-center w-full max-w-7xl mx-auto mb-4">
+              <div className="flex justify-between items-center w-full mx-auto mb-4">
                 <SkeletonLoader className="h-10 w-48" />
                 <SkeletonLoader className="h-10 w-24 rounded-full" />
               </div>
-              <div className="w-full max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="w-full mx-auto grid grid-cols-1 md:grid-cols-4 gap-6">
                 <SkeletonLoader className="h-32 rounded-2xl" variant="default" />
                 <SkeletonLoader className="h-32 rounded-2xl" variant="default" />
                 <SkeletonLoader className="h-32 rounded-2xl" variant="default" />
                 <SkeletonLoader className="h-32 rounded-2xl" variant="default" />
               </div>
-              <div className="w-full max-w-7xl mx-auto bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+              <div className="w-full mx-auto bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
                 <div className="space-y-4">
                   <SkeletonLoader className="h-8 w-1/3 mb-6" />
                   <div className="space-y-3">

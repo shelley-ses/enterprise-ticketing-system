@@ -484,7 +484,7 @@ class EmployeeReassignmentService
             );
 
         $role = strtolower(trim((string) ($user->role ?? '')));
-        $isCS = in_array($role, ['customer service', 'customer support', 'cs', 'admin', 'superadmin', 'super admin']);
+        $isCS = in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'admin', 'superadmin', 'super admin']);
         if (!$isCS) {
             $query->where('rr.employee_id', $user->emp_id);
         }
