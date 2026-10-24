@@ -651,7 +651,8 @@ class TicketService
                 't.response_due_at',
                 't.first_response_at',
                 't.response_sla_status',
-                't.resolution_sla_status'
+                't.resolution_sla_status',
+                't.last_reminder_sent_at'
             )
             ->where('t.ticket_ID', $ticketId)
             ->first();
@@ -848,12 +849,16 @@ class TicketService
                 } else {
                     $timelineText = "Ticket updated by {$actorName}: {$field} changed.";
                 }
+            } elseif ($log->action_type === 'reminder_sent') {
+                $recipient = $details['recipient_name'] ?? ($details['recipient_id'] ? "Employee #{$details['recipient_id']}" : 'assigned technician');
+                $msg = trim($details['message'] ?? '');
+                $timelineText = "Reminder sent to {$recipient} by {$actorName}." . ($msg !== '' ? " Message: \"{$msg}\"" : '');
             }
 
             if ($timelineText) {
                 $timeline[] = [
                     'id' => 'timeline-' . $log->log_ID,
-                    'type' => 'system',
+                    'type' => $log->action_type === 'reminder_sent' ? 'reminder' : 'system',
                     'text' => $timelineText,
                     'timestamp' => $formattedTime,
                 ];
@@ -1255,6 +1260,7 @@ class TicketService
             'ticket_type' => $ticket->ticket_type ?? 'External',
             'is_internal' => (bool)$ticket->is_internal,
             'requested_by' => $ticket->requested_by,
+            'last_reminder_sent_at' => $ticket->last_reminder_sent_at ? Carbon::parse($ticket->last_reminder_sent_at)->toIso8601String() : null,
             'worklogs' => DB::table('work_logs')->where('ticket_id', $ticketId)->orderBy('log_date', 'desc')->orderBy('created_at', 'desc')->get(),
         ];
     }

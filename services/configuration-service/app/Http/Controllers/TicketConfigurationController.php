@@ -142,6 +142,12 @@ class TicketConfigurationController extends Controller
             'allow_delegated_employee' => true,
             'allow_full_history' => true,
             'notify_on_employee_join' => true,
+            'internal' => [
+                'mode' => 'requestor_cs_delegated',
+                'allow_direct_assigned' => true,
+                'allow_full_history' => true,
+                'notify_on_activity' => true,
+            ],
         ],
     ];
 
@@ -397,6 +403,17 @@ class TicketConfigurationController extends Controller
     public function showMessaging(): JsonResponse
     {
         $value = TicketConfiguration::getByKey('messaging', $this->defaults['messaging']);
+        if (is_array($value)) {
+            $defaultInternal = $this->defaults['messaging']['internal'] ?? [
+                'mode' => 'requestor_cs_delegated',
+                'allow_direct_assigned' => true,
+                'allow_full_history' => true,
+                'notify_on_activity' => true,
+            ];
+            $value['internal'] = isset($value['internal']) && is_array($value['internal'])
+                ? array_merge($defaultInternal, $value['internal'])
+                : $defaultInternal;
+        }
 
         return response()->json(array_merge([
             'key' => 'messaging',
@@ -1123,6 +1140,11 @@ class TicketConfigurationController extends Controller
                     'allow_delegated_employee' => 'sometimes|boolean',
                     'allow_full_history' => 'sometimes|boolean',
                     'notify_on_employee_join' => 'sometimes|boolean',
+                    'internal' => 'sometimes|array',
+                    'internal.mode' => 'sometimes|string|in:requestor_cs_only,requestor_cs_delegated',
+                    'internal.allow_direct_assigned' => 'sometimes|boolean',
+                    'internal.allow_full_history' => 'sometimes|boolean',
+                    'internal.notify_on_activity' => 'sometimes|boolean',
                 ]);
 
                 if ($validator->fails()) {
@@ -1138,16 +1160,33 @@ class TicketConfigurationController extends Controller
                     $current = $this->defaults['messaging'];
                 }
 
+                $defaultInternal = $this->defaults['messaging']['internal'] ?? [
+                    'mode' => 'requestor_cs_delegated',
+                    'allow_direct_assigned' => true,
+                    'allow_full_history' => true,
+                    'notify_on_activity' => true,
+                ];
+                $currentInternal = isset($current['internal']) && is_array($current['internal'])
+                    ? array_merge($defaultInternal, $current['internal'])
+                    : $defaultInternal;
+
+                $incomingInternal = $validated['internal'] ?? null;
+                $mergedInternal = $incomingInternal !== null
+                    ? array_merge($currentInternal, $incomingInternal)
+                    : $currentInternal;
+
                 $value = array_merge($current, $validated);
+                $value['internal'] = $mergedInternal;
                 $record = TicketConfiguration::setByKey('messaging', $value);
                 $this->clearConfigCache('messaging');
 
+                $internalMode = $value['internal']['mode'] ?? 'requestor_cs_delegated';
                 $this->logAudit(
                     $request,
                     'config_update',
                     'Ticket Messaging Configuration',
                     'Messaging Participation',
-                    'Updated ticket messaging participation rules (allow_delegated_employee: ' . (!empty($value['allow_delegated_employee']) ? 'true' : 'false') . ')',
+                    'Updated ticket messaging participation rules (allow_delegated_employee: ' . (!empty($value['allow_delegated_employee']) ? 'true' : 'false') . ', internal_mode: ' . $internalMode . ')',
                     $current,
                     $value
                 );

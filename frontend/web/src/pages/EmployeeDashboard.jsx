@@ -384,11 +384,15 @@ export default function EmployeeDashboard() {
     const assignedCount = visible.filter((t) => t.accepted && !CLOSED_STATUSES.includes(t.status)).length;
     const completedCount = visible.filter((t) => CLOSED_STATUSES.includes(t.status)).length;
     const isBreachedTicket = (t) => {
+      if (CLOSED_STATUSES.includes(t.status)) return false;
       const s = String(t.sla_status || t.slaStatus || (t.sla?.resolution?.status) || '').toLowerCase().replace(/[\s_-]+/g, '');
-      return s === 'breached' || s === 'violated' || Boolean(t.sla_breached);
+      if (s === 'breached' || s === 'violated' || Boolean(t.sla_breached) || Boolean(t.is_breached)) return true;
+      if (t.resolution_due_at && new Date(t.resolution_due_at) < new Date()) return true;
+      if (t.due_at && new Date(t.due_at) < new Date()) return true;
+      return false;
     };
     const slaBreachedCount = visible.filter(isBreachedTicket).length;
-    const escalatedCount = visible.filter((t) => (t.status === 'Escalated' || t.escalated || t.priority === 'Critical') && !CLOSED_STATUSES.includes(t.status)).length;
+    const escalatedCount = visible.filter((t) => (t.status === 'Escalated' || t.escalated || t.priority === 'Critical' || t.priority === 'High') && !CLOSED_STATUSES.includes(t.status)).length;
 
     return [
       { label: 'Incoming Tickets', value: incomingCount, sub: 'Awaiting acceptance', icon: Inbox, variant: 'default' },

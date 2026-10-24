@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, SlidersHorizontal, Loader2, Filter, RotateCcw, X, AlertTriangle, Clock, CheckCircle2, PauseCircle, HelpCircle, ArrowUpDown } from 'lucide-react';
+import { Search, SlidersHorizontal, Loader2, Filter, RotateCcw, X, AlertTriangle, Clock, CheckCircle2, PauseCircle, HelpCircle, ArrowUpDown, Bell } from 'lucide-react';
 import Pagination from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
@@ -217,15 +217,21 @@ export default function CSAssigned() {
 
       if (incoming.slaSummary) {
         setSlaSummary(incoming.slaSummary);
-      } else {
         const summary = { total: assignedTickets.length, breached: 0, at_risk: 0, on_track: 0, paused: 0, compliant: 0 };
         assignedTickets.forEach((t) => {
           const s = String(t.sla_status || t.slaStatus || '').toLowerCase().replace(/[\s_-]+/g, '');
-          if (s === 'breached') summary.breached++;
-          else if (s === 'atrisk') summary.at_risk++;
-          else if (s === 'paused') summary.paused++;
-          else if (s === 'compliant' || s === 'resolved' || s === 'closed') summary.compliant++;
-          else summary.on_track++;
+          const isBreached = s === 'breached' || s === 'violated' || Boolean(t.is_breached) || Boolean(t.sla_breached) || (t.resolution_due_at && new Date(t.resolution_due_at) < new Date());
+          if (['Resolved', 'Closed'].includes(t.status)) {
+            summary.compliant++;
+          } else if (isBreached) {
+            summary.breached++;
+          } else if (s === 'atrisk') {
+            summary.at_risk++;
+          } else if (s === 'paused' || t.status === 'On Hold') {
+            summary.paused++;
+          } else {
+            summary.on_track++;
+          }
         });
         setSlaSummary(summary);
       }
@@ -872,6 +878,12 @@ export default function CSAssigned() {
                         {isReassignmentReq && (
                           <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-warning/15 text-warning w-fit">
                             Reassignment Requested
+                          </span>
+                        )}
+                        {(t.last_reminder_sent_at || t.lastReminderSentAt) && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 w-fit flex items-center gap-1" title={`Reminder dispatched: ${formatDisplayDate(t.last_reminder_sent_at || t.lastReminderSentAt)}`}>
+                            <Bell className="w-2.5 h-2.5" />
+                            Reminder Sent
                           </span>
                         )}
                       </div>

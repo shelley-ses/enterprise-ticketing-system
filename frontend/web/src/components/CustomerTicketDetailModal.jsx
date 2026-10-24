@@ -18,10 +18,12 @@ import {
   AlertTriangle,
   PauseCircle,
   MessageCircle,
+  Bell,
 } from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
 import FeedbackModal from './feedback/FeedbackModal';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
+import InternalTicketMessageThread from './InternalTicketMessageThread';
 import ReassignmentDisapprovalBanner from './employee/ReassignmentDisapprovalBanner';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { hasFeedbackBeenSubmitted, isFeedbackFormEnabled, setFeedbackFormEnabled, fetchFeedbackForTicket } from '@/data/mockFeedbackData';
@@ -657,6 +659,17 @@ export default function CustomerTicketDetailModal({
                 </p>
               </div>
             )}
+            {(effectiveTicket.last_reminder_sent_at || effectiveTicket.lastReminderSentAt) && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Last Reminder Sent</span>
+                </p>
+                <p className="mt-1 text-sm font-semibold text-indigo-800">
+                  {formatDisplayDate(effectiveTicket.last_reminder_sent_at || effectiveTicket.lastReminderSentAt)}
+                </p>
+              </div>
+            )}
             {(effectiveTicket.resolved_at || effectiveTicket.closed_at) && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Date Resolved / Closed</p>
@@ -791,8 +804,11 @@ export default function CustomerTicketDetailModal({
               ) : (
                 <div className="relative ml-3 space-y-4 border-l-2 border-border py-1.5 pl-6">
                   {sortedTimelineEvents.map((evt, idx) => {
+                    const isReminder = evt.type === 'reminder';
                     const dotColor =
-                      evt.type === 'system'
+                      isReminder
+                        ? 'bg-indigo-600 ring-2 ring-indigo-200'
+                        : evt.type === 'system'
                         ? 'bg-primary'
                         : evt.type === 'status'
                           ? 'bg-accent'
@@ -808,8 +824,13 @@ export default function CustomerTicketDetailModal({
                       <div key={evt.id || idx} className="relative text-xs">
                         <div className={`absolute top-1 h-3 w-3 rounded-full border-2 border-white shadow ${dotColor}`} style={{ left: '-31px' }} />
                         <div className="mb-0.5 flex items-center justify-between text-slate-muted">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                            {evt.type === 'system'
+                          <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                            isReminder ? 'text-indigo-600' : 'text-primary'
+                          }`}>
+                            {isReminder && <Bell className="w-3 h-3 text-indigo-600 inline" />}
+                            {isReminder
+                              ? 'CS Reminder'
+                              : evt.type === 'system'
                               ? 'System'
                               : evt.type === 'status'
                                 ? 'Status Update'
@@ -824,7 +845,11 @@ export default function CustomerTicketDetailModal({
                           <span className="text-[10px] text-slate-muted">{formatDisplayDate(evt.timestamp)}</span>
                         </div>
                         <p
-                          className="rounded-lg border border-border bg-page p-2.5 font-medium leading-relaxed text-slate-dark break-words whitespace-pre-wrap max-w-full overflow-hidden"
+                          className={`rounded-lg border p-2.5 leading-relaxed break-words whitespace-pre-wrap max-w-full overflow-hidden ${
+                            isReminder
+                              ? 'bg-indigo-50/80 border-indigo-200 text-indigo-950 font-medium'
+                              : 'border-border bg-page font-medium text-slate-dark'
+                          }`}
                           style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                         >
                           {evt.text}
@@ -835,6 +860,16 @@ export default function CustomerTicketDetailModal({
                 </div>
               )}
             </div>
+
+            {(effectiveTicket.is_internal || effectiveTicket.ticket_type === 'Internal' || effectiveTicket.type === 'Internal' || effectiveTicket.title?.startsWith('[Internal]')) && (
+              <div className="md:col-span-2">
+                <InternalTicketMessageThread
+                  ticketId={effectiveTicket.ticket_ID || effectiveTicket.id}
+                  ticket={effectiveTicket}
+                  isClosed={effectiveTicket.status === 'Closed' || Number(effectiveTicket.ticket_status_ID) === 4}
+                />
+              </div>
+            )}
 
             {(isExternalClosed || feedbackAlreadySubmitted) && (feedbackAlreadySubmitted || feedbackSubmitted || feedbackEnabled) && (
               <div className="md:col-span-2">

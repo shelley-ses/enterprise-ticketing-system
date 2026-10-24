@@ -364,6 +364,7 @@ export default function MessagingPage() {
         status: statusName,
         isClosed,
         isArchived,
+        is_internal: Boolean(t.is_internal || t.ticket_type === 'Internal' || type === 'internal'),
         requested_by: t.requested_by,
         description: t.description || 'No description provided.',
         category: t.category || t.category_name || 'General',
@@ -1412,11 +1413,11 @@ export default function MessagingPage() {
                     This conversation is archived because the ticket is Closed. The message thread is locked and read-only.
                   </p>
                 </div>
-              ) : isCS && Number(selectedContact.requested_by) === Number(user?.emp_id ?? user?.id) ? (
+              ) : isCS && !selectedContact.is_internal && selectedContact.type !== 'internal' && Number(selectedContact.requested_by) === Number(user?.emp_id ?? user?.id) ? (
                 <div className="flex items-center justify-center gap-2 px-6 py-5 border-t border-gray-100 bg-amber-50/50 flex-shrink-0">
                   <AlertCircle className="text-amber-600" size={18} />
                   <p className="text-xs text-amber-800 font-medium">
-                    You cannot send messages on an internal ticket you created.
+                    You cannot send messages on an external ticket you created.
                   </p>
                 </div>
               ) : (

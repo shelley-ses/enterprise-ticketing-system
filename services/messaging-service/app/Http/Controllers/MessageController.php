@@ -12,6 +12,47 @@ use Illuminate\Support\Facades\Auth;
 class MessageController extends Controller
 {
     /**
+     * Get parsed messaging configuration from MySQL ticket_configurations.
+     */
+    protected function getMessagingConfig(): array
+    {
+        $defaultConfig = [
+            'default_participants' => 'customer_cs',
+            'allow_delegated_employee' => true,
+            'allow_full_history' => true,
+            'notify_on_employee_join' => true,
+            'internal' => [
+                'mode' => 'requestor_cs_delegated',
+                'allow_direct_assigned' => true,
+                'allow_full_history' => true,
+                'notify_on_activity' => true,
+            ],
+        ];
+
+        try {
+            $msgConfigRow = \Illuminate\Support\Facades\DB::connection('mysql')
+                ->table('ticket_configurations')
+                ->where('key', 'messaging')
+                ->value('value');
+            if ($msgConfigRow) {
+                $parsed = is_string($msgConfigRow) ? json_decode($msgConfigRow, true) : $msgConfigRow;
+                if (is_array($parsed)) {
+                    $defaultInternal = $defaultConfig['internal'];
+                    $currentInternal = isset($parsed['internal']) && is_array($parsed['internal'])
+                        ? array_merge($defaultInternal, $parsed['internal'])
+                        : $defaultInternal;
+
+                    $config = array_merge($defaultConfig, $parsed);
+                    $config['internal'] = $currentInternal;
+                    return $config;
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        return $defaultConfig;
+    }
+
+    /**
      * Get all messages for a specific ticket.
      */
     public function index($ticket_id)
@@ -21,22 +62,51 @@ class MessageController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        // Check employee access authorization on the ticket
+        $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
+            ->table('tickets')
+            ->where('ticket_ID', (int)$ticket_id)
+            ->first();
+
+        if (!$ticketRecord) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $isInternal = !empty($ticketRecord->is_internal);
+        $messagingConfig = $this->getMessagingConfig();
+
+        // Check access authorization on the ticket
         if ($user instanceof \App\Models\Employee) {
             $dept = strtolower($user->department ?? '');
             $role = strtolower($user->role ?? '');
             $isCS = str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs');
-            $isAdmin = in_array(str_replace([' ', '_', '-'], '', $role), ['superadmin', 'admin']);
+            $cleanRole = str_replace([' ', '_', '-'], '', $role);
+            $isAdmin = in_array($cleanRole, ['superadmin', 'super_admin', 'admin', 'itadmin', 'it_admin']);
 
             if (!$isCS && !$isAdmin) {
                 $empId = (int)$user->emp_id;
-                $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
-                    ->table('tickets')
-                    ->where('ticket_ID', (int)$ticket_id)
-                    ->first();
+                $isRequester = ((int)$ticketRecord->requested_by === $empId);
 
-                if ($ticketRecord) {
-                    $isRequester = ((int)$ticketRecord->requested_by === $empId);
+                if ($isInternal) {
+                    if (!$isRequester) {
+                        $isAssigned = ((int)$ticketRecord->assigned_to === $empId);
+                        if (!$isAssigned) {
+                            $isAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                                ->table('ticket_assignments')
+                                ->where('ticket_ID', (int)$ticket_id)
+                                ->where('employee_ID', $empId)
+                                ->exists();
+                        }
+
+                        if (!$isAssigned) {
+                            return response()->json(['message' => 'You are not authorized to view this internal ticket thread.'], 403);
+                        }
+
+                        $internalMode = $messagingConfig['internal']['mode'] ?? 'requestor_cs_delegated';
+                        if ($internalMode === 'requestor_cs_only') {
+                            return response()->json(['message' => 'Assigned employee messaging on internal tickets is disabled by system policy.'], 403);
+                        }
+                    }
+                } else {
                     if (!$isRequester) {
                         $isAssigned = ((int)$ticketRecord->assigned_to === $empId);
                         if (!$isAssigned) {
@@ -51,26 +121,20 @@ class MessageController extends Controller
                             return response()->json(['message' => 'You are not assigned to this ticket.'], 403);
                         }
 
-                        // Check if delegated employee messaging is enabled in ticket_configurations
-                        $allowDelegated = true;
-                        try {
-                            $msgConfigRow = \Illuminate\Support\Facades\DB::connection('mysql')
-                                ->table('ticket_configurations')
-                                ->where('key', 'messaging')
-                                ->value('value');
-                            if ($msgConfigRow) {
-                                $parsedMsgConfig = is_string($msgConfigRow) ? json_decode($msgConfigRow, true) : $msgConfigRow;
-                                if (is_array($parsedMsgConfig) && isset($parsedMsgConfig['allow_delegated_employee'])) {
-                                    $allowDelegated = (bool)$parsedMsgConfig['allow_delegated_employee'];
-                                }
-                            }
-                        } catch (\Throwable $e) {}
-
+                        $allowDelegated = (bool)($messagingConfig['allow_delegated_employee'] ?? true);
                         if (!$allowDelegated) {
                             return response()->json(['message' => 'Delegated employee messaging is disabled by system policy.'], 403);
                         }
                     }
                 }
+            }
+        } else {
+            // Customer / Client
+            if ($isInternal) {
+                return response()->json(['message' => 'Customers cannot access internal ticket threads.'], 403);
+            }
+            if (!empty($ticketRecord->created_by) && (int)$ticketRecord->created_by !== (int)$user->id) {
+                return response()->json(['message' => 'You do not have access to this ticket thread.'], 403);
             }
         }
 
@@ -84,13 +148,15 @@ class MessageController extends Controller
             ->get();
 
         // Gating attachments by scan status (Pending/Clean/Quarantined) and ensuring sender_role
-        $messages = $messages->map(function ($msg) {
+        $messages = $messages->map(function ($msg) use ($ticketRecord, $isInternal) {
             // Ensure sender_role is populated for historical records
             if (empty($msg->sender_role)) {
-                if ($msg->sender_type === 'cs') {
+                if ($isInternal && $msg->sender_type === 'employee' && (int)$msg->sender_id === (int)$ticketRecord->requested_by) {
+                    $msg->sender_role = 'Requestor';
+                } elseif ($msg->sender_type === 'cs') {
                     $msg->sender_role = 'Customer Support';
                 } elseif ($msg->sender_type === 'employee') {
-                    $msg->sender_role = 'Staff / Engineer';
+                    $msg->sender_role = $isInternal ? 'Assigned Employee' : 'Staff / Engineer';
                 } else {
                     $msg->sender_role = 'Customer';
                 }
@@ -195,6 +261,28 @@ class MessageController extends Controller
             ], 422);
         }
 
+        // Check ticket existence and state before processing payload
+        $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
+            ->table('tickets')
+            ->where('ticket_ID', (int)$ticket_id)
+            ->first();
+
+        if (!$ticketRecord) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $isInternalTicket = !empty($ticketRecord->is_internal);
+        $statusId = (int)$ticketRecord->ticket_status_ID;
+        $isClosed = ($statusId === 4);
+
+        if ($isClosed) {
+            return response()->json([
+                'message' => 'This conversation is archived because the ticket has been closed. Reopen the ticket to restore the conversation.'
+            ], 403);
+        }
+
+        $messagingConfig = $this->getMessagingConfig();
+
         // Resolve sender information and capture immutable sender_role snapshot at time of send
         $senderId = null;
         $senderName = '';
@@ -210,30 +298,92 @@ class MessageController extends Controller
             $rawRole = trim($user->role ?? '');
             $rawDept = trim($user->department ?? '');
 
-            if (str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs')) {
-                $senderType = 'cs';
-                $senderRole = 'Customer Support';
-            } else {
-                $senderType = 'employee';
-                $cleanRole = str_replace([' ', '_', '-'], '', $role);
-                if (in_array($cleanRole, ['superadmin', 'super_admin'])) {
-                    $senderRole = 'Super Admin';
-                } elseif (in_array($cleanRole, ['admin', 'itadmin', 'it_admin'])) {
-                    $senderRole = 'IT Admin';
-                } elseif (!empty($rawRole)) {
-                    $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawRole));
-                } elseif (!empty($rawDept)) {
-                    $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawDept));
+            $isCS = str_contains($dept, 'customer service') || str_contains($dept, 'support') || $dept === 'cs' || str_contains($role, 'cs');
+            $cleanRole = str_replace([' ', '_', '-'], '', $role);
+            $isAdmin = in_array($cleanRole, ['superadmin', 'super_admin', 'admin', 'itadmin', 'it_admin']);
+
+            $isRequester = ((int)$ticketRecord->requested_by === (int)$senderId);
+            $isAssigned = ((int)$ticketRecord->assigned_to === (int)$senderId);
+            if (!$isAssigned) {
+                $isAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
+                    ->table('ticket_assignments')
+                    ->where('ticket_ID', (int)$ticket_id)
+                    ->where('employee_ID', (int)$senderId)
+                    ->exists();
+            }
+
+            if ($isInternalTicket) {
+                if ($isRequester) {
+                    $senderType = 'employee';
+                    $senderRole = 'Requestor';
+                } elseif ($isCS) {
+                    $senderType = 'cs';
+                    $senderRole = 'Customer Support';
+                } elseif ($isAdmin) {
+                    $senderType = 'employee';
+                    $senderRole = in_array($cleanRole, ['superadmin', 'super_admin']) ? 'Super Admin' : 'IT Admin';
+                } elseif ($isAssigned) {
+                    $internalMode = $messagingConfig['internal']['mode'] ?? 'requestor_cs_delegated';
+                    if ($internalMode === 'requestor_cs_only') {
+                        return response()->json(['message' => 'Assigned employee messaging on internal tickets is disabled by system policy.'], 403);
+                    }
+                    $senderType = 'employee';
+                    $senderRole = 'Assigned Employee';
                 } else {
-                    $senderRole = 'Staff / Engineer';
+                    return response()->json(['message' => 'You are not authorized to post to this internal ticket thread.'], 403);
+                }
+            } else {
+                if ($isCS) {
+                    if ($isRequester) {
+                        return response()->json(['message' => 'You cannot message on a ticket you created.'], 403);
+                    }
+                    $senderType = 'cs';
+                    $senderRole = 'Customer Support';
+                } else {
+                    $senderType = 'employee';
+                    if (in_array($cleanRole, ['superadmin', 'super_admin'])) {
+                        $senderRole = 'Super Admin';
+                    } elseif (in_array($cleanRole, ['admin', 'itadmin', 'it_admin'])) {
+                        $senderRole = 'IT Admin';
+                    } elseif (!empty($rawRole)) {
+                        $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawRole));
+                    } elseif (!empty($rawDept)) {
+                        $senderRole = ucwords(str_replace(['_', '-'], ' ', $rawDept));
+                    } else {
+                        $senderRole = 'Staff / Engineer';
+                    }
+
+                    if (!$isRequester && !$isAdmin) {
+                        if (!$isAssigned) {
+                            return response()->json(['message' => 'You are not assigned to this ticket.'], 403);
+                        }
+                        $allowDelegated = (bool)($messagingConfig['allow_delegated_employee'] ?? true);
+                        if (!$allowDelegated) {
+                            return response()->json([
+                                'message' => 'Delegated employee messaging is disabled by system policy.'
+                            ], 403);
+                        }
+                    }
                 }
             }
         } elseif ($user instanceof \App\Models\Client) {
+            if ($isInternalTicket) {
+                return response()->json(['message' => 'Customers cannot access internal ticket threads.'], 403);
+            }
+            if (!empty($ticketRecord->created_by) && (int)$ticketRecord->created_by !== (int)$user->id) {
+                return response()->json(['message' => 'You do not have access to this ticket thread.'], 403);
+            }
             $senderId = $user->id;
             $senderName = $user->client_name ?? 'Customer';
             $senderType = 'customer';
             $senderRole = 'Customer';
         } else {
+            if ($isInternalTicket) {
+                return response()->json(['message' => 'Customers cannot access internal ticket threads.'], 403);
+            }
+            if (!empty($ticketRecord->created_by) && (int)$ticketRecord->created_by !== (int)$user->id) {
+                return response()->json(['message' => 'You do not have access to this ticket thread.'], 403);
+            }
             $senderId = $user->id;
             $senderName = $user->name ?? 'User';
             $senderType = 'customer';
@@ -325,75 +475,6 @@ class MessageController extends Controller
             }
         }
 
-        // Check ticket status and delegation state for archiving restriction
-        $ticketRecord = \Illuminate\Support\Facades\DB::connection('mysql')
-            ->table('tickets')
-            ->where('ticket_ID', (int)$ticket_id)
-            ->first();
-
-        if ($ticketRecord) {
-            $statusId = (int)$ticketRecord->ticket_status_ID;
-            if ($senderType === 'cs' && (int)$ticketRecord->requested_by === (int)$senderId) {
-                return response()->json(['message' => 'You cannot message on a ticket you created.'], 403);
-            }
-
-            if ($senderType === 'employee') {
-                $isRequester = ((int)$ticketRecord->requested_by === (int)$senderId);
-                if (!$isRequester) {
-                    $isAssigned = ((int)$ticketRecord->assigned_to === (int)$senderId);
-                    if (!$isAssigned) {
-                        $isAssigned = \Illuminate\Support\Facades\DB::connection('mysql')
-                            ->table('ticket_assignments')
-                            ->where('ticket_ID', (int)$ticket_id)
-                            ->where('employee_ID', (int)$senderId)
-                            ->exists();
-                    }
-
-                    if (!$isAssigned) {
-                        return response()->json(['message' => 'You are not assigned to this ticket.'], 403);
-                    }
-
-                    // Check if delegated employee messaging is enabled in ticket_configurations
-                    $allowDelegated = true;
-                    try {
-                        $msgConfigRow = \Illuminate\Support\Facades\DB::connection('mysql')
-                            ->table('ticket_configurations')
-                            ->where('key', 'messaging')
-                            ->value('value');
-                        if ($msgConfigRow) {
-                            $parsedMsgConfig = is_string($msgConfigRow) ? json_decode($msgConfigRow, true) : $msgConfigRow;
-                            if (is_array($parsedMsgConfig) && isset($parsedMsgConfig['allow_delegated_employee'])) {
-                                $allowDelegated = (bool)$parsedMsgConfig['allow_delegated_employee'];
-                            }
-                        }
-                    } catch (\Throwable $e) {}
-
-                    if (!$allowDelegated) {
-                        return response()->json([
-                            'message' => 'Delegated employee messaging is disabled by system policy.'
-                        ], 403);
-                    }
-                }
-            }
-
-            $hasAssignment = !empty($ticketRecord->assigned_to);
-            if (!$hasAssignment) {
-                $hasAssignment = \Illuminate\Support\Facades\DB::connection('mysql')
-                    ->table('ticket_assignments')
-                    ->where('ticket_ID', (int)$ticket_id)
-                    ->exists();
-            }
-
-            // Status ID 4 = Closed (Archived)
-            $isClosed = ($statusId === 4);
-
-            if ($isClosed) {
-                return response()->json([
-                    'message' => 'This conversation is archived because the ticket has been closed. Reopen the ticket to restore the conversation.'
-                ], 403);
-            }
-        }
-
         // Create the message in MongoDB with sender_role snapshot, attachments, and accurate timestamp
         $message = Message::create([
             'ticket_id' => (int)$ticket_id,
@@ -403,6 +484,8 @@ class MessageController extends Controller
             'sender_role' => $senderRole,
             'message' => $rawMessage ? trim($rawMessage) : '',
             'attachments' => $processedAttachments,
+            'is_internal' => (bool)$isInternalTicket,
+            'exclude_ai' => $isInternalTicket ? true : false,
         ]);
 
         // Broadcast to Reverb (port 6002) for real-time messaging

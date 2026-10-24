@@ -1233,7 +1233,14 @@ export default function SuperAdminTicketConfig() {
     allow_delegated_employee: true,
     allow_full_history: true,
     notify_on_employee_join: true,
+    internal: {
+      mode: 'requestor_cs_delegated',
+      allow_direct_assigned: true,
+      allow_full_history: true,
+      notify_on_activity: true,
+    },
   });
+  const [messagingSubTab, setMessagingSubTab] = useState('external'); // 'external' | 'internal'
   const [messagingSaving, setMessagingSaving] = useState(false);
 
   // Fast independent fetch for messaging participation configuration
@@ -1242,11 +1249,21 @@ export default function SuperAdminTicketConfig() {
     getMessagingConfiguration()
       .then((cfg) => {
         if (isMounted && cfg) {
+          const defaultInternal = {
+            mode: 'requestor_cs_delegated',
+            allow_direct_assigned: true,
+            allow_full_history: true,
+            notify_on_activity: true,
+          };
           setMessagingConfig({
             default_participants: cfg.default_participants || 'customer_cs',
             allow_delegated_employee: Boolean(cfg.allow_delegated_employee ?? true),
             allow_full_history: Boolean(cfg.allow_full_history ?? true),
             notify_on_employee_join: Boolean(cfg.notify_on_employee_join ?? true),
+            internal: {
+              ...defaultInternal,
+              ...(cfg.internal || {}),
+            },
           });
         }
       })
@@ -2604,6 +2621,12 @@ export default function SuperAdminTicketConfig() {
           allow_delegated_employee: Boolean(updated.allow_delegated_employee ?? prev.allow_delegated_employee),
           allow_full_history: Boolean(updated.allow_full_history ?? prev.allow_full_history),
           notify_on_employee_join: Boolean(updated.notify_on_employee_join ?? prev.notify_on_employee_join),
+          internal: {
+            mode: updated.internal?.mode ?? prev.internal?.mode ?? 'requestor_cs_delegated',
+            allow_direct_assigned: Boolean(updated.internal?.allow_direct_assigned ?? prev.internal?.allow_direct_assigned ?? true),
+            allow_full_history: Boolean(updated.internal?.allow_full_history ?? prev.internal?.allow_full_history ?? true),
+            notify_on_activity: Boolean(updated.internal?.notify_on_activity ?? prev.internal?.notify_on_activity ?? true),
+          },
         }));
       }
       showSuccess('Settings Saved', 'Ticket messaging participation configuration updated and saved successfully.');
@@ -2618,12 +2641,19 @@ export default function SuperAdminTicketConfig() {
     try {
       setMessagingSaving(true);
       const res = await resetMessagingConfiguration();
-      if (res) {
+      const updated = res?.data || res?.value || res;
+      if (updated) {
         setMessagingConfig({
-          default_participants: res.default_participants || 'customer_cs',
-          allow_delegated_employee: Boolean(res.allow_delegated_employee ?? true),
-          allow_full_history: Boolean(res.allow_full_history ?? true),
-          notify_on_employee_join: Boolean(res.notify_on_employee_join ?? true),
+          default_participants: updated.default_participants || 'customer_cs',
+          allow_delegated_employee: Boolean(updated.allow_delegated_employee ?? true),
+          allow_full_history: Boolean(updated.allow_full_history ?? true),
+          notify_on_employee_join: Boolean(updated.notify_on_employee_join ?? true),
+          internal: {
+            mode: updated.internal?.mode || 'requestor_cs_delegated',
+            allow_direct_assigned: Boolean(updated.internal?.allow_direct_assigned ?? true),
+            allow_full_history: Boolean(updated.internal?.allow_full_history ?? true),
+            notify_on_activity: Boolean(updated.internal?.notify_on_activity ?? true),
+          },
         });
       }
       showSuccess('Reset Complete', 'Ticket messaging configuration has been reset to system defaults.');
@@ -7795,7 +7825,7 @@ export default function SuperAdminTicketConfig() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                Configure who participates in ticket messaging and define whether delegated employees can join customer conversations.
+                Configure who participates in ticket messaging across external customer tickets and internal employee tickets.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
@@ -7820,216 +7850,516 @@ export default function SuperAdminTicketConfig() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Card 1: Default Channel Baseline */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#252578] flex items-center justify-center font-bold">
-                      <Users size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">Baseline Participants</h3>
-                      <p className="text-xs text-gray-500">Core ticket chat channel</p>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#252578] border border-blue-200">
-                    <Lock size={11} />
-                    System Core
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    By default, ticket messaging connects the ticket creator and Customer Service. This core baseline channel ensures all customer requests receive immediate initial triage.
-                  </p>
-
-                  <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-gray-700 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        Customer / Requester
-                      </span>
-                      <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                        Always Connected
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-gray-700 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#252578]"></span>
-                        Customer Support (CS)
-                      </span>
-                      <span className="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                        Always Connected
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
-                Default direction: Customer &harr; Customer Support
-              </div>
-            </div>
-
-            {/* Card 2: Delegated Employee Participation */}
-            <div className={`rounded-2xl border p-6 shadow-xs flex flex-col justify-between transition-all ${
-              messagingConfig.allow_delegated_employee ? 'border-[#252578]/30 bg-white ring-1 ring-[#252578]/10' : 'border-gray-200 bg-gray-50/40'
-            }`}>
-              <div>
-                <div className="flex items-start justify-between gap-4 pb-4 border-b border-gray-100">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
-                      <MessageSquare size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">Employee Delegation</h3>
-                      <p className="text-xs text-gray-500">Field staff &amp; technician access</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    {messagingConfig.allow_delegated_employee ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 size={11} />
-                        Enabled
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 border border-gray-200">
-                        Disabled
-                      </span>
-                    )}
-
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={messagingConfig.allow_delegated_employee}
-                      onClick={() => setMessagingConfig(prev => ({
-                        ...prev,
-                        allow_delegated_employee: !prev.allow_delegated_employee
-                      }))}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer ${
-                        messagingConfig.allow_delegated_employee ? 'bg-emerald-600' : 'bg-gray-300'
-                      }`}
-                      title="Toggle delegated employee messaging participation"
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
-                          messagingConfig.allow_delegated_employee ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-4">
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    When enabled, if a ticket is delegated or assigned to an employee or engineer, that ticket automatically appears in their employee messages list at <code className="text-[#252578] font-semibold bg-gray-100 px-1 py-0.5 rounded">/employee/messages</code>.
-                  </p>
-
-                  <div className="space-y-3 pt-1">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={messagingConfig.allow_full_history}
-                        disabled={!messagingConfig.allow_delegated_employee}
-                        onChange={(e) => setMessagingConfig(prev => ({
-                          ...prev,
-                          allow_full_history: e.target.checked
-                        }))}
-                        className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
-                      />
-                      <div>
-                        <span className="text-xs font-semibold text-gray-800 block">
-                          Full Conversation History Access
-                        </span>
-                        <span className="text-[11px] text-gray-500 block leading-tight">
-                          Delegated employees can read prior customer support messages to gain diagnostic context.
-                        </span>
-                      </div>
-                    </label>
-
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={messagingConfig.notify_on_employee_join}
-                        disabled={!messagingConfig.allow_delegated_employee}
-                        onChange={(e) => setMessagingConfig(prev => ({
-                          ...prev,
-                          notify_on_employee_join: e.target.checked
-                        }))}
-                        className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
-                      />
-                      <div>
-                        <span className="text-xs font-semibold text-gray-800 block">
-                          Notify Participants on Employee Activity
-                        </span>
-                        <span className="text-[11px] text-gray-500 block leading-tight">
-                          Broadcast real-time notification alerts to CS and Customer when the employee joins the discussion.
-                        </span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
-                Connected route: <code className="text-gray-600">/ticketing/employee/messages</code>
-              </div>
-            </div>
-
-            {/* Card 3: Architecture & Flow Status */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
-                  <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
-                    <Layers size={18} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-900">How Messages Flow</h3>
-                    <p className="text-xs text-gray-500">Three party conversation map</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2">
-                    <div className="flex items-center justify-between text-slate-700">
-                      <span className="font-semibold">Message Store</span>
-                      <span className="font-mono text-[11px] text-slate-500">MongoDB 7 / messages</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-700">
-                      <span className="font-semibold">Real-Time Engine</span>
-                      <span className="font-mono text-[11px] text-slate-500">Laravel Reverb :6002</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-700">
-                      <span className="font-semibold">Cache Layer</span>
-                      <span className="font-mono text-[11px] text-slate-500">Redis SCAN chunking</span>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-gray-500 space-y-2 leading-relaxed">
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
-                      <span><strong>Historical Message Safety:</strong> Configuration updates only govern future messages. All previous chat messages remain permanently preserved and are never deleted or destroyed.</span>
-                    </p>
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Employee replies appear in the shared ticket timeline with a <strong className="text-purple-700">Staff / Engineer</strong> badge.</span>
-                    </p>
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Archival policies configured in <strong className="text-gray-700">Closure Windows</strong> apply uniformly across all participants upon closure.</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
-                Policy updates apply instantly to new messages without server restart.
-              </div>
-            </div>
+          {/* Segmented Subtab: External Tickets vs Internal Tickets */}
+          <div className="flex items-center gap-2 border-b border-gray-200 pb-3">
+            <button
+              type="button"
+              onClick={() => setMessagingSubTab('external')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+                messagingSubTab === 'external'
+                  ? 'bg-[#252578] text-white shadow-xs'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Users size={14} />
+              <span>External Tickets</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMessagingSubTab('internal')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+                messagingSubTab === 'internal'
+                  ? 'bg-[#252578] text-white shadow-xs'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <MessageSquare size={14} />
+              <span>Internal Tickets</span>
+            </button>
           </div>
+
+          {messagingSubTab === 'external' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Card 1: Default Channel Baseline */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#252578] flex items-center justify-center font-bold">
+                        <Users size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Baseline Participants</h3>
+                        <p className="text-xs text-gray-500">Core ticket chat channel</p>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#252578] border border-blue-200">
+                      <Lock size={11} />
+                      System Core
+                    </span>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      By default, ticket messaging connects the ticket creator and Customer Service. This core baseline channel ensures all customer requests receive immediate initial triage.
+                    </p>
+
+                    <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          Customer / Requester
+                        </span>
+                        <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                          Always Connected
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#252578]"></span>
+                          Customer Support (CS)
+                        </span>
+                        <span className="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                          Always Connected
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Default direction: Customer &harr; Customer Support
+                </div>
+              </div>
+
+              {/* Card 2: Delegated Employee Participation */}
+              <div className={`rounded-2xl border p-6 shadow-xs flex flex-col justify-between transition-all ${
+                messagingConfig.allow_delegated_employee ? 'border-[#252578]/30 bg-white ring-1 ring-[#252578]/10' : 'border-gray-200 bg-gray-50/40'
+              }`}>
+                <div>
+                  <div className="flex items-start justify-between gap-4 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                        <MessageSquare size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Employee Delegation</h3>
+                        <p className="text-xs text-gray-500">Field staff &amp; technician access</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      {messagingConfig.allow_delegated_employee ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 size={11} />
+                          Enabled
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 border border-gray-200">
+                          Disabled
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={messagingConfig.allow_delegated_employee}
+                        onClick={() => setMessagingConfig(prev => ({
+                          ...prev,
+                          allow_delegated_employee: !prev.allow_delegated_employee
+                        }))}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#252578]/20 cursor-pointer ${
+                          messagingConfig.allow_delegated_employee ? 'bg-emerald-600' : 'bg-gray-300'
+                        }`}
+                        title="Toggle delegated employee messaging participation"
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
+                            messagingConfig.allow_delegated_employee ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      When enabled, if a ticket is delegated or assigned to an employee or engineer, that ticket automatically appears in their employee messages list at <code className="text-[#252578] font-semibold bg-gray-100 px-1 py-0.5 rounded">/employee/messages</code>.
+                    </p>
+
+                    <div className="space-y-3 pt-1">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={messagingConfig.allow_full_history}
+                          disabled={!messagingConfig.allow_delegated_employee}
+                          onChange={(e) => setMessagingConfig(prev => ({
+                            ...prev,
+                            allow_full_history: e.target.checked
+                          }))}
+                          className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <span className="text-xs font-semibold text-gray-800 block">
+                            Full Conversation History Access
+                          </span>
+                          <span className="text-[11px] text-gray-500 block leading-tight">
+                            Delegated employees can read prior customer support messages to gain diagnostic context.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={messagingConfig.notify_on_employee_join}
+                          disabled={!messagingConfig.allow_delegated_employee}
+                          onChange={(e) => setMessagingConfig(prev => ({
+                            ...prev,
+                            notify_on_employee_join: e.target.checked
+                          }))}
+                          className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <span className="text-xs font-semibold text-gray-800 block">
+                            Notify Participants on Employee Activity
+                          </span>
+                          <span className="text-[11px] text-gray-500 block leading-tight">
+                            Broadcast real-time notification alerts to CS and Customer when the employee joins the discussion.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Connected route: <code className="text-gray-600">/ticketing/employee/messages</code>
+                </div>
+              </div>
+
+              {/* Card 3: Architecture & Flow Status */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
+                    <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                      <Layers size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">How Messages Flow</h3>
+                      <p className="text-xs text-gray-500">Three party conversation map</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2">
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">Message Store</span>
+                        <span className="font-mono text-[11px] text-slate-500">MongoDB 7 / messages</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">Real-Time Engine</span>
+                        <span className="font-mono text-[11px] text-slate-500">Laravel Reverb :6002</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">Cache Layer</span>
+                        <span className="font-mono text-[11px] text-slate-500">Redis SCAN chunking</span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-gray-500 space-y-2 leading-relaxed">
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span><strong>Historical Message Safety:</strong> Configuration updates only govern future messages. All previous chat messages remain permanently preserved and are never deleted or destroyed.</span>
+                      </p>
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span>Employee replies appear in the shared ticket timeline with a <strong className="text-purple-700">Staff / Engineer</strong> badge.</span>
+                      </p>
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span>Archival policies configured in <strong className="text-gray-700">Closure Windows</strong> apply uniformly across all participants upon closure.</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Policy updates apply instantly to new messages without server restart.
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Internal Card 1: Communication Mode */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                        <Users size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Internal Communication Mode</h3>
+                        <p className="text-xs text-gray-500">Employee ticket collaboration model</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Choose how employees collaborate on internal service tickets. Select whether the requestor messages Customer Support exclusively, or communicates directly with the assigned employee.
+                    </p>
+
+                    <div className="space-y-3 pt-2">
+                      {/* Mode Option 1: Requestor -> CS Only */}
+                      <label
+                        className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                          messagingConfig.internal?.mode === 'requestor_cs_only'
+                            ? 'border-[#252578] bg-blue-50/40 ring-1 ring-[#252578]'
+                            : 'border-gray-200 bg-gray-50/50 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="internal_mode"
+                          value="requestor_cs_only"
+                          checked={messagingConfig.internal?.mode === 'requestor_cs_only'}
+                          onChange={() => setMessagingConfig(prev => ({
+                            ...prev,
+                            internal: {
+                              ...(prev.internal || {}),
+                              mode: 'requestor_cs_only',
+                              allow_direct_assigned: false,
+                            }
+                          }))}
+                          className="mt-1 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900">Requestor &rarr; CS Only</span>
+                            <span className="text-[10px] font-semibold bg-gray-150 text-gray-700 px-2 py-0.5 rounded-full">
+                              Triage Only
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-1 leading-normal">
+                            Employee requestors can only communicate with Customer Support coordinators. Assigned technicians do not have access to direct replies.
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* Mode Option 2: Requestor -> CS -> Employee Delegated */}
+                      <label
+                        className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                          messagingConfig.internal?.mode === 'requestor_cs_delegated'
+                            ? 'border-[#252578] bg-blue-50/40 ring-1 ring-[#252578]'
+                            : 'border-gray-200 bg-gray-50/50 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="internal_mode"
+                          value="requestor_cs_delegated"
+                          checked={messagingConfig.internal?.mode !== 'requestor_cs_only'}
+                          onChange={() => setMessagingConfig(prev => ({
+                            ...prev,
+                            internal: {
+                              ...(prev.internal || {}),
+                              mode: 'requestor_cs_delegated',
+                              allow_direct_assigned: true,
+                            }
+                          }))}
+                          className="mt-1 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900">Requestor &rarr; CS &rarr; Employee Delegated</span>
+                            <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                              Recommended
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-1 leading-normal">
+                            Requestors and assigned technicians message each other directly within the internal ticket thread. CS maintains continuous supervision.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Active Mode: <strong className="text-gray-700">{messagingConfig.internal?.mode === 'requestor_cs_only' ? 'Requestor -> CS Only' : 'Requestor -> CS -> Employee Delegated'}</strong>
+                </div>
+              </div>
+
+              {/* Internal Card 2: Collaboration Settings */}
+              <div className={`rounded-2xl border p-6 shadow-xs flex flex-col justify-between transition-all ${
+                messagingConfig.internal?.mode !== 'requestor_cs_only'
+                  ? 'border-[#252578]/30 bg-white ring-1 ring-[#252578]/10'
+                  : 'border-gray-200 bg-gray-50/40 opacity-80'
+              }`}>
+                <div>
+                  <div className="flex items-start justify-between gap-4 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#252578] flex items-center justify-center font-bold">
+                        <MessageSquare size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Direct Collaboration Rules</h3>
+                        <p className="text-xs text-gray-500">Technician response &amp; continuity</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      {messagingConfig.internal?.mode !== 'requestor_cs_only' && messagingConfig.internal?.allow_direct_assigned ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 size={11} />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 border border-gray-200">
+                          Restricted
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Configure thread continuity and direct messaging permissions between the requesting employee and assigned staff.
+                    </p>
+
+                    <div className="space-y-3 pt-1">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(messagingConfig.internal?.allow_direct_assigned)}
+                          disabled={messagingConfig.internal?.mode === 'requestor_cs_only'}
+                          onChange={(e) => setMessagingConfig(prev => ({
+                            ...prev,
+                            internal: {
+                              ...(prev.internal || {}),
+                              allow_direct_assigned: e.target.checked
+                            }
+                          }))}
+                          className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <span className="text-xs font-semibold text-gray-800 block">
+                            Direct Assigned Employee Replies
+                          </span>
+                          <span className="text-[11px] text-gray-500 block leading-tight">
+                            Assigned employees and engineers can send direct replies to the requestor within the ticket thread.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(messagingConfig.internal?.allow_full_history)}
+                          onChange={(e) => setMessagingConfig(prev => ({
+                            ...prev,
+                            internal: {
+                              ...(prev.internal || {}),
+                              allow_full_history: e.target.checked
+                            }
+                          }))}
+                          className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <span className="text-xs font-semibold text-gray-800 block">
+                            Full Thread Continuity Across Reassignments
+                          </span>
+                          <span className="text-[11px] text-gray-500 block leading-tight">
+                            When an internal ticket is reassigned or escalated, the new assignee sees the complete chronological chat history without visual disruption.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(messagingConfig.internal?.notify_on_activity)}
+                          onChange={(e) => setMessagingConfig(prev => ({
+                            ...prev,
+                            internal: {
+                              ...(prev.internal || {}),
+                              notify_on_activity: e.target.checked
+                            }
+                          }))}
+                          className="mt-0.5 rounded border-gray-300 text-[#252578] focus:ring-[#252578]"
+                        />
+                        <div>
+                          <span className="text-xs font-semibold text-gray-800 block">
+                            Notify Participants on Thread Activity
+                          </span>
+                          <span className="text-[11px] text-gray-500 block leading-tight">
+                            Sends in-app and email notifications to the Requestor and Assigned Employee whenever a new message is posted.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Applies to: Internal Tickets (<code className="text-gray-600">is_internal: true</code>)
+                </div>
+              </div>
+
+              {/* Internal Card 3: Security & Isolation Safeguards */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
+                    <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                      <ShieldAlert size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">Security &amp; AI Isolation</h3>
+                      <p className="text-xs text-gray-500">Internal ticket data safeguards</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2">
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">AI / RAG Pipeline</span>
+                        <span className="font-semibold text-xs text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">Excluded (No Training)</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">Ownership Verification</span>
+                        <span className="font-semibold text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Enforced</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="font-semibold">Role Attribution</span>
+                        <span className="font-semibold text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">Immutable at Send</span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-gray-500 space-y-2 leading-relaxed">
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span><strong>Strict Ownership:</strong> An employee can only read and post to internal tickets they requested, tickets assigned to them, or if authorized by CS/Admin roles.</span>
+                      </p>
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span><strong>Malware Scanner Pipeline:</strong> File attachments on internal messages are checked by the ClamAV daemon before being stored.</span>
+                      </p>
+                      <p className="flex items-start gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0 mt-0.5" />
+                        <span><strong>AI Exclusion Guarantee:</strong> Internal message contents are permanently tagged with <code className="text-[#252578] font-semibold">exclude_ai: true</code> to ensure confidential company data is never processed by chatbots.</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-gray-100 text-[11px] text-gray-400">
+                  Audited via SHA-256 event integrity &amp; audit logging.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : tab === TAB_DEFAULTS ? (
         <div className="flex flex-col gap-6">

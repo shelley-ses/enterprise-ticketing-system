@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { AlertTriangle, Clock } from 'lucide-react';
+import { AlertTriangle, Clock, Bell } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { statusColors, priorityColors } from '@/constants/employeeTickets';
 import { updateEmployeeTicketOverride, getInternalNotes, addInternalNote } from '@/services/ticketService';
@@ -7,6 +7,7 @@ import ProofCompletionModal from './ProofCompletionModal';
 import ReassignmentDisapprovalBanner from './ReassignmentDisapprovalBanner';
 import { isReassignmentDenied, hasPendingReassignment } from '@/utils/reassignmentUtils';
 import InternalNotesSection from '@/components/InternalNotesSection';
+import InternalTicketMessageThread from '@/components/InternalTicketMessageThread';
 import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
 import { hasFeedbackBeenSubmitted } from '@/data/mockFeedbackData';
 import useLockBodyScroll from '@/hooks/useLockBodyScroll';
@@ -306,6 +307,20 @@ export default function TicketDetailModal({
                   </p>
                 </div>
               )}
+              {(ticket.last_reminder_sent_at || ticket.lastReminderSentAt) && (
+                <div className="col-span-2 rounded-xl bg-indigo-50 border border-indigo-200 p-4 text-sm">
+                  <p className="text-xs font-bold uppercase tracking-wider text-indigo-950 mb-0.5 flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>CS Employee Reminder</span>
+                  </p>
+                  <p className="text-sm font-semibold text-indigo-800">
+                    Last sent: {formatDisplayDate(ticket.last_reminder_sent_at || ticket.lastReminderSentAt)}
+                  </p>
+                  <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                    Customer Service dispatched a reminder prompt regarding this ticket. Please review and provide progress.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* ────────────────────────────────────────────────────────
@@ -563,6 +578,17 @@ export default function TicketDetailModal({
                   isAdding={isAddingNote}
                 />
 
+                {/* Internal Ticket Message Thread */}
+                {isInternal && (ticket.id || ticket.ticket_ID) && (
+                  <div className="pt-2">
+                    <InternalTicketMessageThread
+                      ticketId={ticket.id || ticket.ticket_ID}
+                      ticket={ticket}
+                      isClosed={ticket.status === 'Closed' || Number(ticket.ticket_status_ID) === 4}
+                    />
+                  </div>
+                )}
+
                 {/* Customer Satisfaction Feedback */}
                 {(ticket.status === 'Resolved' || ticket.status === 'Closed' || hasFeedbackBeenSubmitted(ticket.id || ticket.ticket_ID)) && (
                   <div className="pt-2">
@@ -586,24 +612,36 @@ export default function TicketDetailModal({
                     </button>
                   </div>
                   <div className="relative pl-6 space-y-4 border-l border-gray-200 ml-3 py-1.5">
-                    {sortedTimelineEvents.map((evt, idx) => (
-                      <div key={evt.id || idx} className="relative text-field-value">
-                        {/* Circle dot marker */}
-                        <div className="absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#252578] shadow" />
-                        <div className="flex justify-between items-center text-timestamp text-gray-400 mb-0.5">
-                          <span className="text-timestamp uppercase tracking-wide text-[#252578]">
-                            {evt.type === 'system' ? 'System' : evt.type || 'Update'}
-                          </span>
-                          <span className="text-timestamp">{formatDisplayDate(evt.timestamp)}</span>
+                    {sortedTimelineEvents.map((evt, idx) => {
+                      const isReminder = evt.type === 'reminder';
+                      return (
+                        <div key={evt.id || idx} className="relative text-field-value">
+                          {/* Circle dot marker */}
+                          <div className={`absolute -left-[30px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white shadow ${
+                            isReminder ? 'bg-indigo-600 ring-2 ring-indigo-200' : 'bg-[#252578]'
+                          }`} />
+                          <div className="flex justify-between items-center text-timestamp text-gray-400 mb-0.5">
+                            <span className={`text-timestamp uppercase tracking-wide flex items-center gap-1 font-bold ${
+                              isReminder ? 'text-indigo-600' : 'text-[#252578]'
+                            }`}>
+                              {isReminder && <Bell className="w-3 h-3 text-indigo-600 inline" />}
+                              {isReminder ? 'CS Reminder' : evt.type === 'system' ? 'System' : evt.type || 'Update'}
+                            </span>
+                            <span className="text-timestamp">{formatDisplayDate(evt.timestamp)}</span>
+                          </div>
+                          <p
+                            className={`text-field-value p-2.5 rounded-lg border break-words whitespace-pre-wrap max-w-full overflow-hidden ${
+                              isReminder
+                                ? 'text-indigo-950 bg-indigo-50/80 border-indigo-200 font-medium'
+                                : 'text-gray-700 bg-gray-50/50 border-gray-100/50'
+                            }`}
+                            style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                          >
+                            {evt.text}
+                          </p>
                         </div>
-                        <p
-                          className="text-field-value text-gray-700 bg-gray-50/50 p-2 rounded-lg border border-gray-100/50 break-words whitespace-pre-wrap max-w-full overflow-hidden"
-                          style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-                        >
-                          {evt.text}
-                        </p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

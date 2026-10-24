@@ -11,7 +11,6 @@ import {
 import { formatDisplayDate } from '@/utils/dateUtils';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
-import InternalTicketMessageThread from '@/components/employee/InternalTicketMessageThread';
 import { getTicketDetails } from '@/services/ticketService';
 import { getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
 import { useAuth } from '@/context/AuthContext';
@@ -20,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Clock, AlertCircle, ShieldAlert } from 'lucide-react';
 import TicketFeedbackSection from '@/components/feedback/TicketFeedbackSection';
+import InternalTicketMessageThread from '@/components/InternalTicketMessageThread';
 
 export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
@@ -747,16 +747,12 @@ export default function EmployeeHistoryDetail() {
         </div>
       )}
 
-      {/* TS063: Direct Collaboration Message Thread for Internal Tickets */}
-      {(ticket?.title?.startsWith('[Internal]') ||
-        ticket?.is_internal ||
-        ticket?.ticket_type === 'Internal' ||
-        ticket?.type === 'Internal' ||
-        ticket?.category === 'Internal' ||
-        backPath?.includes('my-tickets')) && ticket && (
+      {/* Internal Ticket Discussion Thread */}
+      {numericId && (
         <InternalTicketMessageThread
+          ticketId={numericId}
           ticket={ticket}
-          currentUser={user}
+          isClosed={ticket?.status === 'Closed' || Number(ticket?.ticket_status_ID) === 4}
         />
       )}
 

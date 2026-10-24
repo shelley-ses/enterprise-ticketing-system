@@ -256,6 +256,10 @@ class TicketDashboardService
                 'in_progress' => 0,
                 'resolved' => 0,
                 'closed' => 0,
+                'sla_breached' => 0,
+                'breached' => 0,
+                'high_priority' => 0,
+                'highPriority' => 0,
             ];
 
             foreach ($statusCounts as $row) {
@@ -264,6 +268,36 @@ class TicketDashboardService
                     $sum[$key] = (int) $row->total;
                 }
             }
+
+            // Real SLA Breached count across active unresolved tickets
+            $slaBreachedCount = DB::table('tickets as t')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->whereNotIn('ts.status_name', ['Closed', 'Resolved', 'Discarded', 'Cancelled'])
+                ->where(function ($q) {
+                    $q->where('t.sla_status', 'Breached')
+                      ->orWhere(function ($sq) {
+                          $sq->whereNotNull('t.resolution_due_at')
+                             ->where('t.resolution_due_at', '<', now());
+                      })
+                      ->orWhere(function ($sq) {
+                          $sq->whereNull('t.resolution_due_at')
+                             ->where('t.created_at', '<=', now()->subHours(48));
+                      });
+                })
+                ->count();
+            $sum['sla_breached'] = $slaBreachedCount;
+            $sum['breached'] = $slaBreachedCount;
+
+            // High and Critical priority tickets across active unresolved tickets
+            $highPriorityCount = DB::table('tickets as t')
+                ->join('ticket_statuses as ts', 'ts.ticket_status_ID', '=', 't.ticket_status_ID')
+                ->join('ticket_priorities as tp', 'tp.priority_ID', '=', 't.priority_ID')
+                ->whereNotIn('ts.status_name', ['Closed', 'Resolved', 'Discarded', 'Cancelled'])
+                ->whereIn(DB::raw('LOWER(tp.priority_name)'), ['high', 'critical', 'urgent'])
+                ->count();
+            $sum['high_priority'] = $highPriorityCount;
+            $sum['highPriority'] = $highPriorityCount;
+
             return $sum;
         });
 
@@ -280,6 +314,12 @@ class TicketDashboardService
                     't.ticket_number',
                     't.title',
                     't.is_internal',
+                    't.ticket_status_ID',
+                    't.priority_ID',
+                    't.resolution_due_at',
+                    't.sla_status',
+                    't.resolved_at',
+                    't.closed_at',
                     'm.machine_name',
                     'm.serial_number',
                     'ts.status_name',
@@ -293,19 +333,30 @@ class TicketDashboardService
                 ->orderByDesc('t.created_at')
                 ->limit($limit)
                 ->get()
-                ->map(fn ($row) => [
-                    'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
-                    'title' => $row->title,
-                    'customer' => (bool) $row->is_internal
-                        ? (($row->requester_employee_name !== '' && $row->requester_employee_name !== null) ? $row->requester_employee_name : ($row->requested_by ? 'Employee #' . $row->requested_by : 'Internal Requester'))
-                        : ($row->client_name ?: 'Unknown Customer'),
-                    'equipment' => $row->machine_name . ' - ' . $row->serial_number,
-                    'status' => $row->status_name,
-                    'priority' => $row->priority_name,
-                    'created_at' => $row->created_at ? Carbon::parse($row->created_at)->toIso8601String() : null,
-                    'updated_at' => $row->updated_at ? Carbon::parse($row->updated_at)->toIso8601String() : null,
-                    'requested_by' => $row->requested_by,
-                ])
+                ->map(function ($row) {
+                    $slaMetrics = $this->slaService->computeTicketSlaMetrics($row);
+                    return [
+                        'id' => TicketNumberGeneratorService::refFor($row->ticket_ID, $row->ticket_number ?? null),
+                        'ticket_ID' => $row->ticket_ID,
+                        'title' => $row->title,
+                        'customer' => (bool) $row->is_internal
+                            ? (($row->requester_employee_name !== '' && $row->requester_employee_name !== null) ? $row->requester_employee_name : ($row->requested_by ? 'Employee #' . $row->requested_by : 'Internal Requester'))
+                            : ($row->client_name ?: 'Unknown Customer'),
+                        'equipment' => $row->machine_name . ' - ' . $row->serial_number,
+                        'status' => $row->status_name,
+                        'priority' => $row->priority_name,
+                        'sla' => $slaMetrics['status'],
+                        'sla_status' => $slaMetrics['status'],
+                        'slaStatus' => $slaMetrics['status'],
+                        'resolution_due_at' => $slaMetrics['due_at'],
+                        'due_at' => $slaMetrics['due_at'],
+                        'time_remaining_minutes' => $slaMetrics['time_remaining_minutes'],
+                        'is_breached' => $slaMetrics['is_breached'],
+                        'created_at' => $row->created_at ? Carbon::parse($row->created_at)->toIso8601String() : null,
+                        'updated_at' => $row->updated_at ? Carbon::parse($row->updated_at)->toIso8601String() : null,
+                        'requested_by' => $row->requested_by,
+                    ];
+                })
                 ->values()
                 ->toArray();
         });
@@ -365,7 +416,8 @@ class TicketDashboardService
                     'mc.category_name as equipment_type',
                     'tt.type_name as ticket_type',
                     't.proof_rejected',
-                    't.rejection_reason'
+                    't.rejection_reason',
+                    't.last_reminder_sent_at'
                 );
 
             if ($typeFilter === 'internal') {
@@ -424,7 +476,8 @@ class TicketDashboardService
                 't.resolution_due_at',
                 't.resolved_at',
                 't.closed_at',
-                't.created_at'
+                't.created_at',
+                't.sla_status'
             )->get();
 
             $slaSummary = [
@@ -630,6 +683,7 @@ class TicketDashboardService
                     'ticket_type' => $row->ticket_type ?? 'External',
                     'is_internal' => (bool)$row->is_internal,
                     'requested_by' => $row->requested_by,
+                    'last_reminder_sent_at' => $row->last_reminder_sent_at ? Carbon::parse($row->last_reminder_sent_at)->toIso8601String() : null,
                 ];
             })->values()->toArray();
 
