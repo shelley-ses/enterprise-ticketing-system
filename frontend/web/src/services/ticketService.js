@@ -6,7 +6,7 @@ import { refreshAccessToken } from '@/auth/refreshSession';
 
 const ticketClient = axios.create({
   baseURL: TICKET_API_URL,
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -57,7 +57,7 @@ ticketClient.interceptors.response.use(
       }
 
       tokenStore.clearToken();
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:unauthorized'));
       }
@@ -69,7 +69,7 @@ ticketClient.interceptors.response.use(
 
 const employeeClient = axios.create({
   baseURL: EMPLOYEE_API_URL || '/api/ticketing/employee',
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -103,7 +103,7 @@ employeeClient.interceptors.response.use(
       }
 
       tokenStore.clearToken();
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:unauthorized'));
       }
@@ -115,7 +115,7 @@ employeeClient.interceptors.response.use(
 
 const attachmentClient = axios.create({
   baseURL: '/api/ticketing/attachment',
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -1382,6 +1382,17 @@ export const updateTicketDefaultsConfig = async (payload) => {
 export const resetTicketDefaultsConfig = async () => {
   const response = await ticketClient.post('/superadmin/ticket-defaults/reset');
   return response.data?.value || response.data;
+};
+
+// Branch listing & sync
+export const getBranches = async () => {
+  const response = await ticketClient.get('/superadmin/branches');
+  return response.data?.branches || response.data || [];
+};
+
+export const getPublicBranches = async () => {
+  const response = await ticketClient.get('/branches');
+  return response.data?.branches || response.data || [];
 };
 
 // Branch-specific priority levels & SLA overrides (scoped to a branch slug)

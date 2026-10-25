@@ -124,6 +124,14 @@ const normalizeUser = (userData) => {
   const role = resolveUserRole(userData);
   const department = resolveUserDepartment(userData);
 
+  const branchName = userData.branch || userData.profile?.branch?.name || userData.branch_details?.name || null;
+  const branchId = userData.branch_id || userData.profile?.branch_id || userData.branch_details?.id || null;
+  const branchDetails = userData.branch_details || (userData.profile?.branch ? {
+    id: userData.profile.branch.id,
+    name: userData.profile.branch.name,
+    address: userData.profile.branch.address,
+  } : null);
+
   return {
     ...userData,
     first_name: firstName || userData.name || '',
@@ -131,6 +139,9 @@ const normalizeUser = (userData) => {
     phone: userData.phone || userData.contact_number || userData.profile?.phone || '',
     department,
     role,
+    branch: branchName,
+    branch_id: branchId,
+    branch_details: branchDetails,
   };
 };
 
@@ -142,18 +153,32 @@ const persistStoredUser = (userData) => {
       return;
     }
     sessionStorage.setItem('user', JSON.stringify(userData));
-    if (checkIsSuperAdmin(userData) || checkIsEmployee(userData) || checkIsAdmin(userData)) {
-      localStorage.removeItem('user');
-    } else {
+    // For customers, also persist in localStorage. For employees/admins, keep existing localStorage
+    // user intact (do not delete) so Central Auth Module SSO session is preserved.
+    if (!checkIsSuperAdmin(userData) && !checkIsEmployee(userData) && !checkIsAdmin(userData)) {
       localStorage.setItem('user', JSON.stringify(userData));
     }
   } catch {}
 };
 
-const clearStoredUser = () => {
+const clearStoredUser = (forceAll = false) => {
   try {
     sessionStorage.removeItem('user');
-    localStorage.removeItem('user');
+    if (forceAll) {
+      localStorage.removeItem('user');
+      return;
+    }
+    const raw = localStorage.getItem('user');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!checkIsSuperAdmin(parsed) && !checkIsEmployee(parsed) && !checkIsAdmin(parsed) && !checkIsCS(parsed)) {
+          localStorage.removeItem('user');
+        }
+      } catch {
+        localStorage.removeItem('user');
+      }
+    }
   } catch {}
 };
 
@@ -166,7 +191,7 @@ const readStoredUser = () => {
         const parsed = JSON.parse(raw);
         if (checkIsSuperAdmin(parsed) || checkIsEmployee(parsed) || checkIsAdmin(parsed)) {
           sessionStorage.setItem('user', raw);
-          localStorage.removeItem('user');
+          // Keep localStorage['user'] intact so Central Auth Module does not think the session was destroyed
         }
       }
     }
@@ -262,6 +287,10 @@ export function AuthProvider({ children }) {
       const resp = await axiosInstance.get(AUTH_ENDPOINTS.ME);
       const userData = resp.data?.user;
       const firstLogin = Boolean(resp.data?.is_first_login);
+      const sessionToken = resp.data?.token;
+      if (sessionToken) {
+        tokenStore.setToken(sessionToken);
+      }
       if (userData) {
         const normalized = normalizeUser(userData);
         setUser(normalized);
@@ -506,7 +535,7 @@ export function AuthProvider({ children }) {
     } catch {
       // Background logout cleanup failed silently
     } finally {
-      clearStoredUser();
+      clearStoredUser(true);
       localStorage.removeItem(LOCKOUT_STORAGE_KEY);
       sessionStorage.removeItem('first_login_pending');
       tokenStore.clearToken();

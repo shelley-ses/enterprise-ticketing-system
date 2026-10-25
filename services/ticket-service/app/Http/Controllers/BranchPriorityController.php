@@ -34,12 +34,80 @@ class BranchPriorityController extends Controller
             return $err;
         }
 
+        return $this->publicBranches($request);
+    }
+
+    public function publicBranches(Request $request)
+    {
+        $this->syncBranchesFromAuthService();
+
+        $cols = ['slug as id', 'name', 'code', 'region', 'is_active'];
+        if (\Illuminate\Support\Facades\Schema::hasColumn('branches', 'address')) {
+            $cols[] = 'address';
+        }
+
+        $branches = \Illuminate\Support\Facades\DB::table('branches')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get($cols);
+
         return response()->json([
-            'branches' => \Illuminate\Support\Facades\DB::table('branches')
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->get(['slug as id', 'name', 'code', 'region']),
+            'branches' => $branches,
+            'count' => count($branches),
         ]);
+    }
+
+    private function syncBranchesFromAuthService(): void
+    {
+        try {
+            $authUrl = env('CUSTOMER_SERVICE_URL', env('AUTH_SERVICE_URL', 'http://customer-service:8000'));
+            $secret = env('INTERNAL_SERVICE_SECRET', env('INTERNAL_TOKEN', ''));
+
+            $client = \Illuminate\Support\Facades\Http::timeout(2);
+            if (!empty($secret)) {
+                $client = $client->withHeaders(['X-Internal-Secret' => $secret]);
+            }
+            $res = $client->get("{$authUrl}/api/internal/branches");
+            if ($res->successful()) {
+                $branches = $res->json('data') ?? $res->json('branches') ?? $res->json();
+                if (is_array($branches) && !empty($branches)) {
+                    foreach ($branches as $b) {
+                        if (empty($b['name'])) continue;
+                        $slug = \Illuminate\Support\Str::slug($b['name']);
+                        if (empty($slug)) $slug = 'branch-' . ($b['id'] ?? uniqid());
+
+                        $exists = \Illuminate\Support\Facades\DB::table('branches')
+                            ->where('name', $b['name'])
+                            ->orWhere('slug', $slug)
+                            ->first();
+
+                        $data = [
+                            'name' => $b['name'],
+                            'is_active' => true,
+                            'updated_at' => now(),
+                        ];
+                        if (\Illuminate\Support\Facades\Schema::hasColumn('branches', 'address') && !empty($b['address'])) {
+                            $data['address'] = $b['address'];
+                        }
+
+                        if ($exists) {
+                            \Illuminate\Support\Facades\DB::table('branches')
+                                ->where('id', $exists->id)
+                                ->update($data);
+                        } else {
+                            $data['slug'] = $slug;
+                            $data['code'] = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $b['name']), 0, 4)) ?: 'BR';
+                            $data['region'] = 'Main';
+                            $data['created_at'] = now();
+                            \Illuminate\Support\Facades\DB::table('branches')->insert($data);
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Gracefully degrade to existing local database branches
+            \Illuminate\Support\Facades\Log::info('Branch sync from auth service skipped or failed: ' . $e->getMessage());
+        }
     }
 
     public function index(Request $request, string $branchId)

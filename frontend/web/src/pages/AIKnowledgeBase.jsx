@@ -21,6 +21,7 @@ import {
 
 const aiKbClient = axios.create({
   baseURL: AI_API_URL,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',

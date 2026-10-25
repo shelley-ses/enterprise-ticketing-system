@@ -165,7 +165,57 @@ class VerifyEmployeeJwt
             $mappedRole = $payloadRole ?: 'service';
         }
 
+        // Resolve branch information from token payload claims
+        $payloadBranch = $payload['branch'] ?? $payload['branch_name'] ?? ($payload['branch_details']['name'] ?? null);
+        $payloadBranchId = $payload['branch_id'] ?? ($payload['branch_details']['id'] ?? null);
+        if ($payloadBranchId !== null && !is_numeric($payloadBranchId)) {
+            $payloadBranch = $payloadBranch ?: (string) $payloadBranchId;
+        }
+
+        // Determine if user has global administrative scope (branch can be null)
+        $isAdminOrSuperAdmin = in_array(strtolower($email), ['admin@example.com', 'superadmin@example.com'], true)
+            || in_array($normRole, ['superadmin', 'super admin', 'admin', 'it admin'], true)
+            || in_array($normDept, ['superadmin', 'super admin', 'admin'], true);
+
+        // If branch is missing from JWT claims, query auth-service internal API using token subject (user ID)
+        if (!$isAdminOrSuperAdmin && empty($payloadBranch) && empty($payloadBranchId)) {
+            $userId = $payload['sub'] ?? null;
+            if ($userId) {
+                try {
+                    $authUrl = env('AUTH_SERVICE_URL', env('CUSTOMER_SERVICE_URL', 'http://auth-service:8000'));
+                    $secret = env('INTERNAL_SERVICE_SECRET', env('INTERNAL_TOKEN', ''));
+                    $client = \Illuminate\Support\Facades\Http::timeout(3);
+                    if (!empty($secret)) {
+                        $client = $client->withHeaders(['X-Internal-Secret' => $secret]);
+                    }
+                    $res = $client->get("{$authUrl}/api/internal/users/{$userId}");
+                    if ($res->successful()) {
+                        $userData = $res->json();
+                        $payloadBranch = $userData['branch'] ?? ($userData['branch_details']['name'] ?? null);
+                        $payloadBranchId = $userData['branch_id'] ?? ($userData['branch_details']['id'] ?? null);
+                        if (!empty($userData['first_name']) && empty($payload['first_name'])) {
+                            $payload['first_name'] = $userData['first_name'];
+                        }
+                        if (!empty($userData['last_name']) && empty($payload['last_name'])) {
+                            $payload['last_name'] = $userData['last_name'];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('VerifyEmployeeJwt: Failed to query internal user branch from auth-service', ['error' => $e->getMessage()]);
+                }
+            }
+        }
+
         if (!$employee) {
+            // New account being auto-provisioned: branch cannot be null for operational roles
+            if (!$isAdminOrSuperAdmin && empty($payloadBranch) && empty($payloadBranchId)) {
+                Log::warning('VerifyEmployeeJwt: Branch required for new operational account', ['email' => $email, 'role' => $mappedRole]);
+                return response()->json([
+                    'message' => 'Unprocessable Entity: Branch assignment is required for new operational accounts.',
+                    'error_code' => 'BRANCH_REQUIRED_FOR_NEW_ACCOUNT'
+                ], 422);
+            }
+
             // Auto-provision employee record in subsystem database
             $employee = new Employee();
             $employee->email = $email;
@@ -173,12 +223,22 @@ class VerifyEmployeeJwt
             $employee->last_name = $payload['last_name'] ?? '';
             $employee->role = $mappedRole;
             $employee->department = $payloadDept;
+            if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
+                $employee->branch = $payloadBranch;
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id')) {
+                $employee->branch_id = is_numeric($payloadBranchId) ? (int) $payloadBranchId : null;
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'last_synced_at')) {
+                $employee->last_synced_at = now();
+            }
             $employee->is_active = true;
             $employee->password_hash = ''; // No local password hash needed for SSO users
             $employee->password_change_at = now(); // Skip first-login change password for SSO users
             $employee->save();
         } else {
-            // Sync profile claims if they changed centrally
+            // Existing account in database:
+            // Permitted to have null branch if already in DB, but sync if new branch is provided
             $updated = false;
             if (($payload['first_name'] ?? '') !== $employee->first_name) {
                 $employee->first_name = $payload['first_name'] ?? '';
@@ -194,6 +254,18 @@ class VerifyEmployeeJwt
             }
             if ($payloadDept !== $employee->department) {
                 $employee->department = $payloadDept;
+                $updated = true;
+            }
+            if ($payloadBranch !== null && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch') && $payloadBranch !== $employee->branch) {
+                $employee->branch = $payloadBranch;
+                $updated = true;
+            }
+            if ($payloadBranchId !== null && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id') && (int)$payloadBranchId !== (int)$employee->branch_id) {
+                $employee->branch_id = (int)$payloadBranchId;
+                $updated = true;
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'last_synced_at')) {
+                $employee->last_synced_at = now();
                 $updated = true;
             }
             if ($updated) {

@@ -308,8 +308,13 @@ class EmployeeDirectoryController extends Controller
                     if (!empty($authData['email'])) $updates['email'] = $authData['email'];
                     if (!empty($authData['role'])) $updates['role'] = $authData['role'];
                     if (!empty($authData['department'])) $updates['department'] = $authData['department'];
-                    if (!empty($authData['branch']) && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
-                        $updates['branch'] = $authData['branch'];
+                    $authBranch = $authData['branch'] ?? ($authData['branch_details']['name'] ?? null);
+                    $authBranchId = $authData['branch_id'] ?? ($authData['branch_details']['id'] ?? null);
+                    if ($authBranch !== null && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
+                        $updates['branch'] = $authBranch;
+                    }
+                    if ($authBranchId !== null && \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id')) {
+                        $updates['branch_id'] = is_numeric($authBranchId) ? (int) $authBranchId : null;
                     }
 
                     if (!empty($updates)) {
@@ -327,8 +332,15 @@ class EmployeeDirectoryController extends Controller
             $syncNote = 'Central Auth service is temporarily unavailable; displaying last known cached profile data.';
         }
 
+        $empRoleNorm = strtolower(trim((string) ($employee->role ?? '')));
+        $empEmailNorm = strtolower(trim((string) ($employee->email ?? '')));
+        $isAdminOrSuperAdmin = in_array($empEmailNorm, ['admin@example.com', 'superadmin@example.com'], true)
+            || in_array($empRoleNorm, ['superadmin', 'super admin', 'admin', 'it admin'], true);
+
         $hasBranch = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch');
-        $branchValue = $hasBranch ? ($employee->branch ?? 'Main') : 'Main';
+        $hasBranchId = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id');
+        $branchValue = $hasBranch ? $employee->branch : null;
+        $branchIdValue = $hasBranchId ? $employee->branch_id : null;
         $lastSynced = $employee->last_synced_at ?? $employee->last_seen_at ?? null;
 
         return response()->json([
@@ -343,6 +355,7 @@ class EmployeeDirectoryController extends Controller
                 'department' => $employee->department,
                 'role' => $employee->role,
                 'branch' => $branchValue,
+                'branch_id' => $branchIdValue,
                 'phone_number' => $employee->phone_number ?? null,
                 'is_active' => (bool) $employee->is_active,
                 'last_synced_at' => $lastSynced,
@@ -371,6 +384,7 @@ class EmployeeDirectoryController extends Controller
             'department' => $employee->department,
             'role' => $employee->role,
             'branch' => $branchValue,
+            'branch_id' => $branchIdValue,
             'last_synced_at' => $lastSynced,
         ]);
     }

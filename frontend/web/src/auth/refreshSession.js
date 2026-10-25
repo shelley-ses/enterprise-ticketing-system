@@ -29,7 +29,20 @@ export const refreshAccessToken = async () => {
     const rawUser = sessionStorage.getItem('user') || localStorage.getItem('user');
     if (rawUser) {
       const u = JSON.parse(rawUser);
-      if (u.role === 'superadmin' || u.role === 'employee' || u.role === 'admin' || u.department === 'superadmin') {
+      const role = (typeof u.role === 'object' ? u.role?.name : u.role) || '';
+      const roleLower = String(role).toLowerCase();
+      const dept = (typeof u.department === 'object' ? u.department?.name : u.department) || '';
+      const deptLower = String(dept).toLowerCase();
+      const isStaff =
+        roleLower.includes('admin') ||
+        roleLower.includes('employee') ||
+        roleLower.includes('cs') ||
+        roleLower.includes('customer service') ||
+        deptLower.includes('admin') ||
+        deptLower.includes('employee') ||
+        deptLower.includes('cs') ||
+        deptLower.includes('customer service');
+      if (isStaff) {
         return false;
       }
     }

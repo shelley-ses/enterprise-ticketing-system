@@ -50,7 +50,10 @@ export const DEFAULT_BRANCH_ID = 'main';
 export function getStoredBranchId() {
   try {
     const stored = localStorage.getItem(BRANCH_STORAGE_KEY);
-    if (stored && DEFAULT_BRANCHES.some((b) => b.id === stored)) {
+    if (stored === 'all' || stored === 'none' || stored === 'null') {
+      return null;
+    }
+    if (stored) {
       return stored;
     }
   } catch {
@@ -64,11 +67,14 @@ export function getStoredBranchId() {
  */
 export function setStoredBranchId(branchId) {
   try {
-    if (DEFAULT_BRANCHES.some((b) => b.id === branchId)) {
-      localStorage.setItem(BRANCH_STORAGE_KEY, branchId);
-      window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId } }));
+    if (branchId === null || branchId === 'all' || branchId === 'none') {
+      localStorage.setItem(BRANCH_STORAGE_KEY, 'all');
+      window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId: null } }));
       return true;
     }
+    localStorage.setItem(BRANCH_STORAGE_KEY, String(branchId));
+    window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId } }));
+    return true;
   } catch {
     // Ignore localStorage access failures
   }

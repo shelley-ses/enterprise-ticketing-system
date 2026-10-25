@@ -1335,7 +1335,7 @@ class EmployeeAssignmentService
                 });
         }
 
-        return $rows->map(function ($row) use ($pendingReassigns, $deniedReassigns, $deniedAuditReasons) {
+        return $rows->map(function ($row) use ($pendingReassigns, $deniedReassigns, $deniedAuditReasons, $ticketTimelines) {
             $pendingReassign = $pendingReassigns->get($row->ticket_ID);
             $deniedReassign = $deniedReassigns->get($row->ticket_ID);
 
@@ -1427,6 +1427,8 @@ class EmployeeAssignmentService
 
         return $rows->map(function ($row) {
             $slaMetrics = $this->computeSlaMetrics($row);
+            $createdAtObj = is_string($row->created_at) ? Carbon::parse($row->created_at) : $row->created_at;
+            $updatedAtObj = is_string($row->updated_at) ? Carbon::parse($row->updated_at) : $row->updated_at;
             return [
                 'id' => 'TKT-' . str_pad((string) $row->ticket_ID, 4, '0', STR_PAD_LEFT),
                 'ticket_ID' => $row->ticket_ID,
@@ -1437,8 +1439,8 @@ class EmployeeAssignmentService
                 'priority' => $row->priority_name ?? 'Low',
                 'customer' => $row->client_name ?: 'Unknown Customer',
                 'equipment' => ($row->machine_name || $row->serial_number) ? ($row->machine_name . ($row->serial_number ? ' - ' . $row->serial_number : '')) : 'Unspecified Equipment',
-                'date' => optional($row->created_at)->format('Y-m-d') ?? now()->format('Y-m-d'),
-                'lastUpdate' => optional($row->updated_at)->format('M d, Y') ?? now()->format('M d, Y'),
+                'date' => $createdAtObj ? $createdAtObj->format('Y-m-d') : now()->format('Y-m-d'),
+                'lastUpdate' => $updatedAtObj ? $updatedAtObj->format('M d, Y') : ($createdAtObj ? $createdAtObj->format('M d, Y') : now()->format('M d, Y')),
                 'slaStatus' => $slaMetrics['status'],
                 'sla_status' => $slaMetrics['status'],
                 'resolution_due_at' => $slaMetrics['due_at'],

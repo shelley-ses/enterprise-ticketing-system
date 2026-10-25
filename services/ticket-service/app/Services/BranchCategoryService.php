@@ -58,7 +58,7 @@ class BranchCategoryService
 
     public function findBranch(string $branchId): ?object
     {
-        if ($branchId === 'system') {
+        if ($branchId === 'system' || $branchId === 'all' || $branchId === '0' || empty($branchId)) {
             return (object) [
                 'id' => 0,
                 'slug' => 'system',

@@ -31,6 +31,7 @@ Route::post('/tickets/draft', [TicketDraftController::class, 'saveDraft']);
 Route::get('/tickets/drafts', [TicketDraftController::class, 'listDrafts']);
 Route::get('/tickets/drafts/{id}', [TicketDraftController::class, 'getDraft']);
 Route::delete('/tickets/drafts/{id}', [TicketDraftController::class, 'deleteDraft']);
+Route::get('/branches', [BranchPriorityController::class, 'publicBranches']);
 
 // ─── Dashboards & Feed Endpoints ─────────────────────────────────────────────
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);

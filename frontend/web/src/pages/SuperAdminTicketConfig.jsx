@@ -1420,6 +1420,8 @@ export default function SuperAdminTicketConfig() {
 
   // TS092: Branch-Specific Priority Levels & SLA Overrides state
   const { selectedBranch } = useBranch();
+  const activeBranchKey = selectedBranch?.id || selectedBranch?.slug || 'system';
+  const activeBranchName = selectedBranch?.name || 'All Branches (Global Scope)';
   const [branchSubSection, setBranchSubSection] = useState(BRANCH_SUBTAB_CATEGORIES);
   // Server-backed branch priorities keyed by branch id (never persisted client-side)
   const [branchPriorityData, setBranchPriorityData] = useState({});
@@ -4048,11 +4050,11 @@ export default function SuperAdminTicketConfig() {
     tooltip: 'Changes to a branch SLA apply to tickets created after the change. Existing open tickets keep the response and resolution deadlines they were created with.',
   };
 
-  const branchSlaPolicy = branchPriorityData[selectedBranch.id]?.slaChangePolicy || BRANCH_SLA_POLICY_FALLBACK;
+  const branchSlaPolicy = branchPriorityData[activeBranchKey]?.slaChangePolicy || BRANCH_SLA_POLICY_FALLBACK;
 
   // Always read from the API so the UI is correct immediately after a reload.
   const loadBranchPriorities = useCallback(async () => {
-    const branchId = selectedBranch.id;
+    const branchId = activeBranchKey;
     try {
       const data = await getBranchPriorities(branchId);
       setBranchPriorityData((prev) => ({ ...prev, [branchId]: data }));
@@ -4061,7 +4063,7 @@ export default function SuperAdminTicketConfig() {
     } finally {
       setBranchPriorityLoading(false);
     }
-  }, [selectedBranch.id]);
+  }, [activeBranchKey]);
 
   useEffect(() => {
     setBranchPriorityLoading(true);
@@ -4076,18 +4078,18 @@ export default function SuperAdminTicketConfig() {
   });
 
   const currentBranchOverrides = useMemo(
-    () => branchPriorityData[selectedBranch.id]?.priorities || [],
-    [branchPriorityData, selectedBranch.id]
+    () => branchPriorityData[activeBranchKey]?.priorities || [],
+    [branchPriorityData, activeBranchKey]
   );
 
   const applyBranchPriorityResponse = (data) => {
     if (data?.priorities) {
       setBranchPriorityData((prev) => ({
         ...prev,
-        [selectedBranch.id]: {
+        [activeBranchKey]: {
           branch: data.branch,
           priorities: data.priorities,
-          slaChangePolicy: data.slaChangePolicy || prev[selectedBranch.id]?.slaChangePolicy,
+          slaChangePolicy: data.slaChangePolicy || prev[activeBranchKey]?.slaChangePolicy,
         },
       }));
     }
@@ -4120,14 +4122,14 @@ export default function SuperAdminTicketConfig() {
         resolution_time_limit: res,
       };
       const data = editing.isNew
-        ? await createBranchPriority(selectedBranch.id, { ...payload, base_priority_id: editing.basePriorityId })
-        : await updateBranchPriority(selectedBranch.id, editing.overrideId, payload);
+        ? await createBranchPriority(activeBranchKey, { ...payload, base_priority_id: editing.basePriorityId })
+        : await updateBranchPriority(activeBranchKey, editing.overrideId, payload);
 
       applyBranchPriorityResponse(data);
       setEditingBranchOverride(null);
       showSuccess(
         editing.isNew ? 'Override Created' : 'Override Updated',
-        `${editing.priorityName} Priority SLA override for ${selectedBranch.name} set to ${formatMinutes(resp)} response / ${formatMinutes(res)} resolution. ${branchSlaPolicy.tooltip}`
+        `${editing.priorityName} Priority SLA override for ${activeBranchName} set to ${formatMinutes(resp)} response / ${formatMinutes(res)} resolution. ${branchSlaPolicy.tooltip}`
       );
     } catch (err) {
       const body = err.response?.data;
@@ -4208,15 +4210,15 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       `Remove ${override.name} Override?`,
-      `Are you sure you want to remove the custom SLA override for ${override.name} Priority at ${selectedBranch.name}? It will revert to the system-wide default SLA for new tickets.`,
+      `Are you sure you want to remove the custom SLA override for ${override.name} Priority at ${activeBranchName}? It will revert to the system-wide default SLA for new tickets.`,
       async () => {
         closeNotif();
         try {
-          const data = await deleteBranchPriority(selectedBranch.id, override.id);
+          const data = await deleteBranchPriority(activeBranchKey, override.id);
           applyBranchPriorityResponse(data);
           showSuccess(
             'Override Removed',
-            `${override.name} Priority has been reverted to the system-wide default for ${selectedBranch.name}.`
+            `${override.name} Priority has been reverted to the system-wide default for ${activeBranchName}.`
           );
         } catch (err) {
           const body = err.response?.data;
@@ -4244,7 +4246,7 @@ export default function SuperAdminTicketConfig() {
   // ==========================================
 
   const loadBranchCategoriesAndSla = useCallback(async () => {
-    const branchId = selectedBranch.id;
+    const branchId = activeBranchKey;
     try {
       const data = await getBranchCategoriesAndSla(branchId);
       setBranchCategoryData((prev) => ({ ...prev, [branchId]: data }));
@@ -4253,7 +4255,7 @@ export default function SuperAdminTicketConfig() {
     } finally {
       setBranchCategoryLoading(false);
     }
-  }, [selectedBranch.id]);
+  }, [activeBranchKey]);
 
   useEffect(() => {
     setBranchCategoryLoading(true);
@@ -4271,12 +4273,12 @@ export default function SuperAdminTicketConfig() {
 
   // Active branch categories (system defaults + branch-added categories) from backend
   const currentBranchCategories = useMemo(() => {
-    return branchCategoryData[selectedBranch.id]?.categories || [];
-  }, [branchCategoryData, selectedBranch.id]);
+    return branchCategoryData[activeBranchKey]?.categories || [];
+  }, [branchCategoryData, activeBranchKey]);
 
   // Computed Category x Priority SLA matrix for active branch from backend
   const currentBranchSlaMatrix = useMemo(() => {
-    const policies = branchCategoryData[selectedBranch.id]?.slaPolicies || [];
+    const policies = branchCategoryData[activeBranchKey]?.slaPolicies || [];
     const colorMap = {
       Critical: 'bg-red-100 text-red-700',
       High: 'bg-orange-100 text-orange-700',
@@ -4298,15 +4300,15 @@ export default function SuperAdminTicketConfig() {
       sysDefaultResponse: p.systemDefaultResponse,
       priorityColor: colorMap[p.priority] || 'bg-gray-100 text-gray-700',
     }));
-  }, [branchCategoryData, selectedBranch.id]);
+  }, [branchCategoryData, activeBranchKey]);
 
   const branchCatSlaPolicy = useMemo(() => {
-    return branchCategoryData[selectedBranch.id]?.slaChangePolicy || {
+    return branchCategoryData[activeBranchKey]?.slaChangePolicy || {
       mode: 'new_tickets_only',
       recalculatesExistingOpenTickets: false,
       tooltip: 'Changes to branch category SLA policies apply to tickets created after the update. Existing open tickets retain the deadlines calculated at creation.',
     };
-  }, [branchCategoryData, selectedBranch.id]);
+  }, [branchCategoryData, activeBranchKey]);
 
   // Open modal to add a new category for this branch
   const handleOpenAddCategoryModal = () => {
@@ -4345,13 +4347,13 @@ export default function SuperAdminTicketConfig() {
     setBranchCategorySaving(true);
     try {
       if (editingCategory.isNew) {
-        const res = await createBranchCategory(selectedBranch.id, {
+        const res = await createBranchCategory(activeBranchKey, {
           category_name: trimmed,
           description: editingCategory.description || null,
         });
-        showSuccess('Category Created', res.message || `Category "${trimmed}" created for ${selectedBranch.name}.`);
+        showSuccess('Category Created', res.message || `Category "${trimmed}" created for ${activeBranchName}.`);
       } else {
-        const res = await updateBranchCategory(selectedBranch.id, editingCategory.id, {
+        const res = await updateBranchCategory(activeBranchKey, editingCategory.id, {
           category_name: trimmed,
           description: editingCategory.description || null,
         });
@@ -4382,11 +4384,11 @@ export default function SuperAdminTicketConfig() {
 
     showConfirm(
       `Remove "${cat.name}" Category?`,
-      `Are you sure you want to remove the "${cat.name}" category from ${selectedBranch.name}? This action cannot be undone.`,
+      `Are you sure you want to remove the "${cat.name}" category from ${activeBranchName}? This action cannot be undone.`,
       async () => {
         closeNotif();
         try {
-          const res = await deleteBranchCategory(selectedBranch.id, cat.id);
+          const res = await deleteBranchCategory(activeBranchKey, cat.id);
           showSuccess('Category Removed', res.message || `Category "${cat.name}" removed.`);
           setBranchCategories((prev) => prev.filter((c) => c.id !== cat.id));
           await loadBranchCategoriesAndSla();
@@ -4429,7 +4431,7 @@ export default function SuperAdminTicketConfig() {
   const handleSaveSlaPolicyConfirmed = async (categoryName, priorityName, resolutionMinutes, isNew) => {
     setBranchCategorySaving(true);
     try {
-      const res = await saveBranchSlaPolicy(selectedBranch.id, {
+      const res = await saveBranchSlaPolicy(activeBranchKey, {
         category_name: categoryName,
         priority: priorityName,
         resolution_time_limit: resolutionMinutes,
@@ -4437,7 +4439,7 @@ export default function SuperAdminTicketConfig() {
       setEditingSlaPolicy(null);
       showSuccess(
         isNew ? 'SLA Policy Created' : 'SLA Policy Updated',
-        res.message || `Resolution SLA for ${categoryName} (${priorityName} Priority) set to ${formatMinutes(resolutionMinutes)} at ${selectedBranch.name}. ${branchCatSlaPolicy.tooltip}`
+        res.message || `Resolution SLA for ${categoryName} (${priorityName} Priority) set to ${formatMinutes(resolutionMinutes)} at ${activeBranchName}. ${branchCatSlaPolicy.tooltip}`
       );
       await loadBranchCategoriesAndSla();
     } catch (err) {
@@ -4496,11 +4498,11 @@ export default function SuperAdminTicketConfig() {
   const handleRemoveSlaPolicy = (item) => {
     showConfirm(
       `Revert SLA for ${item.categoryName} (${item.priorityName})?`,
-      `Are you sure you want to revert the resolution SLA for ${item.categoryName} (${item.priorityName} Priority) to the system-wide default (${formatMinutes(item.sysDefaultResolution)}) for ${selectedBranch.name}?`,
+      `Are you sure you want to revert the resolution SLA for ${item.categoryName} (${item.priorityName} Priority) to the system-wide default (${formatMinutes(item.sysDefaultResolution)}) for ${activeBranchName}?`,
       async () => {
         closeNotif();
         try {
-          const res = await deleteBranchSlaPolicy(selectedBranch.id, {
+          const res = await deleteBranchSlaPolicy(activeBranchKey, {
             category_name: item.categoryName,
             priority: item.priorityName,
           });
@@ -4527,13 +4529,13 @@ export default function SuperAdminTicketConfig() {
   const handleResetBranchCategories = () => {
     showConfirm(
       'Reset Branch Categories & SLAs?',
-      `Are you sure you want to reset all custom categories and SLA policies for ${selectedBranch.name} to the system defaults?`,
+      `Are you sure you want to reset all custom categories and SLA policies for ${activeBranchName} to the system defaults?`,
       async () => {
         closeNotif();
         setCategoryError(null);
         try {
-          const res = await resetBranchCategoriesToDefaults(selectedBranch.id);
-          showSuccess('Reset Complete', res.message || `Categories and SLA policies for ${selectedBranch.name} restored to system defaults.`);
+          const res = await resetBranchCategoriesToDefaults(activeBranchKey);
+          showSuccess('Reset Complete', res.message || `Categories and SLA policies for ${activeBranchName} restored to system defaults.`);
           await loadBranchCategoriesAndSla();
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Failed to reset branch configuration.';
@@ -9277,7 +9279,7 @@ export default function SuperAdminTicketConfig() {
                   1. Branch Ticket Categories
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  System defaults ({SYSTEM_DEFAULT_CATEGORIES.join(', ')}) apply everywhere. Define supplementary categories exclusive to {selectedBranch.name}.
+                  System defaults ({SYSTEM_DEFAULT_CATEGORIES.join(', ')}) apply everywhere. Define supplementary categories exclusive to {activeBranchName}.
                 </p>
               </div>
               <button
@@ -9319,11 +9321,11 @@ export default function SuperAdminTicketConfig() {
               <div className="flex flex-col items-center justify-center p-12 text-center bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
                 <RefreshCw size={24} className="animate-spin text-[#252578] mb-3" />
                 <p className="text-sm font-semibold text-gray-700">Loading branch categories from server...</p>
-                <p className="text-xs text-gray-400 mt-1">Fetching live category records for {selectedBranch.name}</p>
+                <p className="text-xs text-gray-400 mt-1">Fetching live category records for {activeBranchName}</p>
               </div>
             ) : currentBranchCategories.length === 0 ? (
               <div className="p-8 text-center bg-gray-50 rounded-xl border border-gray-200">
-                <p className="text-sm text-gray-500">No categories found for {selectedBranch.name}. Click "Add Category" above to create one.</p>
+                <p className="text-sm text-gray-500">No categories found for {activeBranchName}. Click "Add Category" above to create one.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -9374,7 +9376,7 @@ export default function SuperAdminTicketConfig() {
 
                     <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
                       <span className="text-[11px] text-gray-400">
-                        {cat.isSystemDefault ? 'Applies system-wide' : `Scoped to ${selectedBranch.name}`}
+                        {cat.isSystemDefault ? 'Applies system-wide' : `Scoped to ${activeBranchName}`}
                       </span>
 
                       <div className="flex items-center gap-1.5">
@@ -9420,7 +9422,7 @@ export default function SuperAdminTicketConfig() {
                   2. Category × Priority SLA Policies
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Resolution time limits per Category and Priority combination for {selectedBranch.name}. Combos with no override inherit the system-wide baseline.
+                  Resolution time limits per Category and Priority combination for {activeBranchName}. Combos with no override inherit the system-wide baseline.
                 </p>
               </div>
 
@@ -9596,7 +9598,7 @@ export default function SuperAdminTicketConfig() {
                 <div className="flex items-start justify-between border-b border-gray-100 pb-3">
                   <div>
                     <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                      {selectedBranch.name}
+                      {activeBranchName}
                     </span>
                     <h3 className="text-lg font-bold text-gray-900 mt-1">
                       {editingCategory.isNew ? 'Add Branch Ticket Category' : 'Edit Branch Ticket Category'}
@@ -9627,7 +9629,7 @@ export default function SuperAdminTicketConfig() {
                     autoFocus
                   />
                   <p className="text-[11px] text-gray-400 mt-0.5">
-                    This category will only apply to tickets assigned to {selectedBranch.name}.
+                    This category will only apply to tickets assigned to {activeBranchName}.
                   </p>
                 </div>
 
@@ -9686,7 +9688,7 @@ export default function SuperAdminTicketConfig() {
                       </span>
                       <span className="text-xs font-bold text-gray-400">•</span>
                       <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                        {selectedBranch.name}
+                        {activeBranchName}
                       </span>
                     </div>
                     <h3 className="text-lg font-bold text-gray-900 mt-1">
@@ -9925,7 +9927,7 @@ export default function SuperAdminTicketConfig() {
                   {/* Actions Footer */}
                   <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
                     <span className="text-[11px] text-gray-400">
-                      Scope: {selectedBranch.name} ({selectedBranch.code})
+                      Scope: {activeBranchName} ({selectedBranch?.code || 'GLOBAL'})
                     </span>
 
                     <div className="flex items-center gap-2">
@@ -9979,7 +9981,7 @@ export default function SuperAdminTicketConfig() {
                       </span>
                       <span className="text-xs font-bold text-gray-400">•</span>
                       <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                        {selectedBranch.name}
+                        {activeBranchName}
                       </span>
                     </div>
                     <h3 className="text-lg font-bold text-gray-900 mt-1">
@@ -10081,7 +10083,7 @@ export default function SuperAdminTicketConfig() {
                     <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
                     <div className="leading-relaxed">
                       <span className="font-bold">Due-Date Calculation Impact:</span>{' '}
-                      {branchSlaPolicy.tooltip} Applies to <strong>{selectedBranch.name}</strong>.
+                      {branchSlaPolicy.tooltip} Applies to <strong>{activeBranchName}</strong>.
                     </div>
                   </div>
                 </div>

@@ -44,6 +44,10 @@ class AuthenticateSubsystem
                     if ($result === true && ($request->user() instanceof Employee || Auth::user() instanceof Employee)) {
                         return $next($request);
                     }
+
+                    if ($response instanceof \Symfony\Component\HttpFoundation\Response) {
+                        return $response;
+                    }
                 } catch (\Throwable $e) {
                     // Ignore exception and fall through to local auth:api guard
                 }
