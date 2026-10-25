@@ -1,11 +1,11 @@
 # 0009. Central Auth Branch Payload Integration and Nullability Governance
 
 **Date**: 2026-10-25
-**Status**: Proposed
+**Status**: Implemented
 
 ## Summary
 
-This specification integrates branch data from the central authentication service into the enterprise ticketing system. It allows administrators and super administrators to have a null branch for system wide scope while requiring assigned branches for new operational staff like service, IT, and customer service. Existing operational users in the database with a null branch remain functional to preserve historical records and backward compatibility. The system fetches live branch options from the authentication service and exposes them safely across the backend and frontend interfaces.
+This specification integrates branch data from the central authentication service into the enterprise ticketing system. It allows administrators and super administrators to have a null branch for system wide scope while requiring assigned branches for new operational staff like service, IT, and customer service. Existing operational users in the database with a null branch remain functional to preserve historical records and backward compatibility. The system fetches live branch options from the authentication service, deactivates obsolete placeholder mock records, and exposes authentic database branches matching the authentication module across the backend and frontend interfaces.
 
 ## Context
 
@@ -13,7 +13,7 @@ The enterprise ticketing system functions alongside a centralized authentication
 
 A clear business rule governs user branch assignments. Global administrators with emails such as admin@example.com and superadmin@example.com oversee the whole hospital group, so their branch assignment may be null. In contrast, operational staff such as service engineers, IT technicians, and customer service representatives belong to specific facilities. While legacy accounts already existing in the database may carry a null branch and must not break, any newly created or provisioned operational account must have a valid branch assignment.
 
-Furthermore, the Super Admin configuration interface at /ticketing/superadmin/config/branch-config must safely render both system wide defaults when no branch is selected and branch specific configurations when a location is chosen.
+Furthermore, the Super Admin configuration interface at /ticketing/superadmin/config/branch-config must safely render both system wide defaults when no branch is selected and branch specific configurations when a location is chosen. The live branches displayed in the branch configuration selector must originate from the central authentication service database and match the branches visible at /admin/branches (Main Office, North Luzon Hub, Cebu City Office), pruning or deactivating legacy mock branches.
 
 ## Requirements
 

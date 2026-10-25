@@ -60,10 +60,10 @@ class BranchPriorityController extends Controller
     private function syncBranchesFromAuthService(): void
     {
         try {
-            $authUrl = env('CUSTOMER_SERVICE_URL', env('AUTH_SERVICE_URL', 'http://customer-service:8000'));
+            $authUrl = env('AUTH_SERVICE_URL') ?: env('CUSTOMER_SERVICE_URL') ?: 'http://auth-service:8000';
             $secret = env('INTERNAL_SERVICE_SECRET', env('INTERNAL_TOKEN', ''));
 
-            $client = \Illuminate\Support\Facades\Http::timeout(2);
+            $client = \Illuminate\Support\Facades\Http::timeout(3);
             if (!empty($secret)) {
                 $client = $client->withHeaders(['X-Internal-Secret' => $secret]);
             }
@@ -71,8 +71,10 @@ class BranchPriorityController extends Controller
             if ($res->successful()) {
                 $branches = $res->json('data') ?? $res->json('branches') ?? $res->json();
                 if (is_array($branches) && !empty($branches)) {
+                    $syncedNames = [];
                     foreach ($branches as $b) {
                         if (empty($b['name'])) continue;
+                        $syncedNames[] = $b['name'];
                         $slug = \Illuminate\Support\Str::slug($b['name']);
                         if (empty($slug)) $slug = 'branch-' . ($b['id'] ?? uniqid());
 
@@ -101,6 +103,12 @@ class BranchPriorityController extends Controller
                             $data['created_at'] = now();
                             \Illuminate\Support\Facades\DB::table('branches')->insert($data);
                         }
+                    }
+
+                    if (!empty($syncedNames)) {
+                        \Illuminate\Support\Facades\DB::table('branches')
+                            ->whereNotIn('name', $syncedNames)
+                            ->update(['is_active' => false]);
                     }
                 }
             }

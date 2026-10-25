@@ -1422,6 +1422,7 @@ export default function SuperAdminTicketConfig() {
   const { selectedBranch } = useBranch();
   const activeBranchKey = selectedBranch?.id || selectedBranch?.slug || 'system';
   const activeBranchName = selectedBranch?.name || 'All Branches (Global Scope)';
+  const isGlobalBranchScope = !selectedBranch || activeBranchKey === 'all' || activeBranchKey === 'system' || selectedBranch.id === null;
   const [branchSubSection, setBranchSubSection] = useState(BRANCH_SUBTAB_CATEGORIES);
   // Server-backed branch priorities keyed by branch id (never persisted client-side)
   const [branchPriorityData, setBranchPriorityData] = useState({});
@@ -4096,6 +4097,13 @@ export default function SuperAdminTicketConfig() {
   };
 
   const handleOpenBranchOverrideModal = (override) => {
+    if (isGlobalBranchScope) {
+      showError(
+        'Branch Selection Required',
+        'Priority SLA overrides apply to individual physical branches. Please select an operational branch (Main Office, North Luzon Hub, Cebu City Office) from the selector above to set an override.'
+      );
+      return;
+    }
     setBranchOverrideError(null);
     setBranchModalErrors({});
     setEditingBranchOverride({
@@ -4312,6 +4320,13 @@ export default function SuperAdminTicketConfig() {
 
   // Open modal to add a new category for this branch
   const handleOpenAddCategoryModal = () => {
+    if (isGlobalBranchScope) {
+      showError(
+        'Branch Selection Required',
+        'Branch custom categories are scoped to an individual physical branch. Please select an operational branch (Main Office, North Luzon Hub, Cebu City Office) from the selector above to add a custom category.'
+      );
+      return;
+    }
     setCategoryError(null);
     setCategoryModalError('');
     setEditingCategory({
@@ -4415,6 +4430,13 @@ export default function SuperAdminTicketConfig() {
 
   // Open modal to set or edit an SLA policy
   const handleOpenSlaPolicyModal = (item) => {
+    if (isGlobalBranchScope) {
+      showError(
+        'Branch Selection Required',
+        'SLA policy overrides are branch specific. Please select an operational branch (Main Office, North Luzon Hub, Cebu City Office) from the selector above before setting an override.'
+      );
+      return;
+    }
     setSlaPolicyModalError('');
     setEditingSlaPolicy({
       isNew: item.isInherited,
@@ -4527,6 +4549,13 @@ export default function SuperAdminTicketConfig() {
 
   // Reset categories and SLA policies to seeded defaults
   const handleResetBranchCategories = () => {
+    if (isGlobalBranchScope) {
+      showError(
+        'Branch Selection Required',
+        'Cannot reset global system defaults. Choose an operational branch from the selector above to reset its custom categories and SLA overrides.'
+      );
+      return;
+    }
     showConfirm(
       'Reset Branch Categories & SLAs?',
       `Are you sure you want to reset all custom categories and SLA policies for ${activeBranchName} to the system defaults?`,
@@ -9237,6 +9266,18 @@ export default function SuperAdminTicketConfig() {
 
             {/* Prominent Branch Selector Banner - Rendered ONCE */}
             <BranchSelector variant="banner" />
+
+            {isGlobalBranchScope && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4 text-xs text-blue-900 flex items-start gap-3 shadow-xs">
+                <Info size={18} className="text-blue-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <p className="font-bold text-blue-950">Global Scope (Viewing System Defaults)</p>
+                  <p className="mt-0.5 text-blue-800">
+                    You are currently viewing baseline system wide categories and SLA targets. To configure branch specific SLA overrides or supplementary categories for a physical facility, choose an operational branch (Main Office, North Luzon Hub, Cebu City Office) in the branch selector above.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Secondary Pill Toggle: Categories | Priorities & SLA */}
             <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit shadow-xs">
