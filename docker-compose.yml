@@ -529,7 +529,10 @@ services:
     volumes:
       - ./frontend/web:/app
       - /app/node_modules
+    ports:
+      - "5005:5005"
     networks:
+      - default
       - shared-capstone-network
     environment:
       VITE_BASE_PATH: "/ticketing/"
