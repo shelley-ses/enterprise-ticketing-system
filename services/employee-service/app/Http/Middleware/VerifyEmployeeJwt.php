@@ -156,7 +156,8 @@ class VerifyEmployeeJwt
         $normDept = strtolower($payloadDept);
         $normRole = strtolower($payloadRole);
         if (str_contains($normDept, 'customer service') || str_contains($normDept, 'customer support') || $normDept === 'cs' ||
-            str_contains($normRole, 'customer service') || str_contains($normRole, 'customer-service') || $normRole === 'cs') {
+            str_contains($normRole, 'customer service') || str_contains($normRole, 'customer-service') ||
+            str_contains($normRole, 'head of cs') || str_contains($normRole, 'head of customer service') || $normRole === 'cs') {
             $mappedRole = 'customer service';
         } elseif (str_contains($normDept, 'service') || str_contains($normDept, 'engineer') ||
                   str_contains($normRole, 'service') || str_contains($normRole, 'engineer') || $normRole === 'employee') {

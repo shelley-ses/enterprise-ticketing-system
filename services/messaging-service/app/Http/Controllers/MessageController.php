@@ -580,7 +580,7 @@ class MessageController extends Controller
                             // Fallback to CS if no employee assigned so customer message is never lost
                             $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                                 ->table('employees')
-                                ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                                ->whereRaw('LOWER(role) IN (?, ?, ?, ?, ?)', ['customer service', 'cs', 'customer support', 'head of cs', 'head of customer service'])
                                 ->pluck('emp_id')
                                 ->map(fn($id) => (int)$id)
                                 ->all();
@@ -597,7 +597,7 @@ class MessageController extends Controller
                     } elseif ($token === 'role_cs') {
                         $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                             ->table('employees')
-                            ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                            ->whereRaw('LOWER(role) IN (?, ?, ?, ?, ?)', ['customer service', 'cs', 'customer support', 'head of cs', 'head of customer service'])
                             ->pluck('emp_id')
                             ->map(fn($id) => (int)$id)
                             ->all();
@@ -661,7 +661,7 @@ class MessageController extends Controller
                 if ($senderType === 'customer' && empty($recipients)) {
                     $csIds = \Illuminate\Support\Facades\DB::connection('mysql')
                         ->table('employees')
-                        ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                        ->whereRaw('LOWER(role) IN (?, ?, ?, ?, ?)', ['customer service', 'cs', 'customer support', 'head of cs', 'head of customer service'])
                         ->pluck('emp_id')
                         ->map(fn($id) => (int)$id)
                         ->all();

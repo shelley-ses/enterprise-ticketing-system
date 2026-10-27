@@ -26,7 +26,7 @@ class RoleHelper
         }
 
         $normalized = strtolower(str_replace(' ', '', (string) $role));
-        return in_array($normalized, ['customerservice', 'cs', 'admin', 'superadmin'], true);
+        return in_array($normalized, ['customerservice', 'cs', 'headofcs', 'headofcustomerservice', 'admin', 'superadmin'], true);
     }
 
     /**

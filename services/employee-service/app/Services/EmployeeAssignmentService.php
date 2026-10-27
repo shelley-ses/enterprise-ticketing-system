@@ -493,7 +493,7 @@ class EmployeeAssignmentService
         $currentState = $this->stateMachine->resolveState($ticket);
 
         $role = strtolower(trim((string) (is_object($user) ? ($user->role ?? '') : ($user['role'] ?? ''))));
-        $isCS = in_array($role, ['customer service', 'customer support', 'cs', 'admin', 'superadmin', 'super admin']);
+        $isCS = in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'admin', 'superadmin', 'super admin']);
 
         // Branch 1: Employee accept logic (when engineer self-accepts)
         if (!$isCS || !$validated) {

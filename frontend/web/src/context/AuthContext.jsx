@@ -81,7 +81,14 @@ const checkIsCS = (user) => {
   const dept = resolveUserDepartment(user).toLowerCase();
   const role = resolveUserRole(user).toLowerCase();
   if (dept.includes('customer service') || dept.includes('customer support') || dept === 'cs') return true;
-  return role.includes('customer service') || role.includes('customer-service') || role === 'cs';
+  return (
+    role.includes('customer service') ||
+    role.includes('customer-service') ||
+    role.includes('head of cs') ||
+    role.includes('head of customer service') ||
+    role === 'cs' ||
+    role === 'head cs'
+  );
 };
 
 const checkIsSuperAdmin = (user) => {
@@ -625,7 +632,7 @@ export function AuthProvider({ children }) {
 
   // Heartbeat loop for employees
   useEffect(() => {
-    if (!isAuthenticated || !user || user.role === 'customer' || user.role === 'customer service') {
+    if (!isAuthenticated || !user || user.role === 'customer' || user.role === 'customer service' || user.role === 'head of cs' || user.role === 'head of customer service') {
       return undefined;
     }
 

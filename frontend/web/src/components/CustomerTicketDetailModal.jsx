@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   PauseCircle,
+  MessageCircle,
   Bell,
 } from 'lucide-react';
 import FilePreviewModal from './FilePreviewModal';
@@ -235,7 +236,10 @@ export default function CustomerTicketDetailModal({
         dept === 'cs' ||
         role.includes('customer service') ||
         role.includes('customer-service') ||
-        role === 'cs'
+        role.includes('head of cs') ||
+        role.includes('head of customer service') ||
+        role === 'cs' ||
+        role === 'head cs'
       );
     } catch {
       return false;
@@ -950,6 +954,29 @@ export default function CustomerTicketDetailModal({
                   Update Ticket
                 </Button>
               )
+            )}
+
+            {/* Direct Link to Unified Message Thread (TS062) */}
+            {effectiveTicket && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  onClose();
+                  const tId = effectiveTicket.ticket_ID || effectiveTicket.id;
+                  const path = window.location.pathname.startsWith('/cs')
+                    ? '/cs/messages'
+                    : window.location.pathname.startsWith('/employee')
+                      ? '/employee/messages'
+                      : '/messages';
+                  navigate(path, { state: { selectedTicketId: tId } });
+                }}
+                className="gap-1.5"
+                title="Open unified message thread for this ticket"
+              >
+                <MessageCircle size={14} />
+                <span>Messages</span>
+              </Button>
             )}
 
             {/* Active Reopen Button (within allowed window) */}

@@ -13,6 +13,7 @@ import FilePreviewModal from '@/components/FilePreviewModal';
 import ReassignmentDisapprovalBanner from '@/components/employee/ReassignmentDisapprovalBanner';
 import { getTicketDetails } from '@/services/ticketService';
 import { getWindowConfiguration, getCachedWindowConfiguration } from '@/services/configurationService';
+import { useAuth } from '@/context/AuthContext';
 import { Badge, getStatusBadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,6 +25,7 @@ export default function EmployeeHistoryDetail() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const { ticketId } = useParams();
+  const { user } = useAuth();
 
   const [ticket, setTicket] = useState(state?.ticket || null);
   const [loading, setLoading] = useState(!state?.ticket);

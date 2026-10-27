@@ -369,7 +369,7 @@ export default function Header({ sidebarHovered }) {
         </div>
       </header>
 
-      {activeTicket && activeTicket.reassignmentRequested && (user?.role === 'cs' || (() => { try { return JSON.parse(localStorage.getItem('user')||'{}')?.role === 'cs'; } catch { return false; } })()) ? (
+      {activeTicket && activeTicket.reassignmentRequested && (['cs', 'customer service', 'head of cs', 'head of customer service'].includes(user?.role?.toLowerCase()) || (() => { try { const r = JSON.parse(localStorage.getItem('user')||'{}')?.role?.toLowerCase(); return ['cs', 'customer service', 'head of cs', 'head of customer service'].includes(r); } catch { return false; } })()) ? (
         <TicketSummary
           ticket={activeTicket}
           employees={activeEmployees}

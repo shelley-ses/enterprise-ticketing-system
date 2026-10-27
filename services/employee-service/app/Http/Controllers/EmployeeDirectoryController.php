@@ -318,7 +318,7 @@ class EmployeeDirectoryController extends Controller
         $role = strtolower(trim((string) ($emp->role ?? '')));
 
         // Customer service or customer or superadmin cannot be regular assignees
-        if (in_array($role, ['customer service', 'customer support', 'cs', 'customer', 'superadmin', 'super admin'], true)) {
+        if (in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'customer', 'superadmin', 'super admin'], true)) {
             return [
                 'eligible' => false,
                 'reason' => 'Customer service, customer, and administrative users cannot be assigned to tickets.',
@@ -425,10 +425,7 @@ class EmployeeDirectoryController extends Controller
 
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'position_level', 'technical_role', 'is_active')
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs', 'customer', 'superadmin', 'super admin']);
 
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
             $query->addSelect('branch');
@@ -493,10 +490,7 @@ class EmployeeDirectoryController extends Controller
 
         $query = DB::table('employees')
             ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'position_level', 'technical_role', 'is_active')
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer service'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs', 'customer', 'superadmin', 'super admin']);
 
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
             $query->addSelect('branch');

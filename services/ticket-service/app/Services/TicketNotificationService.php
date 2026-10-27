@@ -229,7 +229,7 @@ class TicketNotificationService
             // Static Role: Customer Service
             elseif ($token === 'role_cs') {
                 $csIds = DB::table('employees')
-                    ->whereRaw('LOWER(role) IN (?, ?, ?)', ['customer service', 'cs', 'customer support'])
+                    ->whereRaw('LOWER(role) IN (?, ?, ?, ?, ?)', ['customer service', 'cs', 'customer support', 'head of cs', 'head of customer service'])
                     ->pluck('emp_id')
                     ->all();
 
@@ -387,7 +387,7 @@ class TicketNotificationService
      */
     public function notifyCS(string $title, string $message, ?int $ticketId = null, ?array $data = null, ?int $excludeUserId = null, ?string $alertKey = null): void
     {
-        $csUsers = DB::table('employees')->where('role', 'customer service')->pluck('emp_id');
+        $csUsers = DB::table('employees')->whereIn('role', ['customer service', 'head of cs', 'head of customer service', 'cs'])->pluck('emp_id');
         foreach ($csUsers as $csEmpId) {
             if ($excludeUserId !== null && (int) $csEmpId === $excludeUserId) {
                 continue;

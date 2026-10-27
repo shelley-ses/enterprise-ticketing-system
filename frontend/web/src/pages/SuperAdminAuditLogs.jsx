@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Search, ShieldAlert, Layers, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Search, ShieldAlert, Layers, AlertTriangle, ShieldCheck, Terminal, Database, KeyRound } from 'lucide-react';
 import { getSuperAdminAuditLogs } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { PageHeader } from '@/components/ui/page-header';
@@ -9,6 +9,7 @@ import { DataTableSkeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
+import SystemAlertModal from '@/components/security/SystemAlertModal';
 
 export default function SuperAdminAuditLogs() {
   const location = useLocation();
@@ -19,6 +20,7 @@ export default function SuperAdminAuditLogs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [selectedSystemAlert, setSelectedSystemAlert] = useState(null);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -246,6 +248,10 @@ export default function SuperAdminAuditLogs() {
                   filtered.map((log) => {
                     const isSecurity = isSecurityLog(log);
                     const isBurst = Boolean(log.burst_count && log.burst_count > 1);
+                    const isSystemIssue = !isSecurity && Boolean(
+                      log.module === 'System' ||
+                      /sql error|database error|failed login|unusual login|application error|unhandled exception|system error/i.test((log.action || '') + ' ' + (log.details || ''))
+                    );
 
                     return (
                       <TableRow
@@ -253,18 +259,39 @@ export default function SuperAdminAuditLogs() {
                         onClick={() => {
                           if (isSecurity) {
                             handleOpenIncident(log);
+                          } else if (isSystemIssue) {
+                            setSelectedSystemAlert({
+                              id: log.target || log.id,
+                              title: log.action,
+                              message: log.details,
+                              created_at: log.timestamp,
+                              data: {
+                                issue_type: /sql|database/i.test((log.action || '') + ' ' + (log.details || ''))
+                                  ? 'sql_error'
+                                  : /login/i.test((log.action || '') + ' ' + (log.details || ''))
+                                  ? 'failed_login'
+                                  : 'application_error',
+                                severity: /sql|database/i.test((log.action || '') + ' ' + (log.details || '')) ? 'Critical' : 'High',
+                                affected_user: log.user,
+                                timestamp: log.timestamp,
+                                endpoint: log.target,
+                                stack_trace: log.details,
+                              },
+                            });
                           }
                         }}
                         className={`transition-colors ${
                           isSecurity
                             ? 'bg-destructive/5 hover:bg-destructive/10 cursor-pointer'
+                            : isSystemIssue
+                            ? 'bg-amber-50/40 hover:bg-amber-50/80 cursor-pointer'
                             : ''
                         }`}
                       >
                         <TableCell className="text-slate-muted whitespace-nowrap text-xs font-mono py-2.5 px-3">{log.timestamp}</TableCell>
                         <TableCell className="font-semibold text-slate-dark whitespace-nowrap text-xs py-2.5 px-3">{log.user}</TableCell>
                         <TableCell className="whitespace-nowrap py-2.5 px-3">
-                          <Badge size="sm" variant={log.role === 'Super Admin' ? 'secondary' : isSecurity ? 'destructive' : 'neutral'}>
+                          <Badge size="sm" variant={log.role === 'Super Admin' ? 'secondary' : isSecurity ? 'destructive' : isSystemIssue ? 'warning' : 'neutral'}>
                             {log.role}
                           </Badge>
                         </TableCell>
@@ -287,6 +314,11 @@ export default function SuperAdminAuditLogs() {
                                 </span>
                               )}
                             </div>
+                          ) : isSystemIssue ? (
+                            <span className="inline-flex items-center gap-1.5 font-bold text-amber-900">
+                              <Terminal size={13} className="text-amber-700 shrink-0" />
+                              {log.action}
+                            </span>
                           ) : (
                             log.action
                           )}
@@ -296,6 +328,10 @@ export default function SuperAdminAuditLogs() {
                             <Badge variant="destructive" size="sm" className="text-[10px] uppercase font-bold">
                               {log.module}
                             </Badge>
+                          ) : isSystemIssue ? (
+                            <Badge variant="warning" size="sm" className="text-[10px] uppercase font-bold bg-amber-100 text-amber-800 border-amber-300">
+                              System
+                            </Badge>
                           ) : (
                             <span className="text-slate-muted text-xs">{log.module}</span>
                           )}
@@ -303,7 +339,7 @@ export default function SuperAdminAuditLogs() {
                         <TableCell className="text-slate-dark whitespace-nowrap font-mono text-xs py-2.5 px-3">{log.target}</TableCell>
                         <TableCell className="text-slate-muted max-w-xs text-xs py-2.5 px-3">
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`truncate text-xs ${isSecurity ? 'text-destructive font-medium' : ''}`}>
+                            <span className={`truncate text-xs ${isSecurity ? 'text-destructive font-medium' : isSystemIssue ? 'text-amber-950 font-medium' : ''}`}>
                               {log.details}
                             </span>
                             {isSecurity && (
@@ -316,6 +352,14 @@ export default function SuperAdminAuditLogs() {
                                 className="shrink-0 text-xs font-bold text-destructive hover:underline ml-2 cursor-pointer"
                               >
                                 Inspect Incident
+                              </button>
+                            )}
+                            {isSystemIssue && (
+                              <button
+                                type="button"
+                                className="shrink-0 text-xs font-bold text-amber-800 hover:underline ml-2 cursor-pointer"
+                              >
+                                View Context
                               </button>
                             )}
                           </div>
@@ -334,6 +378,15 @@ export default function SuperAdminAuditLogs() {
         <SecurityIncidentModal
           incident={selectedIncident}
           onClose={() => setSelectedIncident(null)}
+        />
+      )}
+
+      {selectedSystemAlert && (
+        <SystemAlertModal
+          isOpen={Boolean(selectedSystemAlert)}
+          onClose={() => setSelectedSystemAlert(null)}
+          alert={selectedSystemAlert}
+          onNavigateToLogs={() => setSelectedSystemAlert(null)}
         />
       )}
     </div>

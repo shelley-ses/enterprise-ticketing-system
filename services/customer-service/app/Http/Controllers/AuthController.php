@@ -154,12 +154,12 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if (!$user instanceof Employee || $user->role !== 'customer service') {
+        if (!$user instanceof Employee || !in_array($user->role, ['customer service', 'head of cs', 'head of customer service', 'cs'])) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
         // Cleanup stale active DB statuses before mapping
-        $activeDbEmployees = Employee::where('is_active', true)->where('role', '!=', 'customer service')->get();
+        $activeDbEmployees = Employee::where('is_active', true)->whereNotIn('role', ['customer service', 'head of cs', 'head of customer service', 'cs'])->get();
         $staleEmpIds = [];
         
         if ($activeDbEmployees->isNotEmpty()) {
