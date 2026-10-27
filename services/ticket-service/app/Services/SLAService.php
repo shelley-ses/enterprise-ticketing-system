@@ -1282,31 +1282,81 @@ class SLAService
         }
         $catLower = strtolower($categoryName . ' ' . ($ticket->title ?? '') . ' ' . ($ticket->description ?? ''));
 
-        $isIT = (bool) preg_match('/\b(it|information technology|software|network|system|server|database|computer|login|password|wifi|bug|api)\b/i', $catLower);
-        $isService = (bool) preg_match('/\b(service|biomedical|machine|hardware|device|calibration|repair|equipment|imaging|clinical|maintenance)\b/i', $catLower);
-
-        $targetDeptKeywords = ['service'];
-        if ($isIT) {
-            $targetDeptKeywords = ['it', 'network', 'support'];
-        } elseif ($isService) {
-            $targetDeptKeywords = ['service', 'biomedical', 'radiology'];
+        // Check assigned employee's department if available
+        $assignedDept = '';
+        if (!empty($ticket->assigned_to)) {
+            $assignedDept = (string) (DB::table('employees')->where('emp_id', $ticket->assigned_to)->value('department') ?? '');
         }
 
-        // Search employees table for active manager matching department
-        $manager = DB::table('employees')
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->whereRaw('LOWER(COALESCE(position_level, "")) = ?', ['manager'])
-                  ->orWhereRaw('LOWER(COALESCE(position_level, "")) = ?', ['lead'])
-                  ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%']);
-            })
-            ->where(function ($q) use ($targetDeptKeywords) {
-                foreach ($targetDeptKeywords as $kw) {
-                    $q->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ["%{$kw}%"])
-                      ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ["%{$kw}%"]);
+        $fullContext = strtolower($catLower . ' ' . $assignedDept);
+
+        $isIT = (bool) preg_match('/\b(it|information technology|software|network|system|server|database|computer|login|password|wifi|bug|api)\b/i', $fullContext);
+        $isCS = (bool) preg_match('/\b(customer service|customer support|cs|inquiry|billing|account|client)\b/i', $fullContext);
+        $isService = (bool) preg_match('/\b(service|biomedical|machine|hardware|device|calibration|repair|equipment|imaging|clinical|maintenance|radiology|facilities)\b/i', $fullContext);
+
+        if ($isIT && !$isCS && !$isService) {
+            $deptType = 'it';
+        } elseif ($isCS && !$isService && !$isIT) {
+            $deptType = 'cs';
+        } else {
+            $deptType = $isIT ? 'it' : 'service';
+        }
+
+        if (!empty($assignedDept)) {
+            $adLower = strtolower($assignedDept);
+            if (str_contains($adLower, 'customer')) {
+                $deptType = 'cs';
+            } elseif (str_contains($adLower, 'it') || str_contains($adLower, 'network')) {
+                $deptType = 'it';
+            } elseif (str_contains($adLower, 'service') || str_contains($adLower, 'biomedical') || str_contains($adLower, 'radiology') || str_contains($adLower, 'facilities')) {
+                $deptType = 'service';
+            }
+        }
+
+        $hasPosLevel = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'position_level');
+
+        // Search employees table for manager (do NOT require is_active since is_active is an online presence flag)
+        $query = DB::table('employees')
+            ->where(function ($q) use ($hasPosLevel) {
+                if ($hasPosLevel) {
+                    $q->whereRaw('LOWER(COALESCE(position_level, "")) = ?', ['manager'])
+                      ->orWhereRaw('LOWER(COALESCE(position_level, "")) = ?', ['lead'])
+                      ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%']);
+                } else {
+                    $q->whereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%'])
+                      ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%lead%']);
                 }
-            })
-            ->first();
+            });
+
+        if ($deptType === 'it') {
+            $query->where(function ($q) {
+                $q->whereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%it%'])
+                  ->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%network%'])
+                  ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%it%']);
+            });
+        } elseif ($deptType === 'cs') {
+            $query->where(function ($q) {
+                $q->whereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%customer%'])
+                  ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%customer%']);
+            });
+        } else {
+            // Service: must NOT match customer service
+            $query->where(function ($q) {
+                $q->where(function ($sq) {
+                    $sq->whereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%service%'])
+                       ->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%biomedical%'])
+                       ->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%radiology%'])
+                       ->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ['%facilities%']);
+                })->whereRaw('LOWER(COALESCE(department, "")) NOT LIKE ?', ['%customer%'])
+                  ->whereRaw('LOWER(COALESCE(role, "")) NOT LIKE ?', ['%customer%']);
+            });
+        }
+
+        if ($hasPosLevel) {
+            $query->orderByRaw("CASE WHEN LOWER(COALESCE(position_level, '')) = 'manager' THEN 1 WHEN LOWER(COALESCE(position_level, '')) = 'lead' THEN 2 ELSE 3 END");
+        }
+
+        $manager = $query->first();
 
         if ($manager) {
             return $manager;
@@ -1318,13 +1368,19 @@ class SLAService
             $res = \Illuminate\Support\Facades\Http::timeout(2)->get("{$configUrl}/api/ticket-configurations/department_managers");
             if ($res->successful()) {
                 $val = $res->json('value') ?? $res->json();
-                $targetKey = $isIT ? 'it' : 'service';
-                if (!empty($val[$targetKey]['id'])) {
-                    return DB::table('employees')->where('emp_id', $val[$targetKey]['id'])->first();
+                if (!empty($val[$deptType]['id'])) {
+                    return DB::table('employees')->where('emp_id', $val[$deptType]['id'])->first();
                 }
             }
         } catch (\Throwable $e) {}
 
-        return null;
+        // Fallback to designated canonical manager IDs
+        $defaultMgrId = match ($deptType) {
+            'it' => 1038,       // Michael Scott (IT Support Manager)
+            'cs' => 1,          // Ava Santos (Customer Support Manager)
+            default => 1028,    // Carlos Mendoza (Service Manager)
+        };
+
+        return DB::table('employees')->where('emp_id', $defaultMgrId)->first();
     }
 }

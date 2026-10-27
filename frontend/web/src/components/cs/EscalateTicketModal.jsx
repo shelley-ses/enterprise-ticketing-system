@@ -88,12 +88,28 @@ export default function EscalateTicketModal({
     if (!employees || employees.length === 0) return [];
 
     if (categoryType === 'service') {
-      // Position Level escalation: Senior Engineers, L2, L3, Supervisors in Service department
+      // Position Level escalation: Senior Engineers, L2, L3, Supervisors, Managers in Service/Engineering/Biomedical
       return employees.filter((emp) => {
         const role = String(emp.role || emp.position || '').toLowerCase();
         const dept = String(emp.department || '').toLowerCase();
-        const isServiceDept = dept.includes('service') || dept.includes('engineering') || dept.includes('operations');
+        const level = String(emp.position_level || '').toLowerCase();
+        const techRole = String(emp.technical_role || '').toLowerCase();
+
+        const isServiceDept =
+          dept.includes('service') ||
+          dept.includes('engineering') ||
+          dept.includes('operations') ||
+          dept.includes('biomedical') ||
+          dept.includes('radiology') ||
+          dept.includes('facilities') ||
+          dept.includes('equipment');
+
         const isHigherTier =
+          level.includes('senior') ||
+          level.includes('lead') ||
+          level.includes('manager') ||
+          level.includes('l2') ||
+          level.includes('l3') ||
           role.includes('senior') ||
           role.includes('lead') ||
           role.includes('supervisor') ||
@@ -101,38 +117,65 @@ export default function EscalateTicketModal({
           role.includes('specialist') ||
           role.includes('l2') ||
           role.includes('l3') ||
-          role.includes('engineer');
+          techRole.includes('senior') ||
+          techRole.includes('lead') ||
+          techRole.includes('specialist') ||
+          techRole.includes('manager');
+
         return isServiceDept && isHigherTier;
       });
     }
 
     if (categoryType === 'it') {
-      // Technical Role / Team escalation: IT Admin, System Admin, Software Engineer, Security
+      // Technical Role / Team escalation: IT Admin, System Admin, Software Engineer, Security, Network
       return employees.filter((emp) => {
         const role = String(emp.role || emp.position || '').toLowerCase();
         const dept = String(emp.department || '').toLowerCase();
-        const isIT = dept.includes('it') || dept.includes('information tech');
+        const level = String(emp.position_level || '').toLowerCase();
+        const techRole = String(emp.technical_role || '').toLowerCase();
+
+        const isIT = dept.includes('it') || dept.includes('information tech') || dept.includes('network');
         const isTechRole =
+          level.includes('senior') ||
+          level.includes('lead') ||
+          level.includes('manager') ||
           role.includes('admin') ||
           role.includes('engineer') ||
           role.includes('security') ||
           role.includes('system') ||
-          role.includes('lead');
+          role.includes('lead') ||
+          role.includes('senior') ||
+          role.includes('manager') ||
+          techRole.includes('admin') ||
+          techRole.includes('system') ||
+          techRole.includes('network') ||
+          techRole.includes('specialist');
+
         return isIT || isTechRole;
       });
     }
 
-    // 'others': Configured routing target (Operations Leads, Supervisors, Managers)
+    // 'others': Configured routing target (Operations Leads, Supervisors, Managers, CS Seniors)
     return employees.filter((emp) => {
       const role = String(emp.role || emp.position || '').toLowerCase();
       const dept = String(emp.department || '').toLowerCase();
-      const isLead =
+      const level = String(emp.position_level || '').toLowerCase();
+      const techRole = String(emp.technical_role || '').toLowerCase();
+
+      const isLeadOrSenior =
+        level.includes('senior') ||
+        level.includes('lead') ||
+        level.includes('manager') ||
         role.includes('supervisor') ||
         role.includes('manager') ||
         role.includes('lead') ||
         role.includes('admin') ||
-        role.includes('head');
-      return isLead || dept.includes('operations') || dept.includes('customer service');
+        role.includes('head') ||
+        role.includes('senior') ||
+        techRole.includes('senior') ||
+        techRole.includes('lead');
+
+      return isLeadOrSenior || dept.includes('operations') || dept.includes('customer service') || dept.includes('facilities') || dept.includes('finance');
     });
   }, [employees, categoryType]);
 
@@ -298,7 +341,7 @@ export default function EscalateTicketModal({
                               {cand.name || `${cand.first_name || ''} ${cand.last_name || ''}`.trim() || cand.email}
                             </p>
                             <p className="text-[11px] text-slate-500 truncate">
-                              {cand.role || 'Specialist'} • {cand.department || 'Operations'}
+                              {cand.position_level ? `${cand.position_level} • ` : ''}{cand.technical_role || cand.role || 'Specialist'} • {cand.department || 'Operations'}
                             </p>
                           </div>
                         </div>

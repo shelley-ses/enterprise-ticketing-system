@@ -201,13 +201,13 @@ class EmployeeDirectoryController extends Controller
     {
         return \Illuminate\Support\Facades\Cache::remember('department_managers:cache', 60, function () {
             $managerEmps = DB::table('employees')
-                ->where('is_active', true)
                 ->where(function ($q) {
                     $q->whereRaw('LOWER(COALESCE(position_level, "")) = ?', ['manager'])
                       ->orWhereRaw('LOWER(COALESCE(position_level, "")) = ?', ['lead'])
                       ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%'])
                       ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%lead%']);
                 })
+                ->orderByRaw("CASE WHEN LOWER(COALESCE(position_level, '')) = 'manager' THEN 1 WHEN LOWER(COALESCE(position_level, '')) = 'lead' THEN 2 ELSE 3 END")
                 ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'phone_number', 'role', 'department', 'position_level', 'technical_role', 'branch')
                 ->get();
 
