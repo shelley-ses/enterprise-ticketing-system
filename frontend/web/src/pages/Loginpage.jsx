@@ -5,6 +5,7 @@ import loginImage from '@/assets/login.png';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, AlertTriangle, ArrowLeft, ShieldCheck, Loader2 } from 'lucide-react';
 import { getSystemStatus } from '@/services/configurationService';
 import ForgotPasswordModal from '@/components/ForgotPasswordModal';
+import ForceChangePasswordModal from '@/components/ForceChangePasswordModal';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 60;
@@ -392,7 +393,7 @@ const loginStyles = `
 
 export function Loginpage({ mode = 'customer' }) {
   const navigate = useNavigate();
-  const { login, clearError, isAuthenticated, user } = useAuth();
+  const { login, clearError, isAuthenticated, user, isFirstLogin } = useAuth();
   const isEmployeeLogin = mode === 'employee';
 
   const [showPassword, setShowPassword] = useState(false);
@@ -433,9 +434,9 @@ export function Loginpage({ mode = 'customer' }) {
     };
   }, []);
 
-  // Prevent browsing back to login if already authenticated
+  // Prevent browsing back to login if already authenticated and completed first login
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (isAuthenticated && user && !isFirstLogin) {
       const isCS = checkIsCS(user);
       const isEmployee = checkIsEmployee(user);
       const isSuperAdmin = checkIsSuperAdmin(user);
@@ -464,7 +465,7 @@ export function Loginpage({ mode = 'customer' }) {
         }
       }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, isFirstLogin, navigate]);
 
   // Lockout per-email handling
   useEffect(() => {
@@ -523,6 +524,11 @@ export function Loginpage({ mode = 'customer' }) {
       if (result.success) {
         setLoginError('');
         setAttempts(0);
+
+        // If first login, remain on login page so ForceChangePasswordModal renders immediately
+        if (result.isFirstLogin) {
+          return;
+        }
 
         const isCS = checkIsCS(result.user);
         const isEmployee = checkIsEmployee(result.user);
@@ -760,6 +766,9 @@ export function Loginpage({ mode = 'customer' }) {
           defaultEmail={email}
         />
       )}
+
+      {/* FORCE CHANGE PASSWORD / FIRST LOGIN OTP MODAL */}
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }

@@ -27,7 +27,7 @@ export default function CustomerLayout() {
         </div>
       </main>
 
-      {/* SKIPPED: {isFirstLogin && <ForceChangePasswordModal />} */}
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }

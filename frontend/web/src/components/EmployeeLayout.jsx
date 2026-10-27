@@ -23,7 +23,7 @@ export default function EmployeeLayout() {
         </div>
       </main>
 
-      {/* SKIPPED: {isFirstLogin && <ForceChangePasswordModal />} */}
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }
