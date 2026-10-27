@@ -278,7 +278,7 @@ class EmployeeDirectoryController extends Controller
                 'service' => $serviceMgr ?? [
                     'id' => 1028,
                     'name' => 'Carlos Mendoza',
-                    'email' => 'carlos.mendoza@sbsi.com.ph',
+                    'email' => 'carlos.mendoza@hospital.com',
                     'phone' => '+63 917 123 4567',
                     'department' => 'Service',
                     'position_level' => 'Manager',
@@ -288,7 +288,7 @@ class EmployeeDirectoryController extends Controller
                 'it' => $itMgr ?? [
                     'id' => 1038,
                     'name' => 'Michael Scott',
-                    'email' => 'michael.scott@sbsi.com.ph',
+                    'email' => 'michael.scott@hospital.com',
                     'phone' => '+63 917 234 5678',
                     'department' => 'IT Support',
                     'position_level' => 'Manager',
@@ -298,7 +298,7 @@ class EmployeeDirectoryController extends Controller
                 'cs' => $csMgr ?? [
                     'id' => 1,
                     'name' => 'Ava Santos',
-                    'email' => 'ava.santos@sbsi.com.ph',
+                    'email' => 'cs@gmail.com',
                     'phone' => '+63 917 345 6789',
                     'department' => 'Customer Support',
                     'position_level' => 'Manager',

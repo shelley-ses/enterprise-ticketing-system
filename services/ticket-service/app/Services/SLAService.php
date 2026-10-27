@@ -1282,10 +1282,43 @@ class SLAService
         }
         $catLower = strtolower($categoryName . ' ' . ($ticket->title ?? '') . ' ' . ($ticket->description ?? ''));
 
-        // Check assigned employee's department if available
+        // Check assigned employee's department or ticket department
         $assignedDept = '';
         if (!empty($ticket->assigned_to)) {
             $assignedDept = (string) (DB::table('employees')->where('emp_id', $ticket->assigned_to)->value('department') ?? '');
+        }
+
+        $hasPosLevel = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'position_level');
+
+        // 1. Direct department match from ticket or assigned employee
+        $targetDept = $assignedDept;
+        if (empty($targetDept) && !empty($ticket->department_id)) {
+            $targetDept = (string) (DB::table('departments')->where('id', $ticket->department_id)->value('name') ?? '');
+        }
+
+        if (!empty($targetDept)) {
+            $directManager = DB::table('employees')
+                ->whereRaw('LOWER(department) = ?', [strtolower(trim($targetDept))])
+                ->where(function ($q) use ($hasPosLevel) {
+                    if ($hasPosLevel) {
+                        $q->whereIn(DB::raw('LOWER(COALESCE(position_level, ""))'), ['manager', 'lead', 'senior'])
+                          ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%'])
+                          ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%lead%']);
+                    } else {
+                        $q->whereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%'])
+                          ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%lead%']);
+                    }
+                })
+                ->orderByRaw("CASE 
+                    WHEN LOWER(COALESCE(position_level, '')) = 'manager' THEN 1 
+                    WHEN LOWER(COALESCE(position_level, '')) = 'lead' THEN 2 
+                    WHEN LOWER(COALESCE(position_level, '')) = 'senior' THEN 3 
+                    ELSE 4 END")
+                ->first();
+
+            if ($directManager) {
+                return $directManager;
+            }
         }
 
         $fullContext = strtolower($catLower . ' ' . $assignedDept);
@@ -1312,8 +1345,6 @@ class SLAService
                 $deptType = 'service';
             }
         }
-
-        $hasPosLevel = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'position_level');
 
         // Search employees table for manager (do NOT require is_active since is_active is an online presence flag)
         $query = DB::table('employees')

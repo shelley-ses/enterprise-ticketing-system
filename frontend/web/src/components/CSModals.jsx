@@ -1650,19 +1650,19 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                               <div className="font-bold text-slate-800">Service Department</div>
                               <div className="text-slate-700 font-medium mt-0.5">Carlos Mendoza</div>
                               <div className="text-[10px] text-slate-500">Lead Service Engineer</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">carlos.mendoza@sbsi.com.ph</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">carlos.mendoza@hospital.com</div>
                             </div>
                             <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
                               <div className="font-bold text-slate-800">IT Department</div>
                               <div className="text-slate-700 font-medium mt-0.5">Michael Scott</div>
                               <div className="text-[10px] text-slate-500">IT Systems Specialist</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">michael.scott@sbsi.com.ph</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">michael.scott@hospital.com</div>
                             </div>
                             <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
                               <div className="font-bold text-slate-800">Customer Support</div>
                               <div className="text-slate-700 font-medium mt-0.5">Ava Santos</div>
                               <div className="text-[10px] text-slate-500">Customer Support Lead</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">ava.santos@sbsi.com.ph</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">cs@gmail.com</div>
                             </div>
                           </div>
                         </div>
@@ -2933,7 +2933,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.service?.email || 'carlos.mendoza@sbsi.com.ph'}</span>
+                          <span>{departmentManagers?.service?.email || 'carlos.mendoza@hospital.com'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />
@@ -2949,17 +2949,17 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         IT Department
                       </div>
                       <p className="text-xs font-bold text-slate-dark">
-                        {departmentManagers?.it?.name || 'Maria Santos'}
+                        {departmentManagers?.it?.name || 'Michael Scott'}
                       </p>
                       <p className="text-[11px] text-slate-muted">Manager</p>
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.it?.email || 'maria.santos@sbsi.com.ph'}</span>
+                          <span>{departmentManagers?.it?.email || 'michael.scott@hospital.com'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.it?.phone || '+63 918 234 5678'}</span>
+                          <span>{departmentManagers?.it?.phone || '+63 917 234 5678'}</span>
                         </div>
                       </div>
                     </div>
@@ -2971,17 +2971,17 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         Customer Service
                       </div>
                       <p className="text-xs font-bold text-slate-dark">
-                        {departmentManagers?.cs?.name || 'Rowena Dizon'}
+                        {departmentManagers?.cs?.name || 'Ava Santos'}
                       </p>
                       <p className="text-[11px] text-slate-muted">Manager</p>
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.cs?.email || 'rowena.dizon@sbsi.com.ph'}</span>
+                          <span>{departmentManagers?.cs?.email || 'cs@gmail.com'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.cs?.phone || '+63 919 345 6789'}</span>
+                          <span>{departmentManagers?.cs?.phone || '+63 917 345 6789'}</span>
                         </div>
                       </div>
                     </div>

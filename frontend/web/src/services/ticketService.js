@@ -597,11 +597,11 @@ const fetchAssignableEmployees = async ({ department } = {}) => {
     params: department ? { department } : {},
   });
   const rawData = response.data?.employees ?? [];
-  // Filter to allowed departments and exclude superadmin and system administrator
-  const allowedDepts = ['Customer Service', 'IT', 'Service'];
+  // Filter to operational departments and exclude superadmin and system administrators
+  const excludedDepts = ['super admin', 'superadmin', 'admin'];
   const filtered = rawData.filter(emp => {
-    const dept = emp.department?.trim();
-    if (!allowedDepts.includes(dept)) return false;
+    const dept = (emp.department || '').trim().toLowerCase();
+    if (excludedDepts.includes(dept)) return false;
     const nameLower = (emp.name || '').toLowerCase();
     const emailLower = (emp.email || '').toLowerCase();
     const roleLower = (emp.role || '').toLowerCase();

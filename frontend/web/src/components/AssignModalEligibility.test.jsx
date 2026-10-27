@@ -47,18 +47,18 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
         department: 'Service',
       },
       it: {
-        id: 1005,
-        name: 'Maria Santos',
-        email: 'maria.santos@sbsi.com.ph',
-        phone: '+63 918 234 5678',
-        department: 'IT',
+        id: 1038,
+        name: 'Michael Scott',
+        email: 'michael.scott@hospital.com',
+        phone: '+63 917 234 5678',
+        department: 'IT Support',
       },
       cs: {
-        id: 1002,
-        name: 'Rowena Dizon',
-        email: 'rowena.dizon@sbsi.com.ph',
-        phone: '+63 919 345 6789',
-        department: 'Customer Service',
+        id: 1,
+        name: 'Ava Santos',
+        email: 'cs@gmail.com',
+        phone: '+63 917 345 6789',
+        department: 'Customer Support',
       },
     },
     eligible_count: 1,
@@ -164,9 +164,8 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     fireEvent.click(screen.getByText('Department Managers'));
 
     expect(screen.getByText('Carlos Mendoza')).toBeInTheDocument();
-    expect(screen.getByText('carlos.mendoza@sbsi.com.ph')).toBeInTheDocument();
-    expect(screen.getByText('Maria Santos')).toBeInTheDocument();
-    expect(screen.getByText('Rowena Dizon')).toBeInTheDocument();
+    expect(screen.getByText('Michael Scott')).toBeInTheDocument();
+    expect(screen.getByText('Ava Santos')).toBeInTheDocument();
   });
 
   it('distinguishes empty state with escalation guidance when no eligible candidates exist', async () => {
