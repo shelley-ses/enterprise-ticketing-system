@@ -21,6 +21,11 @@ import {
   PauseCircle,
   Bell,
   Send,
+  RefreshCw,
+  Users,
+  Phone,
+  Mail,
+  UserCheck,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateUtils';
 import { formatProperSentenceCase } from '@/utils/titleCaseUtils';
@@ -35,6 +40,7 @@ import {
   addInternalNote,
   getInternalNotes,
   sendTicketReminder,
+  getEligibleEmployees,
 } from '@/services/ticketService';
 import InternalNotesSection, { NoteList } from './InternalNotesSection';
 import TicketFeedbackSection from './feedback/TicketFeedbackSection';
@@ -1530,6 +1536,32 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide">Reason Provided</span>
                           <p className="text-gray-700 font-medium leading-relaxed italic mt-0.5">&quot;{formatProperSentenceCase(ticket.reassignmentReason) || 'No reason provided'}&quot;</p>
                         </div>
+                        {/* Department Managers for Escalation (AC-2) */}
+                        <div className="mt-3 pt-3 border-t border-amber-100">
+                          <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wide block mb-1.5">
+                            Department Managers (Escalation Contacts)
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
+                              <div className="font-bold text-slate-800">Service Department</div>
+                              <div className="text-slate-700 font-medium mt-0.5">Carlos Mendoza</div>
+                              <div className="text-[10px] text-slate-500">Lead Service Engineer</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">carlos.mendoza@sbsi.com.ph</div>
+                            </div>
+                            <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
+                              <div className="font-bold text-slate-800">IT Department</div>
+                              <div className="text-slate-700 font-medium mt-0.5">Michael Scott</div>
+                              <div className="text-[10px] text-slate-500">IT Systems Specialist</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">michael.scott@sbsi.com.ph</div>
+                            </div>
+                            <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
+                              <div className="font-bold text-slate-800">Customer Support</div>
+                              <div className="text-slate-700 font-medium mt-0.5">Ava Santos</div>
+                              <div className="text-[10px] text-slate-500">Customer Support Lead</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">ava.santos@sbsi.com.ph</div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     {showReassignDeny ? (
@@ -2155,6 +2187,7 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
 ───────────────────────────────────────────── */
 export function AssignModal({ ticket, employees, departments, priorityOptions, onClose, onSave }) {
   const [title, setTitle] = useState(ticket?.title || '');
+  const [category, setCategory] = useState(ticket?.category || 'Biomedical Equipment');
   const [priority, setPriority] = useState(ticket?.priority || 'Low');
   const [department, setDepartment] = useState(ticket?.department || '');
   const [deptAutoNotice, setDeptAutoNotice] = useState('');
@@ -2162,12 +2195,72 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
-  const [showValidationError, setShowValidationError] = useState(false);
+  const [validationError, setValidationError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
+  // Eligibility evaluation state
+  const [eligibilityData, setEligibilityData] = useState(null);
+  const [loadingEligibility, setLoadingEligibility] = useState(false);
+  const [eligibilityError, setEligibilityError] = useState(null);
+  const [activeTab, setActiveTab] = useState('eligible'); // 'eligible' | 'ineligible' | 'managers'
 
   useLockBodyScroll(!!ticket);
 
   if (!ticket) return null;
+
+  const CATEGORY_CHOICES = [
+    'Biomedical Equipment',
+    'Hardware Breakdown',
+    'Network / IT Infrastructure',
+    'Software / Application',
+    'General Inquiry & Maintenance',
+  ];
+
+  const loadEligibility = async (targetCategory) => {
+    const cat = targetCategory || category || ticket?.category || 'General';
+    setLoadingEligibility(true);
+    setEligibilityError(null);
+    try {
+      const data = await getEligibleEmployees({
+        ...ticket,
+        category: cat,
+      });
+      setEligibilityData(data);
+    } catch (err) {
+      console.error('Failed to load eligible employees:', err);
+      setEligibilityError(
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to load eligibility data from server. Please check your connection and retry.'
+      );
+    } finally {
+      setLoadingEligibility(false);
+    }
+  };
+
+  useEffect(() => {
+    if (ticket) {
+      loadEligibility(category);
+    }
+  }, [ticket?.id, ticket?.ticket_ID, category]);
+
+  const eligibleEmployeesList = useMemo(() => {
+    if (eligibilityData?.eligible_employees && Array.isArray(eligibilityData.eligible_employees)) {
+      return eligibilityData.eligible_employees;
+    }
+    return [];
+  }, [eligibilityData]);
+
+  const ineligibleEmployeesList = useMemo(() => {
+    if (eligibilityData?.ineligible_employees && Array.isArray(eligibilityData.ineligible_employees)) {
+      return eligibilityData.ineligible_employees;
+    }
+    return [];
+  }, [eligibilityData]);
+
+  const departmentManagers = useMemo(() => {
+    return eligibilityData?.department_managers || null;
+  }, [eligibilityData]);
 
   const filteredDepartments = useMemo(() => {
     const list = (departments || []).filter(
@@ -2179,55 +2272,59 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
     return list;
   }, [departments]);
 
-  const employeesInDept = useMemo(() => {
-    const list = employees.filter((e) => {
-      const empDept = (e.department || '').toLowerCase().trim();
-      const empRole = (e.role || '').toLowerCase().trim();
-      if (['customer service', 'customer support', 'cs'].includes(empDept) || ['customer service', 'customer support', 'cs'].includes(empRole)) {
-        return false;
-      }
-      if (!department) return true;
-      if (department.toLowerCase() === 'others') {
-        const standardDepts = (departments || [])
-          .filter((d) => !['others', 'customer service', 'customer support', 'cs'].includes(d.toLowerCase().trim()))
-          .map((d) => d.toLowerCase().trim());
-        return !standardDepts.includes(empDept) || empDept === 'others' || !empDept;
-      }
-      return empDept === department.toLowerCase().trim();
-    });
-    list.sort((a, b) => {
-      const aActive = a.status === 'active' || a.is_active;
-      const bActive = b.status === 'active' || b.is_active;
-      if (aActive && !bActive) return -1;
-      if (bActive && !aActive) return 1;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-    return list;
-  }, [department, departments, employees]);
-
   const toggleEmp = (id) => {
-    const isAdding = !selectedEmployees.includes(id);
-    if (isAdding && !department) {
-      const emp = employees.find((e) => e.id === id);
-      if (emp && emp.department) {
+    const numericId = Number(id);
+    const isAdding = !selectedEmployees.includes(numericId) && !selectedEmployees.includes(id);
+
+    if (isAdding) {
+      const isEligible = eligibleEmployeesList.some((e) => Number(e.id) === numericId);
+      if (!isEligible && eligibleEmployeesList.length > 0) {
+        setValidationError('Selected employee is ineligible under category escalation rules.');
+        return;
+      }
+      const emp = eligibleEmployeesList.find((e) => Number(e.id) === numericId) || employees.find((e) => Number(e.id) === numericId);
+      if (emp && emp.department && !department) {
         setDepartment(emp.department);
-        setDeptAutoNotice(`You didn't select a department, so we've automatically selected ${emp.department} for this employee.`);
+        setDeptAutoNotice(`Department set to ${emp.department} based on selected employee.`);
       }
     }
+
     setSelectedEmployees((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const exists = prev.some((x) => Number(x) === numericId);
+      const next = exists ? prev.filter((x) => Number(x) !== numericId) : [...prev, numericId];
       if (next.length > 0) {
-        setShowValidationError(false);
+        setValidationError('');
       }
       return next;
     });
   };
 
+  const handleCategoryChange = (newCat) => {
+    setCategory(newCat);
+    setSelectedEmployees([]);
+    setValidationError('');
+    loadEligibility(newCat);
+  };
+
   const handleAcceptClick = () => {
+    setSaveError('');
+    setValidationError('');
+
     if (selectedEmployees.length === 0) {
-      setShowValidationError(true);
+      setValidationError('At least one eligible employee must be selected.');
       return;
     }
+
+    if (eligibleEmployeesList.length > 0) {
+      const disqualified = selectedEmployees.some(
+        (id) => !eligibleEmployeesList.some((e) => Number(e.id) === Number(id))
+      );
+      if (disqualified) {
+        setValidationError('One or more selected employees do not meet the category eligibility rules. Please select only eligible personnel.');
+        return;
+      }
+    }
+
     setShowConfirm(true);
   };
 
@@ -2236,7 +2333,8 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
     let finalDept = department;
     if (!finalDept && selectedEmployees.length > 0) {
-      const firstEmp = employees.find(e => e.id === selectedEmployees[0]);
+      const firstEmp = eligibleEmployeesList.find((e) => Number(e.id) === Number(selectedEmployees[0])) ||
+        employees.find((e) => Number(e.id) === Number(selectedEmployees[0]));
       if (firstEmp) {
         finalDept = firstEmp.department;
       }
@@ -2245,6 +2343,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
     const updated = {
       ...ticket,
       title,
+      category,
       priority,
       department: finalDept || null,
       assigned: selectedEmployees,
@@ -2252,21 +2351,30 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
     };
 
     setIsSaving(true);
+    setSaveError('');
     try {
       const saved = await onSave(updated);
       if (saved) {
         setShowConfirm(false);
         onClose();
+      } else {
+        setSaveError('Failed to assign ticket. Please ensure employee meets category eligibility requirements.');
       }
+    } catch (err) {
+      const errorMsg = err?.response?.data?.message || err?.message || 'Failed to assign ticket.';
+      setSaveError(errorMsg);
     } finally {
       setIsSaving(false);
     }
   };
 
+  const currentRule = eligibilityData?.rule || null;
+  const ticketBranch = ticket?.branch || ticket?.branch_name || 'Manila Main Branch';
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[1.5px]">
-        <div className="bg-card border border-border rounded-xl w-155 max-w-full max-h-[90vh] flex flex-col relative shadow-modal animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-card border border-border rounded-xl w-170 max-w-full max-h-[92vh] flex flex-col relative shadow-modal animate-in fade-in zoom-in-95 duration-200">
 
           {/* Scrollable content */}
           <div className="overflow-y-auto flex-1 p-6">
@@ -2281,39 +2389,116 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
               {ticket.status === 'Pending Assignment' || ticket.reassignmentStatus === 'Approved' ? 'Reassign Ticket' : 'Assign Ticket'}
             </h3>
 
-            {/* Ticket Info */}
-            <div className="bg-primary text-white rounded-xl p-4 mb-4 flex items-center justify-between shadow-sm">
-              <div className="flex-1 mr-4">
-                <div className="text-xs text-white/70 font-mono">{ticket.id}</div>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-transparent border-b border-white/30 text-sm font-semibold mt-0.5 outline-none focus:border-white transition-colors py-1 text-white"
-                />
-                <div className="text-xs text-white/70 mt-1">{ticket.category}</div>
+            {/* Ticket Info Card */}
+            <div className="bg-primary text-white rounded-xl p-4 mb-4 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-white/70 font-mono">{ticket.id}</div>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full bg-transparent border-b border-white/30 text-sm font-semibold mt-0.5 outline-none focus:border-white transition-colors py-1 text-white"
+                  />
+                  <div className="flex items-center gap-2 mt-1 text-xs text-white/80">
+                    <span>Branch: <strong className="text-white">{ticketBranch}</strong></span>
+                    <span>•</span>
+                    <span>Track: <strong className="text-white">{eligibilityData?.track ? formatProperSentenceCase(eligibilityData.track) : 'General'}</strong></span>
+                  </div>
+                </div>
+                <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
+                  {ticket.sla || 'Standard SLA'}
+                </Badge>
               </div>
-              <Badge variant="outline" className="border-white/30 text-white bg-white/10 shrink-0">
-                {ticket.sla}
-              </Badge>
             </div>
+
+            {/* Category Selector with Dynamic Recalculation Notice */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-slate-dark">
+                  Ticket Category &amp; Escalation Track
+                </label>
+                <span className="text-[11px] text-slate-muted">
+                  Changing category recalculates eligible staff
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={category}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm bg-card border border-border rounded-xl text-slate-dark focus:ring-2 focus:ring-accent outline-none transition-all shadow-xs"
+                >
+                  {CATEGORY_CHOICES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                  {ticket.category && !CATEGORY_CHOICES.includes(ticket.category) && (
+                    <option value={ticket.category}>{ticket.category}</option>
+                  )}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadEligibility(category)}
+                  disabled={loadingEligibility}
+                  title="Recalculate eligibility list"
+                  className="h-auto px-3"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingEligibility ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </div>
+
+            {/* Category Escalation Policy Details */}
+            {currentRule && (
+              <div className="mb-4 p-3 bg-page border border-border rounded-xl">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-dark">
+                    <Shield className="w-3.5 h-3.5 text-primary" />
+                    Category Escalation Rule: {eligibilityData?.track ? formatProperSentenceCase(eligibilityData.track) : 'Standard'}
+                  </div>
+                  <Badge variant="secondary" className="text-[10px]">
+                    Min Level: {currentRule.min_position_level || 'Junior'}
+                  </Badge>
+                </div>
+                <div className="text-[11px] text-slate-muted flex flex-wrap gap-x-3 gap-y-1">
+                  <span>
+                    <strong className="text-slate-600 font-medium">Departments:</strong>{' '}
+                    {Array.isArray(currentRule.department) ? currentRule.department.join(', ') : currentRule.department}
+                  </span>
+                  <span>•</span>
+                  <span>
+                    <strong className="text-slate-600 font-medium">Scope:</strong>{' '}
+                    {currentRule.allow_cross_branch ? 'Cross Branch Allowed' : `Strict (${ticketBranch})`}
+                  </span>
+                </div>
+                {Array.isArray(currentRule.allowed_roles) && currentRule.allowed_roles.length > 0 && (
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-slate-muted font-medium">Authorized Roles:</span>
+                    {currentRule.allowed_roles.map((r) => (
+                      <span key={r} className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded">
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Department */}
             <div className="mb-4">
               <label className="block text-xs font-medium text-slate-dark mb-1.5">
-                Department
+                Department Scoping
               </label>
               <select
                 value={department}
                 onChange={(e) => {
                   setDepartment(e.target.value);
                   setDeptAutoNotice('');
-                  setSelectedEmployees([]);
-                  setShowValidationError(false);
                 }}
                 className="w-full px-3 py-2 text-sm bg-card border border-border rounded-xl text-slate-dark focus:ring-2 focus:ring-accent outline-none transition-all shadow-xs"
               >
-                <option value="">Select department...</option>
+                <option value="">All eligible departments for this category...</option>
                 {filteredDepartments.map((d) => (
                   <option key={d} value={d}>{d}</option>
                 ))}
@@ -2346,22 +2531,61 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
               </div>
             </div>
 
-            {/* Employees */}
-            <div>
-              <label className="block text-xs font-medium text-slate-dark mb-1.5">
-                Assign Employee(s)
+            {/* Candidate Tabs: Eligible vs Ineligible vs Escalation Managers */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between border-b border-border pb-1">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('eligible')}
+                    className={`text-xs font-bold pb-2 px-1 border-b-2 transition-all flex items-center gap-1.5 ${
+                      activeTab === 'eligible'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-muted hover:text-slate-dark'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    Eligible Staff ({eligibleEmployeesList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('ineligible')}
+                    className={`text-xs font-bold pb-2 px-1 border-b-2 transition-all flex items-center gap-1.5 ${
+                      activeTab === 'ineligible'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-muted hover:text-slate-dark'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Ineligible ({ineligibleEmployeesList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('managers')}
+                    className={`text-xs font-bold pb-2 px-1 border-b-2 transition-all flex items-center gap-1.5 ${
+                      activeTab === 'managers'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-muted hover:text-slate-dark'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Department Managers
+                  </button>
+                </div>
+
                 {selectedEmployees.length > 0 && (
-                  <span className="ml-2 text-primary font-semibold">
-                    ({selectedEmployees.length} selected)
+                  <span className="text-xs text-primary font-semibold">
+                    {selectedEmployees.length} selected
                   </span>
                 )}
-              </label>
+              </div>
 
               {/* Selected employee chips */}
               {selectedEmployees.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                <div className="flex flex-wrap gap-1.5 my-2.5">
                   {selectedEmployees.map((id) => {
-                    const emp = employees.find((e) => e.id === id);
+                    const emp = eligibleEmployeesList.find((e) => Number(e.id) === Number(id)) ||
+                      employees.find((e) => Number(e.id) === Number(id));
                     if (!emp) return null;
                     return (
                       <span
@@ -2382,67 +2606,272 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   })}
                 </div>
               )}
+            </div>
 
-              <div className="max-h-56 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1.5">
-                {employeesInDept.length === 0 ? (
-                  <div className="text-xs text-slate-muted p-2">
-                    Select a department to see employees
-                  </div>
-                ) : (
-                  employeesInDept.map((emp) => {
-                    const isAvailable = emp.status === 'active' || emp.is_active || emp.availability === 'Available';
-                    const branchName = emp.branch || emp.branch_name || 'Main';
-                    const posLevel = emp.position_level || emp.position || emp.level || (emp.role?.toLowerCase().includes('senior') ? 'Senior / L2' : (emp.role?.toLowerCase().includes('lead') ? 'Lead / L3' : 'L1 / Associate'));
-                    const techRole = emp.technical_role || emp.role || 'Service Engineer';
+            {/* TAB CONTENTS */}
+            <div className="mb-4">
+              {/* Loading State */}
+              {loadingEligibility && (
+                <div className="p-8 text-center bg-page border border-border rounded-xl">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-2" />
+                  <p className="text-xs font-medium text-slate-dark">
+                    Evaluating department, branch, seniority, and technical roles...
+                  </p>
+                  <p className="text-[11px] text-slate-muted mt-0.5">
+                    Consulting Configuration Service escalation matrix
+                  </p>
+                </div>
+              )}
 
-                    return (
-                      <label
-                        key={emp.id}
-                        className={`flex items-start justify-between gap-2 px-3 py-2.5 rounded-lg transition-all cursor-pointer border ${
-                          selectedEmployees.includes(emp.id)
-                            ? 'bg-primary/5 border-primary/30 shadow-xs'
-                            : 'hover:bg-card border-transparent hover:border-border'
-                        }`}
+              {/* Genuine Fetch Failure Error State */}
+              {!loadingEligibility && eligibilityError && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-900">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 text-xs">
+                      <p className="font-bold text-red-800">Unable to load employee eligibility data</p>
+                      <p className="text-red-700 mt-0.5">{eligibilityError}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => loadEligibility(category)}
+                        className="mt-2.5 h-7 text-xs border-red-300 text-red-800 hover:bg-red-100"
                       >
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={selectedEmployees.includes(emp.id)}
-                            onChange={() => toggleEmp(emp.id)}
-                            className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-accent"
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold text-slate-dark">{emp.name}</span>
-                              <span className="text-[10px] bg-slate-200/70 text-slate-700 px-1.5 py-0.5 rounded font-medium">
-                                {branchName}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-muted mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
-                              <span><strong className="text-slate-600 font-medium">Role:</strong> {techRole}</span>
-                              <span>•</span>
-                              <span><strong className="text-slate-600 font-medium">Level:</strong> {posLevel}</span>
-                              <span>•</span>
-                              <span><strong className="text-slate-600 font-medium">Dept:</strong> {emp.department || 'General'}</span>
-                            </div>
+                        <RefreshCw className="w-3 h-3 mr-1" /> Retry Loading
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 1: Eligible Employees List */}
+              {!loadingEligibility && !eligibilityError && activeTab === 'eligible' && (
+                <>
+                  {eligibleEmployeesList.length === 0 ? (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-bold text-amber-800">No Eligible Employees Found</p>
+                          <p className="mt-1 text-amber-700 leading-relaxed">
+                            {eligibilityData?.empty_state_guidance ||
+                              'No active personnel at this branch meet the minimum position level and technical role requirements for this category.'}
+                          </p>
+                          <div className="mt-3 flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setActiveTab('managers')}
+                              className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                            >
+                              <Users className="w-3.5 h-3.5 mr-1" /> View Escalation Managers
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setActiveTab('ineligible')}
+                              className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                            >
+                              Inspect Disqualified Candidates ({ineligibleEmployeesList.length})
+                            </Button>
                           </div>
                         </div>
-                        <Badge variant={isAvailable ? 'emerald' : 'secondary'} className="text-[10px] shrink-0">
-                          {isAvailable ? 'Available' : 'Unavailable'}
-                        </Badge>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-h-60 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1.5">
+                      {eligibleEmployeesList.map((emp) => {
+                        const isSelected = selectedEmployees.some((x) => Number(x) === Number(emp.id));
+                        const isAvailable = emp.status === 'active' || emp.is_active || emp.availability === 'Available';
+                        const branchName = emp.branch || emp.branch_name || ticketBranch;
+                        const posLevel = emp.position_level || 'Senior';
+                        const techRole = emp.technical_role || 'Specialist';
 
-              {showValidationError && selectedEmployees.length === 0 && (
-                <p className="mt-2 text-xs font-semibold text-destructive flex items-center gap-1.5 bg-destructive/10 p-2.5 rounded-lg border border-destructive/20">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-destructive" />
-                  At least one employee must be selected.
-                </p>
+                        return (
+                          <label
+                            key={emp.id}
+                            className={`flex items-start justify-between gap-2 px-3 py-2.5 rounded-lg transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'bg-primary/5 border-primary/30 shadow-xs'
+                                : 'hover:bg-card border-transparent hover:border-border'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleEmp(emp.id)}
+                                className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-accent"
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-dark">{emp.name}</span>
+                                  <span className="text-[10px] bg-slate-200/70 text-slate-700 px-1.5 py-0.5 rounded font-medium">
+                                    {branchName}
+                                  </span>
+                                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-semibold">
+                                    {posLevel}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-muted mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                                  <span><strong className="text-slate-600 font-medium">Role:</strong> {techRole}</span>
+                                  <span>•</span>
+                                  <span><strong className="text-slate-600 font-medium">Dept:</strong> {emp.department || 'Service'}</span>
+                                  {emp.email && (
+                                    <>
+                                      <span>•</span>
+                                      <span>{emp.email}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Badge variant={isAvailable ? 'emerald' : 'secondary'} className="text-[10px] shrink-0">
+                              {isAvailable ? 'Available' : 'Unavailable'}
+                            </Badge>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Tab 2: Ineligible Candidates List */}
+              {!loadingEligibility && !eligibilityError && activeTab === 'ineligible' && (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-muted bg-slate-100 p-2.5 rounded-lg">
+                    These personnel are ineligible for assignment based on category rules (insufficient position seniority, unauthorized technical role, department mismatch, or branch restrictions).
+                  </div>
+                  <div className="max-h-60 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1.5">
+                    {ineligibleEmployeesList.map((emp) => (
+                      <div
+                        key={emp.id}
+                        className="flex items-start justify-between gap-2 px-3 py-2.5 rounded-lg bg-card/60 border border-slate-200/60 opacity-80"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-medium text-slate-600 line-through">{emp.name}</span>
+                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
+                              {emp.branch || emp.branch_name || 'Main'}
+                            </span>
+                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
+                              {emp.position_level || 'Junior'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Role: {emp.technical_role || 'Technician'} • Dept: {emp.department || 'General'}
+                          </div>
+                          {emp.ineligibility_reason && (
+                            <div className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 rounded px-2 py-0.5">
+                              {emp.ineligibility_reason}
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase shrink-0">
+                          Disqualified
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Department Managers Escalation Contacts */}
+              {!loadingEligibility && !eligibilityError && activeTab === 'managers' && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-muted bg-primary/5 border border-primary/20 p-2.5 rounded-lg">
+                    Designated Department Managers for SLA breach notification and technical escalation routing:
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Service Manager */}
+                    <div className="bg-card border border-border rounded-xl p-3 shadow-xs">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-primary mb-1">
+                        <Shield className="w-3.5 h-3.5 text-primary shrink-0" />
+                        Service Department
+                      </div>
+                      <p className="text-xs font-bold text-slate-dark">
+                        {departmentManagers?.service?.name || 'Carlos Mendoza'}
+                      </p>
+                      <p className="text-[11px] text-slate-muted">Manager</p>
+                      <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.service?.email || 'carlos.mendoza@sbsi.com.ph'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.service?.phone || '+63 917 123 4567'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* IT Manager */}
+                    <div className="bg-card border border-border rounded-xl p-3 shadow-xs">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-primary mb-1">
+                        <Shield className="w-3.5 h-3.5 text-primary shrink-0" />
+                        IT Department
+                      </div>
+                      <p className="text-xs font-bold text-slate-dark">
+                        {departmentManagers?.it?.name || 'Maria Santos'}
+                      </p>
+                      <p className="text-[11px] text-slate-muted">Manager</p>
+                      <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.it?.email || 'maria.santos@sbsi.com.ph'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.it?.phone || '+63 918 234 5678'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CS Manager */}
+                    <div className="bg-card border border-border rounded-xl p-3 shadow-xs">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-primary mb-1">
+                        <Shield className="w-3.5 h-3.5 text-primary shrink-0" />
+                        Customer Service
+                      </div>
+                      <p className="text-xs font-bold text-slate-dark">
+                        {departmentManagers?.cs?.name || 'Rowena Dizon'}
+                      </p>
+                      <p className="text-[11px] text-slate-muted">Manager</p>
+                      <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.cs?.email || 'rowena.dizon@sbsi.com.ph'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="w-3 h-3 text-slate-muted shrink-0" />
+                          <span>{departmentManagers?.cs?.phone || '+63 919 345 6789'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
+
+            {/* Validation & Save Error Alerts */}
+            {validationError && (
+              <p className="mt-2 text-xs font-semibold text-destructive flex items-center gap-1.5 bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 mb-3">
+                <AlertCircle className="w-4 h-4 shrink-0 text-destructive" />
+                {validationError}
+              </p>
+            )}
+
+            {saveError && (
+              <p className="mt-2 text-xs font-semibold text-destructive flex items-center gap-1.5 bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 mb-3">
+                <AlertCircle className="w-4 h-4 shrink-0 text-destructive" />
+                {saveError}
+              </p>
+            )}
 
             {/* Attachments */}
             {ticket.attachments && ticket.attachments.length > 0 && (

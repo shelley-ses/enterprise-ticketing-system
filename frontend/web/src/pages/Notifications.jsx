@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Bell, CheckCircle2, AlertCircle, Loader2, Clock, ShieldAlert, MessageCircle, AlertTriangle, Database, KeyRound, Activity, Layers } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -147,9 +147,12 @@ export default function Notifications() {
 
     const isSecurityAlert = Boolean(
       parsedData.alert_type === 'security_alert' ||
+      parsedData.alert_type === 'system_alert' ||
+      parsedData.category ||
+      parsedData.incident_id ||
       parsedData.event === 'malware_detected' ||
-      /security alert|malware/i.test(n.title || '') ||
-      /malware|quarantine/i.test(n.message || '')
+      /security alert|system alert|malware|sql error|unhandled error|failed login|unusual login/i.test(n.title || '') ||
+      /malware|quarantine|brute force/i.test(n.message || '')
     );
 
     if (isSecurityAlert) {
@@ -325,9 +328,12 @@ export default function Notifications() {
                   })();
                   const isSecurityAlert = Boolean(
                     parsedData.alert_type === 'security_alert' ||
+                    parsedData.alert_type === 'system_alert' ||
+                    parsedData.category ||
+                    parsedData.incident_id ||
                     parsedData.event === 'malware_detected' ||
-                    /security alert|malware/i.test(n.title || '') ||
-                    /malware|quarantine/i.test(n.message || '')
+                    /security alert|system alert|malware|sql error|unhandled error|failed login|unusual login/i.test(n.title || '') ||
+                    /malware|quarantine|brute force/i.test(n.message || '')
                   );
                   const isSlaBreach = !isSecurityAlert && Boolean(
                     parsedData.type === 'overdue_sla_breach' ||
@@ -341,6 +347,33 @@ export default function Notifications() {
                     /new\s+message/i.test(n.title || '') ||
                     (parsedData.link && parsedData.link.includes('messages'))
                   );
+
+                  const category = (parsedData.category || '').toLowerCase();
+                  const severity = (parsedData.severity || 'high').toLowerCase();
+                  const burstCount = Number(parsedData.burst_count || 1);
+
+                  const renderSecurityIcon = () => {
+                    if (category === 'sql_error') return <Database size={20} className="text-destructive" />;
+                    if (category === 'failed_login_spike' || category === 'unusual_login') return <KeyRound size={20} className="text-destructive" />;
+                    if (category === 'pipeline_health') return <Activity size={20} className="text-destructive" />;
+                    return <ShieldAlert size={20} className="text-destructive" />;
+                  };
+
+                  const getCategoryLabel = () => {
+                    if (category === 'sql_error') return 'SQL Error';
+                    if (category === 'unhandled_error') return 'System Error';
+                    if (category === 'failed_login_spike') return 'Auth Spike';
+                    if (category === 'unusual_login') return 'Unusual Origin';
+                    if (category === 'pipeline_health') return 'Pipeline Alert';
+                    return 'Security Alert';
+                  };
+
+                  const getSeverityStyle = () => {
+                    if (severity === 'critical') return 'bg-red-100 text-red-800 border-red-300';
+                    if (severity === 'high') return 'bg-rose-100 text-rose-800 border-rose-300';
+                    if (severity === 'medium') return 'bg-amber-100 text-amber-800 border-amber-300';
+                    return 'bg-slate-100 text-slate-800 border-slate-300';
+                  };
 
                   return (
                     <div
@@ -370,7 +403,7 @@ export default function Notifications() {
                                 : !n.is_read ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-slate'
                       }`}>
                         {isSecurityAlert ? (
-                          <ShieldAlert size={20} className="text-destructive" />
+                          renderSecurityIcon()
                         ) : isSlaBreach ? (
                           <AlertTriangle size={18} className="text-red-600" />
                         ) : isAutoClose ? (
@@ -387,10 +420,23 @@ export default function Notifications() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className={`text-sm font-bold leading-snug ${isSecurityAlert || isSlaBreach ? 'text-red-950 font-black' : 'text-dark-slate'}`}>{n.title}</h3>
                             {isSecurityAlert && (
-                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-ping inline-block" />
-                                Security Alert
-                              </span>
+                              <>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-ping inline-block" />
+                                  {getCategoryLabel()}
+                                </span>
+                                {parsedData.severity && (
+                                  <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${getSeverityStyle()}`}>
+                                    {severity}
+                                  </span>
+                                )}
+                                {burstCount > 1 && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                    <Layers size={10} />
+                                    +{burstCount} repeat events
+                                  </span>
+                                )}
+                              </>
                             )}
                             {isSlaBreach && (
                               <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-200 flex items-center gap-1">
@@ -454,9 +500,14 @@ export default function Notifications() {
         <SecurityIncidentModal
           incident={activeSecurityIncident}
           onClose={() => setActiveSecurityIncident(null)}
-          onNavigateAuditLogs={() => {
+          onNavigateAuditLogs={(targetIncidentId) => {
+            const incId = targetIncidentId || activeSecurityIncident?.data?.incident_id || activeSecurityIncident?.incident_id;
             setActiveSecurityIncident(null);
-            navigate('/superadmin/audit-logs');
+            if (incId) {
+              navigate(`/superadmin/audit-logs?incidentId=${encodeURIComponent(incId)}`);
+            } else {
+              navigate('/superadmin/audit-logs');
+            }
           }}
         />
       )}

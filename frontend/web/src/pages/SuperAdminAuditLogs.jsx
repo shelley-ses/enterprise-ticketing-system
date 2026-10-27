@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Search, ShieldAlert } from 'lucide-react';
+import { Search, ShieldAlert, Layers, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { getSuperAdminAuditLogs } from '@/services/ticketService';
 import useRealtimeRefresh from '@/hooks/useRealtimeRefresh';
 import { PageHeader } from '@/components/ui/page-header';
@@ -12,6 +12,7 @@ import SecurityIncidentModal from '@/components/security/SecurityIncidentModal';
 
 export default function SuperAdminAuditLogs() {
   const location = useLocation();
+  const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterModule, setFilterModule] = useState('');
@@ -25,6 +26,8 @@ export default function SuperAdminAuditLogs() {
     const query = params.get('q');
     if (incidentId) {
       setSearch(incidentId);
+      setActiveTab('security');
+      setSelectedIncident({ incident_id: incidentId, id: incidentId });
     } else if (query) {
       setSearch(query);
     }
@@ -36,7 +39,7 @@ export default function SuperAdminAuditLogs() {
       const data = await getSuperAdminAuditLogs();
       const serverLogs = Array.isArray(data) ? data : [];
 
-      // SIMULATED: this entry is stored in localStorage as a placeholder since the Knowledge Base backend doesn't yet write to the real audit log table. Remove this merge once KB deletion is logged server-side.
+      // SIMULATED: stored in localStorage as placeholder until knowledge base backend logs server side
       let simulatedLogs = [];
       try {
         const stored = localStorage.getItem('superadmin_simulated_audit_logs');
@@ -56,7 +59,6 @@ export default function SuperAdminAuditLogs() {
       setLogs(merged);
     } catch (err) {
       console.error('Failed to load superadmin audit logs:', err);
-      // Fallback: still show simulated logs if backend request fails
       try {
         const stored = localStorage.getItem('superadmin_simulated_audit_logs');
         if (stored) {
@@ -78,11 +80,29 @@ export default function SuperAdminAuditLogs() {
     intervalMs: 15000,
   });
 
+  const isSecurityLog = useCallback((log) => {
+    return Boolean(
+      log.module === 'Security' ||
+      log.module === 'Security & System' ||
+      log.action === 'System Alert' ||
+      log.action === 'Alert Burst' ||
+      log.incident_id ||
+      /malware|quarantine|threat|infected|system alert/i.test((log.action || '') + ' ' + (log.details || ''))
+    );
+  }, []);
+
   const actionOptions = useMemo(() => [...new Set(logs.map((l) => l.action).filter(Boolean))].sort(), [logs]);
   const moduleOptions = useMemo(() => [...new Set(logs.map((l) => l.module).filter(Boolean))].sort(), [logs]);
 
+  const securityCount = useMemo(() => logs.filter(isSecurityLog).length, [logs, isSecurityLog]);
+
   const filtered = useMemo(() => {
     let result = logs;
+
+    if (activeTab === 'security') {
+      result = result.filter(isSecurityLog);
+    }
+
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter(
@@ -91,28 +111,88 @@ export default function SuperAdminAuditLogs() {
           (log.action || '').toLowerCase().includes(q) ||
           (log.module || '').toLowerCase().includes(q) ||
           (log.target || '').toLowerCase().includes(q) ||
-          (log.details || '').toLowerCase().includes(q)
+          (log.details || '').toLowerCase().includes(q) ||
+          (log.incident_id || '').toLowerCase().includes(q)
       );
     }
     if (filterAction) result = result.filter((l) => l.action === filterAction);
     if (filterModule) result = result.filter((l) => l.module === filterModule);
     return result;
-  }, [logs, search, filterAction, filterModule]);
+  }, [logs, activeTab, isSecurityLog, search, filterAction, filterModule]);
+
+  const handleOpenIncident = (log) => {
+    const incId = log.incident_id || log.target || log.id;
+    setSelectedIncident({
+      id: incId,
+      incident_id: incId,
+      user: log.user,
+      data: {
+        incident_id: incId,
+        timestamp: log.timestamp,
+        severity: log.severity || 'high',
+        burst_count: log.burst_count || 1,
+        title: log.action,
+        message: log.details,
+        uploader: { email: log.user, role: log.role },
+        file: {
+          original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
+          threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
+        },
+      },
+    });
+  };
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         pattern="B"
         title="Audit Logs"
-        subtitle="Track who did what, when, and to what."
+        subtitle="Track system events, administrative changes, and security incidents."
       />
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveTab('all')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2 ${
+            activeTab === 'all'
+              ? 'bg-[#252578] text-white shadow-sm'
+              : 'bg-card text-muted-slate hover:text-dark-slate hover:bg-slate-100 border border-border'
+          }`}
+        >
+          <ShieldCheck size={14} />
+          All Audit Logs
+          <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+            {logs.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('security')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2 ${
+            activeTab === 'security'
+              ? 'bg-destructive text-white shadow-sm'
+              : 'bg-card text-muted-slate hover:text-dark-slate hover:bg-slate-100 border border-border'
+          }`}
+        >
+          <ShieldAlert size={14} />
+          Security & System Incidents
+          {securityCount > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${activeTab === 'security' ? 'bg-white text-destructive' : 'bg-destructive/10 text-destructive'}`}>
+              {securityCount}
+            </span>
+          )}
+        </button>
+      </div>
 
       <div className="flex flex-wrap items-center gap-3 w-full">
         <div className="relative flex-1 min-w-[280px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-muted pointer-events-none" />
           <Input
             type="text"
-            placeholder="Search audit logs..."
+            placeholder={activeTab === 'security' ? 'Search incidents, errors, or incident IDs...' : 'Search audit logs...'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-9 text-xs"
@@ -164,29 +244,15 @@ export default function SuperAdminAuditLogs() {
                   </TableRow>
                 ) : (
                   filtered.map((log) => {
-                    const isSecurity = Boolean(
-                      log.module === 'Security' ||
-                      /malware|quarantine|threat|infected/i.test(log.action + ' ' + log.details)
-                    );
+                    const isSecurity = isSecurityLog(log);
+                    const isBurst = Boolean(log.burst_count && log.burst_count > 1);
 
                     return (
                       <TableRow
                         key={log.id}
                         onClick={() => {
                           if (isSecurity) {
-                            setSelectedIncident({
-                              id: log.target || log.id,
-                              user: log.user,
-                              data: {
-                                incident_id: log.target || log.id,
-                                timestamp: log.timestamp,
-                                uploader: { email: log.user, role: log.role },
-                                file: {
-                                  original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
-                                  threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
-                                },
-                              },
-                            });
+                            handleOpenIncident(log);
                           }
                         }}
                         className={`transition-colors ${
@@ -204,10 +270,23 @@ export default function SuperAdminAuditLogs() {
                         </TableCell>
                         <TableCell className="text-slate-dark whitespace-nowrap font-medium text-xs py-2.5 px-3">
                           {isSecurity ? (
-                            <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
-                              <ShieldAlert size={13} className="text-destructive shrink-0" />
-                              {log.action}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
+                                <ShieldAlert size={13} className="text-destructive shrink-0" />
+                                {log.action}
+                              </span>
+                              {log.severity && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
+                                  {log.severity}
+                                </span>
+                              )}
+                              {isBurst && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                  <Layers size={10} />
+                                  +{log.burst_count} bursts
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             log.action
                           )}
@@ -215,7 +294,7 @@ export default function SuperAdminAuditLogs() {
                         <TableCell className="whitespace-nowrap py-2.5 px-3">
                           {isSecurity ? (
                             <Badge variant="destructive" size="sm" className="text-[10px] uppercase font-bold">
-                              Security
+                              {log.module}
                             </Badge>
                           ) : (
                             <span className="text-slate-muted text-xs">{log.module}</span>
@@ -230,9 +309,13 @@ export default function SuperAdminAuditLogs() {
                             {isSecurity && (
                               <button
                                 type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenIncident(log);
+                                }}
                                 className="shrink-0 text-xs font-bold text-destructive hover:underline ml-2 cursor-pointer"
                               >
-                                View Details
+                                Inspect Incident
                               </button>
                             )}
                           </div>

@@ -648,6 +648,20 @@ export const clearAssignableEmployeesCache = () => {
   employeesInFlight = {};
 };
 
+export const getEligibleEmployees = async (ticketId, { track } = {}) => {
+  const normalizedId = typeof ticketId === 'object' ? (ticketId.ticket_ID || ticketId.id) : ticketId;
+  const cleanId = Number(String(normalizedId || '').replace(/\D/g, ''));
+  const params = track ? { track } : {};
+
+  let response;
+  try {
+    response = await employeeClient.get(`/tickets/${cleanId}/eligible-employees`, { params });
+  } catch (err) {
+    response = await ticketClient.get(`/tickets/${cleanId}/eligible-employees`, { params });
+  }
+  return response.data;
+};
+
 const fetchDepartments = async () => {
   let response;
   try {
@@ -1537,6 +1551,16 @@ export const updateTicketFeedback = async (ticketId, feedbackPayload) => {
 
 export const deleteTicketFeedback = async (ticketId) => {
   const response = await axiosInstance.delete(`/api/ticketing/analytics/feedback/ticket/${ticketId}`);
+  return response.data;
+};
+
+export const getSecurityIncidents = async (params = {}) => {
+  const response = await ticketClient.get('/superadmin/security-incidents', { params });
+  return response.data;
+};
+
+export const getSecurityIncidentDetail = async (incidentId) => {
+  const response = await ticketClient.get(`/superadmin/security-incidents/${encodeURIComponent(incidentId)}`);
   return response.data;
 };
 

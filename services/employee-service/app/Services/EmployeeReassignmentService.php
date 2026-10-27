@@ -156,6 +156,24 @@ class EmployeeReassignmentService
         $rawDenyReason = trim($validated['reason'] ?? '');
         $denyReason = $rawDenyReason !== '' ? mb_strtoupper(mb_substr($rawDenyReason, 0, 1)) . mb_substr($rawDenyReason, 1) : '';
 
+        if ($validated['action'] === 'approve' && $newEmpId) {
+            $newEmp = DB::table('employees')->where('emp_id', $newEmpId)->first();
+            if ($newEmp) {
+                $track = \App\Http\Controllers\EmployeeDirectoryController::resolveCategoryTrack($ticket);
+                $eligibility = \App\Http\Controllers\EmployeeDirectoryController::checkEligibility($newEmp, $ticket, $track);
+                if (!$eligibility['eligible']) {
+                    return [
+                        'status' => 422,
+                        'data' => [
+                            'message' => 'The selected employee is not eligible for this ticket category.',
+                            'code' => 'INELIGIBLE_EMPLOYEE',
+                            'reason' => $eligibility['reason'],
+                        ],
+                    ];
+                }
+            }
+        }
+
         DB::transaction(function () use ($ticketId, $pendingRequest, $validated, $csEmpId, $targetEmpId, $newEmpId, $denyReason) {
             if ($validated['action'] === 'approve') {
                 DB::table('reassignment_requests')

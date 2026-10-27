@@ -149,6 +149,90 @@ class TicketConfigurationController extends Controller
                 'notify_on_activity' => true,
             ],
         ],
+        'category_escalation_rules' => [
+            'biomedical' => [
+                'department' => ['Service', 'Biomedical Engineering', 'Radiology Maintenance', 'Facilities & Equipment'],
+                'min_position_level' => 'Senior',
+                'allowed_roles' => ['Biomedical Engineer', 'Senior Biomedical Engineer', 'Lead Service Engineer', 'Field Service Specialist', 'Hardware Specialist'],
+                'allow_cross_branch' => false,
+            ],
+            'hardware' => [
+                'department' => ['Service', 'Facilities & Equipment', 'Radiology Maintenance'],
+                'min_position_level' => 'Mid',
+                'allowed_roles' => ['Service Technician', 'Hardware Specialist', 'Biomedical Engineer', 'Field Service Specialist', 'Biomedical Technician'],
+                'allow_cross_branch' => false,
+            ],
+            'network' => [
+                'department' => ['IT', 'IT Support', 'Network Operations'],
+                'min_position_level' => 'Mid',
+                'allowed_roles' => ['Network Administrator', 'Systems Specialist', 'IT Support Specialist', 'Systems Administrator'],
+                'allow_cross_branch' => false,
+            ],
+            'software' => [
+                'department' => ['IT', 'IT Support', 'Network Operations'],
+                'min_position_level' => 'Mid',
+                'allowed_roles' => ['Software Specialist', 'Systems Specialist', 'Systems Administrator', 'IT Support Specialist'],
+                'allow_cross_branch' => false,
+            ],
+            'general' => [
+                'department' => ['Service', 'IT', 'Facilities & Equipment', 'Operations'],
+                'min_position_level' => 'Junior',
+                'allowed_roles' => [],
+                'allow_cross_branch' => false,
+            ],
+        ],
+        'department_managers' => [
+            'service' => [
+                'id' => 1028,
+                'name' => 'Carlos Mendoza',
+                'email' => 'carlos.mendoza@sbsi.com.ph',
+                'phone' => '+63 917 123 4567',
+                'department' => 'Service',
+                'position_level' => 'Manager',
+                'role' => 'Lead Service Engineer',
+            ],
+            'it' => [
+                'id' => 1038,
+                'name' => 'Michael Scott',
+                'email' => 'michael.scott@sbsi.com.ph',
+                'phone' => '+63 917 234 5678',
+                'department' => 'IT Support',
+                'position_level' => 'Manager',
+                'role' => 'IT Systems Specialist',
+            ],
+            'cs' => [
+                'id' => 1,
+                'name' => 'Ava Santos',
+                'email' => 'ava.santos@sbsi.com.ph',
+                'phone' => '+63 917 345 6789',
+                'department' => 'Customer Support',
+                'position_level' => 'Manager',
+                'role' => 'Customer Support Lead',
+            ],
+        ],
+        'system_alert_thresholds' => [
+            'failed_logins' => [
+                'threshold' => 5,
+                'window_seconds' => 600,
+                'burst_cooldown_seconds' => 300,
+            ],
+            'unusual_logins' => [
+                'threshold' => 1,
+                'window_seconds' => 3600,
+                'detect_new_ip' => true,
+                'detect_new_user_agent' => true,
+            ],
+            'sql_errors' => [
+                'threshold' => 3,
+                'window_seconds' => 60,
+                'burst_cooldown_seconds' => 300,
+            ],
+            'unhandled_errors' => [
+                'threshold' => 3,
+                'window_seconds' => 60,
+                'burst_cooldown_seconds' => 300,
+            ],
+        ],
     ];
 
     /**

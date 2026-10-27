@@ -1011,11 +1011,47 @@ class SLAService
             );
         }
 
+        // Notify designated Department Manager for this ticket (AC-9)
+        $manager = $this->resolveDepartmentManagerForTicket($ticket);
+        if ($manager && !in_array((int) $manager->emp_id, $assignedEmpIds, true)) {
+            $mgrTitle = "Department SLA Breach Alert: {$ticketRef}";
+            $mgrMessage = "Manager Alert: Ticket {$ticketRef}: \"{$ticketTitle}\" has breached its resolution SLA deadline ({$overdueDuration}). Immediate departmental intervention required.";
+            $notificationService->notifyRecipient(
+                (int) $manager->emp_id,
+                'employee',
+                $mgrTitle,
+                $mgrMessage,
+                $ticketId,
+                array_merge($notificationData, [
+                    'is_manager_alert' => true,
+                    'manager_name' => $manager->first_name . ' ' . $manager->last_name,
+                ]),
+                'overdue_sla_breach'
+            );
+
+            $notificationService->sendTicketEmail(
+                (int) $manager->emp_id,
+                $mgrTitle,
+                $mgrMessage,
+                $ticketId,
+                $ticketTitle,
+                $categoryName,
+                $priorityName,
+                'overdue_sla_breach',
+                [
+                    'customer_name' => $customerName,
+                    'sla_deadline' => $dueAt,
+                    'overdue_duration' => $overdueDuration,
+                ]
+            );
+        }
+
         // Broadcast real-time change
         $notificationService->broadcastTicketChange('sla_breach', $ticketId, [
             'ticket_id' => $ticketId,
             'sla_status' => 'Breached',
             'employee_ids' => $assignedEmpIds,
+            'manager_id' => $manager ? (int) $manager->emp_id : null,
             'overdue_duration' => $overdueDuration,
         ]);
 
@@ -1233,5 +1269,62 @@ class SLAService
         } catch (\Throwable $e) {
             // Silently continue if audit log table structure varies
         }
+    }
+
+    /**
+     * Resolve the designated department manager for a ticket (AC-9).
+     */
+    public function resolveDepartmentManagerForTicket($ticket): ?object
+    {
+        $categoryName = '';
+        if (!empty($ticket->problem_category_ID)) {
+            $categoryName = (string) (DB::table('problem_categories')->where('problem_category_ID', $ticket->problem_category_ID)->value('category_name') ?? '');
+        }
+        $catLower = strtolower($categoryName . ' ' . ($ticket->title ?? '') . ' ' . ($ticket->description ?? ''));
+
+        $isIT = (bool) preg_match('/\b(it|information technology|software|network|system|server|database|computer|login|password|wifi|bug|api)\b/i', $catLower);
+        $isService = (bool) preg_match('/\b(service|biomedical|machine|hardware|device|calibration|repair|equipment|imaging|clinical|maintenance)\b/i', $catLower);
+
+        $targetDeptKeywords = ['service'];
+        if ($isIT) {
+            $targetDeptKeywords = ['it', 'network', 'support'];
+        } elseif ($isService) {
+            $targetDeptKeywords = ['service', 'biomedical', 'radiology'];
+        }
+
+        // Search employees table for active manager matching department
+        $manager = DB::table('employees')
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->whereRaw('LOWER(COALESCE(position_level, "")) = ?', ['manager'])
+                  ->orWhereRaw('LOWER(COALESCE(position_level, "")) = ?', ['lead'])
+                  ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%']);
+            })
+            ->where(function ($q) use ($targetDeptKeywords) {
+                foreach ($targetDeptKeywords as $kw) {
+                    $q->orWhereRaw('LOWER(COALESCE(department, "")) LIKE ?', ["%{$kw}%"])
+                      ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ["%{$kw}%"]);
+                }
+            })
+            ->first();
+
+        if ($manager) {
+            return $manager;
+        }
+
+        // Fallback to Configuration Service
+        try {
+            $configUrl = env('CONFIGURATION_SERVICE_URL', 'http://configuration-service:8000');
+            $res = \Illuminate\Support\Facades\Http::timeout(2)->get("{$configUrl}/api/ticket-configurations/department_managers");
+            if ($res->successful()) {
+                $val = $res->json('value') ?? $res->json();
+                $targetKey = $isIT ? 'it' : 'service';
+                if (!empty($val[$targetKey]['id'])) {
+                    return DB::table('employees')->where('emp_id', $val[$targetKey]['id'])->first();
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        return null;
     }
 }
