@@ -243,6 +243,8 @@ export default function CSAssigned() {
           role: row.role || '',
           status: row.is_active ? 'active' : 'inactive',
           department: row.department || 'Unassigned',
+          position_level: row.position_level || row.level || row.designation || (row.role?.toLowerCase().includes('senior') ? 'Senior' : (row.role?.toLowerCase().includes('lead') ? 'Lead' : (row.role?.toLowerCase().includes('manager') ? 'Manager' : 'Junior'))),
+          technical_role: row.technical_role || row.role || '',
         }))
       );
     } catch {

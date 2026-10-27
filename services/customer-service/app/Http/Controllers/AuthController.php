@@ -302,9 +302,18 @@ class AuthController extends Controller
             }
         }
 
+        $token = null;
+        $authHeader = $request->header('Authorization');
+        if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
+            $token = substr($authHeader, 7);
+        } elseif ($request->cookie('access_token')) {
+            $token = $request->cookie('access_token');
+        }
+
         return response()->json([
             'user' => $user,
             'is_first_login' => $isFirstLogin,
+            'token' => $token,
         ]);
     }
 

@@ -79,6 +79,21 @@
 
                 if ($failedLoginCount >= self::MAX_FAILED_LOGIN) {
                     $credential->locked_until = Carbon::now()->addMinutes(self::LOCK_MINUTES);
+                    // Dispatch security alert on failed login threshold breach (AC-1, AC-3)
+                    SystemAlertDispatcher::dispatchIssue(
+                        category: 'failed_login_spike',
+                        severity: 'high',
+                        service: 'customer-service',
+                        title: "Failed Login Spike ({$email})",
+                        message: "Repeated failed login attempts ({$failedLoginCount}) detected for customer {$email}.",
+                        context: [
+                            'email' => $email,
+                            'failed_count' => $failedLoginCount,
+                            'account_locked' => true,
+                        ],
+                        ip: request()?->ip(),
+                        userAgent: request()?->userAgent()
+                    );
                 }
 
                 $credential->save();
@@ -96,6 +111,27 @@
             }
 
             $isFirstLogin = $credential->password_change_at === null;
+            $clientIp = request()?->ip() ?? '127.0.0.1';
+            $ipCacheKey = "auth:known_ip:" . md5($email . ':' . $clientIp);
+
+            // Detect unusual login from unfamiliar IP address (AC-1)
+            if ($credential->last_login_at && !Cache::has($ipCacheKey)) {
+                SystemAlertDispatcher::dispatchIssue(
+                    category: 'unusual_login',
+                    severity: 'medium',
+                    service: 'customer-service',
+                    title: "Unusual Login Detected ({$email})",
+                    message: "Customer {$email} logged in from a new IP address ({$clientIp}).",
+                    context: [
+                        'email' => $email,
+                        'ip_address' => $clientIp,
+                        'previous_login' => $credential->last_login_at?->toIso8601String(),
+                    ],
+                    ip: $clientIp,
+                    userAgent: request()?->userAgent()
+                );
+            }
+            Cache::put($ipCacheKey, true, 86400 * 30);
 
             $credential->failed_login_count = 0;
             $credential->locked_until = null;
@@ -172,6 +208,22 @@
 
                 if ($failedLoginCount >= self::MAX_FAILED_LOGIN) {
                     $employee->locked_until = Carbon::now()->addMinutes(self::LOCK_MINUTES);
+                    // Dispatch security alert on failed login threshold breach (AC-1, AC-3)
+                    SystemAlertDispatcher::dispatchIssue(
+                        category: 'failed_login_spike',
+                        severity: 'high',
+                        service: 'customer-service',
+                        title: "Failed Login Spike ({$email})",
+                        message: "Repeated failed login attempts ({$failedLoginCount}) detected for staff account {$email}.",
+                        context: [
+                            'email' => $email,
+                            'failed_count' => $failedLoginCount,
+                            'role' => $employee->role,
+                            'account_locked' => true,
+                        ],
+                        ip: request()?->ip(),
+                        userAgent: request()?->userAgent()
+                    );
                 }
 
                 $employee->save();
@@ -187,6 +239,28 @@
             }
 
             $isFirstLogin = $employee->password_change_at === null;
+            $empIp = request()?->ip() ?? '127.0.0.1';
+            $empIpKey = "auth:known_ip:emp:" . md5($email . ':' . $empIp);
+
+            // Detect unusual employee login from unfamiliar IP address (AC-1)
+            if ($employee->last_login_at && !Cache::has($empIpKey)) {
+                SystemAlertDispatcher::dispatchIssue(
+                    category: 'unusual_login',
+                    severity: 'medium',
+                    service: 'customer-service',
+                    title: "Unusual Staff Login Detected ({$email})",
+                    message: "Staff member {$email} ({$employee->role}) logged in from a new IP address ({$empIp}).",
+                    context: [
+                        'email' => $email,
+                        'role' => $employee->role,
+                        'ip_address' => $empIp,
+                        'previous_login' => $employee->last_login_at?->toIso8601String(),
+                    ],
+                    ip: $empIp,
+                    userAgent: request()?->userAgent()
+                );
+            }
+            Cache::put($empIpKey, true, 86400 * 30);
 
             $employee->failed_login_count = 0;
             $employee->locked_until = null;

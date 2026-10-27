@@ -6,7 +6,7 @@ import { refreshAccessToken } from '@/auth/refreshSession';
 
 const ticketClient = axios.create({
   baseURL: TICKET_API_URL,
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -57,7 +57,7 @@ ticketClient.interceptors.response.use(
       }
 
       tokenStore.clearToken();
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:unauthorized'));
       }
@@ -69,7 +69,7 @@ ticketClient.interceptors.response.use(
 
 const employeeClient = axios.create({
   baseURL: EMPLOYEE_API_URL || '/api/ticketing/employee',
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -103,7 +103,7 @@ employeeClient.interceptors.response.use(
       }
 
       tokenStore.clearToken();
-      localStorage.removeItem('user');
+      sessionStorage.removeItem('user');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:unauthorized'));
       }
@@ -115,7 +115,7 @@ employeeClient.interceptors.response.use(
 
 const attachmentClient = axios.create({
   baseURL: '/api/ticketing/attachment',
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',
@@ -597,11 +597,11 @@ const fetchAssignableEmployees = async ({ department } = {}) => {
     params: department ? { department } : {},
   });
   const rawData = response.data?.employees ?? [];
-  // Filter to allowed departments and exclude superadmin and system administrator
-  const allowedDepts = ['Customer Service', 'IT', 'Service'];
+  // Filter to operational departments and exclude superadmin and system administrators
+  const excludedDepts = ['super admin', 'superadmin', 'admin'];
   const filtered = rawData.filter(emp => {
-    const dept = emp.department?.trim();
-    if (!allowedDepts.includes(dept)) return false;
+    const dept = (emp.department || '').trim().toLowerCase();
+    if (excludedDepts.includes(dept)) return false;
     const nameLower = (emp.name || '').toLowerCase();
     const emailLower = (emp.email || '').toLowerCase();
     const roleLower = (emp.role || '').toLowerCase();
@@ -646,6 +646,20 @@ export const clearAssignableEmployeesCache = () => {
   employeesCache = {};
   employeesCacheAt = {};
   employeesInFlight = {};
+};
+
+export const getEligibleEmployees = async (ticketId, { track } = {}) => {
+  const normalizedId = typeof ticketId === 'object' ? (ticketId.ticket_ID || ticketId.id) : ticketId;
+  const cleanId = Number(String(normalizedId || '').replace(/\D/g, ''));
+  const params = track ? { track } : {};
+
+  let response;
+  try {
+    response = await employeeClient.get(`/tickets/${cleanId}/eligible-employees`, { params });
+  } catch (err) {
+    response = await ticketClient.get(`/tickets/${cleanId}/eligible-employees`, { params });
+  }
+  return response.data;
 };
 
 const fetchDepartments = async () => {
@@ -1384,6 +1398,17 @@ export const resetTicketDefaultsConfig = async () => {
   return response.data?.value || response.data;
 };
 
+// Branch listing & sync
+export const getBranches = async () => {
+  const response = await ticketClient.get('/superadmin/branches');
+  return response.data?.branches || response.data || [];
+};
+
+export const getPublicBranches = async () => {
+  const response = await ticketClient.get('/branches');
+  return response.data?.branches || response.data || [];
+};
+
 // Branch-specific priority levels & SLA overrides (scoped to a branch slug)
 const branchPriorityPath = (branchId) => `/superadmin/branches/${encodeURIComponent(branchId)}/priorities`;
 
@@ -1526,6 +1551,16 @@ export const updateTicketFeedback = async (ticketId, feedbackPayload) => {
 
 export const deleteTicketFeedback = async (ticketId) => {
   const response = await axiosInstance.delete(`/api/ticketing/analytics/feedback/ticket/${ticketId}`);
+  return response.data;
+};
+
+export const getSecurityIncidents = async (params = {}) => {
+  const response = await ticketClient.get('/superadmin/security-incidents', { params });
+  return response.data;
+};
+
+export const getSecurityIncidentDetail = async (incidentId) => {
+  const response = await ticketClient.get(`/superadmin/security-incidents/${encodeURIComponent(incidentId)}`);
   return response.data;
 };
 

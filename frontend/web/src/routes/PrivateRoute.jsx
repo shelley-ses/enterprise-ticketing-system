@@ -88,8 +88,8 @@ export default function PrivateRoute({ children, role }) {
   useEffect(() => {
     const handlePageShow = (e) => {
       const token = tokenStore.getToken();
-      if ((e.persisted || !token) && !isLoading) {
-        if (!token) {
+      if ((e.persisted || !isAuthenticated) && !isLoading) {
+        if (!isAuthenticated && !token) {
           if (isCustomerSite) {
             window.location.replace(import.meta.env.BASE_URL || '/');
           } else {
@@ -100,7 +100,7 @@ export default function PrivateRoute({ children, role }) {
     };
     window.addEventListener('pageshow', handlePageShow);
     return () => window.removeEventListener('pageshow', handlePageShow);
-  }, [isLoading]);
+  }, [isLoading, isAuthenticated]);
 
   // Trap back navigation so the user cannot bounce back to the login page
   useEffect(() => {

@@ -103,8 +103,29 @@ axiosInstance.interceptors.response.use(
 
       // Fail-closed principle: if token refresh fails on unauthorized, clear auth state and trigger unauthorized handler
       tokenStore.clearToken();
-      localStorage.removeItem('user');
       sessionStorage.removeItem('user');
+      try {
+        const raw = localStorage.getItem('user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const role = (typeof parsed.role === 'object' ? parsed.role?.name : parsed.role) || '';
+          const roleLower = String(role).toLowerCase();
+          const dept = (typeof parsed.department === 'object' ? parsed.department?.name : parsed.department) || '';
+          const deptLower = String(dept).toLowerCase();
+          const isStaff =
+            roleLower.includes('admin') ||
+            roleLower.includes('employee') ||
+            roleLower.includes('cs') ||
+            roleLower.includes('customer service') ||
+            deptLower.includes('admin') ||
+            deptLower.includes('employee') ||
+            deptLower.includes('cs') ||
+            deptLower.includes('customer service');
+          if (!isStaff) {
+            localStorage.removeItem('user');
+          }
+        }
+      } catch {}
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:unauthorized'));
       }
