@@ -486,4 +486,21 @@ class AiChatController extends Controller
         $cleaned = trim(preg_replace('/[^\w\s]/', '', strtolower($title)));
         return in_array($cleaned, $greetings, true);
     }
+
+    /**
+     * POST /api/classify-department
+     * Classifies whether a ticket issue belongs to IT or Service.
+     */
+    public function classifyDepartment(Request $request)
+    {
+        $title = (string) $request->input('title', '');
+        $description = (string) $request->input('description', '');
+
+        $classification = $this->geminiService->classifyDepartment($title, $description);
+
+        return response()->json([
+            'success' => true,
+            'data' => $classification,
+        ]);
+    }
 }

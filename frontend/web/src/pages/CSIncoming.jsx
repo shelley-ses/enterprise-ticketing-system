@@ -256,7 +256,9 @@ export default function CSIncoming() {
           status: row.is_active ? 'active' : 'inactive',
           department: row.department?.trim() || 'Unassigned',
           branch: row.branch || row.branch_name || 'Main',
-          position_level: row.position_level || row.level || row.designation || (row.role?.toLowerCase().includes('senior') ? 'Senior / L2' : (row.role?.toLowerCase().includes('lead') ? 'Lead / L3' : 'L1 / Associate')),
+          position_level: (row.position_level && !['senior', 'mid', 'junior'].includes(String(row.position_level).toLowerCase()))
+            ? row.position_level
+            : (row.role?.toLowerCase().includes('manager') ? 'Manager' : ((row.department || '').toLowerCase() === 'service' ? 'Engineer' : 'Employee')),
           technical_role: row.technical_role || row.role || 'Service Technician',
           availability: row.availability || (row.is_active || row.status === 'active' ? 'Available' : 'Unavailable'),
         }))

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import axiosInstance from '@/api/axiosInstance';
-import { TICKET_API_URL, EMPLOYEE_API_URL, AUTH_ENDPOINTS } from '@/config/api.config';
+import { TICKET_API_URL, EMPLOYEE_API_URL, AUTH_ENDPOINTS, AI_API_URL } from '@/config/api.config';
 import tokenStore from '@/auth/tokenStore';
 import { refreshAccessToken } from '@/auth/refreshSession';
 
@@ -650,8 +650,12 @@ export const clearAssignableEmployeesCache = () => {
 
 export const getEligibleEmployees = async (ticketId, { track } = {}) => {
   const normalizedId = typeof ticketId === 'object' ? (ticketId.ticket_ID || ticketId.id) : ticketId;
-  const cleanId = Number(String(normalizedId || '').replace(/\D/g, ''));
-  const params = track ? { track } : {};
+  const cleanId = Number(String(normalizedId || 0).replace(/\D/g, ''));
+  const resolvedTrack = track || (typeof ticketId === 'object' ? (ticketId.track || ticketId.category) : undefined);
+  const params = {};
+  if (resolvedTrack) params.track = resolvedTrack;
+  if (typeof ticketId === 'object' && ticketId.branch_id) params.branch_id = ticketId.branch_id;
+  if (typeof ticketId === 'object' && ticketId.problem_category_ID) params.category_id = ticketId.problem_category_ID;
 
   let response;
   try {
@@ -1564,3 +1568,29 @@ export const getSecurityIncidentDetail = async (incidentId) => {
   return response.data;
 };
 
+
+
+export const classifyDepartment = async (title, description) => {
+  try {
+    const response = await axiosInstance.post(`${AI_API_URL || '/api/ticketing/ai'}/classify-department`, {
+      title,
+      description,
+    });
+    return response.data?.data || response.data;
+  } catch (err) {
+    console.warn('AI classification request error, falling back to local heuristic:', err);
+    const text = `${title} ${description}`.toLowerCase();
+    const isSoftware = /(software|app|login|password|account|portal|bug|glitch|crash|freeze|network|wifi|database|timeout|license)/i.test(text);
+    return {
+      department: isSoftware ? 'IT' : 'Service',
+      department_id: isSoftware ? 2 : 1,
+      is_software: isSoftware,
+      requires_equipment: !isSoftware,
+      confidence: 0.8,
+      reasoning: isSoftware
+        ? 'Your problem description indicates a software or account issue. Physical equipment is optional.'
+        : 'Your problem description indicates physical machinery or hardware maintenance. Equipment selection is required.',
+      source: 'client-fallback'
+    };
+  }
+};

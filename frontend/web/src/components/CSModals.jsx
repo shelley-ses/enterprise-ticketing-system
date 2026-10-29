@@ -2333,18 +2333,15 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   const [eligibilityData, setEligibilityData] = useState(null);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
   const [eligibilityError, setEligibilityError] = useState(null);
-  const [activeTab, setActiveTab] = useState('eligible'); // 'eligible' | 'ineligible' | 'managers'
+  const [activeTab, setActiveTab] = useState('eligible'); // 'eligible' | 'managers'
 
   useLockBodyScroll(!!ticket);
 
   if (!ticket) return null;
 
   const CATEGORY_CHOICES = [
-    'Biomedical Equipment',
-    'Hardware Breakdown',
-    'Network / IT Infrastructure',
-    'Software / Application',
-    'General Inquiry & Maintenance',
+    'Service',
+    'IT',
   ];
 
   const loadEligibility = async (targetCategory) => {
@@ -2377,10 +2374,15 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
 
   const eligibleEmployeesList = useMemo(() => {
     if (eligibilityData?.eligible_employees && Array.isArray(eligibilityData.eligible_employees)) {
+      if (department && department.trim() !== '') {
+        return eligibilityData.eligible_employees.filter(
+          (e) => (e.department || '').toLowerCase() === department.trim().toLowerCase()
+        );
+      }
       return eligibilityData.eligible_employees;
     }
     return [];
-  }, [eligibilityData]);
+  }, [eligibilityData, department]);
 
   const ineligibleEmployeesList = useMemo(() => {
     if (eligibilityData?.ineligible_employees && Array.isArray(eligibilityData.ineligible_employees)) {
@@ -2394,14 +2396,8 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   }, [eligibilityData]);
 
   const filteredDepartments = useMemo(() => {
-    const list = (departments || []).filter(
-      (d) => !['customer service', 'customer support', 'cs'].includes(d.toLowerCase().trim())
-    );
-    if (!list.some((d) => d.toLowerCase() === 'others')) {
-      list.push('Others');
-    }
-    return list;
-  }, [departments]);
+    return ['Service', 'IT'];
+  }, []);
 
 
   const toggleEmp = (id) => {
@@ -2501,7 +2497,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
   };
 
   const currentRule = eligibilityData?.rule || null;
-  const ticketBranch = ticket?.branch || ticket?.branch_name || 'Manila Main Branch';
+  const ticketBranch = ticket?.branch || ticket?.branch_name || 'Main Branch';
 
   return (
     <>
@@ -2681,18 +2677,6 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveTab('ineligible')}
-                    className={`text-xs font-bold pb-2 px-1 border-b-2 transition-all flex items-center gap-1.5 ${
-                      activeTab === 'ineligible'
-                        ? 'border-primary text-primary'
-                        : 'border-transparent text-slate-muted hover:text-slate-dark'
-                    }`}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    Ineligible ({ineligibleEmployeesList.length})
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setActiveTab('managers')}
                     className={`text-xs font-bold pb-2 px-1 border-b-2 transition-all flex items-center gap-1.5 ${
                       activeTab === 'managers'
@@ -2800,15 +2784,6 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                             >
                               <Users className="w-3.5 h-3.5 mr-1" /> View Escalation Managers
                             </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setActiveTab('ineligible')}
-                              className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
-                            >
-                              Inspect Disqualified Candidates ({ineligibleEmployeesList.length})
-                            </Button>
                           </div>
                         </div>
                       </div>
@@ -2819,8 +2794,13 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         const isSelected = selectedEmployees.some((x) => Number(x) === Number(emp.id));
                         const isAvailable = emp.status === 'active' || emp.is_active || emp.availability === 'Available';
                         const branchName = emp.branch || emp.branch_name || ticketBranch;
-                        const posLevel = emp.position_level || 'Senior';
-                        const techRole = emp.technical_role || 'Specialist';
+                        const defaultPos = (emp.department || '').toLowerCase() === 'service' ? 'Engineer' : 'Employee';
+                        const posLevel = (emp.position_level && !['senior', 'mid', 'junior'].includes(String(emp.position_level).toLowerCase()))
+                          ? emp.position_level
+                          : (emp.role?.toLowerCase().includes('manager') ? 'Manager' : defaultPos);
+                        const techRole = (emp.technical_role && !['specialist', 'technician', 'service technician', 'it support specialist'].includes(String(emp.technical_role).toLowerCase()))
+                          ? emp.technical_role
+                          : posLevel;
 
                         return (
                           <label
@@ -2872,46 +2852,6 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                 </>
               )}
 
-              {/* Tab 2: Ineligible Candidates List */}
-              {!loadingEligibility && !eligibilityError && activeTab === 'ineligible' && (
-                <div className="space-y-2">
-                  <div className="text-xs text-slate-muted bg-slate-100 p-2.5 rounded-lg">
-                    These personnel are ineligible for assignment based on category rules (insufficient position seniority, unauthorized technical role, department mismatch, or branch restrictions).
-                  </div>
-                  <div className="max-h-60 overflow-auto bg-page border border-border rounded-xl p-2 space-y-1.5">
-                    {ineligibleEmployeesList.map((emp) => (
-                      <div
-                        key={emp.id}
-                        className="flex items-start justify-between gap-2 px-3 py-2.5 rounded-lg bg-card/60 border border-slate-200/60 opacity-80"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-medium text-slate-600 line-through">{emp.name}</span>
-                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
-                              {emp.branch || emp.branch_name || 'Main'}
-                            </span>
-                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
-                              {emp.position_level || 'Junior'}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            Role: {emp.technical_role || 'Technician'} • Dept: {emp.department || 'General'}
-                          </div>
-                          {emp.ineligibility_reason && (
-                            <div className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 rounded px-2 py-0.5">
-                              {emp.ineligibility_reason}
-                            </div>
-                          )}
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase shrink-0">
-                          Disqualified
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Tab 3: Department Managers Escalation Contacts */}
               {!loadingEligibility && !eligibilityError && activeTab === 'managers' && (
                 <div className="space-y-3">
@@ -2919,7 +2859,7 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                     Designated Department Managers for SLA breach notification and technical escalation routing:
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Service Manager */}
                     <div className="bg-card border border-border rounded-xl p-3 shadow-xs">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-primary mb-1">
