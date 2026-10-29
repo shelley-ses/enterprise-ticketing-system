@@ -103,8 +103,18 @@ class TicketController extends Controller
         } else {
             $request->merge(['attachments' => []]);
         }
+
+        $deptId = (int) $request->input('department_id', 2);
+        $isServiceDept = ($deptId === 1);
+
+        if ($request->has('machine_ID') && ($request->input('machine_ID') === '' || $request->input('machine_ID') === 'null' || $request->input('machine_ID') === null)) {
+            $request->merge(['machine_ID' => null]);
+        }
+
         $validated = $request->validate([
-            'machine_ID' => ['required', 'integer', 'exists:machines,machine_ID'],
+            'machine_ID' => $isServiceDept
+                ? ['required', 'integer', 'exists:machines,machine_ID']
+                : ['nullable', 'integer', 'exists:machines,machine_ID'],
             'problem_category_ID' => ['required', 'integer', 'exists:problem_categories,problem_category_ID'],
             'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
             'branch_id' => ['nullable', 'string', 'max:64', 'exists:branches,slug'],
@@ -114,9 +124,8 @@ class TicketController extends Controller
             'attachments.*' => ['integer'],
             'origin' => ['nullable', 'string', 'max:50'],
             'conversation_id' => ['nullable', 'string', 'max:64'],
+            'department_id' => ['nullable', 'integer'],
         ]);
-
-        $deptId = (int) $request->input('department_id', 2);
 
         try {
             $result = $this->ticketService->createTicket($validated, $user, $deptId);

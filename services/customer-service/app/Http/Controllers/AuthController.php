@@ -158,32 +158,8 @@ class AuthController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        // Cleanup stale active DB statuses before mapping
-        $activeDbEmployees = Employee::where('is_active', true)->whereNotIn('role', ['customer service', 'head of cs', 'head of customer service', 'cs'])->get();
-        $staleEmpIds = [];
-        
-        if ($activeDbEmployees->isNotEmpty()) {
-            $activePresenceKeys = $activeDbEmployees->map(fn($emp) => 'employee:presence:' . $emp->emp_id)->all();
-            $activePresences = Cache::store('redis')->many($activePresenceKeys);
-            
-            foreach ($activeDbEmployees as $emp) {
-                $key = 'employee:presence:' . $emp->emp_id;
-                $hasPresence = isset($activePresences[$key]) && $activePresences[$key] !== null;
-                if (!$hasPresence) {
-                    $staleEmpIds[] = $emp->emp_id;
-                }
-            }
-        }
-
-        if (!empty($staleEmpIds)) {
-            Employee::whereIn('emp_id', $staleEmpIds)->update(['is_active' => false]);
-            $updatedEmps = Employee::whereIn('emp_id', $staleEmpIds)->get();
-            foreach ($updatedEmps as $emp) {
-                \App\Events\EmployeeStatusChanged::dispatch($emp);
-            }
-        }
-
         $query = Employee::query()
+            ->where('is_active', true)
             ->where('role', '!=', 'customer service')
             ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?, ?, ?, ?)', ['superadmin', 'super admin', 'admin', 'system administrator', 'system admin'])
             ->whereRaw('LOWER(COALESCE(department, "")) NOT IN (?, ?)', ['admin', 'super admin'])
@@ -205,12 +181,16 @@ class AuthController extends Controller
             $presenceKey = 'employee:presence:' . $employee->emp_id;
             $presence = $statusPresences[$presenceKey] ?? [];
 
-            $role = $employee->role ?? 'Technician';
-            $posLevel = 'L1 / Associate';
-            if (stripos($role, 'lead') !== false || stripos($role, 'manager') !== false) {
-                $posLevel = 'Lead / L3';
-            } elseif (stripos($role, 'senior') !== false || stripos($role, 'specialist') !== false) {
-                $posLevel = 'Senior / L2';
+            $role = $employee->role ?? 'service';
+            $dept = $employee->department ?? 'Service';
+            $defaultPos = (strcasecmp($dept, 'Service') === 0) ? 'Engineer' : 'Employee';
+            $posLevel = $employee->position_level;
+            if (empty($posLevel) || in_array(strtolower((string)$posLevel), ['senior', 'mid', 'junior'])) {
+                $posLevel = (stripos($role, 'manager') !== false) ? 'Manager' : $defaultPos;
+            }
+            $techRole = $employee->technical_role;
+            if (empty($techRole) || in_array(strtolower((string)$techRole), ['specialist', 'technician', 'service technician', 'it support specialist'])) {
+                $techRole = $posLevel;
             }
 
             $isActive = (bool) data_get($presence, 'is_active', false);
@@ -224,9 +204,9 @@ class AuthController extends Controller
                 'first_name' => $employee->first_name,
                 'last_name' => $employee->last_name,
                 'role' => $role,
-                'technical_role' => $role,
+                'technical_role' => $techRole,
                 'position_level' => $posLevel,
-                'branch' => $employee->branch ?? 'Main',
+                'branch' => $employee->branch ?? 'Main Branch',
                 'department' => $employee->department,
                 'is_active' => $isActive,
                 'availability' => $availability,

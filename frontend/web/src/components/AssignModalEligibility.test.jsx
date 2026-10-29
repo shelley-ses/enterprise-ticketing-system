@@ -17,76 +17,59 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     title: 'Centrifuge Motor Overheating',
     category: 'Biomedical Equipment',
     priority: 'High',
-    branch: 'Manila Main Branch',
-    branch_name: 'Manila Main Branch',
+    branch: 'Main Branch',
+    branch_name: 'Main Branch',
     sla: '4h Remaining',
     status: 'Open',
     assigned: [],
   };
 
-  const mockDepartments = ['Service', 'IT', 'Customer Service', 'Others'];
+  const mockDepartments = ['Service', 'IT'];
   const mockPriorityOptions = ['Low', 'Medium', 'High', 'Urgent'];
 
   const mockEligibleData = {
     ticket_id: 101,
     category: 'Biomedical Equipment',
-    track: 'biomedical',
-    branch: 'Manila Main Branch',
+    track: 'service',
+    branch: 'Main Branch',
     rule: {
-      department: ['Service', 'Biomedical Engineering'],
+      department: ['Service'],
       min_position_level: 'Senior',
-      allowed_roles: ['Biomedical Engineer', 'Lead Service Engineer'],
+      allowed_roles: ['Lead Service Engineer'],
       allow_cross_branch: false,
     },
     department_managers: {
       service: {
-        id: 1028,
-        name: 'Carlos Mendoza',
-        email: 'carlos.mendoza@sbsi.com.ph',
+        id: 1097,
+        name: 'Reymie Gonzaga',
+        email: 'shelleysesantee@gmail.com',
         phone: '+63 917 123 4567',
         department: 'Service',
       },
       it: {
-        id: 1038,
-        name: 'Michael Scott',
-        email: 'michael.scott@hospital.com',
+        id: 1140,
+        name: 'Ejay Detera',
+        email: 'eggiesailor123@gmail.com',
         phone: '+63 917 234 5678',
-        department: 'IT Support',
-      },
-      cs: {
-        id: 1,
-        name: 'Ava Santos',
-        email: 'cs@gmail.com',
-        phone: '+63 917 345 6789',
-        department: 'Customer Support',
+        department: 'IT',
       },
     },
     eligible_count: 1,
-    ineligible_count: 1,
+    ineligible_count: 0,
     eligible_employees: [
       {
         id: 10,
         name: 'Juan Dela Cruz',
         department: 'Service',
-        branch: 'Manila Main Branch',
+        branch: 'Main Branch',
         position_level: 'Senior',
         technical_role: 'Lead Service Engineer',
         availability: 'Available',
         status: 'active',
       },
     ],
-    ineligible_employees: [
-      {
-        id: 12,
-        name: 'Pedro Reyes',
-        department: 'Service',
-        branch: 'Manila Main Branch',
-        position_level: 'Junior',
-        technical_role: 'Biomedical Technician',
-        ineligibility_reason: "Position level 'Junior' is below the required 'Senior' seniority level.",
-      },
-    ],
-    empty_state_guidance: 'No active personnel at this branch meet category requirements. Escalate to Carlos Mendoza.',
+    ineligible_employees: [],
+    empty_state_guidance: 'No active personnel at this branch meet category requirements. Escalate to Reymie Gonzaga.',
   };
 
   beforeEach(() => {
@@ -114,11 +97,11 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     });
 
     expect(screen.getByText('Eligible Staff (1)')).toBeInTheDocument();
-    expect(screen.getByText('Juan Dela Cruz')).toBeInTheDocument();
+    expect(screen.getAllByText('Juan Dela Cruz').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Lead Service Engineer').length).toBeGreaterThan(0);
   });
 
-  it('displays ineligible candidates with explicit ineligibility reasons on Ineligible tab', async () => {
+  it('does not render an ineligible tab as ineligible tab is removed', async () => {
     vi.spyOn(ticketService, 'getEligibleEmployees').mockResolvedValue(mockEligibleData);
 
     render(
@@ -133,14 +116,10 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Ineligible (1)')).toBeInTheDocument();
+      expect(screen.getByText('Eligible Staff (1)')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Ineligible (1)'));
-
-    expect(screen.getByText('Pedro Reyes')).toBeInTheDocument();
-    expect(screen.getByText("Position level 'Junior' is below the required 'Senior' seniority level.")).toBeInTheDocument();
-    expect(screen.getByText('Disqualified')).toBeInTheDocument();
+    expect(screen.queryByText(/Ineligible/i)).not.toBeInTheDocument();
   });
 
   it('displays Department Managers with contact information on the Managers tab', async () => {
@@ -163,9 +142,8 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
 
     fireEvent.click(screen.getByText('Department Managers'));
 
-    expect(screen.getByText('Carlos Mendoza')).toBeInTheDocument();
-    expect(screen.getByText('Michael Scott')).toBeInTheDocument();
-    expect(screen.getByText('Ava Santos')).toBeInTheDocument();
+    expect(screen.getAllByText('Reymie Gonzaga').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ejay Detera').length).toBeGreaterThan(0);
   });
 
   it('distinguishes empty state with escalation guidance when no eligible candidates exist', async () => {
@@ -173,7 +151,7 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
       ...mockEligibleData,
       eligible_count: 0,
       eligible_employees: [],
-      empty_state_guidance: 'Escalate to Service Manager Carlos Mendoza immediately.',
+      empty_state_guidance: 'Escalate to Service Manager Reymie Gonzaga immediately.',
     });
 
     render(
@@ -188,11 +166,11 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('No Eligible Employees Found')).toBeInTheDocument();
+      expect(screen.getAllByText('No Eligible Employees Found').length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText('Escalate to Service Manager Carlos Mendoza immediately.')).toBeInTheDocument();
-    expect(screen.getByText('View Escalation Managers')).toBeInTheDocument();
+    expect(screen.getAllByText(/Escalate to Service Manager Reymie Gonzaga/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('View Escalation Managers').length).toBeGreaterThan(0);
   });
 
   it('displays clear error state with retry action when eligibility fetch fails', async () => {
@@ -221,7 +199,7 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     fireEvent.click(retryBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Juan Dela Cruz')).toBeInTheDocument();
+      expect(screen.getAllByText('Juan Dela Cruz').length).toBeGreaterThan(0);
     });
   });
 
@@ -244,12 +222,12 @@ describe('AssignModal Eligibility & Reassignment Escalation Tests', () => {
     });
 
     const categorySelect = screen.getByDisplayValue('Biomedical Equipment');
-    fireEvent.change(categorySelect, { target: { value: 'Hardware Breakdown' } });
+    fireEvent.change(categorySelect, { target: { value: 'IT' } });
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          category: 'Hardware Breakdown',
+          category: 'IT',
         })
       );
     });

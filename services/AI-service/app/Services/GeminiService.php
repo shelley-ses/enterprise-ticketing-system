@@ -429,4 +429,124 @@ class GeminiService
 
         return false;
     }
+
+    /**
+     * Classify whether a ticket issue belongs to IT (software/digital) or Service (hardware/machinery).
+     */
+    public function classifyDepartment(string $title, string $description): array
+    {
+        // Try Gemini if API key is present
+        if (!empty($this->apiKey)) {
+            try {
+                $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
+                $systemInstruction = "You are an enterprise hospital and clinic IT/Service desk triage assistant.\n"
+                    . "Your job is to classify incoming support tickets into one of two departments:\n"
+                    . "1. 'IT': For software, applications, portals, account access, login/passwords, network/WiFi/internet, database, EHR/EMR, UI bugs, server errors, digital system timeouts, or operating system issues. Software issues DO NOT require physical equipment/hardware.\n"
+                    . "2. 'Service': For physical medical machines, hardware breakdown, scanning equipment (MRI, CT, X-Ray), bedside monitors, sensors, physical cables, motors, physical damage, calibration, power supplies, or mechanical failures. Hardware issues REQUIRE physical equipment selection.\n\n"
+                    . "You must output strictly a raw JSON object with no markdown formatting:\n"
+                    . "{\"department\": \"IT\" or \"Service\", \"is_software\": true or false, \"confidence\": 0.90, \"reasoning\": \"1 concise sentence explaining the classification to the customer.\"}";
+
+                $payload = [
+                    'systemInstruction' => [
+                        'parts' => [['text' => $systemInstruction]]
+                    ],
+                    'contents' => [
+                        [
+                            'role' => 'user',
+                            'parts' => [['text' => "Ticket Title: {$title}\nDescription: {$description}"]]
+                        ]
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.1,
+                        'maxOutputTokens' => 200,
+                    ]
+                ];
+
+                $response = Http::withHeaders(['Content-Type' => 'application/json'])
+                    ->timeout(6)
+                    ->post($url, $payload);
+
+                if ($response->successful()) {
+                    $raw = $response->json('candidates.0.content.parts.0.text') ?? '';
+                    if (preg_match('/\{[\s\S]*\}/', $raw, $m)) {
+                        $data = json_decode($m[0], true);
+                        if (is_array($data) && isset($data['department'])) {
+                            $dept = strtoupper(trim($data['department'])) === 'IT' ? 'IT' : 'Service';
+                            $isSoftware = $dept === 'IT' || (!empty($data['is_software']) && $data['is_software'] === true);
+                            if ($isSoftware) $dept = 'IT';
+                            return [
+                                'department' => $dept,
+                                'department_id' => $dept === 'IT' ? 2 : 1,
+                                'is_software' => $dept === 'IT',
+                                'requires_equipment' => $dept !== 'IT',
+                                'confidence' => isset($data['confidence']) ? (float) $data['confidence'] : 0.9,
+                                'reasoning' => $data['reasoning'] ?? ($dept === 'IT'
+                                    ? 'This issue relates to software or digital systems. Physical equipment selection is optional.'
+                                    : 'This issue involves physical hardware or machinery inspection. Equipment selection is required.'),
+                                'source' => 'gemini'
+                            ];
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Gemini department classification failed, falling back to heuristics: ' . $e->getMessage());
+            }
+        }
+
+        // Resilient heuristic classification fallback
+        return $this->heuristicClassifyDepartment($title, $description);
+    }
+
+    /**
+     * Resilient keyword based heuristic classification when AI is unavailable or offline.
+     */
+    public function heuristicClassifyDepartment(string $title, string $description): array
+    {
+        $text = strtolower($title . ' ' . $description);
+
+        $softwareKeywords = [
+            'software', 'app', 'application', 'login', 'logout', 'password', 'auth', 'account', 'user',
+            'portal', 'permission', 'role', 'bug', 'glitch', 'crash', 'freeze', 'freezing', 'ui', 'interface',
+            'network', 'wifi', 'wi-fi', 'internet', 'connection', 'timeout', 'database', 'sql', 'query',
+            'sync', 'syncing', 'update', 'upgrade', 'install', 'installation', 'browser', 'chrome', 'license',
+            'api', 'slow system', 'page error', '404', '500', 'code', 'script', 'export', 'import', 'csv',
+            'pdf generation', 'email notification', 'reset password', 'credential', 'dashboard'
+        ];
+
+        $hardwareKeywords = [
+            'machine', 'hardware', 'scanner', 'mri', 'ct scan', 'xray', 'x-ray', 'monitor', 'bedside',
+            'sensor', 'cable', 'cord', 'power supply', 'outlet', 'smoke', 'burnt', 'leak', 'water',
+            'noise', 'vibration', 'motor', 'fan', 'broken', 'cracked', 'physical', 'lens', 'pump',
+            'valve', 'calibration', 'cartridge', 'tray', 'arm', 'wheel', 'plug', 'battery', 'overheating'
+        ];
+
+        $softwareScore = 0;
+        foreach ($softwareKeywords as $word) {
+            if (str_contains($text, $word)) {
+                $softwareScore++;
+            }
+        }
+
+        $hardwareScore = 0;
+        foreach ($hardwareKeywords as $word) {
+            if (str_contains($text, $word)) {
+                $hardwareScore++;
+            }
+        }
+
+        $isSoftware = ($softwareScore >= $hardwareScore && $softwareScore > 0) || ($softwareScore > 0 && $hardwareScore === 0);
+        $dept = $isSoftware ? 'IT' : 'Service';
+
+        return [
+            'department' => $dept,
+            'department_id' => $dept === 'IT' ? 2 : 1,
+            'is_software' => $dept === 'IT',
+            'requires_equipment' => $dept !== 'IT',
+            'confidence' => $isSoftware ? 0.85 : 0.80,
+            'reasoning' => $dept === 'IT'
+                ? 'Your problem description indicates a software or digital system issue. Physical equipment is optional.'
+                : 'Your problem description indicates physical machinery or hardware maintenance. Equipment selection is required.',
+            'source' => 'heuristic'
+        ];
+    }
 }
