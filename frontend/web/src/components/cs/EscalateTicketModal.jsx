@@ -40,13 +40,13 @@ export const resolveCategoryType = (categoryName = '', departmentName = '') => {
 
   // IT: Technical role / team rules
   if (
-    normCat.includes('it') ||
+    /\bit\b/i.test(normCat) ||
+    normCat.includes('information tech') ||
     normCat.includes('software') ||
     normCat.includes('hardware') ||
     normCat.includes('network') ||
     normCat.includes('system') ||
-    normCat.includes('security') ||
-    normDept.includes('it')
+    /\bit\b/i.test(normDept)
   ) {
     return 'it';
   }
@@ -83,101 +83,64 @@ export default function EscalateTicketModal({
     return resolveCategoryType(categoryName, departmentName);
   }, [categoryName, departmentName]);
 
-  // Compute eligible candidates based strictly on the category rule
+  const resolvedDept = useMemo(() => {
+    const rawDept = String(departmentName || '').toLowerCase().trim();
+    if (rawDept.includes('service') || rawDept.includes('engineering') || rawDept.includes('biomedical')) {
+      return 'Service';
+    }
+    if (/\bit\b/i.test(rawDept) || rawDept.includes('information tech') || rawDept.includes('network') || rawDept.includes('system')) {
+      return 'IT';
+    }
+    if (rawDept.includes('customer service') || rawDept === 'cs') {
+      return 'Customer Service';
+    }
+    if (departmentName && departmentName.trim()) {
+      return departmentName.trim();
+    }
+    if (categoryType === 'service') return 'Service';
+    if (categoryType === 'it') return 'IT';
+    return 'Service';
+  }, [departmentName, categoryType]);
+
+  // Compute eligible candidates: strictly employees who have the "Manager" role in the ticket's department
   const eligibleCandidates = useMemo(() => {
     if (!employees || employees.length === 0) return [];
 
-    if (categoryType === 'service') {
-      // Position Level escalation: Senior Engineers, L2, L3, Supervisors, Managers in Service/Engineering/Biomedical
-      return employees.filter((emp) => {
-        const role = String(emp.role || emp.position || '').toLowerCase();
-        const dept = String(emp.department || '').toLowerCase();
-        const level = String(emp.position_level || '').toLowerCase();
-        const techRole = String(emp.technical_role || '').toLowerCase();
+    const normDept = resolvedDept.toLowerCase();
 
-        const isServiceDept =
-          dept.includes('service') ||
-          dept.includes('engineering') ||
-          dept.includes('operations') ||
-          dept.includes('biomedical') ||
-          dept.includes('radiology') ||
-          dept.includes('facilities') ||
-          dept.includes('equipment');
-
-        const isHigherTier =
-          level.includes('senior') ||
-          level.includes('lead') ||
-          level.includes('manager') ||
-          level.includes('l2') ||
-          level.includes('l3') ||
-          role.includes('senior') ||
-          role.includes('lead') ||
-          role.includes('supervisor') ||
-          role.includes('manager') ||
-          role.includes('specialist') ||
-          role.includes('l2') ||
-          role.includes('l3') ||
-          techRole.includes('senior') ||
-          techRole.includes('lead') ||
-          techRole.includes('specialist') ||
-          techRole.includes('manager');
-
-        return isServiceDept && isHigherTier;
-      });
-    }
-
-    if (categoryType === 'it') {
-      // Technical Role / Team escalation: IT Admin, System Admin, Software Engineer, Security, Network
-      return employees.filter((emp) => {
-        const role = String(emp.role || emp.position || '').toLowerCase();
-        const dept = String(emp.department || '').toLowerCase();
-        const level = String(emp.position_level || '').toLowerCase();
-        const techRole = String(emp.technical_role || '').toLowerCase();
-
-        const isIT = dept.includes('it') || dept.includes('information tech') || dept.includes('network');
-        const isTechRole =
-          level.includes('senior') ||
-          level.includes('lead') ||
-          level.includes('manager') ||
-          role.includes('admin') ||
-          role.includes('engineer') ||
-          role.includes('security') ||
-          role.includes('system') ||
-          role.includes('lead') ||
-          role.includes('senior') ||
-          role.includes('manager') ||
-          techRole.includes('admin') ||
-          techRole.includes('system') ||
-          techRole.includes('network') ||
-          techRole.includes('specialist');
-
-        return isIT || isTechRole;
-      });
-    }
-
-    // 'others': Configured routing target (Operations Leads, Supervisors, Managers, CS Seniors)
     return employees.filter((emp) => {
-      const role = String(emp.role || emp.position || '').toLowerCase();
-      const dept = String(emp.department || '').toLowerCase();
-      const level = String(emp.position_level || '').toLowerCase();
-      const techRole = String(emp.technical_role || '').toLowerCase();
+      const level = String(emp.position_level || '').toLowerCase().trim();
+      const role = String(emp.role || emp.position || '').toLowerCase().trim();
+      const techRole = String(emp.technical_role || '').toLowerCase().trim();
+      const empDept = String(emp.department || '').toLowerCase().trim();
 
-      const isLeadOrSenior =
-        level.includes('senior') ||
-        level.includes('lead') ||
+      const isManager =
+        level === 'manager' ||
         level.includes('manager') ||
-        role.includes('supervisor') ||
+        role === 'manager' ||
         role.includes('manager') ||
-        role.includes('lead') ||
-        role.includes('admin') ||
-        role.includes('head') ||
-        role.includes('senior') ||
-        techRole.includes('senior') ||
-        techRole.includes('lead');
+        role.includes('head of cs') ||
+        role.includes('head of customer service') ||
+        techRole.includes('manager');
 
-      return isLeadOrSenior || dept.includes('operations') || dept.includes('customer service') || dept.includes('facilities') || dept.includes('finance');
+      if (!isManager) {
+        return false;
+      }
+
+      // Department matching
+      if (normDept.includes('service')) {
+        return empDept.includes('service') || empDept.includes('engineering') || empDept.includes('biomedical');
+      }
+      if (/\bit\b/i.test(normDept)) {
+        return /\bit\b/i.test(empDept) || empDept.includes('information tech') || empDept.includes('network') || empDept.includes('system');
+      }
+      if (normDept.includes('customer service')) {
+        return empDept.includes('customer service') || empDept === 'cs';
+      }
+
+      return empDept.includes(normDept);
     });
-  }, [employees, categoryType]);
+  }, [employees, resolvedDept]);
 
   // Auto-select first eligible candidate when candidates load
   useEffect(() => {
@@ -201,11 +164,11 @@ export default function EscalateTicketModal({
   const handleConfirm = async (e) => {
     e.preventDefault();
     if (eligibleCandidates.length === 0) {
-      setValidationError('Cannot escalate: No eligible recipients available.');
+      setValidationError(`Cannot escalate: No active Manager found in the ${resolvedDept} Department.`);
       return;
     }
     if (!selectedCandidate) {
-      setValidationError('Please select an escalation recipient target.');
+      setValidationError('Please select the Department Manager to receive this escalation.');
       return;
     }
     if (!escalationReason.trim()) {
@@ -263,26 +226,18 @@ export default function EscalateTicketModal({
 
         {/* Modal Body */}
         <form onSubmit={handleConfirm} className="p-6 overflow-y-auto space-y-5 flex-1">
-          {/* Category Rule Badge Banner */}
+          {/* Department Manager Escalation Banner */}
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Category Escalation Rule
+                Department Leadership Escalation
               </span>
               <Badge variant="outline" className="text-xs font-semibold bg-white border-slate-300 text-[#252578]">
-                {categoryType === 'service'
-                  ? 'Service: Position Level (L1 → L2/Senior)'
-                  : categoryType === 'it'
-                  ? 'IT: Technical Role / Team Specialization'
-                  : 'Others: Configured Operations Routing'}
+                {resolvedDept} Department Manager
               </Badge>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              {categoryType === 'service'
-                ? `Ticket category "${categoryName || 'Service'}" requires escalation along tiered position levels. The system will route to a qualified Senior Field Service Engineer or Technical Specialist.`
-                : categoryType === 'it'
-                ? `Ticket category "${categoryName || 'IT'}" requires technical role-based qualification. Routing targets designated Systems Administrators and Technical Engineers.`
-                : `Ticket category "${categoryName || 'General'}" routes per the configured operational escalation path to Operations Leads and Supervisors.`}
+              Ticket escalation elevates this ticket directly to the designated Manager of the {resolvedDept} Department for supervisory oversight and leadership assignment.
             </p>
           </div>
 
@@ -292,16 +247,10 @@ export default function EscalateTicketModal({
               <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div className="text-xs space-y-1">
                 <p className="font-bold text-rose-900">
-                  Blocked Escalation: No Eligible Recipients Found
+                  Blocked Escalation: No {resolvedDept} Manager Found
                 </p>
                 <p className="text-rose-700 leading-relaxed">
-                  No personnel matching the category-specific qualifications (
-                  {categoryType === 'service'
-                    ? 'Higher Position Level / Senior Field Specialist'
-                    : categoryType === 'it'
-                    ? 'Specialized Technical Role / System Administrator'
-                    : 'Designated Operations Lead'}
-                  ) are currently available in the active employee directory. Escalation is temporarily blocked until an eligible target is online.
+                  Escalation is restricted exclusively to personnel with the Manager role in the {resolvedDept} Department. No active Manager was found in the directory for this department.
                 </p>
               </div>
             </div>

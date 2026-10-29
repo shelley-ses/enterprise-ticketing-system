@@ -662,6 +662,39 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
   const [currentStatus, setCurrentStatus] = useState(ticket?.status || 'Pending');
   const [currentHoldReason, setCurrentHoldReason] = useState(ticket?.hold_reason || '');
 
+  const dynamicDepartmentManagers = useMemo(() => {
+    const list = Array.isArray(employees) ? employees : [];
+    const serviceMgr = list.find(e =>
+      String(e.department || '').toLowerCase() === 'service' &&
+      (String(e.position_level || '').toLowerCase() === 'manager' || String(e.role || '').toLowerCase().includes('manager'))
+    );
+    const itMgr = list.find(e =>
+      String(e.department || '').toLowerCase() === 'it' &&
+      (String(e.position_level || '').toLowerCase() === 'manager' || String(e.role || '').toLowerCase().includes('manager'))
+    );
+    const csMgr = list.find(e =>
+      (String(e.department || '').toLowerCase().includes('customer service') || String(e.department || '').toLowerCase() === 'cs') &&
+      (String(e.position_level || '').toLowerCase() === 'manager' || String(e.role || '').toLowerCase().includes('manager'))
+    );
+    return {
+      service: serviceMgr ? {
+        name: serviceMgr.name,
+        role: serviceMgr.technical_role || 'Service Manager',
+        email: serviceMgr.email || '',
+      } : null,
+      it: itMgr ? {
+        name: itMgr.name,
+        role: itMgr.technical_role || 'IT Manager',
+        email: itMgr.email || '',
+      } : null,
+      cs: csMgr ? {
+        name: csMgr.name,
+        role: csMgr.technical_role || 'Customer Service Manager',
+        email: csMgr.email || '',
+      } : null,
+    };
+  }, [employees]);
+
   // Dynamic SLA Due Date & SLA Status states for instant in-place reflection
   const [currentSlaDueDate, setCurrentSlaDueDate] = useState(
     ticket?.resolution_due_at || ticket?.due_at || ticket?.sla_due_date || ticket?.sla?.resolution?.target || null
@@ -1648,21 +1681,21 @@ export function TicketSummary({ ticket, employees, onClose, onEdit, onStatusUpda
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
                               <div className="font-bold text-slate-800">Service Department</div>
-                              <div className="text-slate-700 font-medium mt-0.5">Carlos Mendoza</div>
-                              <div className="text-[10px] text-slate-500">Lead Service Engineer</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">carlos.mendoza@hospital.com</div>
+                              <div className="text-slate-700 font-medium mt-0.5">{dynamicDepartmentManagers?.service?.name || 'Unassigned'}</div>
+                              <div className="text-[10px] text-slate-500">{dynamicDepartmentManagers?.service?.role || 'Service Manager'}</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">{dynamicDepartmentManagers?.service?.email || 'N/A'}</div>
                             </div>
                             <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
                               <div className="font-bold text-slate-800">IT Department</div>
-                              <div className="text-slate-700 font-medium mt-0.5">Michael Scott</div>
-                              <div className="text-[10px] text-slate-500">IT Systems Specialist</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">michael.scott@hospital.com</div>
+                              <div className="text-slate-700 font-medium mt-0.5">{dynamicDepartmentManagers?.it?.name || 'Unassigned'}</div>
+                              <div className="text-[10px] text-slate-500">{dynamicDepartmentManagers?.it?.role || 'IT Manager'}</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">{dynamicDepartmentManagers?.it?.email || 'N/A'}</div>
                             </div>
                             <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2 text-[11px]">
                               <div className="font-bold text-slate-800">Customer Support</div>
-                              <div className="text-slate-700 font-medium mt-0.5">Ava Santos</div>
-                              <div className="text-[10px] text-slate-500">Customer Support Lead</div>
-                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">cs@gmail.com</div>
+                              <div className="text-slate-700 font-medium mt-0.5">{dynamicDepartmentManagers?.cs?.name || 'Unassigned'}</div>
+                              <div className="text-[10px] text-slate-500">{dynamicDepartmentManagers?.cs?.role || 'Customer Service Manager'}</div>
+                              <div className="text-[10px] text-primary truncate mt-0.5 font-mono">{dynamicDepartmentManagers?.cs?.email || 'N/A'}</div>
                             </div>
                           </div>
                         </div>
@@ -2867,13 +2900,13 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         Service Department
                       </div>
                       <p className="text-xs font-bold text-slate-dark">
-                        {departmentManagers?.service?.name || 'Carlos Mendoza'}
+                        {departmentManagers?.service?.name || 'Unassigned'}
                       </p>
                       <p className="text-[11px] text-slate-muted">Manager</p>
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.service?.email || 'carlos.mendoza@hospital.com'}</span>
+                          <span>{departmentManagers?.service?.email || 'N/A'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />
@@ -2889,13 +2922,13 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         IT Department
                       </div>
                       <p className="text-xs font-bold text-slate-dark">
-                        {departmentManagers?.it?.name || 'Michael Scott'}
+                        {departmentManagers?.it?.name || 'Unassigned'}
                       </p>
                       <p className="text-[11px] text-slate-muted">Manager</p>
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.it?.email || 'michael.scott@hospital.com'}</span>
+                          <span>{departmentManagers?.it?.email || 'N/A'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />
@@ -2911,13 +2944,13 @@ export function AssignModal({ ticket, employees, departments, priorityOptions, o
                         Customer Service
                       </div>
                       <p className="text-xs font-bold text-slate-dark">
-                        {departmentManagers?.cs?.name || 'Ava Santos'}
+                        {departmentManagers?.cs?.name || 'Unassigned'}
                       </p>
                       <p className="text-[11px] text-slate-muted">Manager</p>
                       <div className="mt-2 pt-2 border-t border-border/60 text-[10px] space-y-1 text-slate-600">
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="w-3 h-3 text-slate-muted shrink-0" />
-                          <span>{departmentManagers?.cs?.email || 'cs@gmail.com'}</span>
+                          <span>{departmentManagers?.cs?.email || 'N/A'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-muted shrink-0" />

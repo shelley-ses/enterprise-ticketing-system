@@ -99,7 +99,7 @@ class EmployeeDirectoryController extends Controller
                         'last_synced_at' => now(),
                     ]);
                 } else {
-                    $newId = max((int)DB::table('employees')->max('emp_id') + 1, 1101);
+                    $newId = (isset($u['id']) && (int)$u['id'] > 0) ? (int)$u['id'] : ((int)DB::table('employees')->max('emp_id') + 1);
                     DB::table('employees')->insert([
                         'emp_id' => $newId,
                         'email' => $email,
@@ -266,10 +266,6 @@ class EmployeeDirectoryController extends Controller
                       ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%']);
                 })
                 ->where('is_active', 1)
-                ->orderByRaw("CASE
-                    WHEN email = 'shelleysesantee@gmail.com' THEN 1
-                    WHEN email = 'eggiesailor123@gmail.com' THEN 1
-                    ELSE 2 END ASC")
                 ->orderByDesc('last_synced_at')
                 ->orderByDesc('emp_id')
                 ->select(
