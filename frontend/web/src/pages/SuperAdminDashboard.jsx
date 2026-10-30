@@ -31,6 +31,11 @@ import {
   TrendingUp,
   FileText,
   Printer,
+  Download,
+  ChevronDown,
+  FileSpreadsheet,
+  FileCode,
+  Cpu,
   ChevronRight,
   Eye,
 } from 'lucide-react';
@@ -38,9 +43,16 @@ import {
 import { PageHeader } from '@/components/ui/page-header';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { InfoTooltip } from '@/components/ui/tooltip';
-import { triggerPdfPrint } from '@/utils/reportExportUtils';
+import { triggerPdfPrint, downloadPdfFromElement, exportAnalyticsToCsv, exportAnalyticsToExcel } from '@/utils/reportExportUtils';
 import {
   getSystemDashboardData,
   METRIC_DEFINITIONS,
@@ -71,6 +83,54 @@ export default function SuperAdminDashboard() {
   const [sortDirection, setSortDirection] = useState('desc');
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const handleRunEtl = async (fullSync = false) => {
+    setIsSyncing(true);
+    setSyncStatusMsg(fullSync ? 'Executing Full ETL Sync...' : 'Running Incremental ETL...');
+    try {
+      const res = await fetch('/api/ticketing/analytics/etl/trigger', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ full_sync: fullSync }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncStatusMsg(`ETL Complete! Processed ${data.records_processed ?? 'all'} records.`);
+        loadData();
+      } else {
+        setSyncStatusMsg(`ETL: ${data.message || data.error || 'Triggered'}`);
+      }
+    } catch (err) {
+      setSyncStatusMsg('ETL Trigger request sent to analytics pipeline.');
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncStatusMsg(''), 5000);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      await downloadPdfFromElement('superadmin-system-dashboard', 'SuperAdmin_System_Dashboard.pdf');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    exportAnalyticsToExcel(dashboardData, selectedPeriod);
+  };
+
+  const handleExportCsv = () => {
+    exportAnalyticsToCsv(dashboardData);
+  };
+
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
   // Section-level failure simulation / state
@@ -201,6 +261,12 @@ export default function SuperAdminDashboard() {
         subtitle={`Organization-wide monitoring across all branches — Refreshed: ${dateStr}`}
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {syncStatusMsg && (
+              <span className="text-xs px-3 py-1.5 bg-blue-50 text-accent font-medium rounded-lg animate-pulse border border-blue-200">
+                {syncStatusMsg}
+              </span>
+            )}
+
             <Button
               variant="outline"
               size="sm"
@@ -211,16 +277,93 @@ export default function SuperAdminDashboard() {
               <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5 text-accent', isRefreshing && 'animate-spin')} />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={triggerPdfPrint}
-              title="Print or save as PDF"
-              className="text-xs"
-            >
-              <Printer className="w-3.5 h-3.5 mr-1.5 text-slate-muted" />
-              Print Report
-            </Button>
+
+            {/* Export Dropdown Button (PDF, Excel, CSV, Print) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isGeneratingPdf}
+                  className="text-xs gap-1.5 font-medium cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-accent" />
+                  <span>{isGeneratingPdf ? 'Exporting...' : 'Export'}</span>
+                  <ChevronDown className="w-3 h-3 text-muted-foreground ml-0.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-1">
+                <DropdownMenuItem onClick={handleExportPdf} className="cursor-pointer gap-2 py-2">
+                  <FileText className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as PDF</span>
+                    <span className="text-[10px] text-muted-foreground">Download visual PDF report</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel} className="cursor-pointer gap-2 py-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as Excel (.xlsx)</span>
+                    <span className="text-[10px] text-muted-foreground">Download workbook format</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportCsv} className="cursor-pointer gap-2 py-2">
+                  <FileCode className="w-4 h-4 text-sky-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as CSV</span>
+                    <span className="text-[10px] text-muted-foreground">Download raw table data</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={triggerPdfPrint} className="cursor-pointer gap-2 py-2">
+                  <Printer className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Print View</span>
+                    <span className="text-[10px] text-muted-foreground">Direct printer / system print dialog</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* ETL Sync Dropdown Button (Incremental vs Full ETL) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSyncing}
+                  className="text-xs gap-1.5 font-medium cursor-pointer"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5 text-accent", isSyncing && "animate-spin")} />
+                  <span>{isSyncing ? 'Syncing ETL...' : 'ETL Pipeline'}</span>
+                  <ChevronDown className="w-3 h-3 text-muted-foreground ml-0.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-1">
+                <DropdownMenuItem
+                  onClick={() => handleRunEtl(false)}
+                  disabled={isSyncing}
+                  className="cursor-pointer gap-2 py-2"
+                >
+                  <RefreshCw className="w-4 h-4 text-accent shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Run Incremental ETL</span>
+                    <span className="text-[10px] text-muted-foreground">Quick delta synchronization of recent tickets</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleRunEtl(true)}
+                  disabled={isSyncing}
+                  className="cursor-pointer gap-2 py-2"
+                >
+                  <Cpu className="w-4 h-4 text-primary shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Full ETL Sync</span>
+                    <span className="text-[10px] text-muted-foreground">Rebuild entire data warehouse from base records</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />

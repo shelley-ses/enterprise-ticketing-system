@@ -598,7 +598,7 @@ const fetchAssignableEmployees = async ({ department } = {}) => {
   });
   const rawData = response.data?.employees ?? [];
   // Filter to allowed departments and exclude superadmin and system administrator
-  const allowedDepts = ['Customer Service', 'IT', 'Service'];
+  const allowedDepts = ['Customer Service', 'IT', 'Service', 'IT Department'];
   const filtered = rawData.filter(emp => {
     const dept = emp.department?.trim();
     if (!allowedDepts.includes(dept)) return false;
@@ -1274,6 +1274,21 @@ export const deleteSuperAdminPriority = async (id) => {
 
 export const getSuperAdminAuditLogs = async () => {
   const response = await ticketClient.get('/superadmin/audit-logs');
+  return response.data;
+};
+
+export const getAuditLogRetentionConfig = async () => {
+  const response = await ticketClient.get('/superadmin/audit-logs/retention');
+  return response.data;
+};
+
+export const updateAuditLogRetentionConfig = async (retentionDays) => {
+  const response = await ticketClient.post('/superadmin/audit-logs/retention', { retention_days: retentionDays });
+  return response.data;
+};
+
+export const purgeAuditLogs = async (retentionDays) => {
+  const response = await ticketClient.post('/superadmin/audit-logs/purge', { retention_days: retentionDays });
   return response.data;
 };
 

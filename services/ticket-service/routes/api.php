@@ -425,6 +425,9 @@ Route::middleware('auth.subsystem')->group(function () {
         });
     Route::post('/superadmin/branches/{branchId}/reset', [BranchCategoryController::class, 'resetBranch']);
     Route::get('/superadmin/audit-logs', [SuperAdminConfigController::class, 'getSuperAdminAuditLogs']);
+    Route::get('/superadmin/audit-logs/retention', [SuperAdminConfigController::class, 'getLogRetentionConfig']);
+    Route::post('/superadmin/audit-logs/retention', [SuperAdminConfigController::class, 'updateLogRetentionConfig']);
+    Route::post('/superadmin/audit-logs/purge', [SuperAdminConfigController::class, 'purgeAuditLogs']);
     Route::get('/superadmin/history', [SuperAdminConfigController::class, 'getSuperAdminHistory']);
     Route::get('/superadmin/window-config', [SuperAdminConfigController::class, 'getWindowConfig']);
     Route::put('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);

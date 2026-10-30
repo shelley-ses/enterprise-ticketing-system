@@ -12,9 +12,18 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
-import { ChevronDown, TrendingUp, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer, Calendar } from 'lucide-react';
-import { exportAnalyticsToCsv, exportPredictiveToCsv, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
+import { ChevronDown, TrendingUp, FileSpreadsheet, FileCode, ShieldCheck, Users, Smile, Briefcase, Info, RefreshCw, Cpu, BarChart3, LineChart, Inbox, Clock, FileText, Download, Printer, Calendar } from 'lucide-react';
+import { exportAnalyticsToCsv, exportPredictiveToCsv, exportAnalyticsToExcel, exportPredictiveToExcel, downloadPdfFromElement, triggerPdfPrint } from '@/utils/reportExportUtils';
 import PredictiveAnalytics from './PredictiveAnalytics';
+import { useBranch } from '@/context/BranchContext';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import BranchSelector from '@/components/BranchSelector';
 import { PageHeader } from '@/components/ui/page-header';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Button } from '@/components/ui/button';
@@ -49,7 +58,7 @@ const barLabelsPlugin = {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler, barLabelsPlugin);
 
 // ─── Filter Options ──────────────────────────────────────────────────────────
-const FILTER_OPTIONS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days'];
+const FILTER_OPTIONS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'Custom Range'];
 
 // ─── Chart Color Palette ─────────────────────────────────────────────────────
 const COLORS = {
@@ -287,9 +296,9 @@ function ChartViewDropdown({ value, onChange, options }) {
 
 function SectionCard({ icon, title, instruction, subInstruction, children, viewOptions, currentView, onViewChange }) {
   return (
-    <div className="bg-card rounded-xl shadow-xs border border-border p-4 transition-all duration-200 hover:shadow-card">
+    <div className="bg-card rounded-xl shadow-xs border border-border p-5 space-y-3 transition-all duration-200 hover:shadow-card">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
             {icon}
@@ -369,6 +378,7 @@ function StatCard({ label, value, icon, color }) {
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
+  const { selectedBranch, selectedBranchId } = useBranch();
 
   // Filter Options
   const FILTER_OPTIONS = ['Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'Custom Range'];
@@ -427,6 +437,7 @@ export default function AdminDashboard() {
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const ANALYTICS_BASE = import.meta.env.VITE_ANALYTICS_API_URL || '/api/analytics';
 
@@ -435,6 +446,7 @@ export default function AdminDashboard() {
       const queryParams = new URLSearchParams();
       if (fromDate) queryParams.append('date_from', fromDate);
       if (toDate) queryParams.append('date_to', toDate);
+      if (selectedBranchId) queryParams.append('branch_id', selectedBranchId);
       const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
       const [trendsRes, workloadRes, perfRes, volumeRes, equipmentRes, csatRes, predRes] = await Promise.all([
@@ -463,7 +475,35 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchAnalytics(globalDateFrom, globalDateTo);
-  }, [globalDateFrom, globalDateTo]);
+  }, [globalDateFrom, globalDateTo, selectedBranchId]);
+
+  const handleExportPdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      await downloadPdfFromElement(
+        activeTab === 'predictive' ? 'predictive-analytics-report' : 'admin-analytics-report',
+        activeTab === 'predictive' ? 'Predictive_Analytics_Report.pdf' : 'Analytics_Operational_Report.pdf'
+      );
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (activeTab === 'predictive') {
+      exportPredictiveToExcel(analyticsData?.predictive || {}, selectedPreset);
+    } else {
+      exportAnalyticsToExcel(analyticsData, selectedPreset);
+    }
+  };
+
+  const handleExportCsv = () => {
+    if (activeTab === 'predictive') {
+      exportPredictiveToCsv(analyticsData?.predictive || {}, selectedPreset);
+    } else {
+      exportAnalyticsToCsv(analyticsData);
+    }
+  };
 
   const handleRunEtl = async (fullSync = false) => {
     setIsSyncing(true);
@@ -498,7 +538,7 @@ export default function AdminDashboard() {
       const lastResolved = data.resolved[data.resolved.length - 1];
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Line
               options={defaultLineOptions('Ticket Trends')}
               data={{
@@ -541,7 +581,7 @@ export default function AdminDashboard() {
       const data = ticketStatusMock[activeDatePreset] || ticketStatusMock['Last 7 Days'];
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Ticket Status Distribution')}
               data={{
@@ -570,7 +610,7 @@ export default function AdminDashboard() {
       const avgVal = (data.reduce((a, b) => a + b, 0) / data.length).toFixed(1);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Line
               options={defaultLineOptions('SLA Compliance Rate (%)')}
               data={{
@@ -599,7 +639,7 @@ export default function AdminDashboard() {
       const totalBreaches = data.reduce((a, b) => a + b, 0);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultBarOptions('SLA Breaches')}
               data={{
@@ -622,7 +662,7 @@ export default function AdminDashboard() {
       const avgTime = (data.reduce((a, b) => a + b, 0) / data.length).toFixed(1);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Line
               options={defaultLineOptions('Avg Resolution Time (hrs)')}
               data={{
@@ -650,7 +690,7 @@ export default function AdminDashboard() {
       const data = slaDeptMock[activeDatePreset] || slaDeptMock['Last 7 Days'];
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('SLA by Department')}
               data={{
@@ -683,7 +723,7 @@ export default function AdminDashboard() {
         : (empResolvedMock[activeDatePreset] || empResolvedMock['Last 7 Days']);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Tickets Resolved by Employee')}
               data={{
@@ -707,7 +747,7 @@ export default function AdminDashboard() {
         : (empResponseTimeMock[activeDatePreset] || empResponseTimeMock['Last 7 Days']);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Avg Response Time')}
               data={{
@@ -731,7 +771,7 @@ export default function AdminDashboard() {
         : (empResTimeMock[activeDatePreset] || empResTimeMock['Last 7 Days']);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Avg Resolution Time (hrs)')}
               data={{
@@ -755,7 +795,7 @@ export default function AdminDashboard() {
         : (empSlaMock[activeDatePreset] || empSlaMock['Last 7 Days']);
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('SLA Compliance by Employee')}
               data={{
@@ -783,7 +823,7 @@ export default function AdminDashboard() {
     const lastScore = data[data.length - 1];
     return (
       <div>
-        <div className="h-[150px]">
+        <div className="h-[220px]">
           <Line
             options={defaultLineOptions('CSAT Rating Trend (1-5)')}
             data={{
@@ -814,7 +854,7 @@ export default function AdminDashboard() {
     if (workloadView === 'By Employee') {
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Workload by Employee')}
               data={{
@@ -835,7 +875,7 @@ export default function AdminDashboard() {
     } else {
       return (
         <div>
-          <div className="h-[150px]">
+          <div className="h-[220px]">
             <Bar
               options={defaultHorizontalBarOptions('Workload by Department')}
               data={{
@@ -890,112 +930,166 @@ export default function AdminDashboard() {
                 {syncStatusMsg}
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadPdfFromElement(activeTab === 'predictive' ? 'predictive-analytics-report' : 'admin-analytics-report', activeTab === 'predictive' ? 'Predictive_Analytics_Report.pdf' : 'Analytics_Operational_Report.pdf')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent"
-              title="Download PDF report file directly"
-            >
-              <FileText className="w-3.5 h-3.5 mr-1 text-white" />
-              Export to PDF
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => activeTab === 'predictive' ? exportPredictiveToCsv(analyticsData?.predictive || {}) : exportAnalyticsToCsv(analyticsData)}
-              className="bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800"
-              title="Export metrics to Excel / CSV"
-            >
-              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-              Export Excel / CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={triggerPdfPrint}
-              title="Print report"
-            >
-              <Printer className="w-3.5 h-3.5 mr-1 text-slate-muted" />
-              Print
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleRunEtl(false)}
-              disabled={isSyncing}
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5 mr-1 text-accent", isSyncing && "animate-spin")} />
-              Run Incremental ETL
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => handleRunEtl(true)}
-              disabled={isSyncing}
-            >
-              <Cpu className="w-3.5 h-3.5 mr-1" />
-              Full ETL Sync
-            </Button>
+
+            {/* Export Dropdown Button (PDF, Excel, CSV, Print) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  disabled={isGeneratingPdf}
+                  className="text-xs gap-1.5 font-medium cursor-pointer bg-[#252578] hover:bg-[#1d1d60] text-white shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5 text-white" />
+                  <span>{isGeneratingPdf ? 'Exporting...' : 'Export'}</span>
+                  <ChevronDown className="w-3 h-3 text-white/80 ml-0.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-1">
+                <DropdownMenuItem onClick={handleExportPdf} className="cursor-pointer gap-2 py-2">
+                  <FileText className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as PDF</span>
+                    <span className="text-[10px] text-muted-foreground">Download formatted visual document</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel} className="cursor-pointer gap-2 py-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as Excel (.xlsx)</span>
+                    <span className="text-[10px] text-muted-foreground">Download sortable workbook</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportCsv} className="cursor-pointer gap-2 py-2">
+                  <FileCode className="w-4 h-4 text-sky-600 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Export as CSV</span>
+                    <span className="text-[10px] text-muted-foreground">Download structured table data</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={triggerPdfPrint} className="cursor-pointer gap-2 py-2">
+                  <Printer className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Print View</span>
+                    <span className="text-[10px] text-muted-foreground">Direct printer / system print dialog</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* ETL Sync Dropdown Button (Incremental vs Full ETL) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSyncing}
+                  className="text-xs gap-1.5 font-medium cursor-pointer"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5 text-accent", isSyncing && "animate-spin")} />
+                  <span>{isSyncing ? 'Syncing ETL...' : 'ETL Pipeline'}</span>
+                  <ChevronDown className="w-3 h-3 text-muted-foreground ml-0.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-1">
+                <DropdownMenuItem
+                  onClick={() => handleRunEtl(false)}
+                  disabled={isSyncing}
+                  className="cursor-pointer gap-2 py-2"
+                >
+                  <RefreshCw className="w-4 h-4 text-accent shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Run Incremental ETL</span>
+                    <span className="text-[10px] text-muted-foreground">Quick delta synchronization of recent tickets</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleRunEtl(true)}
+                  disabled={isSyncing}
+                  className="cursor-pointer gap-2 py-2"
+                >
+                  <Cpu className="w-4 h-4 text-primary shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-foreground">Full ETL Sync</span>
+                    <span className="text-[10px] text-muted-foreground">Rebuild entire data warehouse from base records</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />
 
-      {/* Single-Line Toolbar: Tab Navigation & Global Date Range Filters */}
-      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-card rounded-xl shadow-xs border border-border p-2 print:hidden">
-        {/* Left: Tab Switcher */}
-        <div className="flex items-center gap-1 bg-page rounded-lg p-1 shrink-0 border border-border">
-          <Button
-            variant={activeTab === 'overview' ? 'default' : 'ghost'}
-            size="sm"
+      {/* Top Navigation & Toolbar Bar: Left Tabs (Overview / Predictive) & Right Controls (Branch + Date Range) */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 mb-5 print:hidden">
+        {/* Left: Tab Switcher (Underline sits flush on the horizontal border line) */}
+        <div className="flex items-center gap-6 sm:gap-8 shrink-0 -mb-px">
+          <button
+            type="button"
             onClick={() => setActiveTab('overview')}
-            className="text-xs"
+            className={cn(
+              "pb-3 pt-1 text-xs sm:text-sm transition-all relative cursor-pointer border-b-2 font-medium",
+              activeTab === 'overview'
+                ? "text-[#252578] border-[#252578] font-semibold"
+                : "text-slate-500 hover:text-slate-800 border-transparent"
+            )}
           >
-            <BarChart3 className="w-4 h-4 mr-1.5" />
             Overview
-          </Button>
-          <Button
-            variant={activeTab === 'predictive' ? 'default' : 'ghost'}
-            size="sm"
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('predictive')}
-            className="text-xs"
+            className={cn(
+              "pb-3 pt-1 text-xs sm:text-sm transition-all relative cursor-pointer border-b-2 font-medium",
+              activeTab === 'predictive'
+                ? "text-[#252578] border-[#252578] font-semibold"
+                : "text-slate-500 hover:text-slate-800 border-transparent"
+            )}
           >
-            <LineChart className="w-4 h-4 mr-1.5" />
             Predictive Analytics
-          </Button>
+          </button>
         </div>
 
-        {/* Right: Date Range Preset Filters */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          <div className="flex items-center gap-1 bg-page rounded-lg p-1 border border-border">
+        {/* Right: Active Branch Selector & Date Range Preset Filters side-by-side */}
+        <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end pb-2">
+          {/* Branch Selector Pill */}
+          <BranchSelector variant="inline" />
+
+          {/* Segmented Date Range Pill */}
+          <div className="flex items-center gap-0.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200/50">
             {FILTER_OPTIONS.map((opt) => (
-              <Button
+              <button
                 key={opt}
-                variant={selectedPreset === opt ? 'default' : 'ghost'}
-                size="sm"
+                type="button"
                 onClick={() => setSelectedPreset(opt)}
-                className="text-xs h-7 px-2.5"
+                className={cn(
+                  "text-xs px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer",
+                  selectedPreset === opt
+                    ? "bg-[#252578] text-white font-semibold shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                )}
               >
                 {opt}
-              </Button>
+              </button>
             ))}
           </div>
 
+          {/* Custom Date Range Popover / Pickers if Custom Range is selected */}
           {selectedPreset === 'Custom Range' && (
-            <div className="flex items-center gap-2 bg-page border border-border rounded-lg px-3 py-1 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-slate-muted" />
+            <div className="flex items-center gap-2 bg-white border border-slate-200/80 rounded-xl px-3 py-1.5 text-xs shadow-xs">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" />
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="bg-card border border-border rounded px-2 py-0.5 text-xs text-slate-dark focus:outline-none focus:ring-1 focus:ring-accent"
+                className="bg-transparent text-xs text-slate-800 focus:outline-none"
               />
-              <span className="text-slate-muted font-medium">to</span>
+              <span className="text-slate-400 font-medium">to</span>
               <input
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="bg-card border border-border rounded px-2 py-0.5 text-xs text-slate-dark focus:outline-none focus:ring-1 focus:ring-accent"
+                className="bg-transparent text-xs text-slate-800 focus:outline-none"
               />
             </div>
           )}
@@ -1087,7 +1181,12 @@ export default function AdminDashboard() {
         </div>
       ) : (
         <AnalyticsErrorBoundary>
-          <PredictiveAnalytics selectedPreset={selectedPreset} analyticsData={analyticsData} />
+          <PredictiveAnalytics
+            selectedPreset={selectedPreset}
+            analyticsData={analyticsData}
+            branch={selectedBranch}
+            onRetry={() => fetchAnalytics(globalDateFrom, globalDateTo)}
+          />
         </AnalyticsErrorBoundary>
       )}
     </div>
