@@ -1295,6 +1295,21 @@ export const getSuperAdminAuditLogs = async () => {
   return response.data;
 };
 
+export const getAuditLogRetentionConfig = async () => {
+  const response = await ticketClient.get('/superadmin/audit-logs/retention');
+  return response.data;
+};
+
+export const updateAuditLogRetentionConfig = async (retentionDays) => {
+  const response = await ticketClient.post('/superadmin/audit-logs/retention', { retention_days: retentionDays });
+  return response.data;
+};
+
+export const purgeAuditLogs = async (retentionDays) => {
+  const response = await ticketClient.post('/superadmin/audit-logs/purge', { retention_days: retentionDays });
+  return response.data;
+};
+
 export const getSuperAdminHistory = async () => {
   const response = await ticketClient.get('/superadmin/history');
   return response.data;
