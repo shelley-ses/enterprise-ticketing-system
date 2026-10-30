@@ -15,12 +15,23 @@ export default function ForceChangePasswordModal() {
   useLockBodyScroll(true);
   const { user, revalidateSession, logout } = useAuth();
 
-  const isEmployeePortal = import.meta.env.VITE_APP_MODE !== 'customer';
-  const [step, setStep] = useState(isEmployeePortal ? 2 : 1); // 1: Verify OTP, 2: Change Password
-  const [otp, setOtp] = useState(isEmployeePortal ? '000000' : '');
+  const isEmployee = Boolean(user && (user.emp_id || ['employee', 'customer service', 'admin', 'superadmin'].includes(user.role?.toLowerCase())));
+  const isCustomer = !isEmployee;
+  const [step, setStep] = useState(isCustomer ? 1 : 2); // 1: Verify OTP, 2: Change Password
+  const [otp, setOtp] = useState(isCustomer ? '' : '000000');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resending, setResending] = useState(false);
   const [resendNotice, setResendNotice] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      const isEmp = Boolean(user.emp_id || ['employee', 'customer service', 'admin', 'superadmin'].includes(user.role?.toLowerCase()));
+      if (!isEmp) {
+        setStep(1);
+        setOtp((prev) => (prev === '000000' ? '' : prev));
+      }
+    }
+  }, [user]);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

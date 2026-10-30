@@ -4,7 +4,7 @@ import { refreshAccessToken } from '@/auth/refreshSession';
 
 const messagingClient = axios.create({
   baseURL: '/api/ticketing/messaging',
-  withCredentials: false,
+  withCredentials: true,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json',

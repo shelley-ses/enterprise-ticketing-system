@@ -562,9 +562,19 @@ class SuperAdminConfigController extends Controller
                     $action = 'Internal Note Added';
                 } elseif ($log->action_type === 'employee_update') {
                     $action = 'Employee Updated';
+                } elseif ($log->action_type === 'system_alert') {
+                    $action = 'System Alert';
+                    $module = 'Security & System';
+                    $target = $detailsDecoded['incident_id'] ?? $detailsDecoded['target'] ?? 'System';
+                    $details = $detailsDecoded['text'] ?? $detailsDecoded['message'] ?? 'System Issue Detected';
+                } elseif ($log->action_type === 'system_alert_burst') {
+                    $action = 'Alert Burst';
+                    $module = 'Security & System';
+                    $target = $detailsDecoded['incident_id'] ?? $detailsDecoded['target'] ?? 'System';
+                    $details = $detailsDecoded['text'] ?? $detailsDecoded['message'] ?? 'Repeat Alert Burst Grouped';
                 }
 
-                if ($log->action_type !== 'create' && $detailsDecoded) {
+                if ($log->action_type !== 'create' && $detailsDecoded && !str_starts_with((string)$log->action_type, 'system_alert')) {
                     if (isset($detailsDecoded['field'])) {
                         $field = $detailsDecoded['field'];
                         $oldVal = is_array($detailsDecoded['old']) ? json_encode($detailsDecoded['old']) : ($detailsDecoded['old'] ?? 'null');
@@ -589,10 +599,67 @@ class SuperAdminConfigController extends Controller
                 'module' => $module,
                 'target' => $target,
                 'details' => $details,
+                'incident_id' => $detailsDecoded['incident_id'] ?? null,
+                'severity' => $detailsDecoded['severity'] ?? null,
+                'burst_count' => $detailsDecoded['burst_count'] ?? 1,
             ];
         });
 
         return response()->json($formattedLogs);
+    }
+
+    /**
+     * Retrieve paginated security and system incident alerts.
+     */
+    public function getSecurityIncidents(Request $request)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $query = DB::table('system_security_alerts');
+
+        if ($request->filled('category')) {
+            $query->where('category', $request->query('category'));
+        }
+        if ($request->filled('severity')) {
+            $query->where('severity', $request->query('severity'));
+        }
+        if ($request->filled('q')) {
+            $q = '%' . $request->query('q') . '%';
+            $query->where(function ($sub) use ($q) {
+                $sub->where('incident_id', 'like', $q)
+                    ->orWhere('title', 'like', $q)
+                    ->orWhere('message', 'like', $q)
+                    ->orWhere('service', 'like', $q);
+            });
+        }
+
+        $incidents = $query->orderBy('last_seen_at', 'desc')->paginate((int) $request->query('limit', 25));
+
+        return response()->json($incidents);
+    }
+
+    /**
+     * Retrieve technical context for a specific security incident.
+     */
+    public function getSecurityIncidentDetail(Request $request, string $incidentId)
+    {
+        if ($err = $this->checkSuperAdmin($request)) {
+            return $err;
+        }
+
+        $incident = DB::table('system_security_alerts')->where('incident_id', $incidentId)->first();
+        if (!$incident) {
+            return response()->json(['message' => 'Security incident not found.'], 404);
+        }
+
+        $decodedContext = json_decode($incident->context_data ?? '{}', true) ?: [];
+
+        return response()->json([
+            'incident' => $incident,
+            'context' => $decodedContext,
+        ]);
     }
 
     /**
@@ -681,76 +748,7 @@ class SuperAdminConfigController extends Controller
             'threshold_date' => $threshold->toIso8601String(),
             'purged_at' => \Illuminate\Support\Carbon::now()->toIso8601String(),
         ]);
-    }
-
-    public function getSuperAdminHistory(Request $request)
-    {
-        if ($err = $this->checkSuperAdmin($request)) {
-            return $err;
-        }
-
-        $logs = DB::table('ticket_audit_logs as tal')
-            ->leftJoin('employees as e', function ($join) {
-                $join->on('e.emp_id', '=', 'tal.action_by_ID')
-                    ->whereIn('tal.actor_type', ['superadmin', 'admin', 'employee', 'cs', 'customerservice']);
-            })
-            ->leftJoin('clients as c', function ($join) {
-                $join->on('c.id', '=', 'tal.action_by_ID')
-                    ->where('tal.actor_type', '=', 'customer');
-            })
-            ->select('tal.*', 'e.first_name', 'e.last_name', 'e.role', 'c.client_name')
-            ->where(function ($q) {
-                $q->where('tal.actor_type', 'superadmin')
-                    ->orWhere('tal.action_type', 'like', 'config_%');
-            })
-            ->orderBy('tal.created_at', 'desc')
-            ->get();
-
-        $formattedLogs = $logs->map(function ($log) {
-            $userFullName = 'System';
-            $role = 'Super Admin';
-
-            if ($log->actor_type === 'customer') {
-                $role = 'Customer';
-                $userFullName = $log->client_name ?? 'Customer';
-            } elseif ($log->actor_type === 'system' || (int)$log->action_by_ID === 0) {
-                $userFullName = 'System';
-                $role = 'System';
-            } else {
-                $userFullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? '')) ?: 'Super Admin';
-                $role = ($log->actor_type === 'superadmin') ? 'Super Admin' : ($log->role ? ucwords($log->role) : 'Employee');
-            }
-            $action = 'Updated';
-            $module = 'System';
-            $target = 'System';
-            $details = $log->details;
-
-            $detailsDecoded = json_decode($log->details, true);
-            if ($detailsDecoded) {
-                $module = $detailsDecoded['module'] ?? 'System';
-                $target = $detailsDecoded['target'] ?? 'System';
-                $details = $detailsDecoded['text'] ?? '';
-            }
-
-            if (str_contains($log->action_type, 'create')) {
-                $action = 'Created';
-            } elseif (str_contains($log->action_type, 'delete')) {
-                $action = 'Deleted';
-            } else {
-                $action = 'Updated';
-            }
-
-            return [
-                'id' => $log->log_ID,
-                'timestamp' => $log->created_at,
-                'user' => $userFullName,
-                'role' => $role,
-                'action' => $action,
-                'module' => $module,
-                'target' => $target,
-                'details' => $details,
-            ];
-        });
+    });
 
         return response()->json($formattedLogs);
     }

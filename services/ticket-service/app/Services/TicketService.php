@@ -275,7 +275,7 @@ class TicketService
 
         $ticketData = [
             'ticket_number' => $ticketNumber,
-            'machine_ID' => $validated['machine_ID'],
+            'machine_ID' => !empty($validated['machine_ID']) ? (int) $validated['machine_ID'] : null,
             'problem_category_ID' => $validated['problem_category_ID'],
             'created_by' => $clientId,
             'requested_by' => null,
@@ -390,7 +390,7 @@ class TicketService
             'action_by_ID' => $clientId,
             'actor_type' => 'customer',
             'details' => json_encode([
-                'machine_ID' => $validated['machine_ID'],
+                'machine_ID' => $validated['machine_ID'] ?? null,
                 'problem_category_ID' => $validated['problem_category_ID'],
                 'title' => strip_tags($validated['title']),
             ]),
@@ -466,7 +466,7 @@ class TicketService
             true,
             fn () => DB::table('tickets')->insertGetId([
                 'ticket_number' => $ticketNumber,
-                'machine_ID' => $validated['machine_ID'],
+                'machine_ID' => $validated['machine_ID'] ?? null,
                 'problem_category_ID' => $validated['problem_category_ID'],
                 'created_by' => 1,
                 'requested_by' => $empId,
@@ -514,7 +514,7 @@ class TicketService
             'action_by_ID' => $empId,
             'actor_type' => 'employee',
             'details' => json_encode([
-                'machine_ID' => $validated['machine_ID'],
+                'machine_ID' => $validated['machine_ID'] ?? null,
                 'problem_category_ID' => $validated['problem_category_ID'],
                 'title' => strip_tags($validated['title']),
             ]),

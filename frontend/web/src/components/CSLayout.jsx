@@ -37,7 +37,7 @@ export default function CSLayout() {
         </div>
       </main>
 
-      {/* SKIPPED: {isFirstLogin && <ForceChangePasswordModal />} */}
+      {isFirstLogin && <ForceChangePasswordModal />}
     </div>
   );
 }

@@ -5,6 +5,17 @@ import {
   getStoredBranchId,
   setStoredBranchId,
 } from '@/data/branchConfig';
+import { getBranches, getPublicBranches } from '@/services/ticketService';
+import { useAuth } from '@/context/AuthContext';
+
+export const GLOBAL_BRANCH = {
+  id: null,
+  slug: 'all',
+  name: 'All Branches (Global Scope)',
+  code: 'ALL',
+  region: 'Global',
+  description: 'System-wide configuration and ticket scope across all physical facilities',
+};
 
 const BranchContext = createContext(null);
 
@@ -13,21 +24,82 @@ const BranchContext = createContext(null);
  * Persists the Super Admin's selection across page reloads and cross-tab actions.
  */
 export function BranchProvider({ children }) {
+  let authUser = null;
+  try {
+    const auth = useAuth();
+    authUser = auth?.user;
+  } catch {
+    // Graceful fallback when outside AuthProvider or during unauthenticated testing
+  }
+
+  const [branches, setBranches] = useState(DEFAULT_BRANCHES);
   const [selectedBranchId, setSelectedBranchIdState] = useState(getStoredBranchId);
+
+  const isSuperOrAdmin = useMemo(() => {
+    if (!authUser) return false;
+    const role = (authUser.role || '').toLowerCase();
+    const email = (authUser.email || '').toLowerCase();
+    return (
+      role === 'superadmin' ||
+      role === 'admin' ||
+      email === 'superadmin@example.com' ||
+      email === 'admin@example.com'
+    );
+  }, [authUser]);
+
+  // Dynamically load live branches from ticket service on mount or role change
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadBranches = async () => {
+      try {
+        const fetcher = isSuperOrAdmin ? getBranches : getPublicBranches;
+        const res = await fetcher();
+        const data = Array.isArray(res) ? res : (res?.branches || res?.data || []);
+        if (isMounted && Array.isArray(data) && data.length > 0) {
+          setBranches(data);
+          return;
+        }
+      } catch {
+        // Fallback to public branches if superadmin request failed
+        try {
+          const fallbackRes = await getPublicBranches();
+          const fallbackData = Array.isArray(fallbackRes) ? fallbackRes : (fallbackRes?.branches || fallbackRes?.data || []);
+          if (isMounted && Array.isArray(fallbackData) && fallbackData.length > 0) {
+            setBranches(fallbackData);
+            return;
+          }
+        } catch {
+          // Gracefully retain DEFAULT_BRANCHES
+        }
+      }
+    };
+
+    loadBranches();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSuperOrAdmin]);
 
   // Sync state when changed internally or via custom event / other tabs
   useEffect(() => {
     const handleCustomChange = (e) => {
       const nextId = e.detail?.branchId;
-      if (nextId && DEFAULT_BRANCHES.some((b) => b.id === nextId)) {
+      if (nextId === null || nextId === 'all') {
+        setSelectedBranchIdState(null);
+      } else if (nextId) {
         setSelectedBranchIdState(nextId);
       }
     };
 
     const handleStorageChange = (e) => {
-      if (e.key === 'superadmin_active_branch' && e.newValue) {
-        if (DEFAULT_BRANCHES.some((b) => b.id === e.newValue)) {
-          setSelectedBranchIdState(e.newValue);
+      if (e.key === 'superadmin_active_branch') {
+        const val = e.newValue;
+        if (val === 'all' || val === 'null' || !val) {
+          setSelectedBranchIdState(null);
+        } else {
+          setSelectedBranchIdState(val);
         }
       }
     };
@@ -42,30 +114,67 @@ export function BranchProvider({ children }) {
   }, []);
 
   const setSelectedBranchId = useCallback((branchId) => {
-    if (DEFAULT_BRANCHES.some((b) => b.id === branchId)) {
+    if (branchId === null || branchId === 'all' || branchId === 'none') {
+      setSelectedBranchIdState(null);
+      setStoredBranchId(null);
+    } else {
       setSelectedBranchIdState(branchId);
       setStoredBranchId(branchId);
     }
   }, []);
 
   const setSelectedBranch = useCallback((branchOrId) => {
-    const id = typeof branchOrId === 'string' ? branchOrId : branchOrId?.id;
-    if (id) {
-      setSelectedBranchId(id);
+    if (branchOrId === null || branchOrId === 'all') {
+      setSelectedBranchId(null);
+      return;
     }
+    const id = typeof branchOrId === 'string' || typeof branchOrId === 'number'
+      ? branchOrId
+      : branchOrId?.id || branchOrId?.slug;
+    setSelectedBranchId(id);
   }, [setSelectedBranchId]);
 
   const selectedBranch = useMemo(() => {
-    return DEFAULT_BRANCHES.find((b) => b.id === selectedBranchId) || DEFAULT_BRANCHES[0];
-  }, [selectedBranchId]);
+    if (!isSuperOrAdmin && (authUser?.branch_id || authUser?.branch)) {
+      const assigned = branches.find(
+        (b) => String(b.id) === String(authUser.branch_id) ||
+               String(b.name).toLowerCase() === String(authUser.branch).toLowerCase() ||
+               String(b.slug).toLowerCase() === String(authUser.branch).toLowerCase()
+      );
+      if (assigned) return assigned;
+      if (authUser.branch) {
+        return {
+          id: authUser.branch_id || null,
+          name: authUser.branch,
+          code: authUser.branch_code || (authUser.branch || '').substring(0, 3).toUpperCase(),
+          region: 'Local',
+        };
+      }
+    }
+
+    if (selectedBranchId === null || selectedBranchId === 'all') {
+      return GLOBAL_BRANCH;
+    }
+    const match = branches.find(
+      (b) => String(b.id) === String(selectedBranchId) || String(b.slug) === String(selectedBranchId)
+    );
+    return match || GLOBAL_BRANCH;
+  }, [selectedBranchId, branches, isSuperOrAdmin, authUser]);
+
+  const isAllBranches = selectedBranchId === null || selectedBranchId === 'all';
 
   const value = useMemo(() => ({
-    branches: DEFAULT_BRANCHES,
+    branches,
     selectedBranchId,
     selectedBranch,
+    currentBranch: selectedBranch,
     setSelectedBranchId,
     setSelectedBranch,
-  }), [selectedBranchId, selectedBranch, setSelectedBranchId, setSelectedBranch]);
+    selectBranch: setSelectedBranch,
+    isAllBranches,
+    GLOBAL_BRANCH,
+    loading: false,
+  }), [branches, selectedBranchId, selectedBranch, setSelectedBranchId, setSelectedBranch, isAllBranches]);
 
   return (
     <BranchContext.Provider value={value}>

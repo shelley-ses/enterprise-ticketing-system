@@ -12,36 +12,32 @@ export const BRANCH_STORAGE_KEY = 'superadmin_active_branch';
 
 export const DEFAULT_BRANCHES = [
   {
-    id: 'main',
-    name: 'Main Branch',
+    id: 'main-office',
+    name: 'Main Office',
     code: 'MAIN',
-    region: 'NCR',
-    description: 'Primary medical facility & headquarters (Metro Manila)',
+    region: 'Main',
+    address: 'Makati City, Metro Manila',
+    description: 'Main Office located in Makati City, Metro Manila',
   },
   {
-    id: 'luzon',
-    name: 'Luzon Regional Center',
-    code: 'LUZ',
-    region: 'Luzon',
-    description: 'Northern & Central Luzon healthcare service hub',
+    id: 'north-luzon-hub',
+    name: 'North Luzon Hub',
+    code: 'NORT',
+    region: 'Main',
+    address: 'Blk 8 Lot 2 Molave Subdivision, Brgy. Patul, Santiago City, Isabela',
+    description: 'North Luzon Hub in Santiago City, Isabela',
   },
   {
-    id: 'visayas',
-    name: 'Visayas Medical Hub',
-    code: 'VIS',
-    region: 'Visayas',
-    description: 'Cebu and Central Visayas regional hospital center',
-  },
-  {
-    id: 'mindanao',
-    name: 'Mindanao Regional Branch',
-    code: 'MIN',
-    region: 'Mindanao',
-    description: 'Davao and Southern Mindanao health service facility',
+    id: 'cebu-city-office',
+    name: 'Cebu City Office',
+    code: 'CEBU',
+    region: 'Main',
+    address: '3264A Maria Theresa Village 2, Guadalupe, Cebu City, Cebu',
+    description: 'Cebu City Office in Guadalupe, Cebu City',
   },
 ];
 
-export const DEFAULT_BRANCH_ID = 'main';
+export const DEFAULT_BRANCH_ID = 'main-office';
 
 /**
  * Retrieve the currently stored active branch ID from localStorage,
@@ -50,7 +46,10 @@ export const DEFAULT_BRANCH_ID = 'main';
 export function getStoredBranchId() {
   try {
     const stored = localStorage.getItem(BRANCH_STORAGE_KEY);
-    if (stored && DEFAULT_BRANCHES.some((b) => b.id === stored)) {
+    if (stored === 'all' || stored === 'none' || stored === 'null') {
+      return null;
+    }
+    if (stored && !['main', 'luzon', 'visayas', 'mindanao'].includes(stored)) {
       return stored;
     }
   } catch {
@@ -64,11 +63,14 @@ export function getStoredBranchId() {
  */
 export function setStoredBranchId(branchId) {
   try {
-    if (DEFAULT_BRANCHES.some((b) => b.id === branchId)) {
-      localStorage.setItem(BRANCH_STORAGE_KEY, branchId);
-      window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId } }));
+    if (branchId === null || branchId === 'all' || branchId === 'none') {
+      localStorage.setItem(BRANCH_STORAGE_KEY, 'all');
+      window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId: null } }));
       return true;
     }
+    localStorage.setItem(BRANCH_STORAGE_KEY, String(branchId));
+    window.dispatchEvent(new CustomEvent('active_branch_changed', { detail: { branchId } }));
+    return true;
   } catch {
     // Ignore localStorage access failures
   }

@@ -7,6 +7,154 @@ use Illuminate\Support\Facades\DB;
 class EmployeeDirectoryController extends Controller
 {
     /**
+     * Automatically synchronize employees from Auth Module if not synced recently (every 60s).
+     */
+    public static function autoSyncWithAuthModule(): void
+    {
+        if (\Illuminate\Support\Facades\Cache::has('employees_synced_lock')) {
+            return;
+        }
+
+        \Illuminate\Support\Facades\Cache::put('employees_synced_lock', true, 60);
+
+        try {
+            $authUrl = env('AUTH_SERVICE_INTERNAL_URL', 'http://auth-service:8000');
+            $secret = env('CMS_INTERNAL_SECRET', 'cms-internal-secret-key-2026');
+
+            $resp = \Illuminate\Support\Facades\Http::timeout(3)
+                ->withHeaders(['X-Internal-Secret' => $secret])
+                ->get("{$authUrl}/api/internal/users-by-roles", [
+                    'roles' => 'Engineer,Manager,Employee,Supervisor',
+                ]);
+
+            if (!$resp->successful()) {
+                return;
+            }
+
+            $authUsers = $resp->json('data') ?? [];
+            if (empty($authUsers)) {
+                return;
+            }
+
+            $authEmails = [];
+
+            foreach ($authUsers as $u) {
+                $email = strtolower(trim((string) ($u['email'] ?? '')));
+                if (empty($email)) continue;
+                $authEmails[] = $email;
+
+                $dept = trim((string) ($u['department'] ?? 'Service'));
+                $roleName = trim((string) ($u['role'] ?? 'Employee'));
+                $isManager = (stripos($roleName, 'manager') !== false);
+                $isAdmin = (stripos($roleName, 'admin') !== false);
+                $isEngineer = (stripos($roleName, 'engineer') !== false || stripos($roleName, 'supervisor') !== false);
+
+                if ($isAdmin) {
+                    $posLevel = 'Admin';
+                    $role = 'admin';
+                    $techRole = $roleName;
+                } elseif ($isManager) {
+                    $posLevel = 'Manager';
+                    $role = ($dept === 'Customer Service') ? 'customer service' : 'service';
+                    $techRole = $dept . ' Manager';
+                } elseif ($isEngineer || strcasecmp($dept, 'Service') === 0) {
+                    $posLevel = 'Engineer';
+                    $role = 'service';
+                    $techRole = 'Engineer';
+                } elseif (strcasecmp($dept, 'IT') === 0) {
+                    $posLevel = 'Employee';
+                    $role = 'service';
+                    $techRole = 'Employee';
+                } elseif ($dept === 'Customer Service') {
+                    $posLevel = 'Employee';
+                    $role = 'customer service';
+                    $techRole = 'Employee';
+                } else {
+                    $posLevel = 'Employee';
+                    $role = 'service';
+                    $techRole = 'Employee';
+                }
+
+                $branch = 'Main Branch';
+                $branchId = 1;
+                $branchName = $u['branch'] ?? ($u['branch_details']['name'] ?? '');
+                if (!empty($branchName) && stripos($branchName, 'north') !== false) {
+                    $branch = 'North Luzon Hub';
+                    $branchId = 2;
+                }
+
+                $existing = DB::table('employees')->where('email', $email)->first();
+
+                if ($existing) {
+                    DB::table('employees')->where('emp_id', $existing->emp_id)->update([
+                        'first_name' => $u['first_name'] ?: $existing->first_name,
+                        'last_name' => $u['last_name'] ?: $existing->last_name,
+                        'department' => $dept,
+                        'position_level' => $posLevel,
+                        'role' => $role,
+                        'technical_role' => $techRole,
+                        'branch' => $branch,
+                        'branch_id' => $branchId,
+                        'is_active' => (int) ($u['is_active'] ?? 1),
+                        'last_synced_at' => now(),
+                    ]);
+                } else {
+                    $newId = max((int)DB::table('employees')->max('emp_id') + 1, 1101);
+                    DB::table('employees')->insert([
+                        'emp_id' => $newId,
+                        'email' => $email,
+                        'phone_number' => $u['phone'] ?? null,
+                        'password_hash' => '',
+                        'first_name' => $u['first_name'] ?? 'Staff',
+                        'last_name' => $u['last_name'] ?? '',
+                        'department' => $dept,
+                        'position_level' => $posLevel,
+                        'role' => $role,
+                        'technical_role' => $techRole,
+                        'branch' => $branch,
+                        'branch_id' => $branchId,
+                        'is_active' => (int) ($u['is_active'] ?? 1),
+                        'last_synced_at' => now(),
+                        'password_change_at' => now(),
+                    ]);
+                }
+            }
+
+            DB::table('employees')->whereNotIn('email', $authEmails)->update(['is_active' => 0]);
+        } catch (\Throwable $e) {
+            // Silently fallback so normal operation is never disrupted
+        }
+    }
+
+    /**
+     * Resolve category track (Service, IT, Others) for a ticket (TS110).
+     */
+    /**
+     * Resolve category name for a ticket.
+     */
+    public static function resolveCategoryName($ticket): string
+    {
+        if (!$ticket) {
+            return '';
+        }
+
+        if (!empty($ticket->problem_category_ID)) {
+            $name = DB::table('problem_categories')
+                ->where('problem_category_ID', $ticket->problem_category_ID)
+                ->value('category_name');
+            if ($name) {
+                return (string) $name;
+            }
+        }
+
+        if (!empty($ticket->category)) {
+            return (string) $ticket->category;
+        }
+
+        return '';
+    }
+
+    /**
      * Resolve category track (Service, IT, Others) for a ticket (TS110).
      */
     public static function resolveCategoryTrack($ticket): string
@@ -15,12 +163,7 @@ class EmployeeDirectoryController extends Controller
             return 'service';
         }
 
-        $categoryName = '';
-        if (!empty($ticket->problem_category_ID)) {
-            $categoryName = DB::table('problem_categories')
-                ->where('problem_category_ID', $ticket->problem_category_ID)
-                ->value('category_name') ?? '';
-        }
+        $categoryName = self::resolveCategoryName($ticket);
 
         $deptName = '';
         if (!empty($ticket->department_id)) {
@@ -62,66 +205,209 @@ class EmployeeDirectoryController extends Controller
     }
 
     /**
+     * Fetch category escalation rules dynamically from Configuration Service.
+     */
+    public static function fetchCategoryEscalationRules(): array
+    {
+        return [
+            'service' => [
+                'department' => ['Service'],
+                'min_position_level' => 'Senior',
+                'allowed_roles' => [],
+                'allow_cross_branch' => false,
+            ],
+            'it' => [
+                'department' => ['IT'],
+                'min_position_level' => 'Senior',
+                'allowed_roles' => [],
+                'allow_cross_branch' => false,
+            ],
+        ];
+    }
+
+    /**
+     * Match a specific escalation rule for a category and track (Service or IT).
+     */
+    public static function matchCategoryEscalationRule(string $categoryName, string $track): array
+    {
+        $rules = self::fetchCategoryEscalationRules();
+        $catLower = strtolower(trim($categoryName));
+
+        if ($track === 'service' || str_contains($catLower, 'service') || str_contains($catLower, 'machine') || str_contains($catLower, 'hardware') || str_contains($catLower, 'biomedical')) {
+            return $rules['service'];
+        }
+
+        return $rules['it'];
+    }
+
+    public static function positionLevelRank(?string $level): int
+    {
+        $l = strtolower(trim((string) $level));
+        return match ($l) {
+            'manager' => 5,
+            'lead' => 4,
+            'senior' => 3,
+            'mid' => 2,
+            'junior' => 1,
+            default => 1,
+        };
+    }
+
+    /**
+     * Fetch designated department managers for Service, IT, and Customer Service.
+     */
+    public static function fetchDepartmentManagers(): array
+    {
+        return \Illuminate\Support\Facades\Cache::remember('department_managers:cache', 60, function () {
+            // Strictly fetch active managers from the database for Service and IT (preferring synced auth accounts)
+            $managerEmps = DB::table('employees')
+                ->where(function ($q) {
+                    $q->whereRaw('LOWER(COALESCE(position_level, "")) = ?', ['manager'])
+                      ->orWhereRaw('LOWER(COALESCE(role, "")) LIKE ?', ['%manager%']);
+                })
+                ->where('is_active', 1)
+                ->orderByRaw("CASE
+                    WHEN email = 'shelleysesantee@gmail.com' THEN 1
+                    WHEN email = 'eggiesailor123@gmail.com' THEN 1
+                    ELSE 2 END ASC")
+                ->orderByDesc('last_synced_at')
+                ->orderByDesc('emp_id')
+                ->select(
+                    'emp_id as id',
+                    DB::raw("CONCAT(first_name, ' ', last_name) as name"),
+                    'email',
+                    'phone_number',
+                    'role',
+                    'department',
+                    'position_level',
+                    'technical_role',
+                    'branch'
+                )
+                ->get();
+
+            $serviceMgr = null;
+            $itMgr = null;
+            $csMgr = null;
+
+            foreach ($managerEmps as $m) {
+                $deptLower = strtolower(trim((string) $m->department));
+
+                if (!$serviceMgr && $deptLower === 'service') {
+                    $serviceMgr = [
+                        'id' => (int) $m->id,
+                        'name' => $m->name,
+                        'email' => $m->email,
+                        'phone' => $m->phone_number ?? '+63 917 123 4567',
+                        'department' => 'Service',
+                        'position_level' => 'Manager',
+                        'role' => $m->role ?: 'Lead Service Engineer',
+                        'technical_role' => $m->technical_role ?: 'Lead Service Engineer',
+                        'branch' => $m->branch ?: 'Main Branch',
+                    ];
+                } elseif (!$itMgr && ($deptLower === 'it' || $deptLower === 'it support')) {
+                    $itMgr = [
+                        'id' => (int) $m->id,
+                        'name' => $m->name,
+                        'email' => $m->email,
+                        'phone' => $m->phone_number ?? '+63 917 234 5678',
+                        'department' => 'IT',
+                        'position_level' => 'Manager',
+                        'role' => $m->role ?: 'IT Systems Specialist',
+                        'technical_role' => $m->technical_role ?: 'IT Systems Specialist',
+                        'branch' => $m->branch ?: 'Main Branch',
+                    ];
+                } elseif (!$csMgr && ($deptLower === 'customer service' || $deptLower === 'cs')) {
+                    $csMgr = [
+                        'id' => (int) $m->id,
+                        'name' => $m->name,
+                        'email' => $m->email,
+                        'phone' => $m->phone_number ?? '+63 917 345 6789',
+                        'department' => 'Customer Service',
+                        'position_level' => 'Manager',
+                        'role' => $m->role ?: 'Customer Support Manager',
+                        'technical_role' => $m->technical_role ?: 'Customer Support Manager',
+                        'branch' => $m->branch ?: 'Main Branch',
+                    ];
+                }
+            }
+
+            return [
+                'service' => $serviceMgr,
+                'it' => $itMgr,
+                'cs' => $csMgr,
+            ];
+        });
+    }
+
+    /**
      * Check if an employee qualifies for a category track and branch (TS110).
      */
-    public static function checkEligibility($emp, $ticket = null, string $track = 'service'): array
+    public static function checkEligibility($emp, $ticket = null, string $track = 'service', ?array $rule = null, bool $isEscalation = false): array
     {
         $dept = strtolower(trim((string) ($emp->department ?? '')));
         $role = strtolower(trim((string) ($emp->role ?? '')));
+        $pos = strtolower(trim((string) ($emp->position_level ?? '')));
+        $tech = strtolower(trim((string) ($emp->technical_role ?? '')));
 
-        // Customer service or customer or superadmin cannot be regular assignees
-        if (in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'customer'], true)) {
+        // Admins, SuperAdmins, Customer Service cannot be assigned to tickets
+        if (str_contains($role, 'admin') || str_contains($pos, 'admin') || str_contains($tech, 'admin') ||
+            in_array($role, ['customer service', 'customer support', 'cs', 'head of cs', 'head of customer service', 'customer', 'superadmin', 'super admin'], true)) {
             return [
                 'eligible' => false,
-                'reason' => 'Customer service and customer users cannot be assigned to tickets.',
+                'reason' => 'Administrative and Customer Support staff cannot be assigned to tickets.',
             ];
         }
 
-        // Check track qualification
-        $trackEligible = false;
-        if ($track === 'service') {
-            $trackEligible = in_array($dept, ['service', 'biomedical', 'clinical engineering', 'maintenance', 'operations'], true)
-                || str_contains($role, 'service')
-                || str_contains($role, 'biomedical')
-                || str_contains($role, 'technician')
-                || (str_contains($role, 'engineer') && !str_contains($role, 'software') && !str_contains($role, 'systems'));
-        } elseif ($track === 'it') {
-            $trackEligible = in_array($dept, ['it', 'information technology', 'systems', 'network', 'technical support', 'engineering'], true)
-                || str_contains($role, 'it')
-                || str_contains($role, 'system')
-                || str_contains($role, 'network')
-                || str_contains($role, 'software')
-                || str_contains($role, 'support');
-        } else { // 'others'
-            $trackEligible = true;
-        }
-
-        if (!$trackEligible) {
-            $trackLabel = strtoupper($track);
+        // Both Service and IT are technical operational departments eligible for tickets
+        if (!in_array($dept, ['service', 'it', 'it support'], true)) {
             return [
                 'eligible' => false,
-                'reason' => "Employee role ({$emp->role}) or department ({$emp->department}) does not qualify for {$trackLabel} category track.",
+                'reason' => "Employee department '{$emp->department}' does not qualify. Required: Service or IT.",
             ];
         }
 
-        // Branch check if branch is specified on both ticket and employee
-        if ($ticket) {
-            $hasBranchCol = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch');
-            $hasBranchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id');
-            $empBranch = null;
-            if ($hasBranchCol && isset($emp->branch)) {
-                $empBranch = $emp->branch;
-            } elseif ($hasBranchIdCol && isset($emp->branch_id)) {
-                $empBranch = $emp->branch_id;
+        // 2. Position level qualification (strictly enforced ONLY on escalation)
+        if ($isEscalation) {
+            $minLevel = 'Manager';
+            $minRank = self::positionLevelRank($minLevel);
+            $empRank = self::positionLevelRank($emp->position_level ?? 'Junior');
+            if ($empRank < $minRank) {
+                $empLevel = $emp->position_level ?: 'Junior';
+                return [
+                    'eligible' => false,
+                    'reason' => "Escalation requires Manager seniority. Current level: '{$empLevel}'.",
+                ];
+            }
+        }
+
+        // 4. Branch scoping (respecting allow_cross_branch)
+        $allowCrossBranch = (bool) ($rule['allow_cross_branch'] ?? false);
+        if ($ticket && !$allowCrossBranch) {
+            $empBranch = $emp->branch ?? null;
+            $ticketBranchName = null;
+
+            if (!empty($ticket->branch_id)) {
+                $ticketBranchName = DB::table('branches')->where('id', $ticket->branch_id)->value('name');
+            }
+            if (!$ticketBranchName && !empty($ticket->branch)) {
+                $ticketBranchName = $ticket->branch;
+            }
+            if (!$ticketBranchName) {
+                $ticketBranchName = 'Main Branch';
             }
 
-            $ticketBranch = $ticket->branch_id ?? $ticket->branch ?? null;
+            if ($empBranch && strtolower((string)$empBranch) !== 'all' && strtolower((string)$ticketBranchName) !== 'all') {
+                $normEmp = trim(preg_replace('/\b(branch|office)\b/i', '', strtolower((string)$empBranch)));
+                $normTicket = trim(preg_replace('/\b(branch|office)\b/i', '', strtolower((string)$ticketBranchName)));
 
-            if ($ticketBranch && $empBranch && strtolower($ticketBranch) !== 'all' && strtolower($empBranch) !== 'all') {
-                if (strtolower($ticketBranch) !== strtolower($empBranch) && strtolower($empBranch) !== 'main') {
+                $matched = ($normEmp === $normTicket)
+                    || (strtolower((string)$empBranch) === strtolower((string)$ticketBranchName))
+                    || ($normEmp === 'main' || $normTicket === 'main');
+
+                if (!$matched) {
                     return [
                         'eligible' => false,
-                        'reason' => "Branch mismatch: employee belongs to {$empBranch}, but ticket is designated for {$ticketBranch}.",
+                        'reason' => "Branch mismatch: employee belongs to {$empBranch}, but ticket is designated for {$ticketBranchName} (cross-branch assignment disabled).",
                     ];
                 }
             }
@@ -138,16 +424,23 @@ class EmployeeDirectoryController extends Controller
      */
     public function assignableEmployees(Request $request)
     {
+        self::autoSyncWithAuthModule();
         $department = $request->query('department');
         $ticketId = $request->query('ticket_id');
         $track = $request->query('track');
 
         $query = DB::table('employees')
-            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
-            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['superadmin'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['super admin']);
+            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'position_level', 'technical_role', 'is_active')
+            ->where('is_active', 1)
+            ->whereIn('department', ['Service', 'IT'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), [
+                'admin', 'it admin', 'superadmin', 'super admin', 'administrator', 'system administrator',
+                'customer service', 'head of cs', 'head of customer service', 'cs', 'customer'
+            ])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(position_level, ""))'), ['admin', 'superadmin'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(technical_role, ""))'), [
+                'admin', 'it admin', 'superadmin', 'super admin', 'administrator', 'system administrator'
+            ]);
 
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
             $query->addSelect('branch');
@@ -167,7 +460,11 @@ class EmployeeDirectoryController extends Controller
             }
         }
 
+        $isEscalation = $request->boolean('is_escalation') || $request->query('context') === 'escalate';
         $resolvedTrack = $track ? strtolower($track) : ($ticket ? self::resolveCategoryTrack($ticket) : null);
+        $categoryName = $ticket ? self::resolveCategoryName($ticket) : '';
+        $rule = self::matchCategoryEscalationRule($categoryName, $resolvedTrack ?? 'service');
+        $departmentManagers = self::fetchDepartmentManagers();
 
         $employees = $query
             ->orderByDesc('is_active')
@@ -175,8 +472,8 @@ class EmployeeDirectoryController extends Controller
             ->get();
 
         if ($resolvedTrack) {
-            $employees = $employees->filter(function ($emp) use ($ticket, $resolvedTrack) {
-                $res = self::checkEligibility($emp, $ticket, $resolvedTrack);
+            $employees = $employees->filter(function ($emp) use ($ticket, $resolvedTrack, $rule) {
+                $res = self::checkEligibility($emp, $ticket, $resolvedTrack, $rule, $isEscalation);
                 return $res['eligible'];
             })->values();
         }
@@ -184,6 +481,9 @@ class EmployeeDirectoryController extends Controller
         return response()->json([
             'employees' => $employees,
             'track' => $resolvedTrack,
+            'category' => $categoryName,
+            'rule' => $rule,
+            'department_managers' => $departmentManagers,
         ]);
     }
 
@@ -193,18 +493,41 @@ class EmployeeDirectoryController extends Controller
      */
     public function eligibleEmployees(Request $request, int $ticketId)
     {
-        $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
-        if (!$ticket) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+        self::autoSyncWithAuthModule();
+        $ticket = null;
+        if ($ticketId > 0) {
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
         }
 
+        if (!$ticket) {
+            $ticket = (object) [
+                'ticket_ID' => $ticketId,
+                'ticket_number' => null,
+                'branch_id' => $request->query('branch_id', 1),
+                'problem_category_ID' => $request->query('category_id'),
+                'requested_by' => null,
+            ];
+        }
+
+        $isEscalation = $request->boolean('is_escalation') || $request->query('context') === 'escalate';
         $trackOverride = $request->query('track');
         $track = $trackOverride ? strtolower(trim($trackOverride)) : self::resolveCategoryTrack($ticket);
+        $categoryName = self::resolveCategoryName($ticket);
+        $rule = self::matchCategoryEscalationRule($categoryName, $track);
+        $departmentManagers = self::fetchDepartmentManagers();
 
         $query = DB::table('employees')
-            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'is_active')
-            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), ['customer service', 'head of cs', 'head of customer service', 'cs'])
-            ->whereRaw('LOWER(COALESCE(role, "")) != ?', ['customer']);
+            ->select('emp_id as id', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'role', 'department', 'position_level', 'technical_role', 'is_active')
+            ->where('is_active', 1)
+            ->whereIn('department', ['Service', 'IT'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(role, ""))'), [
+                'admin', 'it admin', 'superadmin', 'super admin', 'administrator', 'system administrator',
+                'customer service', 'head of cs', 'head of customer service', 'cs', 'customer'
+            ])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(position_level, ""))'), ['admin', 'superadmin'])
+            ->whereNotIn(DB::raw('LOWER(COALESCE(technical_role, ""))'), [
+                'admin', 'it admin', 'superadmin', 'super admin', 'administrator', 'system administrator'
+            ]);
 
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
             $query->addSelect('branch');
@@ -223,7 +546,17 @@ class EmployeeDirectoryController extends Controller
         $ineligible = [];
 
         foreach ($employees as $emp) {
-            $eligibility = self::checkEligibility($emp, $ticket, $track);
+            $eligibility = self::checkEligibility($emp, $ticket, $track, $rule, $isEscalation);
+            $defaultPos = (strcasecmp((string)$emp->department, 'Service') === 0) ? 'Engineer' : 'Employee';
+            $empPosLevel = $emp->position_level;
+            if (empty($empPosLevel) || in_array(strtolower($empPosLevel), ['senior', 'mid', 'junior'])) {
+                $empPosLevel = (stripos((string)$emp->role, 'manager') !== false) ? 'Manager' : $defaultPos;
+            }
+            $empTechRole = $emp->technical_role;
+            if (empty($empTechRole) || in_array(strtolower($empTechRole), ['specialist', 'technician', 'service technician', 'it support specialist'])) {
+                $empTechRole = $empPosLevel;
+            }
+
             $item = [
                 'id' => (int) $emp->id,
                 'name' => $emp->name,
@@ -231,6 +564,9 @@ class EmployeeDirectoryController extends Controller
                 'role' => $emp->role,
                 'department' => $emp->department,
                 'branch' => $emp->branch ?? 'Main',
+                'position_level' => $empPosLevel,
+                'technical_role' => $empTechRole,
+                'availability_status' => (bool) $emp->is_active ? 'available' : 'unavailable',
                 'is_active' => (bool) $emp->is_active,
                 'eligible' => $eligibility['eligible'],
                 'ineligibility_reason' => $eligibility['reason'],
@@ -243,15 +579,23 @@ class EmployeeDirectoryController extends Controller
             }
         }
 
+        $emptyGuidance = count($eligible) === 0
+            ? 'No eligible employees currently match the required department, position level, and technical role criteria for this category. Please escalate to the designated department manager or contact Customer Service leadership.'
+            : null;
+
         return response()->json([
             'ticket_id' => (int) $ticketId,
             'ticket_number' => $ticket->ticket_number ?? null,
             'track' => $track,
-            'branch' => $ticket->branch_id ?? $ticket->branch ?? 'Main',
+            'category' => $categoryName,
+            'branch' => (!empty($ticket->branch_id) ? (DB::table('branches')->where('id', $ticket->branch_id)->value('name') ?? 'Main Branch') : 'Main Branch'),
+            'rule' => $rule,
+            'department_managers' => $departmentManagers,
             'eligible_count' => count($eligible),
             'ineligible_count' => count($ineligible),
             'eligible_employees' => $eligible,
             'ineligible_employees' => $ineligible,
+            'empty_state_guidance' => $emptyGuidance,
         ]);
     }
 

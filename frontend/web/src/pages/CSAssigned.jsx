@@ -243,6 +243,10 @@ export default function CSAssigned() {
           role: row.role || '',
           status: row.is_active ? 'active' : 'inactive',
           department: row.department || 'Unassigned',
+          position_level: (row.position_level && !['senior', 'mid', 'junior'].includes(String(row.position_level).toLowerCase()))
+            ? row.position_level
+            : (row.role?.toLowerCase().includes('manager') ? 'Manager' : ((row.department || '').toLowerCase() === 'service' ? 'Engineer' : 'Employee')),
+          technical_role: row.technical_role || row.role || '',
         }))
       );
     } catch {

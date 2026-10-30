@@ -29,6 +29,12 @@ abstract class TestCase extends BaseTestCase
             public function del($key) {
                 return 1;
             }
+            public function get($key) {
+                return null;
+            }
+            public function set($key, $val, ...$args) {
+                return true;
+            }
         };
 
         $mockRedisConn = new class($mockClient) {
@@ -44,6 +50,12 @@ abstract class TestCase extends BaseTestCase
             }
             public function del($key) {
                 return 1;
+            }
+            public function get($key) {
+                return null;
+            }
+            public function set($key, $val, ...$args) {
+                return true;
             }
         };
 

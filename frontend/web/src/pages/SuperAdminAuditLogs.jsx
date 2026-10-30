@@ -24,6 +24,7 @@ import {
   User,
   ArrowRight,
   ClipboardList,
+  Layers,
 } from 'lucide-react';
 import {
   getSuperAdminAuditLogs,
@@ -88,6 +89,39 @@ export default function SuperAdminAuditLogs({ defaultTab = 'logs' }) {
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [selectedSystemAlert, setSelectedSystemAlert] = useState(null);
 
+  const isSecurityLog = useCallback((log) => {
+    return Boolean(
+      log.module === 'Security' ||
+      log.module === 'Security & System' ||
+      log.action === 'System Alert' ||
+      log.action === 'Alert Burst' ||
+      log.incident_id ||
+      /malware|quarantine|threat|infected|system alert/i.test((log.action || '') + ' ' + (log.details || ''))
+    );
+  }, []);
+
+  const handleOpenIncident = useCallback((log) => {
+    const incId = log.incident_id || log.target || log.id;
+    setSelectedIncident({
+      id: incId,
+      incident_id: incId,
+      user: log.user,
+      data: {
+        incident_id: incId,
+        timestamp: log.timestamp,
+        severity: log.severity || 'high',
+        burst_count: log.burst_count || 1,
+        title: log.action,
+        message: log.details,
+        uploader: { email: log.user, role: log.role },
+        file: {
+          original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
+          threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
+        },
+      },
+    });
+  }, []);
+
   // Retention & Purge States (TS088)
   const [retentionDays, setRetentionDays] = useState(() => {
     const saved = localStorage.getItem(RETENTION_STORAGE_KEY);
@@ -109,6 +143,7 @@ export default function SuperAdminAuditLogs({ defaultTab = 'logs' }) {
     const tab = params.get('tab');
     if (incidentId) {
       setSearch(incidentId);
+      setSelectedIncident({ incident_id: incidentId, id: incidentId });
     } else if (query) {
       setSearch(query);
     }
@@ -194,7 +229,8 @@ export default function SuperAdminAuditLogs({ defaultTab = 'logs' }) {
           (log.module || '').toLowerCase().includes(q) ||
           (log.target || '').toLowerCase().includes(q) ||
           (log.details || '').toLowerCase().includes(q) ||
-          (log.branch || '').toLowerCase().includes(q)
+          (log.branch || '').toLowerCase().includes(q) ||
+          (log.incident_id || '').toLowerCase().includes(q)
       );
     }
 
@@ -620,19 +656,7 @@ export default function SuperAdminAuditLogs({ defaultTab = 'logs' }) {
                           key={log.id}
                           onClick={() => {
                             if (isSecurity) {
-                              setSelectedIncident({
-                                id: log.target || log.id,
-                                user: log.user,
-                                data: {
-                                  incident_id: log.target || log.id,
-                                  timestamp: log.timestamp,
-                                  uploader: { email: log.user, role: log.role },
-                                  file: {
-                                    original_name: log.details?.match(/file\s+'([^']+)'/i)?.[1] || log.target || 'attachment',
-                                    threat_name: log.details?.match(/threat\s+'([^']+)'/i)?.[1] || 'Malware.Detected',
-                                  },
-                                },
-                              });
+                              handleOpenIncident(log);
                             } else if (isSystemIssue) {
                               setSelectedSystemAlert({
                                 id: log.target || log.id,
@@ -693,10 +717,23 @@ export default function SuperAdminAuditLogs({ defaultTab = 'logs' }) {
                           {/* Action */}
                           <TableCell className="text-foreground whitespace-nowrap font-medium text-xs py-2.5 px-3">
                             {isSecurity ? (
-                              <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
-                                <ShieldAlert size={13} className="text-destructive shrink-0" />
-                                {log.action}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1.5 font-bold text-destructive">
+                                  <ShieldAlert size={13} className="text-destructive shrink-0" />
+                                  {log.action}
+                                </span>
+                                {log.severity && (
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
+                                    {log.severity}
+                                  </span>
+                                )}
+                                {log.burst_count > 1 && (
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                    <Layers size={10} />
+                                    +{log.burst_count} bursts
+                                  </span>
+                                )}
+                              </div>
                             ) : isSystemIssue ? (
                               <span className="inline-flex items-center gap-1.5 font-bold text-amber-900">
                                 <Terminal size={13} className="text-amber-700 shrink-0" />

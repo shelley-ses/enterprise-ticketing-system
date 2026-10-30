@@ -60,6 +60,8 @@ class SlaBreachAlertMonitoringTest extends TestCase
                 $t->string('last_name');
                 $t->string('role');
                 $t->string('department');
+                $t->string('position_level')->nullable();
+                $t->string('technical_role')->nullable();
                 $t->string('branch')->nullable()->default('Main');
                 $t->boolean('is_active')->default(true);
                 $t->timestamps();

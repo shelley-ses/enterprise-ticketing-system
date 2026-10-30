@@ -56,7 +56,7 @@ export default function SlaStatusBadge({ ticket, showDueDate = true, className =
       <div className={`flex flex-col gap-0.5 ${className}`}>
         <span
           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 w-fit"
-          title={formattedDue ? `SLA target breached on: ${formattedDue}` : 'Resolution target breached'}
+          title={formattedDue ? `SLA target Breached on: ${formattedDue}` : 'Resolution target Breached'}
         >
           <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
           <span>Breached</span>
@@ -91,12 +91,12 @@ export default function SlaStatusBadge({ ticket, showDueDate = true, className =
   }
 
   // 3. At Risk (approaching deadline)
-  if (normalizedStatus === 'atrisk') {
+  if (normalizedStatus === 'at_risk' || normalizedStatus === 'atrisk') {
     return (
       <div className={`flex flex-col gap-0.5 ${className}`}>
         <span
           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 w-fit"
-          title={formattedDue ? `SLA deadline approaching: ${formattedDue}` : 'SLA resolution target at risk'}
+          title={formattedDue ? `SLA Deadline approaching: ${formattedDue}` : 'SLA resolution target at risk - Deadline approaching'}
         >
           <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
           <span>At Risk</span>
@@ -117,12 +117,12 @@ export default function SlaStatusBadge({ ticket, showDueDate = true, className =
   }
 
   // 4. On Track / Compliant
-  if (normalizedStatus === 'ontrack' || normalizedStatus === 'compliant') {
+  if (normalizedStatus === 'ontrack' || normalizedStatus === 'compliant' || normalizedStatus === 'on_track') {
     return (
       <div className={`flex flex-col gap-0.5 ${className}`}>
         <span
           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit"
-          title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA targets'}
+          title={formattedDue ? `Target: ${formattedDue}` : 'Compliant with SLA Target'}
         >
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
           <span>On Track</span>
@@ -147,6 +147,9 @@ export default function SlaStatusBadge({ ticket, showDueDate = true, className =
           <AlertOctagon className="h-3.5 w-3.5 text-slate-400 shrink-0" />
           <span>SLA Unavailable</span>
         </span>
+        {showDueDate && (
+          <span className="text-[10px] text-muted-foreground">Config Error</span>
+        )}
       </div>
     );
   }
@@ -156,11 +159,14 @@ export default function SlaStatusBadge({ ticket, showDueDate = true, className =
     <div className={`flex flex-col gap-0.5 ${className}`}>
       <span
         className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 w-fit"
-        title="No active SLA configuration exists for this category/priority combination"
+        title="No department SLA configured for this ticket category"
       >
         <HelpCircle className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-        <span>No SLA</span>
+        <span>N/A</span>
       </span>
+      {showDueDate && (
+        <span className="text-[10px] text-muted-foreground">Standard</span>
+      )}
     </div>
   );
 }

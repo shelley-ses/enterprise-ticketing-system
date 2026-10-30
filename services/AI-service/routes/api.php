@@ -17,6 +17,7 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 
 // AI Chat & Support Triage Routes
 Route::post('/chat', [AiChatController::class, 'chat']);
+Route::post('/classify-department', [AiChatController::class, 'classifyDepartment']);
 Route::get('/conversations', [AiChatController::class, 'conversations']);
 Route::get('/conversations/{id}', [AiChatController::class, 'showConversation']);
 Route::get('/conversations/{id}/escalate-handoff', [AiChatController::class, 'escalateHandoff']);

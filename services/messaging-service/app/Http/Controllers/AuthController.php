@@ -128,32 +128,8 @@ class AuthController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        // Cleanup stale active DB statuses before mapping
-        $activeDbEmployees = Employee::where('is_active', true)->whereNotIn('role', ['customer service', 'head of cs', 'head of customer service', 'cs'])->get();
-        $staleEmpIds = [];
-        
-        if ($activeDbEmployees->isNotEmpty()) {
-            $activePresenceKeys = $activeDbEmployees->map(fn($emp) => 'employee:presence:' . $emp->emp_id)->all();
-            $activePresences = Cache::store('redis')->many($activePresenceKeys);
-            
-            foreach ($activeDbEmployees as $emp) {
-                $key = 'employee:presence:' . $emp->emp_id;
-                $hasPresence = isset($activePresences[$key]) && $activePresences[$key] !== null;
-                if (!$hasPresence) {
-                    $staleEmpIds[] = $emp->emp_id;
-                }
-            }
-        }
-
-        if (!empty($staleEmpIds)) {
-            Employee::whereIn('emp_id', $staleEmpIds)->update(['is_active' => false]);
-            $updatedEmps = Employee::whereIn('emp_id', $staleEmpIds)->get();
-            foreach ($updatedEmps as $emp) {
-                \App\Events\EmployeeStatusChanged::dispatch($emp);
-            }
-        }
-
         $query = Employee::query()
+            ->where('is_active', true)
             ->whereNotIn('role', ['customer service', 'head of cs', 'head of customer service', 'cs'])
             ->whereRaw('LOWER(COALESCE(role, "")) NOT IN (?, ?, ?, ?, ?)', ['superadmin', 'super admin', 'admin', 'system administrator', 'system admin'])
             ->whereRaw('LOWER(COALESCE(department, "")) NOT IN (?, ?)', ['admin', 'super admin'])

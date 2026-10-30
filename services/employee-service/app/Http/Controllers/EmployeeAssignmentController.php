@@ -38,7 +38,7 @@ class EmployeeAssignmentController extends Controller
 
         $query = DB::table('employees')
             ->whereIn('emp_id', $validated['employee_ids'])
-            ->select('emp_id as id', 'first_name', 'last_name', 'role', 'department');
+            ->select('emp_id as id', 'first_name', 'last_name', 'role', 'department', 'position_level', 'technical_role');
         if (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch')) {
             $query->addSelect('branch');
         } elseif (\Illuminate\Support\Facades\Schema::hasColumn('employees', 'branch_id')) {
@@ -112,6 +112,27 @@ class EmployeeAssignmentController extends Controller
                 'assigned_by_email' => ['nullable', 'email'],
                 'priority_ID' => ['nullable', 'integer', 'exists:ticket_priorities,priority_ID'],
             ]);
+
+            $ticket = DB::table('tickets')->where('ticket_ID', $ticketId)->first();
+            if ($ticket) {
+                $track = EmployeeDirectoryController::resolveCategoryTrack($ticket);
+                $assignees = DB::table('employees')
+                    ->whereIn('emp_id', $validated['employee_ids'])
+                    ->select('emp_id as id', 'first_name', 'last_name', 'role', 'department', 'position_level', 'technical_role', 'branch')
+                    ->get();
+
+                foreach ($assignees as $row) {
+                    $eligibility = EmployeeDirectoryController::checkEligibility($row, $ticket, $track);
+                    if (!$eligibility['eligible']) {
+                        return response()->json([
+                            'message' => 'Selected employee is not eligible for this ticket category.',
+                            'code' => 'INELIGIBLE_EMPLOYEE',
+                            'track' => $track,
+                            'reason' => $eligibility['reason'],
+                        ], 422);
+                    }
+                }
+            }
 
             $result = $this->assignmentService->acceptTicket($ticketId, $user, $validated);
             return response()->json($result['data'], $result['status']);

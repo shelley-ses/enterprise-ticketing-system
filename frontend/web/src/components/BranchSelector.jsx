@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, ChevronDown, Check, MapPin, AlertCircle, Info } from 'lucide-react';
-import { useBranch } from '@/context/BranchContext';
+import { Building2, ChevronDown, Check, MapPin, AlertCircle, Info, Globe2 } from 'lucide-react';
+import { useBranch, GLOBAL_BRANCH } from '@/context/BranchContext';
 
 /**
  * Reusable BranchSelector Component (TS090, TS092, TS097)
@@ -21,6 +21,8 @@ export default function BranchSelector({
   const { branches, selectedBranch, setSelectedBranchId } = useBranch();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+
+  const activeBranch = selectedBranch || GLOBAL_BRANCH;
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -50,10 +52,14 @@ export default function BranchSelector({
     setSelectedBranchId(branchId);
     setIsOpen(false);
     if (onChange) {
-      const branchObj = branches.find((b) => b.id === branchId);
+      const branchObj = branchId === null || branchId === 'all'
+        ? GLOBAL_BRANCH
+        : branches.find((b) => b.id === branchId || b.slug === branchId);
       onChange(branchObj);
     }
   };
+
+  const branchList = [GLOBAL_BRANCH, ...branches.filter((b) => b.id !== null && b.slug !== 'all')];
 
   if (variant === 'inline') {
     return (
@@ -64,13 +70,13 @@ export default function BranchSelector({
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-xs hover:border-slate-300 transition-all cursor-pointer"
-          title={`Active Branch: ${selectedBranch.name} (${selectedBranch.region})`}
+          title={`Active Branch: ${selectedBranch?.name || activeBranch.name} (${selectedBranch?.region || activeBranch.region || ''})`}
         >
           <Building2 size={14} className="text-slate-700 shrink-0" />
           <span className="text-slate-500 font-normal">Branch</span>
-          <span className="font-semibold text-slate-900">{selectedBranch.name}</span>
+          <span className="font-semibold text-slate-900">{selectedBranch?.name || activeBranch.name}</span>
           <span className="rounded-md bg-indigo-100/80 px-1.5 py-0.5 text-[10px] font-bold text-indigo-800">
-            {selectedBranch.code}
+            {selectedBranch?.code || activeBranch.code}
           </span>
           <ChevronDown
             size={14}
@@ -89,7 +95,7 @@ export default function BranchSelector({
                   Select Branch Scope
                 </p>
                 <span className="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-800">
-                  {selectedBranch.code}
+                  {selectedBranch?.code || activeBranch.code}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
@@ -99,7 +105,7 @@ export default function BranchSelector({
 
             <div className="flex flex-col gap-1 max-h-64 overflow-y-auto" role="listbox">
               {branches.map((branch) => {
-                const isSelected = branch.id === selectedBranch.id;
+                const isSelected = branch.id === (selectedBranch?.id || activeBranch.id);
                 return (
                   <button
                     key={branch.id}
@@ -159,7 +165,7 @@ export default function BranchSelector({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252578] text-white shadow-xs shrink-0">
-              <Building2 size={20} />
+              {activeBranch.id === null ? <Globe2 size={20} /> : <Building2 size={20} />}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -167,14 +173,16 @@ export default function BranchSelector({
                   Target Branch Scope
                 </span>
                 <span className="inline-flex items-center rounded-md bg-indigo-100/80 px-2 py-0.5 text-[11px] font-bold text-indigo-800">
-                  {selectedBranch.code}
+                  {activeBranch.code || 'GLOBAL'}
                 </span>
               </div>
               <h4 className="text-sm font-bold text-gray-900">
-                {selectedBranch.name}
-                <span className="ml-2 text-xs font-normal text-gray-500">
-                  ({selectedBranch.region})
-                </span>
+                {activeBranch.name}
+                {activeBranch.region && (
+                  <span className="ml-2 text-xs font-normal text-gray-500">
+                    ({activeBranch.region})
+                  </span>
+                )}
               </h4>
             </div>
           </div>
@@ -188,7 +196,7 @@ export default function BranchSelector({
               className="inline-flex items-center gap-2.5 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-xs font-semibold text-[#252578] shadow-xs hover:bg-indigo-50/50 transition-all cursor-pointer"
             >
               <MapPin size={14} className="text-[#252578]" />
-              <span>Switch Branch</span>
+              <span>Switch Scope</span>
               <ChevronDown
                 size={14}
                 className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
@@ -203,16 +211,18 @@ export default function BranchSelector({
                     Select Target Facility
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Configurations will be scoped strictly to this branch.
+                    Configurations will be scoped to this branch or all branches.
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-1 max-h-64 overflow-y-auto" role="listbox">
-                  {branches.map((branch) => {
-                    const isSelected = branch.id === selectedBranch.id;
+                  {branchList.map((branch) => {
+                    const isSelected =
+                      (branch.id === null && (activeBranch.id === null || activeBranch.id === 'all')) ||
+                      (branch.id !== null && branch.id === activeBranch.id);
                     return (
                       <button
-                        key={branch.id}
+                        key={branch.id || 'global'}
                         type="button"
                         role="option"
                         aria-selected={isSelected}
@@ -224,22 +234,33 @@ export default function BranchSelector({
                         }`}
                       >
                         <div className="flex items-start gap-2.5 min-w-0">
-                          <Building2
-                            size={16}
-                            className={`shrink-0 mt-0.5 ${
-                              isSelected ? 'text-[#252578]' : 'text-gray-400'
-                            }`}
-                          />
+                          {branch.id === null ? (
+                            <Globe2
+                              size={16}
+                              className={`shrink-0 mt-0.5 ${
+                                isSelected ? 'text-[#252578]' : 'text-gray-400'
+                              }`}
+                            />
+                          ) : (
+                            <Building2
+                              size={16}
+                              className={`shrink-0 mt-0.5 ${
+                                isSelected ? 'text-[#252578]' : 'text-gray-400'
+                              }`}
+                            />
+                          )}
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-xs font-bold truncate">
                                 {branch.name}
                               </span>
-                              <span className="rounded bg-gray-100 px-1.5 py-0.2 text-[10px] font-semibold text-gray-600">
-                                {branch.code}
-                              </span>
+                              {branch.code && (
+                                <span className="rounded bg-gray-100 px-1.5 py-0.2 text-[10px] font-semibold text-gray-600">
+                                  {branch.code}
+                                </span>
+                              )}
                             </div>
-                            {showDescription && (
+                            {showDescription && branch.description && (
                               <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">
                                 {branch.description}
                               </p>
@@ -257,7 +278,7 @@ export default function BranchSelector({
 
                 <div className="mt-2 pt-2 border-t border-gray-100 px-2 py-1 flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50/70 rounded-lg">
                   <AlertCircle size={12} className="shrink-0 text-amber-600" />
-                  <span>Edits made apply to the active branch only.</span>
+                  <span>Edits made apply to the active branch scope only.</span>
                 </div>
               </div>
             )}
@@ -277,23 +298,25 @@ export default function BranchSelector({
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           className="group inline-flex items-center gap-2.5 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-white px-3.5 py-2 text-xs font-semibold text-gray-800 shadow-xs hover:border-[#252578] hover:shadow-sm transition-all cursor-pointer"
-          title={`Currently configuring: ${selectedBranch.name} (${selectedBranch.region})`}
+          title={`Currently configuring: ${activeBranch.name}`}
         >
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#252578] text-white shrink-0 shadow-xs">
-            <Building2 size={13} />
+            {activeBranch.id === null ? <Globe2 size={13} /> : <Building2 size={13} />}
           </div>
 
           <div className="flex flex-col text-left">
             <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-900/60 leading-none">
-              Configuring Branch
+              Configuring Scope
             </span>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="font-bold text-[#252578] text-xs">
-                {selectedBranch.name}
+                {activeBranch.name}
               </span>
-              <span className="rounded bg-indigo-100 px-1.5 py-0.2 text-[10px] font-bold text-indigo-800">
-                {selectedBranch.code}
-              </span>
+              {activeBranch.code && (
+                <span className="rounded bg-indigo-100 px-1.5 py-0.2 text-[10px] font-bold text-indigo-800">
+                  {activeBranch.code}
+                </span>
+              )}
             </div>
           </div>
 
@@ -319,16 +342,18 @@ export default function BranchSelector({
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Select which physical branch or facility to configure.
+              Select which physical branch or global scope to configure.
             </p>
           </div>
 
           <div className="flex flex-col gap-1 max-h-64 overflow-y-auto" role="listbox">
-            {branches.map((branch) => {
-              const isSelected = branch.id === selectedBranch.id;
+            {branchList.map((branch) => {
+              const isSelected =
+                (branch.id === null && (activeBranch.id === null || activeBranch.id === 'all')) ||
+                (branch.id !== null && branch.id === activeBranch.id);
               return (
                 <button
-                  key={branch.id}
+                  key={branch.id || 'global'}
                   type="button"
                   role="option"
                   aria-selected={isSelected}
@@ -340,25 +365,38 @@ export default function BranchSelector({
                   }`}
                 >
                   <div className="flex items-start gap-2.5 min-w-0">
-                    <Building2
-                      size={16}
-                      className={`shrink-0 mt-0.5 ${
-                        isSelected ? 'text-[#252578]' : 'text-gray-400'
-                      }`}
-                    />
+                    {branch.id === null ? (
+                      <Globe2
+                        size={16}
+                        className={`shrink-0 mt-0.5 ${
+                          isSelected ? 'text-[#252578]' : 'text-gray-400'
+                        }`}
+                      />
+                    ) : (
+                      <Building2
+                        size={16}
+                        className={`shrink-0 mt-0.5 ${
+                          isSelected ? 'text-[#252578]' : 'text-gray-400'
+                        }`}
+                      />
+                    )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-bold truncate">
                           {branch.name}
                         </span>
-                        <span className="rounded bg-gray-100 px-1.5 py-0.2 text-[10px] font-semibold text-gray-600">
-                          {branch.code}
-                        </span>
-                        <span className="text-[10px] text-gray-400">
-                          ({branch.region})
-                        </span>
+                        {branch.code && (
+                          <span className="rounded bg-gray-100 px-1.5 py-0.2 text-[10px] font-semibold text-gray-600">
+                            {branch.code}
+                          </span>
+                        )}
+                        {branch.region && (
+                          <span className="text-[10px] text-gray-400">
+                            ({branch.region})
+                          </span>
+                        )}
                       </div>
-                      {showDescription && (
+                      {showDescription && branch.description && (
                         <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">
                           {branch.description}
                         </p>
@@ -377,7 +415,7 @@ export default function BranchSelector({
           <div className="mt-2 pt-2 border-t border-gray-100 px-2 py-1.5 flex items-start gap-1.5 text-[11px] text-gray-600 bg-gray-50 rounded-xl">
             <Info size={13} className="shrink-0 text-indigo-600 mt-0.5" />
             <span className="text-[10px] leading-tight">
-              Edits made on this screen will apply exclusively to <strong>{selectedBranch.name}</strong>.
+              Edits made on this screen apply to <strong>{activeBranch.name}</strong>.
             </span>
           </div>
         </div>

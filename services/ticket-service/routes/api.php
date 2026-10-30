@@ -31,6 +31,7 @@ Route::post('/tickets/draft', [TicketDraftController::class, 'saveDraft']);
 Route::get('/tickets/drafts', [TicketDraftController::class, 'listDrafts']);
 Route::get('/tickets/drafts/{id}', [TicketDraftController::class, 'getDraft']);
 Route::delete('/tickets/drafts/{id}', [TicketDraftController::class, 'deleteDraft']);
+Route::get('/branches', [BranchPriorityController::class, 'publicBranches']);
 
 // ─── Dashboards & Feed Endpoints ─────────────────────────────────────────────
 Route::get('/customer-dashboard', [TicketDashboardController::class, 'customerDashboard']);
@@ -428,6 +429,8 @@ Route::middleware('auth.subsystem')->group(function () {
     Route::get('/superadmin/audit-logs/retention', [SuperAdminConfigController::class, 'getLogRetentionConfig']);
     Route::post('/superadmin/audit-logs/retention', [SuperAdminConfigController::class, 'updateLogRetentionConfig']);
     Route::post('/superadmin/audit-logs/purge', [SuperAdminConfigController::class, 'purgeAuditLogs']);
+    Route::get('/superadmin/security-incidents', [SuperAdminConfigController::class, 'getSecurityIncidents']);
+    Route::get('/superadmin/security-incidents/{incidentId}', [SuperAdminConfigController::class, 'getSecurityIncidentDetail']);
     Route::get('/superadmin/history', [SuperAdminConfigController::class, 'getSuperAdminHistory']);
     Route::get('/superadmin/window-config', [SuperAdminConfigController::class, 'getWindowConfig']);
     Route::put('/superadmin/window-config', [SuperAdminConfigController::class, 'updateWindowConfig']);

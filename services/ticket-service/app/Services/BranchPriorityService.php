@@ -55,6 +55,17 @@ class BranchPriorityService
 
     public function findBranch(string $branchId): ?object
     {
+        if ($branchId === 'system' || $branchId === 'all' || $branchId === '0' || empty($branchId)) {
+            return (object) [
+                'id' => 0,
+                'slug' => 'system',
+                'name' => 'System-wide (Global)',
+                'code' => 'SYS',
+                'region' => 'All Facilities',
+                'is_active' => true,
+            ];
+        }
+
         return DB::table('branches')->where('slug', $branchId)->where('is_active', true)->first();
     }
 
