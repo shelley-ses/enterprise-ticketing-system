@@ -52,6 +52,7 @@ const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 // Lazy loaded IT Manager components
 const ITManagerLayout = React.lazy(() => import('./components/ITManagerLayout.jsx'));
 const ITManagerDashboard = React.lazy(() => import('./pages/ITManagerDashboard.jsx'));
+const ITManagerTickets = React.lazy(() => import('./pages/ITManagerTickets.jsx'));
 
 // Lazy loaded Admin page and layout components
 const AdminLayout = React.lazy(() => import('./components/AdminLayout.jsx'));
@@ -310,8 +311,11 @@ function App() {
               >
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<ITManagerDashboard />} />
-                <Route path="tickets" element={<ITManagerDashboard />} />
-                <Route path="breached" element={<ITManagerDashboard />} />
+                <Route path="tickets" element={<ITManagerTickets />} />
+                <Route path="breached" element={<Navigate to="/it-manager/dashboard" replace />} />
+                <Route path="history" element={<CSHistory roleContext="it_manager" />} />
+                <Route path="history/:ticketId" element={<EmployeeHistoryDetail />} />
+                <Route path="my-tickets" element={<EmployeeMyTickets roleContext="it_manager" />} />
                 <Route path="messages" element={<MessagingPage />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="notifications" element={<Notifications />} />

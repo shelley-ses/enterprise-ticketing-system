@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
   Clock,
@@ -19,6 +19,7 @@ import {
   AlertCircle,
   HelpCircle,
   CheckCircle,
+  ArrowRight,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { MetricCard } from '@/components/ui/metric-card';
@@ -74,7 +75,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Network',
     created_at: new Date(Date.now() - 36 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() - 14 * 3600 * 1000).toISOString(), // Breached
+    sla_due_date: new Date(Date.now() - 14 * 3600 * 1000).toISOString(),
     assigned: [201],
     assigned_names: ['David Miller'],
   },
@@ -88,7 +89,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Security',
     created_at: new Date(Date.now() - 18 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() - 4 * 3600 * 1000).toISOString(), // Breached
+    sla_due_date: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
     assigned: [202],
     assigned_names: ['Sarah Connor'],
   },
@@ -102,7 +103,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Network',
     created_at: new Date(Date.now() - 8 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() - 2 * 3600 * 1000).toISOString(), // Breached & Unassigned
+    sla_due_date: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     assigned: [],
     assigned_names: [],
   },
@@ -116,7 +117,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Hardware',
     created_at: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), // Within SLA
+    sla_due_date: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     assigned: [203],
     assigned_names: ['Alex Chen'],
   },
@@ -130,7 +131,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Database',
     created_at: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() + 12 * 3600 * 1000).toISOString(), // Within SLA & Unassigned
+    sla_due_date: new Date(Date.now() + 12 * 3600 * 1000).toISOString(),
     assigned: [],
     assigned_names: [],
   },
@@ -144,7 +145,7 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Network',
     created_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() + 48 * 3600 * 1000).toISOString(), // Within SLA & Unassigned
+    sla_due_date: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     assigned: [],
     assigned_names: [],
   },
@@ -158,238 +159,174 @@ const MOCK_IT_TICKETS = [
     department: 'IT Department',
     category: 'Security',
     created_at: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
-    sla_due_date: new Date(Date.now() + 36 * 3600 * 1000).toISOString(), // Within SLA
-    assigned: [200], // Assigned to IT Manager
+    sla_due_date: new Date(Date.now() + 36 * 3600 * 1000).toISOString(),
+    assigned: [200],
     assigned_names: ['IT Department Manager'],
   },
 ];
 
 export default function ITManagerDashboard() {
   const { user } = useAuth();
-  const location = useLocation();
   const navigate = useNavigate();
-  const { selectedBranch } = useBranch();
 
-  // Tab State: 'overview' | 'tickets' | 'breached'
-  const activeTab = useMemo(() => {
-    if (location.pathname.includes('/tickets')) return 'tickets';
-    if (location.pathname.includes('/breached')) return 'breached';
-    return 'overview';
-  }, [location.pathname]);
-
-  const handleTabChange = (tab) => {
-    if (tab === 'overview') navigate('/it-manager/dashboard');
-    else if (tab === 'tickets') navigate('/it-manager/tickets');
-    else if (tab === 'breached') navigate('/it-manager/breached');
-  };
-
-  // State
-  const [tickets, setTickets] = useState(MOCK_IT_TICKETS);
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState(['IT Department', 'IT', 'Service', 'Customer Service']);
-  const [isLoading, setIsLoading] = useState(true);
+  // Data state
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [priorityFilter, setPriorityFilter] = useState('All');
-  const [assigneeFilter, setAssigneeFilter] = useState('All');
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Modals
+  // Modals state
   const [assignModalTicket, setAssignModalTicket] = useState(null);
+  const [assignEmployees, setAssignEmployees] = useState([]);
+  const [assignDepartments, setAssignDepartments] = useState([]);
   const [detailModalTicket, setDetailModalTicket] = useState(null);
 
-  // Fetch data
-  const loadData = useCallback(async (isSilent = false) => {
-    if (!isSilent) setIsLoading(true);
-    else setIsRefreshing(true);
-
+  // 1. Fetch tickets from ticket-service scoped to IT Department
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setIsRefreshing(true);
     try {
-      const [incomingData, assignableList, deptsList] = await Promise.allSettled([
-        getCSIncomingTickets({ forceRefresh: true }),
-        getAssignableEmployees({ forceRefresh: true }),
-        getDepartments(),
-      ]);
+      const apiTickets = await getCSIncomingTickets({ limit: 100, forceRefresh: true });
+      const itScoped = (apiTickets || []).filter((t) => {
+        const dept = (t.department || t.department_target || '').toLowerCase();
+        const cat = (t.category || '').toLowerCase();
+        return (
+          dept.includes('it') ||
+          dept.includes('service') ||
+          cat.includes('network') ||
+          cat.includes('hardware') ||
+          cat.includes('software') ||
+          cat.includes('security') ||
+          cat.includes('database') ||
+          cat.includes('server')
+        );
+      });
 
-      if (assignableList.status === 'fulfilled' && Array.isArray(assignableList.value)) {
-        // Ensure IT Manager and seeded staff are included
-        const staff = [...assignableList.value];
-        const managerExists = staff.some((e) => e.email === 'itmanager@example.com' || e.role === 'it_manager');
-        if (!managerExists && user) {
-          staff.unshift({
-            id: user.id || 200,
-            name: user.name || 'IT Department Manager (Me)',
-            email: user.email || 'itmanager@example.com',
-            department: 'IT Department',
-            role: 'it_manager',
-            status: 'active',
-          });
-        }
-        setEmployees(staff);
-      }
-
-      if (deptsList.status === 'fulfilled' && Array.isArray(deptsList.value)) {
-        setDepartments(deptsList.value);
-      }
-
-      if (incomingData.status === 'fulfilled') {
-        const raw = Array.isArray(incomingData.value) ? incomingData.value : (incomingData.value?.tickets || []);
-        if (raw.length > 0) {
-          // Normalize tickets
-          const normalized = raw.map((t) => {
-            const dueDate = getTicketSlaDueDate(t);
-            const isBreached = dueDate && new Date(dueDate) < new Date() && t.status !== 'Resolved' && t.status !== 'Closed';
-            return {
-              ...t,
-              id: t.id || t.ticket_ID,
-              ticket_ID: t.ticket_ID || `TICK-${t.id}`,
-              sla_due_date: dueDate || t.sla_due_date,
-              is_breached: isBreached,
-              assigned: Array.isArray(t.assigned) ? t.assigned : (t.assigned ? [t.assigned] : []),
-              assigned_names: t.assigned_names || (t.assigned_to ? [t.assigned_to] : []),
-            };
-          });
-
-          // Merge seeded IT sample tickets if not already present
-          const existingIds = new Set(normalized.map((x) => x.id || x.ticket_ID));
-          const merged = [...normalized];
-          MOCK_IT_TICKETS.forEach((mock) => {
-            if (!existingIds.has(mock.id) && !existingIds.has(mock.ticket_ID)) {
-              merged.push(mock);
-            }
-          });
-          setTickets(merged);
-        }
-      }
+      const merged = itScoped.length > 0 ? itScoped : MOCK_IT_TICKETS;
+      setTickets(merged);
     } catch (err) {
-      console.warn('Using seeded IT tickets fallback:', err);
+      console.warn('Failed to fetch live IT tickets, falling back to mock tickets:', err);
+      setTickets(MOCK_IT_TICKETS);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
       setIsRefreshing(false);
     }
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // SLA Calculation Helpers
-  const evaluatedTickets = useMemo(() => {
-    const now = new Date();
-    return tickets.map((t) => {
-      const isResolved = t.status === 'Resolved' || t.status === 'Closed';
-      const dueDate = t.sla_due_date ? new Date(t.sla_due_date) : null;
-      const isPastDue = dueDate && dueDate < now;
-      const isBreached = !isResolved && isPastDue;
-      const isUnassigned = !t.assigned || t.assigned.length === 0 || t.status === 'Pending Assignment';
-      const isWithinSla = !isResolved && dueDate && dueDate >= now;
+  // 2. Fetch IT technicians and department options for AssignModal
+  useEffect(() => {
+    Promise.all([
+      getAssignableEmployees({ forceRefresh: false }).catch(() => []),
+      getDepartments().catch(() => []),
+    ]).then(([emps, deps]) => {
+      const formattedStaff = [
+        { id: 201, name: 'David Miller', email: 'david.miller@example.com', role: 'IT Support Engineer', department: 'IT Department' },
+        { id: 202, name: 'Sarah Connor', email: 'sarah.connor@example.com', role: 'Systems Administrator', department: 'IT Department' },
+        { id: 203, name: 'Alex Chen', email: 'alex.chen@example.com', role: 'IT Support Technician', department: 'IT Department' },
+        { id: 200, name: 'Arthur Pendleton (IT Manager)', email: 'itmanager@example.com', role: 'IT Manager', department: 'IT Department' },
+      ];
 
-      // Determine who it's assigned to
-      let assigneeName = 'Unassigned';
-      if (!isUnassigned) {
-        if (t.assigned_names && t.assigned_names.length > 0) {
-          assigneeName = t.assigned_names[0];
-        } else if (t.assigned && t.assigned.length > 0) {
-          const empId = t.assigned[0];
-          const matched = employees.find((e) => e.id === empId);
-          assigneeName = matched ? matched.name : `Staff #${empId}`;
+      const mergedEmps = [...formattedStaff];
+      (emps || []).forEach((e) => {
+        const id = Number(e.id ?? e.emp_id);
+        if (!mergedEmps.some((m) => m.id === id)) {
+          mergedEmps.push({
+            id,
+            name: e.name || `${e.first_name || ''} ${e.last_name || ''}`.trim() || e.email,
+            email: e.email,
+            role: e.role,
+            department: e.department || 'IT Department',
+          });
         }
-      }
+      });
+
+      setAssignEmployees(mergedEmps);
+      setAssignDepartments(deps && deps.length > 0 ? deps.map((d) => d.name || d) : ['IT Department', 'Service', 'Customer Service']);
+    });
+  }, []);
+
+  // 3. Normalize ticket fields and SLA status
+  const evaluatedTickets = useMemo(() => {
+    return tickets.map((t) => {
+      const assignedList = Array.isArray(t.assigned)
+        ? t.assigned
+        : Array.isArray(t.assigned_to)
+        ? t.assigned_to
+        : t.assigned_to_user
+        ? [t.assigned_to_user]
+        : [];
+
+      const assignedNamesList = Array.isArray(t.assigned_names)
+        ? t.assigned_names
+        : Array.isArray(t.assignee_names)
+        ? t.assignee_names
+        : [];
+
+      const isUnassigned =
+        assignedList.length === 0 &&
+        assignedNamesList.length === 0 &&
+        (!t.status || t.status.toLowerCase().includes('pending assignment') || t.status.toLowerCase() === 'unassigned');
+
+      const assigneeName = assignedNamesList.length > 0
+        ? assignedNamesList.join(', ')
+        : assignedList.length > 0
+        ? `Technician #${assignedList[0]}`
+        : 'Unassigned';
+
+      const dueDate = getTicketSlaDueDate(t);
+      const isBreached = dueDate ? new Date() > new Date(dueDate) : false;
 
       return {
         ...t,
-        isBreached,
-        isWithinSla,
         isUnassigned,
         assigneeName,
+        dueDate,
+        isBreached,
       };
     });
-  }, [tickets, employees]);
+  }, [tickets]);
 
-  // SLA Summary Metric Numbers
+  // 4. SLA Overview Metrics (Overview only)
   const slaMetrics = useMemo(() => {
     const total = evaluatedTickets.length;
     const unassigned = evaluatedTickets.filter((t) => t.isUnassigned).length;
-    const withinSla = evaluatedTickets.filter((t) => t.isWithinSla).length;
     const breached = evaluatedTickets.filter((t) => t.isBreached).length;
+    const withinSla = total - breached;
 
     return { total, unassigned, withinSla, breached };
   }, [evaluatedTickets]);
 
-  // Breached Tickets list
+  // 5. Breached Tickets Queue (past SLA due date)
   const breachedTickets = useMemo(() => {
     return evaluatedTickets
       .filter((t) => t.isBreached)
-      .sort((a, b) => new Date(a.sla_due_date || 0) - new Date(b.sla_due_date || 0));
+      .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
   }, [evaluatedTickets]);
 
-  // Filtered Tickets for Ticket List view
-  const filteredTickets = useMemo(() => {
-    return evaluatedTickets.filter((t) => {
-      // Search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchTitle = (t.title || '').toLowerCase().includes(q);
-        const matchId = String(t.ticket_ID || t.id || '').toLowerCase().includes(q);
-        const matchDesc = (t.description || '').toLowerCase().includes(q);
-        const matchAssignee = (t.assigneeName || '').toLowerCase().includes(q);
-        if (!matchTitle && !matchId && !matchDesc && !matchAssignee) return false;
-      }
-
-      // Status
-      if (statusFilter !== 'All') {
-        if (t.status !== statusFilter) return false;
-      }
-
-      // Priority
-      if (priorityFilter !== 'All') {
-        if (t.priority !== priorityFilter) return false;
-      }
-
-      // Assignee
-      if (assigneeFilter !== 'All') {
-        if (assigneeFilter === 'Unassigned') {
-          if (!t.isUnassigned) return false;
-        } else if (assigneeFilter === 'Assigned to Me') {
-          const myEmail = user?.email || 'itmanager@example.com';
-          const isAssignedToMe =
-            t.assigneeName.includes('Manager') ||
-            (t.assigned && user && t.assigned.includes(user.id));
-          if (!isAssignedToMe) return false;
-        } else {
-          // Specific staff member
-          if (!t.assigneeName.toLowerCase().includes(assigneeFilter.toLowerCase())) return false;
-        }
-      }
-
-      return true;
-    });
-  }, [evaluatedTickets, searchQuery, statusFilter, priorityFilter, assigneeFilter, user]);
-
-  // Handle Save Assignment (Assign/Reassign to staff or self)
-  const handleSaveAssignment = async (updated) => {
+  // Assignment Modal Submission
+  const handleAssignSubmit = async (payload) => {
     try {
-      const selectedEmpIds = updated.assigned || [];
-      const assignedEmpNames = employees
-        .filter((e) => selectedEmpIds.includes(e.id))
-        .map((e) => e.name);
+      if (payload.ticketId) {
+        await assignTicketToEmployees(payload.ticketId, payload.employeeIds, payload.priority, payload.department);
+      }
+      const assignedEmployeeObjs = assignEmployees.filter((e) =>
+        (payload.employeeIds || []).includes(e.id)
+      );
+      const assignedNames = assignedEmployeeObjs.map((e) => e.name);
 
-      // Call API
-      await assignTicketToEmployees({
-        ticketId: updated.id || updated.ticket_ID,
-        employeeIds: selectedEmpIds,
-        assignedByEmail: user?.email || 'itmanager@example.com',
-      });
-
-      // Update local state
       setTickets((prev) =>
         prev.map((t) => {
-          if ((t.id && t.id === updated.id) || (t.ticket_ID && t.ticket_ID === updated.ticket_ID)) {
+          if (t.id === payload.ticketId || t.ticket_ID === payload.ticketId) {
             return {
               ...t,
-              status: selectedEmpIds.length > 0 ? 'In Progress' : 'Pending Assignment',
-              assigned: selectedEmpIds,
-              assigned_names: assignedEmpNames.length > 0 ? assignedEmpNames : ['IT Technician'],
+              status: 'In Progress',
+              priority: payload.priority || t.priority,
+              assigned: payload.employeeIds,
+              assigned_names: assignedNames,
             };
           }
           return t;
@@ -398,34 +335,15 @@ export default function ITManagerDashboard() {
 
       setToastMessage({
         type: 'success',
-        text: `Ticket ${updated.ticket_ID || updated.id} assigned successfully to ${assignedEmpNames.join(', ') || 'technician'}.`,
+        text: `Ticket successfully reassigned to ${assignedNames.join(', ') || 'IT Staff'}.`,
       });
       setAssignModalTicket(null);
     } catch (err) {
-      console.error('Assignment error:', err);
-      // Fallback optimistic update so user action never fails
-      setTickets((prev) =>
-        prev.map((t) => {
-          if ((t.id && t.id === updated.id) || (t.ticket_ID && t.ticket_ID === updated.ticket_ID)) {
-            const selectedEmpIds = updated.assigned || [];
-            const assignedEmpNames = employees
-              .filter((e) => selectedEmpIds.includes(e.id))
-              .map((e) => e.name);
-            return {
-              ...t,
-              status: selectedEmpIds.length > 0 ? 'In Progress' : 'Pending Assignment',
-              assigned: selectedEmpIds,
-              assigned_names: assignedEmpNames.length > 0 ? assignedEmpNames : ['IT Technician'],
-            };
-          }
-          return t;
-        })
-      );
+      console.error('Failed to assign ticket:', err);
       setToastMessage({
-        type: 'success',
-        text: `Ticket updated and assigned.`,
+        type: 'error',
+        text: 'Failed to assign ticket. Please try again.',
       });
-      setAssignModalTicket(null);
     }
 
     setTimeout(() => setToastMessage(null), 4000);
@@ -439,7 +357,7 @@ export default function ITManagerDashboard() {
   }).format(new Date());
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-2">
@@ -448,19 +366,29 @@ export default function ITManagerDashboard() {
         </div>
       )}
 
-      {/* Page Header (Pattern A) */}
+      {/* Page Header */}
       <PageHeader
-        pattern="A"
-        title="IT Department Operations & SLA Management"
-        subtitle={`Live monitoring of IT staff queues, technician assignments, and SLA compliance — ${dateStr}`}
+        pattern="B"
+        title="IT Manager Dashboard & SLA Overview"
+        subtitle={`Live monitoring of IT staff capacity, SLA metrics, and critical overdue escalations — ${dateStr}`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => navigate('/it-manager/tickets')}
+              className="text-xs bg-[#252578] hover:bg-[#1d1d60] text-white font-semibold gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Inbox className="w-3.5 h-3.5" />
+              <span>IT Ticket Queue</span>
+              <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+            </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => loadData(true)}
               disabled={isRefreshing}
-              className="text-xs gap-1.5"
+              className="text-xs gap-1.5 cursor-pointer"
             >
               <RefreshCw className={cn('w-3.5 h-3.5 text-accent', isRefreshing && 'animate-spin')} />
               <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
@@ -469,627 +397,335 @@ export default function ITManagerDashboard() {
         }
       />
 
-      {/* Top Navigation & Toolbar Bar (Pixel-perfect ONE UI Underline Tabs & Controls) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 mb-6 print:hidden">
-        {/* Left: Tab Switcher (Underline sits flush on the horizontal border line) */}
-        <div className="flex items-center gap-6 sm:gap-8 shrink-0 -mb-px">
-          <button
-            type="button"
-            onClick={() => handleTabChange('overview')}
-            className={cn(
-              'pb-3 pt-1 text-xs sm:text-sm transition-all relative cursor-pointer border-b-2 font-medium flex items-center gap-2',
-              activeTab === 'overview'
-                ? 'text-[#252578] border-[#252578] font-semibold'
-                : 'text-slate-500 hover:text-slate-800 border-transparent'
-            )}
-          >
-            <span>SLA Overview</span>
-          </button>
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          SECTION 1: SLA OVERVIEW SUMMARY CARDS
+         ───────────────────────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard
+          title="Total IT Tickets"
+          value={slaMetrics.total}
+          icon={<Layers className="w-5 h-5 text-accent" />}
+          iconBg="bg-blue-50 text-accent"
+        />
+        <MetricCard
+          title="Unassigned Tickets"
+          value={slaMetrics.unassigned}
+          icon={<Inbox className="w-5 h-5 text-amber-600" />}
+          iconBg="bg-amber-50 text-amber-600"
+          variant="amber"
+        />
+        <MetricCard
+          title="Within SLA"
+          value={slaMetrics.withinSla}
+          icon={<CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+          iconBg="bg-emerald-50 text-emerald-600"
+        />
+        <MetricCard
+          title="Breached Tickets"
+          value={slaMetrics.breached}
+          icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+          iconBg="bg-rose-50 text-rose-600"
+          variant="crimson"
+        />
+      </div>
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('tickets')}
-            className={cn(
-              'pb-3 pt-1 text-xs sm:text-sm transition-all relative cursor-pointer border-b-2 font-medium flex items-center gap-2',
-              activeTab === 'tickets'
-                ? 'text-[#252578] border-[#252578] font-semibold'
-                : 'text-slate-500 hover:text-slate-800 border-transparent'
-            )}
-          >
-            <span>IT Ticket Queue</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-bold">
-              {evaluatedTickets.length}
-            </span>
-          </button>
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          SECTION 2: SLA COMPLIANCE & STAFF CAPACITY
+         ───────────────────────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Compliance Meter */}
+        <div className="bg-card rounded-xl border border-border p-5 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-bold text-foreground">SLA Health Overview</h3>
+            </div>
+            <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary">
+              Live Status
+            </Badge>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('breached')}
-            className={cn(
-              'pb-3 pt-1 text-xs sm:text-sm transition-all relative cursor-pointer border-b-2 font-medium flex items-center gap-2',
-              activeTab === 'breached'
-                ? 'text-rose-700 border-rose-700 font-semibold'
-                : 'text-slate-500 hover:text-slate-800 border-transparent'
-            )}
-          >
-            <span>Breached Tickets</span>
-            {slaMetrics.breached > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 font-bold animate-pulse">
-                {slaMetrics.breached}
-              </span>
-            )}
-          </button>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-muted-foreground font-medium">Compliance Rate</span>
+                <span className="font-bold text-foreground">
+                  {slaMetrics.total > 0
+                    ? `${Math.round(((slaMetrics.total - slaMetrics.breached) / slaMetrics.total) * 100)}%`
+                    : '100%'}
+                </span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${
+                      slaMetrics.total > 0
+                        ? Math.round(((slaMetrics.total - slaMetrics.breached) / slaMetrics.total) * 100)
+                        : 100
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 text-center">
+                <p className="text-[10px] font-semibold text-emerald-800 uppercase">On-Track</p>
+                <p className="text-lg font-bold text-emerald-900 mt-0.5">{slaMetrics.withinSla}</p>
+              </div>
+              <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-100 text-center">
+                <p className="text-[10px] font-semibold text-rose-800 uppercase">Breached</p>
+                <p className="text-lg font-bold text-rose-900 mt-0.5">{slaMetrics.breached}</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Right: Active Branch Selector */}
-        <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end pb-2">
-          <BranchSelector variant="inline" />
+        {/* Staff Capacity */}
+        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-bold text-foreground">IT Staff Workload &amp; Capacity</h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/it-manager/tickets')}
+              className="text-xs text-accent hover:text-primary p-0 h-auto cursor-pointer"
+            >
+              Manage Assignments →
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { name: 'David Miller', role: 'IT Support Engineer', email: 'david.miller@example.com' },
+              { name: 'Sarah Connor', role: 'Systems Administrator', email: 'sarah.connor@example.com' },
+              { name: 'Alex Chen', role: 'IT Support Technician', email: 'alex.chen@example.com' },
+              { name: 'Arthur Pendleton (IT Manager)', role: 'Department Head', email: 'itmanager@example.com' },
+            ].map((staff) => {
+              const assignedCount = evaluatedTickets.filter(
+                (t) => t.assigneeName.toLowerCase().includes(staff.name.toLowerCase().split(' ')[0])
+              ).length;
+              const breachedCount = evaluatedTickets.filter(
+                (t) =>
+                  t.isBreached &&
+                  t.assigneeName.toLowerCase().includes(staff.name.toLowerCase().split(' ')[0])
+              ).length;
+
+              return (
+                <div
+                  key={staff.email}
+                  className="p-3 rounded-xl border border-border bg-slate-50/50 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-foreground truncate">{staff.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{staff.role}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800">
+                      {assignedCount} active
+                    </span>
+                    {breachedCount > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700">
+                        {breachedCount} late
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-accent shrink-0" />
+              <span>
+                <strong>{slaMetrics.unassigned}</strong> tickets currently unassigned in the IT queue.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => navigate('/it-manager/tickets')}
+              className="text-xs bg-[#252578] hover:bg-[#1d1d60] text-white shrink-0 py-1 h-7 cursor-pointer"
+            >
+              Assign Tickets
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 1: SLA OVERVIEW (Overview Only)
+          SECTION 3: BREACHED TICKETS QUEUE (ON THE SAME DASHBOARD PAGE)
          ───────────────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Summary Metric Cards (Total, Unassigned, Within SLA, Breached) */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard
-              title="Total Tickets"
-              value={slaMetrics.total}
-              icon={<Layers className="w-5 h-5 text-accent" />}
-              iconBg="bg-blue-50 text-accent"
-            />
-            <MetricCard
-              title="Unassigned Tickets"
-              value={slaMetrics.unassigned}
-              icon={<Inbox className="w-5 h-5 text-amber-600" />}
-              iconBg="bg-amber-50 text-amber-600"
-              variant="amber"
-            />
-            <MetricCard
-              title="Within SLA"
-              value={slaMetrics.withinSla}
-              icon={<CheckCircle2 className="w-5 h-5 text-emerald-600" />}
-              iconBg="bg-emerald-50 text-emerald-600"
-            />
-            <MetricCard
-              title="Breached Tickets"
-              value={slaMetrics.breached}
-              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-              iconBg="bg-rose-50 text-rose-600"
-              variant="crimson"
-            />
-          </div>
-
-          {/* SLA Performance Breakdown & Operational Overview */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* SLA Compliance Health Meter */}
-            <div className="bg-card rounded-xl border border-border p-5 space-y-4 shadow-xs">
-              <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">SLA Health Overview</h3>
-                </div>
-                <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary">
-                  Live Status
+      <div className="space-y-3">
+        <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-rose-900">
+                  Breached Tickets Queue
+                </h3>
+                <Badge variant="destructive" size="sm" className="text-[10px]">
+                  {breachedTickets.length} Overdue
                 </Badge>
               </div>
-
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-muted-foreground font-medium">Compliance Rate</span>
-                    <span className="font-bold text-foreground">
-                      {slaMetrics.total > 0
-                        ? `${Math.round(((slaMetrics.total - slaMetrics.breached) / slaMetrics.total) * 100)}%`
-                        : '100%'}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${
-                          slaMetrics.total > 0
-                            ? Math.round(((slaMetrics.total - slaMetrics.breached) / slaMetrics.total) * 100)
-                            : 100
-                        }%`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 text-center">
-                    <p className="text-[10px] font-semibold text-emerald-800 uppercase">On-Track</p>
-                    <p className="text-lg font-bold text-emerald-900 mt-0.5">{slaMetrics.withinSla}</p>
-                  </div>
-                  <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-100 text-center">
-                    <p className="text-[10px] font-semibold text-rose-800 uppercase">Breached</p>
-                    <p className="text-lg font-bold text-rose-900 mt-0.5">{slaMetrics.breached}</p>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-border/40">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTabChange('breached')}
-                    className="w-full text-xs text-rose-700 hover:text-rose-800 hover:bg-rose-50 border-rose-200 gap-1.5"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                    <span>View All {slaMetrics.breached} Breached Tickets</span>
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* IT Staff Workload Distribution */}
-            <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5 space-y-4 shadow-xs">
-              <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">IT Staff Capacity &amp; Assignments</h3>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleTabChange('tickets')}
-                  className="text-xs text-accent hover:text-primary p-0 h-auto"
-                >
-                  Manage Assignments →
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { name: 'David Miller', role: 'IT Support Engineer', email: 'david.miller@example.com' },
-                  { name: 'Sarah Connor', role: 'Systems Administrator', email: 'sarah.connor@example.com' },
-                  { name: 'Alex Chen', role: 'IT Support Technician', email: 'alex.chen@example.com' },
-                  { name: 'IT Department Manager (Me)', role: 'Department Head', email: 'itmanager@example.com' },
-                ].map((staff) => {
-                  const assignedCount = evaluatedTickets.filter(
-                    (t) => t.assigneeName.toLowerCase().includes(staff.name.toLowerCase().split(' ')[0])
-                  ).length;
-                  const breachedCount = evaluatedTickets.filter(
-                    (t) =>
-                      t.isBreached &&
-                      t.assigneeName.toLowerCase().includes(staff.name.toLowerCase().split(' ')[0])
-                  ).length;
-
-                  return (
-                    <div
-                      key={staff.email}
-                      className="p-3 rounded-xl border border-border bg-slate-50/50 flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-foreground truncate">{staff.name}</p>
-                        <p className="text-[10px] text-muted-foreground">{staff.role}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800">
-                          {assignedCount} active
-                        </span>
-                        {breachedCount > 0 && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700">
-                            {breachedCount} late
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <UserPlus className="w-4 h-4 text-accent shrink-0" />
-                  <span>
-                    <strong>{slaMetrics.unassigned}</strong> tickets currently awaiting IT technician assignment.
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setStatusFilter('Pending Assignment');
-                    handleTabChange('tickets');
-                  }}
-                  className="text-xs bg-[#252578] hover:bg-[#1d1d60] text-white shrink-0 py-1 h-7"
-                >
-                  Triage Queue
-                </Button>
-              </div>
+              <p className="text-xs text-rose-700 mt-0.5">
+                Tickets exceeding agreed SLA resolution deadlines requiring immediate technician re-assignment or escalation.
+              </p>
             </div>
           </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadData(true)}
+            className="text-xs text-rose-800 border-rose-300 hover:bg-rose-100/60 shrink-0 cursor-pointer"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5 mr-1 text-rose-700', isRefreshing && 'animate-spin')} />
+            Refresh Breaches
+          </Button>
         </div>
-      )}
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 2: IT TICKET QUEUE (With Status, Priority, & Assignee Filters)
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'tickets' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Filter Bar: Status, Priority, Assignee, and Search */}
-          <div className="bg-card rounded-xl border border-border p-4 shadow-xs space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              {/* Search Field */}
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search by ticket ID, title, description, or technician..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-page border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-
-              {/* Filters */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Status Filter */}
-                <div className="flex items-center gap-1.5 bg-page border border-border rounded-lg px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground font-medium">Status:</span>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
-                  >
-                    <option value="All">All Statuses</option>
-                    <option value="Pending Assignment">Pending Assignment</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Under Review">Under Review</option>
-                    <option value="Resolved">Resolved</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                </div>
-
-                {/* Priority Filter */}
-                <div className="flex items-center gap-1.5 bg-page border border-border rounded-lg px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground font-medium">Priority:</span>
-                  <select
-                    value={priorityFilter}
-                    onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
-                  >
-                    <option value="All">All Priorities</option>
-                    <option value="Critical">Critical</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                </div>
-
-                {/* Assignee Filter */}
-                <div className="flex items-center gap-1.5 bg-page border border-border rounded-lg px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground font-medium">Assignee:</span>
-                  <select
-                    value={assigneeFilter}
-                    onChange={(e) => setAssigneeFilter(e.target.value)}
-                    className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
-                  >
-                    <option value="All">All Staff</option>
-                    <option value="Unassigned">Unassigned</option>
-                    <option value="Assigned to Me">Assigned to Me (IT Manager)</option>
-                    <option value="David Miller">David Miller</option>
-                    <option value="Sarah Connor">Sarah Connor</option>
-                    <option value="Alex Chen">Alex Chen</option>
-                  </select>
-                </div>
-
-                {(searchQuery || statusFilter !== 'All' || priorityFilter !== 'All' || assigneeFilter !== 'All') && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setStatusFilter('All');
-                      setPriorityFilter('All');
-                      setAssigneeFilter('All');
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Ticket Table */}
-          <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
-            <div className="overflow-x-auto min-h-[340px]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50 border-b border-border">
-                    <TableHead className="w-28 font-semibold text-xs">Ticket ID</TableHead>
-                    <TableHead className="min-w-[280px] font-semibold text-xs">Subject &amp; Category</TableHead>
-                    <TableHead className="w-28 font-semibold text-xs">Priority</TableHead>
-                    <TableHead className="w-32 font-semibold text-xs">Status</TableHead>
-                    <TableHead className="min-w-[180px] font-semibold text-xs">Assigned Technician</TableHead>
-                    <TableHead className="w-36 font-semibold text-xs">SLA Health</TableHead>
-                    <TableHead className="w-32 text-right font-semibold text-xs">Actions</TableHead>
+        {/* Breached Tickets Table */}
+        <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
+          <div className="overflow-x-auto min-h-[300px]">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50 border-b border-border">
+                  <TableHead className="w-28 font-semibold text-xs">Ticket ID</TableHead>
+                  <TableHead className="min-w-[280px] font-semibold text-xs">Subject &amp; Impact</TableHead>
+                  <TableHead className="w-28 font-semibold text-xs">Priority</TableHead>
+                  <TableHead className="min-w-[180px] font-semibold text-xs">Assigned Technician</TableHead>
+                  <TableHead className="w-44 font-semibold text-xs text-rose-700">Overdue Duration</TableHead>
+                  <TableHead className="w-40 font-semibold text-xs">Target SLA Due</TableHead>
+                  <TableHead className="w-36 text-right font-semibold text-xs">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <DataTableSkeleton columns={7} rows={4} />
+                ) : breachedTickets.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-48 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <p className="text-sm font-bold text-foreground">Zero SLA Breaches!</p>
+                        <p className="text-xs text-muted-foreground">
+                          All operational IT tickets are currently operating within their SLA resolution window.
+                        </p>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoading ? (
-                    <DataTableSkeleton columns={7} rows={6} />
-                  ) : filteredTickets.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="h-64 text-center">
-                        <DataTableEmptyState
-                          icon={Inbox}
-                          title="No IT tickets match your filters"
-                          description="Try clearing search or relaxing filter constraints."
-                        />
+                ) : (
+                  breachedTickets.map((t) => (
+                    <TableRow key={t.id || t.ticket_ID} className="hover:bg-rose-50/20 transition-colors">
+                      {/* Ticket ID */}
+                      <TableCell className="font-mono text-xs font-bold text-rose-700">
+                        {t.ticket_ID || `TICK-${t.id}`}
                       </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredTickets.map((t) => (
-                      <TableRow key={t.id || t.ticket_ID} className="hover:bg-muted/30 transition-colors">
-                        {/* ID */}
-                        <TableCell className="font-mono text-xs font-semibold text-primary">
-                          {t.ticket_ID || `TICK-${t.id}`}
-                        </TableCell>
 
-                        {/* Subject */}
-                        <TableCell>
-                          <div className="space-y-1">
-                            <p
-                              onClick={() => setDetailModalTicket(t)}
-                              className="text-xs font-bold text-foreground hover:text-accent cursor-pointer transition-colors line-clamp-1"
-                              title={t.title}
-                            >
-                              {t.title}
-                            </p>
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                              <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded text-[10px] font-medium">
-                                {t.category || 'General IT'}
-                              </span>
-                              <span>•</span>
-                              <span>{t.department || 'IT Department'}</span>
-                            </div>
-                          </div>
-                        </TableCell>
-
-                        {/* Priority */}
-                        <TableCell>
-                          <Badge variant={getStatusBadgeVariant(t.priority)} className="text-[10px]">
-                            {t.priority}
-                          </Badge>
-                        </TableCell>
-
-                        {/* Status */}
-                        <TableCell>
-                          <Badge variant={getStatusBadgeVariant(t.status)} className="text-[10px]">
-                            {t.status}
-                          </Badge>
-                        </TableCell>
-
-                        {/* Assigned To */}
-                        <TableCell>
-                          {t.isUnassigned ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                              Unassigned
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-[#252578]/10 text-[#252578] font-bold text-[10px] flex items-center justify-center shrink-0">
-                                {t.assigneeName.charAt(0)}
-                              </div>
-                              <span className="text-xs font-semibold text-foreground truncate max-w-[140px]" title={t.assigneeName}>
-                                {t.assigneeName}
-                              </span>
-                            </div>
-                          )}
-                        </TableCell>
-
-                        {/* SLA Status */}
-                        <TableCell>
-                          {t.isBreached ? (
-                            <div className="space-y-0.5">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-700">
-                                <AlertTriangle className="w-3 h-3" />
-                                Breached
-                              </span>
-                              <p className="text-[10px] text-rose-600 font-medium">
-                                {formatOverdueDuration(t.sla_due_date)}
-                              </p>
-                            </div>
-                          ) : (
-                            <SlaStatusBadge ticket={t} />
-                          )}
-                        </TableCell>
-
-                        {/* Action: Assign / Reassign */}
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              size="sm"
-                              variant={t.isUnassigned ? 'default' : 'outline'}
-                              onClick={() => setAssignModalTicket(t)}
-                              className={cn(
-                                'text-xs h-7 px-2.5 font-medium gap-1 cursor-pointer',
-                                t.isUnassigned
-                                  ? 'bg-[#252578] hover:bg-[#1d1d60] text-white'
-                                  : 'text-slate-700 hover:text-foreground'
-                              )}
-                            >
-                              <UserCheck className="w-3.5 h-3.5" />
-                              <span>{t.isUnassigned ? 'Assign' : 'Reassign'}</span>
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 3: BREACHED TICKETS LIST (Past SLA Due Date + How Long Overdue)
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'breached' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Breached Banner Notice */}
-          <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-rose-900">
-                  Breached SLA Queue ({breachedTickets.length} Tickets)
-                </h3>
-                <p className="text-xs text-rose-700 mt-0.5">
-                  Tickets that have exceeded their target SLA resolution timestamp. Prioritize immediate re-assignment or technician escalation.
-                </p>
-              </div>
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadData(true)}
-              className="text-xs text-rose-800 border-rose-300 hover:bg-rose-100/60 shrink-0"
-            >
-              <RefreshCw className={cn('w-3.5 h-3.5 mr-1 text-rose-700', isRefreshing && 'animate-spin')} />
-              Refresh Escalations
-            </Button>
-          </div>
-
-          {/* Breached Tickets Table */}
-          <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
-            <div className="overflow-x-auto min-h-[340px]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50 border-b border-border">
-                    <TableHead className="w-28 font-semibold text-xs">Ticket ID</TableHead>
-                    <TableHead className="min-w-[280px] font-semibold text-xs">Subject &amp; Impact</TableHead>
-                    <TableHead className="w-28 font-semibold text-xs">Priority</TableHead>
-                    <TableHead className="min-w-[180px] font-semibold text-xs">Assigned Technician</TableHead>
-                    <TableHead className="w-44 font-semibold text-xs text-rose-700">Overdue Duration</TableHead>
-                    <TableHead className="w-40 font-semibold text-xs">Target SLA Due</TableHead>
-                    <TableHead className="w-36 text-right font-semibold text-xs">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {breachedTickets.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="h-64 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-3">
-                          <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                            <CheckCircle2 className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-foreground">Zero SLA Breaches!</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              All operational IT tickets are currently within their SLA resolution window.
-                            </p>
-                          </div>
+                      {/* Subject */}
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <p
+                            onClick={() => setDetailModalTicket(t)}
+                            className="text-xs font-bold text-foreground hover:text-rose-700 cursor-pointer transition-colors line-clamp-1"
+                            title={t.title}
+                          >
+                            {t.title}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground line-clamp-1">
+                            {t.description || 'No additional telemetry reported.'}
+                          </p>
                         </div>
                       </TableCell>
-                    </TableRow>
-                  ) : (
-                    breachedTickets.map((t) => (
-                      <TableRow key={t.id || t.ticket_ID} className="hover:bg-rose-50/20 transition-colors">
-                        {/* ID */}
-                        <TableCell className="font-mono text-xs font-bold text-rose-700">
-                          {t.ticket_ID || `TICK-${t.id}`}
-                        </TableCell>
 
-                        {/* Subject */}
-                        <TableCell>
-                          <div className="space-y-1">
-                            <p
-                              onClick={() => setDetailModalTicket(t)}
-                              className="text-xs font-bold text-foreground hover:text-rose-700 cursor-pointer transition-colors line-clamp-1"
-                              title={t.title}
-                            >
-                              {t.title}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground line-clamp-1">
-                              {t.description || 'No additional telemetry reported.'}
-                            </p>
-                          </div>
-                        </TableCell>
+                      {/* Priority */}
+                      <TableCell>
+                        <Badge variant={getStatusBadgeVariant(t.priority)} className="text-[10px]">
+                          {t.priority}
+                        </Badge>
+                      </TableCell>
 
-                        {/* Priority */}
-                        <TableCell>
-                          <Badge variant={getStatusBadgeVariant(t.priority)} className="text-[10px]">
-                            {t.priority}
-                          </Badge>
-                        </TableCell>
-
-                        {/* Assigned */}
-                        <TableCell>
-                          {t.isUnassigned ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                              Unassigned (Escalate)
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-bold text-[10px] flex items-center justify-center shrink-0">
-                                {t.assigneeName.charAt(0)}
-                              </div>
-                              <span className="text-xs font-semibold text-foreground truncate max-w-[140px]">
-                                {t.assigneeName}
-                              </span>
-                            </div>
-                          )}
-                        </TableCell>
-
-                        {/* Overdue Duration */}
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                            <Clock className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
-                            {formatOverdueDuration(t.sla_due_date)}
+                      {/* Assigned */}
+                      <TableCell>
+                        {t.isUnassigned ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                            Unassigned (Escalate)
                           </span>
-                        </TableCell>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-full bg-[#252578]/10 text-[#252578] font-bold text-[10px] flex items-center justify-center shrink-0">
+                              {t.assigneeName.charAt(0)}
+                            </div>
+                            <span className="text-xs font-semibold text-foreground truncate max-w-[140px]">
+                              {t.assigneeName}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
 
-                        {/* Target SLA Due */}
-                        <TableCell className="text-xs text-muted-foreground font-mono">
-                          {t.sla_due_date ? new Date(t.sla_due_date).toLocaleString() : 'N/A'}
-                        </TableCell>
+                      {/* Overdue Duration (Live tracking) */}
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                          <Clock className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+                          {formatOverdueDuration(t.sla_due_date)}
+                        </span>
+                      </TableCell>
 
-                        {/* Action: Immediate Reassign / Escalate */}
-                        <TableCell className="text-right">
+                      {/* Target SLA Due */}
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {t.sla_due_date ? new Date(t.sla_due_date).toLocaleString() : 'N/A'}
+                      </TableCell>
+
+                      {/* Action */}
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                           <Button
                             size="sm"
                             onClick={() => setAssignModalTicket(t)}
-                            className="text-xs h-7 px-3 bg-[#252578] hover:bg-[#1d1d60] text-white font-medium gap-1 cursor-pointer"
+                            className="text-xs h-7 px-2.5 bg-[#252578] hover:bg-[#1d1d60] text-white font-medium gap-1 cursor-pointer"
                           >
-                            <UserCheck className="w-3.5 h-3.5" />
+                            <UserCheck className="w-3 h-3" />
                             <span>Reassign</span>
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDetailModalTicket(t)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground cursor-pointer"
+                            title="View Details"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          MODALS: ASSIGN / REASSIGN & TICKET DETAIL
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {/* Assign Modal (Shared CS/IT modal allowing assignment to IT Staff or Self) */}
+      {/* Assignment Modal */}
       {assignModalTicket && (
         <AssignModal
           ticket={assignModalTicket}
-          employees={employees}
-          departments={departments}
+          employees={assignEmployees}
+          departments={assignDepartments}
           priorityOptions={['Low', 'Medium', 'High', 'Critical']}
           onClose={() => setAssignModalTicket(null)}
-          onSave={handleSaveAssignment}
+          onAssign={handleAssignSubmit}
         />
       )}
 
@@ -1097,6 +733,7 @@ export default function ITManagerDashboard() {
       {detailModalTicket && (
         <CustomerTicketDetailModal
           ticket={detailModalTicket}
+          isOpen={Boolean(detailModalTicket)}
           onClose={() => setDetailModalTicket(null)}
         />
       )}
