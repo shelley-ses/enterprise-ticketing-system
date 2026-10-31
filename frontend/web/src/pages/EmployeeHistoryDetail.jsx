@@ -31,7 +31,7 @@ export default function EmployeeHistoryDetail() {
   const [ticket, setTicket] = useState(state?.ticket || null);
   const [loading, setLoading] = useState(!state?.ticket);
   const [error, setError] = useState(null);
-  const backPath = state?.backPath ?? '/employee/progress';
+  const backPath = state?.backPath ?? (window.location.pathname.startsWith('/it-manager') ? '/it-manager/history' : window.location.pathname.startsWith('/cs') ? '/cs/history' : '/employee/progress');
   const [previewFile, setPreviewFile] = useState(null);
   const [timelineSortOrder, setTimelineSortOrder] = useState('asc'); // 'asc' or 'desc'
   const [now, setNow] = useState(Date.now());
